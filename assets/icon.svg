@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="100%" height="100%">
+  <defs>
+    <!-- 1. 상/하단 수평 Flat 컷 클립 마스크 -->
+    <clipPath id="horizontalCut">
+      <rect x="0" y="24" width="256" height="208" />
+    </clipPath>
+
+    <!-- 2. 염기들을 파란선 모양대로 균일하게 파내는 컷아웃 마스크
+         (파란선 26px + 양옆 여백 각 8px = 총 두께 42px 여백 컷) -->
+    <mask id="strandCutout">
+      <rect width="256" height="256" fill="white" />
+      <path 
+        d="
+          M 184, 12
+          C 184, 55   135, 76   92, 106
+          C 66, 120   66, 136   92, 150
+          C 135, 180  184, 201  184, 244
+        " 
+        fill="none" 
+        stroke="black" 
+        stroke-width="42" 
+        stroke-linecap="butt"
+        stroke-linejoin="round"
+      />
+    </mask>
+  </defs>
+
+  <!-- 1. 좌우 원통 벽에 맞물린 Dioxus 공식 염기 막대 (#2d323b)
+       - 마스크에 의해 파란 선 주변으로 깔끔한 여백이 유지됨 -->
+  <g mask="url(#strandCutout)" stroke="#2d323b" stroke-width="16" stroke-linecap="butt">
+    <line x1="68" y1="52"  x2="188" y2="52" />
+    <line x1="68" y1="84"  x2="188" y2="84" />
+    <line x1="68" y1="116" x2="188" y2="116" />
+    <line x1="68" y1="148" x2="188" y2="148" />
+    <line x1="68" y1="180" x2="188" y2="180" />
+    <line x1="68" y1="212" x2="188" y2="212" />
+  </g>
+
+  <!-- 2. 전면을 가로지르는 메인 RNA 단일 Helix 가닥
+       - 본래의 맑은 Dioxus 시안 블루 단색 (#00a8d6) 복원 -->
+  <g clip-path="url(#horizontalCut)">
+    <path 
+      d="
+        M 184, 12
+        C 184, 55   135, 76   92, 106
+        C 66, 120   66, 136   92, 150
+        C 135, 180  184, 201  184, 244
+      " 
+      fill="none" 
+      stroke="#00a8d6" 
+      stroke-width="26" 
+      stroke-linecap="butt"
+      stroke-linejoin="round"
+    />
+  </g>
+</svg>
