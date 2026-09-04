@@ -126,6 +126,7 @@ pub struct FocusScope<T> {
     branches: Vec<T>,
     restore_focus_to: Option<T>,
     autofocus_target: Option<T>,
+    autofocus_enabled: bool,
     last_focused: Option<T>,
     trap_focus: bool,
     loop_focus: bool,
@@ -143,6 +144,7 @@ where
             branches: Vec::new(),
             restore_focus_to: None,
             autofocus_target: None,
+            autofocus_enabled: true,
             last_focused: None,
             trap_focus: false,
             loop_focus: false,
@@ -169,6 +171,14 @@ where
         self
     }
 
+    pub fn set_trap_focus(&mut self, trap_focus: bool) {
+        self.trap_focus = trap_focus;
+    }
+
+    pub fn set_loop_focus(&mut self, loop_focus: bool) {
+        self.loop_focus = loop_focus;
+    }
+
     pub fn traps_focus(&self) -> bool {
         self.trap_focus
     }
@@ -183,6 +193,14 @@ where
 
     pub fn is_parent_paused(&self) -> bool {
         self.parent_paused
+    }
+
+    pub fn set_autofocus_enabled(&mut self, enabled: bool) {
+        self.autofocus_enabled = enabled;
+    }
+
+    pub fn autofocus_enabled(&self) -> bool {
+        self.autofocus_enabled
     }
 
     pub fn set_autofocus_target(&mut self, target: Option<T>) {
@@ -240,6 +258,10 @@ where
     pub fn activate(&mut self) -> Option<T> {
         self.active = true;
         self.parent_paused = self.trap_focus;
+
+        if !self.autofocus_enabled {
+            return None;
+        }
 
         let target = self
             .autofocus_target
@@ -382,9 +404,17 @@ where
         self
     }
 
+    pub fn set_modal(&mut self, modal: bool) {
+        self.modal = modal;
+    }
+
     pub fn with_escape_dismiss(mut self, enabled: bool) -> Self {
         self.dismiss_on_escape = enabled;
         self
+    }
+
+    pub fn set_escape_dismiss(&mut self, enabled: bool) {
+        self.dismiss_on_escape = enabled;
     }
 
     pub fn with_pointer_down_outside_dismiss(mut self, enabled: bool) -> Self {
@@ -392,9 +422,17 @@ where
         self
     }
 
+    pub fn set_pointer_down_outside_dismiss(&mut self, enabled: bool) {
+        self.dismiss_on_pointer_down_outside = enabled;
+    }
+
     pub fn with_focus_outside_dismiss(mut self, enabled: bool) -> Self {
         self.dismiss_on_focus_outside = enabled;
         self
+    }
+
+    pub fn set_focus_outside_dismiss(&mut self, enabled: bool) {
+        self.dismiss_on_focus_outside = enabled;
     }
 
     pub fn is_modal(&self) -> bool {

@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 use monoxus::{
-    dialog::Dialog,
+    dialog::{
+        Dialog, DialogCloseFocusPolicy, DialogMode, DialogOpenFocusPolicy,
+        DialogOutsideDismissBehavior, use_dialog_runtime,
+    },
     foundation::{overlay::PortalHost, shared::ScopeHandle},
 };
 
@@ -15,8 +18,10 @@ const MODAL_NOTE_STYLE: &str = "display: grid; gap: 0.35rem; padding: 0.85rem 1r
 #[component]
 pub fn DialogPlayground() -> Element {
     let open = use_signal(|| false);
-    let dialog = Dialog::new(ScopeHandle::root("playground").child("dialog"), open())
-        .with_portal_host(PortalHost::named("playground-layer"));
+    let dialog = use_dialog_runtime(
+        Dialog::new(ScopeHandle::root("playground").child("dialog"), open())
+            .with_portal_host(PortalHost::named("playground-layer")),
+    );
 
     let root = dialog.root();
     let trigger = dialog.trigger();
@@ -26,10 +31,29 @@ pub fn DialogPlayground() -> Element {
     let title = dialog.title();
     let description = dialog.description();
     let close = dialog.close();
+    let lifecycle = dialog.lifecycle();
 
     let portal_host = portal.host().id().unwrap_or("document.body");
     let trigger_request = trigger.open_request().next_open();
     let close_request = close.close_request().next_open();
+    let mode = dialog_mode_label(lifecycle.mode());
+    let open_focus = open_focus_policy_label(lifecycle.open_focus_policy());
+    let close_focus = close_focus_policy_label(lifecycle.close_focus_policy());
+    let scroll_lock = if lifecycle.scroll_lock_policy().is_enabled() {
+        match lifecycle.scroll_lock_policy().restore_delay() {
+            Some(delay) => format!("enabled (restore delay: {delay}ms)"),
+            None => String::from("enabled (restore delay: none)"),
+        }
+    } else {
+        String::from("disabled")
+    };
+    let pointer_outside = outside_behavior_label(
+        lifecycle
+            .outside_interaction_policy()
+            .pointer_down_outside(),
+    );
+    let focus_outside =
+        outside_behavior_label(lifecycle.outside_interaction_policy().focus_outside());
     let mut open_from_trigger = open;
     let mut open_from_overlay = open;
     let mut open_from_close = open;
@@ -57,6 +81,7 @@ pub fn DialogPlayground() -> Element {
                     aria_controls: trigger.aria_controls(),
                     aria_expanded: trigger.aria_expanded(),
                     "data-state": trigger.data_state().as_str(),
+                    onmounted: dialog.mount_trigger(),
                     onclick: move |_| open_from_trigger.set(trigger_request),
                     style: "justify-self: start; padding: 0.65rem 0.9rem; border: 0; border-radius: 0.5rem; background-color: #2563eb; color: white; font-weight: 600; cursor: pointer;",
                     "Open dialog"
@@ -79,6 +104,28 @@ pub fn DialogPlayground() -> Element {
                         "data-state: "
                         code { "{dialog.data_state()}" }
                     }
+                    li {
+                        "mode: "
+                        code { "{mode}" }
+                    }
+                    li {
+                        "open focus: "
+                        code { "{open_focus}" }
+                    }
+                    li {
+                        "close focus restore: "
+                        code { "{close_focus}" }
+                    }
+                    li {
+                        "scroll lock: "
+                        code { "{scroll_lock}" }
+                    }
+                    li {
+                        "outside pointer: "
+                        code { "{pointer_outside}" }
+                        " / focus outside: "
+                        code { "{focus_outside}" }
+                    }
                 }
                 if dialog.is_open() {
                     div {
@@ -99,6 +146,7 @@ pub fn DialogPlayground() -> Element {
                                 aria_labelledby: content.aria_labelledby(),
                                 aria_describedby: content.aria_describedby(),
                                 "data-state": content.data_state().as_str(),
+                                onmounted: dialog.mount_content(),
                                 style: MODAL_PANEL_STYLE,
                                 div {
                                     style: "display: grid; gap: 0.5rem;",
@@ -146,12 +194,23 @@ pub fn DialogPlayground() -> Element {
                                             "data-state: "
                                             code { "{dialog.data_state()}" }
                                         }
+                                        li {
+                                            "close focus restore: "
+                                            code { "{close_focus}" }
+                                        }
+                                        li {
+                                            "outside pointer: "
+                                            code { "{pointer_outside}" }
+                                            " / focus outside: "
+                                            code { "{focus_outside}" }
+                                        }
                                     }
                                 }
                                 button {
                                     id: close.id(),
                                     r#type: "button",
                                     "data-state": close.data_state().as_str(),
+                                    onmounted: dialog.mount_close(),
                                     onclick: move |_| open_from_close.set(close_request),
                                     style: "justify-self: end; padding: 0.65rem 0.95rem; border-radius: 0.65rem; border: 1px solid #94a3b8; background-color: white; cursor: pointer; font-weight: 600;",
                                     "Close dialog"
@@ -165,7 +224,38 @@ pub fn DialogPlayground() -> Element {
                         "Closed. Use the trigger button to mount the floating modal surface."
                     }
                 }
+
             }
         }
+    }
+}
+
+fn dialog_mode_label(mode: DialogMode) -> &'static str {
+    match mode {
+        DialogMode::Modal => "modal",
+        DialogMode::NonModal => "non-modal",
+    }
+}
+
+fn open_focus_policy_label(policy: &DialogOpenFocusPolicy) -> String {
+    match policy {
+        DialogOpenFocusPolicy::FirstFocusable => String::from("first focusable"),
+        DialogOpenFocusPolicy::Target(target) => format!("target:{target}"),
+        DialogOpenFocusPolicy::Suppress => String::from("suppressed"),
+    }
+}
+
+fn close_focus_policy_label(policy: &DialogCloseFocusPolicy) -> String {
+    match policy {
+        DialogCloseFocusPolicy::Trigger => String::from("trigger"),
+        DialogCloseFocusPolicy::Target(target) => format!("target:{target}"),
+        DialogCloseFocusPolicy::None => String::from("none"),
+    }
+}
+
+fn outside_behavior_label(behavior: DialogOutsideDismissBehavior) -> &'static str {
+    match behavior {
+        DialogOutsideDismissBehavior::Dismiss => "dismisses",
+        DialogOutsideDismissBehavior::Ignore => "ignored",
     }
 }

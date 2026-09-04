@@ -11,9 +11,10 @@ overlay/positioning contracts in `monoxus::foundation`.
 
 The first primitive family surfaces now live in:
 
-- `monoxus::dialog` for headless `Dialog` modal parts and lifecycle snapshots
+- `monoxus::dialog` for headless `Dialog` modal parts, lifecycle snapshots,
+  and `use_dialog_runtime` focus/scroll actuation hooks
 - `monoxus::alert_dialog` for thin `AlertDialog` action/cancel extensions over
-  the same modal backbone
+  the same modal backbone plus `use_alert_dialog_runtime`
 
 ## Example playground
 
@@ -33,7 +34,9 @@ Phase 3.1 dialog-family proof now lives in
 `tests/dialog_phase_3_1_handoff.rs`. The artifact exercises the public
 `monoxus::dialog` and `monoxus::alert_dialog` surfaces together with the
 completed foundation exports for state publication, stable IDs, projection,
-portal/presence/focus/dismiss reuse, and alert action/cancel semantics.
+portal/presence/focus/dismiss reuse, explicit dialog runtime policy
+publication for mode/focus/scroll/outside interaction defaults, library-owned
+runtime focus/scroll actuation hooks, and alert action/cancel semantics.
 
 ## License
 

@@ -1,13 +1,14 @@
 use dioxus::prelude::*;
 use monoxus::{
-    alert_dialog::AlertDialog,
+    alert_dialog::{AlertDialog, use_alert_dialog_runtime},
+    dialog::{DialogMode, DialogOpenFocusPolicy, DialogOutsideDismissBehavior},
     foundation::{overlay::PortalHost, shared::ScopeHandle},
 };
 
 const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-radius: 0.75rem; border: 1px solid #fecaca; background-color: white; box-shadow: 0 10px 30px rgba(127, 29, 29, 0.08);";
 const MUTED_STYLE: &str = "margin: 0; color: #7f1d1d;";
 const MODAL_ROOT_STYLE: &str = "position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 1.5rem;";
-const MODAL_OVERLAY_STYLE: &str = "position: absolute; inset: 0; background-color: rgba(127, 29, 29, 0.72); backdrop-filter: blur(3px); cursor: pointer;";
+const MODAL_OVERLAY_STYLE: &str = "position: absolute; inset: 0; background-color: rgba(127, 29, 29, 0.72); backdrop-filter: blur(3px); cursor: not-allowed;";
 const MODAL_FRAME_STYLE: &str = "position: relative; z-index: 1; width: min(100%, 34rem); max-height: calc(100vh - 3rem); overflow: auto;";
 const MODAL_PANEL_STYLE: &str = "display: grid; gap: 1rem; padding: 1.35rem; border-radius: 1rem; border: 1px solid #fecaca; background-color: white; box-shadow: 0 32px 80px rgba(127, 29, 29, 0.32);";
 const MODAL_WARNING_STYLE: &str = "display: grid; gap: 0.35rem; padding: 0.9rem 1rem; border-radius: 0.75rem; background-color: #fef2f2; color: #991b1b;";
@@ -16,11 +17,13 @@ const MODAL_WARNING_STYLE: &str = "display: grid; gap: 0.35rem; padding: 0.9rem 
 pub fn AlertDialogPlayground() -> Element {
     let open = use_signal(|| false);
     let outcome = use_signal(|| String::from("Waiting for a choice."));
-    let alert = AlertDialog::new(
-        ScopeHandle::root("playground").child("alert-dialog"),
-        open(),
-    )
-    .with_portal_host(PortalHost::inline());
+    let alert = use_alert_dialog_runtime(
+        AlertDialog::new(
+            ScopeHandle::root("playground").child("alert-dialog"),
+            open(),
+        )
+        .with_portal_host(PortalHost::inline()),
+    );
 
     let root = alert.root();
     let trigger = alert.trigger();
@@ -32,18 +35,27 @@ pub fn AlertDialogPlayground() -> Element {
     let close = alert.close();
     let action = alert.action();
     let cancel = alert.cancel();
+    let lifecycle = alert.lifecycle();
 
     let portal_host = if portal.host().is_inline() {
         "inline"
     } else {
         portal.host().id().unwrap_or("document.body")
     };
+    let mode = dialog_mode_label(lifecycle.mode());
+    let open_focus = open_focus_policy_label(lifecycle.open_focus_policy());
+    let pointer_outside = outside_behavior_label(
+        lifecycle
+            .outside_interaction_policy()
+            .pointer_down_outside(),
+    );
+    let focus_outside =
+        outside_behavior_label(lifecycle.outside_interaction_policy().focus_outside());
     let trigger_request = trigger.open_request().next_open();
     let close_request = close.close_request().next_open();
     let action_request = action.close_request().next_open();
     let cancel_request = cancel.close_request().next_open();
     let mut open_from_trigger = open;
-    let mut open_from_overlay = open;
     let mut open_from_close = open;
     let mut open_from_action = open;
     let mut open_from_cancel = open;
@@ -79,6 +91,7 @@ pub fn AlertDialogPlayground() -> Element {
                     aria_controls: trigger.aria_controls(),
                     aria_expanded: trigger.aria_expanded(),
                     "data-state": trigger.data_state().as_str(),
+                    onmounted: alert.mount_trigger(),
                     onclick: move |_| open_from_trigger.set(trigger_request),
                     style: "justify-self: start; padding: 0.65rem 0.9rem; border: 0; border-radius: 0.5rem; background-color: #dc2626; color: white; font-weight: 600; cursor: pointer;",
                     "Open alert dialog"
@@ -106,6 +119,20 @@ pub fn AlertDialogPlayground() -> Element {
                         "cancel id: "
                         code { "{cancel.id()}" }
                     }
+                    li {
+                        "mode: "
+                        code { "{mode}" }
+                    }
+                    li {
+                        "open focus: "
+                        code { "{open_focus}" }
+                    }
+                    li {
+                        "outside pointer: "
+                        code { "{pointer_outside}" }
+                        " / focus outside: "
+                        code { "{focus_outside}" }
+                    }
                 }
                 if alert.is_open() {
                     div {
@@ -114,11 +141,11 @@ pub fn AlertDialogPlayground() -> Element {
                             id: overlay.id(),
                             "data-state": overlay.data_state().as_str(),
                             onclick: move |_| {
-                                outcome_from_overlay.set(String::from("Dismissed from backdrop"));
-                                open_from_overlay.set(close_request);
+                                outcome_from_overlay
+                                    .set(String::from("Outside interaction ignored by alert policy"));
                             },
                             style: MODAL_OVERLAY_STYLE,
-                            aria_label: "Dismiss alert dialog",
+                            aria_label: "Alert dialog backdrop",
                         }
                         div {
                             style: MODAL_FRAME_STYLE,
@@ -129,6 +156,7 @@ pub fn AlertDialogPlayground() -> Element {
                                 aria_labelledby: content.aria_labelledby(),
                                 aria_describedby: content.aria_describedby(),
                                 "data-state": content.data_state().as_str(),
+                                onmounted: alert.mount_content(),
                                 style: MODAL_PANEL_STYLE,
                                 div {
                                     style: "display: grid; gap: 0.5rem;",
@@ -181,6 +209,16 @@ pub fn AlertDialogPlayground() -> Element {
                                             "cancel id: "
                                             code { "{cancel.id()}" }
                                         }
+                                        li {
+                                            "open focus: "
+                                            code { "{open_focus}" }
+                                        }
+                                        li {
+                                            "outside pointer: "
+                                            code { "{pointer_outside}" }
+                                            " / focus outside: "
+                                            code { "{focus_outside}" }
+                                        }
                                     }
                                 }
                                 div {
@@ -189,6 +227,7 @@ pub fn AlertDialogPlayground() -> Element {
                                         id: cancel.id(),
                                         r#type: "button",
                                         "data-state": cancel.data_state().as_str(),
+                                        onmounted: alert.mount_cancel(),
                                         onclick: move |_| {
                                             outcome_from_cancel.set(String::from("Canceled"));
                                             open_from_cancel.set(cancel_request);
@@ -200,6 +239,7 @@ pub fn AlertDialogPlayground() -> Element {
                                         id: action.id(),
                                         r#type: "button",
                                         "data-state": action.data_state().as_str(),
+                                        onmounted: alert.mount_action(),
                                         onclick: move |_| {
                                             outcome_from_action.set(String::from("Confirmed"));
                                             open_from_action.set(action_request);
@@ -212,6 +252,7 @@ pub fn AlertDialogPlayground() -> Element {
                                     id: close.id(),
                                     r#type: "button",
                                     "data-state": close.data_state().as_str(),
+                                    onmounted: alert.mount_close(),
                                     onclick: move |_| {
                                         outcome_from_close.set(String::from("Closed without choosing"));
                                         open_from_close.set(close_request);
@@ -220,6 +261,7 @@ pub fn AlertDialogPlayground() -> Element {
                                     "Dismiss"
                                 }
                             }
+
                         }
                     }
                 } else {
@@ -230,5 +272,27 @@ pub fn AlertDialogPlayground() -> Element {
                 }
             }
         }
+    }
+}
+
+fn dialog_mode_label(mode: DialogMode) -> &'static str {
+    match mode {
+        DialogMode::Modal => "modal",
+        DialogMode::NonModal => "non-modal",
+    }
+}
+
+fn open_focus_policy_label(policy: &DialogOpenFocusPolicy) -> String {
+    match policy {
+        DialogOpenFocusPolicy::FirstFocusable => String::from("first focusable"),
+        DialogOpenFocusPolicy::Target(target) => format!("target:{target}"),
+        DialogOpenFocusPolicy::Suppress => String::from("suppressed"),
+    }
+}
+
+fn outside_behavior_label(behavior: DialogOutsideDismissBehavior) -> &'static str {
+    match behavior {
+        DialogOutsideDismissBehavior::Dismiss => "dismisses",
+        DialogOutsideDismissBehavior::Ignore => "ignored",
     }
 }

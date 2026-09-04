@@ -3,7 +3,9 @@ use std::{cell::RefCell, rc::Rc};
 use monoxus::{
     alert_dialog::{AlertDialog, AlertDialogPart},
     dialog::{
-        Dialog, DialogPart, DialogStateRequest, compose_part_event_handlers, compose_part_refs,
+        Dialog, DialogCloseFocusPolicy, DialogMode, DialogOpenFocusPolicy,
+        DialogOutsideDismissBehavior, DialogOutsideInteractionPolicy, DialogPart,
+        DialogScrollLockPolicy, DialogStateRequest, compose_part_event_handlers, compose_part_refs,
         project_as_child,
     },
     foundation::{
@@ -32,6 +34,7 @@ fn dialog_family_publishes_stable_relationships_and_wrapper_safe_attributes() {
     let scope = ScopeHandle::root("dialog").child("root");
     let dialog = Dialog::new(scope.clone(), true);
     let relationships = dialog.relationships();
+    let trigger_id = relationships.trigger_id().to_owned();
 
     let part_names: Vec<_> = Dialog::parts().iter().map(DialogPart::as_str).collect();
     assert_eq!(
@@ -86,6 +89,30 @@ fn dialog_family_publishes_stable_relationships_and_wrapper_safe_attributes() {
     assert_eq!(dialog.description().id(), relationships.description_id());
     assert_eq!(dialog.close().id(), relationships.close_id());
     assert_eq!(dialog.close().close_request(), DialogStateRequest::Close);
+    assert_eq!(dialog.lifecycle().mode(), DialogMode::Modal);
+    assert_eq!(
+        dialog.lifecycle().open_focus_policy(),
+        &DialogOpenFocusPolicy::FirstFocusable,
+    );
+    assert_eq!(
+        dialog.lifecycle().close_focus_policy(),
+        &DialogCloseFocusPolicy::Trigger,
+    );
+    assert_eq!(
+        dialog.lifecycle().scroll_lock_policy(),
+        &DialogScrollLockPolicy::enabled(),
+    );
+    assert_eq!(
+        dialog.lifecycle().outside_interaction_policy(),
+        &DialogOutsideInteractionPolicy::modal_default(),
+    );
+    assert_eq!(
+        dialog.lifecycle().focus_scope().restore_target(),
+        Some(&trigger_id),
+    );
+    assert!(dialog.lifecycle().focus_scope().autofocus_enabled());
+    assert!(dialog.lifecycle().focus_scope().loops_focus());
+    assert_eq!(dialog.lifecycle().focus_scope().autofocus_target(), None);
 
     let (projected_trigger, projected_content) = project_as_child(
         relationships.trigger_id().to_owned(),
@@ -181,8 +208,95 @@ fn dialog_family_reuses_portal_presence_focus_and_dismiss_foundations() {
 }
 
 #[test]
-fn alert_dialog_extends_the_same_modal_lane_with_action_and_cancel_semantics() {
-    let alert = AlertDialog::new(ScopeHandle::root("alert-dialog").child("root"), false);
+fn dialog_family_exposes_explicit_non_modal_and_focus_policy_overrides() {
+    let scope = ScopeHandle::root("dialog").child("non-modal");
+    let mut dialog = Dialog::new_non_modal(scope.clone(), true)
+        .with_open_focus_policy(DialogOpenFocusPolicy::Target(scope.qualify("branch")))
+        .with_close_focus_policy(DialogCloseFocusPolicy::Target(scope.qualify("restore")))
+        .with_scroll_lock_policy(DialogScrollLockPolicy::enabled().with_restore_delay(Some(24)))
+        .with_outside_interaction_policy(DialogOutsideInteractionPolicy::new(
+            DialogOutsideDismissBehavior::Ignore,
+            DialogOutsideDismissBehavior::Dismiss,
+        ));
+    let content_id = dialog.relationships().content_id().to_owned();
+    let branch_id = scope.qualify("branch");
+    let restore_id = scope.qualify("restore");
+    let outside_id = String::from("outside");
+    let stack = vec![String::from("background"), content_id.clone()];
+
+    assert_eq!(dialog.lifecycle().mode(), DialogMode::NonModal);
+    assert_eq!(
+        dialog.lifecycle().open_focus_policy(),
+        &DialogOpenFocusPolicy::Target(branch_id.clone()),
+    );
+    assert_eq!(
+        dialog.lifecycle().close_focus_policy(),
+        &DialogCloseFocusPolicy::Target(restore_id.clone()),
+    );
+    assert_eq!(
+        dialog.lifecycle().scroll_lock_policy(),
+        &DialogScrollLockPolicy::enabled().with_restore_delay(Some(24)),
+    );
+    assert_eq!(
+        dialog.lifecycle().outside_interaction_policy(),
+        &DialogOutsideInteractionPolicy::new(
+            DialogOutsideDismissBehavior::Ignore,
+            DialogOutsideDismissBehavior::Dismiss,
+        ),
+    );
+    assert!(!dialog.content().aria_modal());
+
+    let lifecycle = dialog.lifecycle_mut();
+    assert!(lifecycle.register_branch(branch_id.clone()));
+    assert!(!lifecycle.focus_scope().traps_focus());
+    assert!(lifecycle.focus_scope().loops_focus());
+    assert!(!lifecycle.dismiss_layer().blocks_outside_interaction());
+    assert_eq!(
+        lifecycle.focus_scope_mut().activate(),
+        Some(branch_id.clone())
+    );
+    assert_eq!(lifecycle.focus_scope_mut().deactivate(), Some(restore_id));
+    assert!(
+        !lifecycle
+            .dismiss_layer()
+            .should_dismiss_outside_pointer(Some(&outside_id), &stack)
+    );
+    assert!(
+        lifecycle
+            .dismiss_layer()
+            .should_dismiss_outside_focus(Some(&outside_id), &stack)
+    );
+}
+
+#[test]
+fn dialog_family_supports_open_focus_suppression_without_manual_close_focus_wiring() {
+    let mut dialog = Dialog::new(ScopeHandle::root("dialog").child("suppressed-focus"), true)
+        .with_open_focus_policy(DialogOpenFocusPolicy::Suppress);
+    let trigger_id = dialog.relationships().trigger_id().to_owned();
+
+    assert_eq!(
+        dialog.lifecycle().open_focus_policy(),
+        &DialogOpenFocusPolicy::Suppress,
+    );
+    assert!(!dialog.lifecycle().focus_scope().autofocus_enabled());
+    assert_eq!(
+        dialog.lifecycle().focus_scope().restore_target(),
+        Some(&trigger_id)
+    );
+
+    let lifecycle = dialog.lifecycle_mut();
+    assert_eq!(lifecycle.focus_scope_mut().activate(), None);
+    assert_eq!(lifecycle.focus_scope_mut().deactivate(), Some(trigger_id));
+}
+
+#[test]
+fn alert_dialog_extends_the_same_modal_lane_with_alert_specific_restrictions() {
+    let mut alert = AlertDialog::new(ScopeHandle::root("alert-dialog").child("root"), false);
+    let outside_id = String::from("outside");
+    let content_id = alert.relationships().content_id().to_owned();
+    let action_id = alert.action_id().to_owned();
+    let cancel_id = alert.cancel_id().to_owned();
+    let stack = vec![String::from("background"), content_id.clone()];
 
     let part_names: Vec<_> = AlertDialog::parts()
         .iter()
@@ -207,6 +321,7 @@ fn alert_dialog_extends_the_same_modal_lane_with_action_and_cancel_semantics() {
     assert_eq!(alert.data_state(), DataState::Closed);
     assert_eq!(alert.content().role(), "alertdialog");
     assert_eq!(alert.content().id(), alert.relationships().content_id());
+    assert!(alert.content().aria_modal());
     assert_eq!(alert.action().id(), alert.action_id());
     assert_eq!(alert.cancel().id(), alert.cancel_id());
     assert_eq!(alert.action().data_state(), &DataState::Closed);
@@ -218,6 +333,42 @@ fn alert_dialog_extends_the_same_modal_lane_with_action_and_cancel_semantics() {
     assert_eq!(
         alert.action().close_request().data_state(),
         alert.cancel().close_request().data_state(),
+    );
+    assert_eq!(alert.lifecycle().mode(), DialogMode::Modal);
+    assert_eq!(
+        alert.lifecycle().open_focus_policy(),
+        &DialogOpenFocusPolicy::Target(cancel_id.clone()),
+    );
+    assert_eq!(
+        alert.lifecycle().close_focus_policy(),
+        &DialogCloseFocusPolicy::Trigger,
+    );
+    assert_eq!(
+        alert.lifecycle().scroll_lock_policy(),
+        &DialogScrollLockPolicy::enabled(),
+    );
+    assert!(alert.lifecycle().focus_scope().loops_focus());
+    assert_eq!(
+        alert.lifecycle().outside_interaction_policy(),
+        &DialogOutsideInteractionPolicy::alert_default(),
+    );
+
+    let lifecycle = alert.lifecycle_mut();
+    assert_eq!(
+        lifecycle.focus_scope().branches(),
+        &[action_id, cancel_id.clone()]
+    );
+    assert_eq!(lifecycle.focus_scope_mut().activate(), Some(cancel_id));
+    assert!(lifecycle.dismiss_layer().should_dismiss_escape(&stack));
+    assert!(
+        !lifecycle
+            .dismiss_layer()
+            .should_dismiss_outside_pointer(Some(&outside_id), &stack)
+    );
+    assert!(
+        !lifecycle
+            .dismiss_layer()
+            .should_dismiss_outside_focus(Some(&outside_id), &stack)
     );
 }
 
