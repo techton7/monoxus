@@ -15,6 +15,12 @@ The first primitive family surfaces now live in:
 - `monoxus::alert_dialog` for thin `AlertDialog` action/cancel extensions over
   the same modal backbone
 
+## Example playground
+
+Run the minimal Phase 3.1 dialog-family playground with:
+
+`dx serve --example playground --web`
+
 ## Foundation proof artifact
 
 Phase 2.4 handoff proof lives in
