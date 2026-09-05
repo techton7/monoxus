@@ -3,6 +3,7 @@
 mod alert_dialog;
 mod dialog;
 mod popover;
+mod tabs;
 mod tooltip;
 
 use dioxus::prelude::*;
@@ -21,12 +22,13 @@ fn app() -> Element {
             }
             p {
                 style: "margin-top: 0; margin-bottom: 1.5rem; color: #475569;",
-                "A tiny Phase 3.1 / 3.2 harness for the dialog-family and positioned-overlay data surfaces. Run it with "
+                "A tiny Phase 3.1 / 3.2 / 3.3 harness for the dialog-family, positioned-overlay, and tabs data surfaces. Run it with "
                 code { "dx serve --example playground --web" }
                 "."
             }
             div {
                 style: "display: grid; gap: 1.5rem;",
+                tabs::TabsPlayground {}
                 dialog::DialogPlayground {}
                 alert_dialog::AlertDialogPlayground {}
                 popover::PopoverPlayground {}
