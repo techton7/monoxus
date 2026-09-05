@@ -9,6 +9,7 @@ repository = "https://github.com/techton7/monoxus"
 
 [dependencies]
 dioxus = { version = "0.7.0", default-features = false, features = ["devtools", "document", "hooks", "html", "mounted", "signals"] }
+futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 
 [dev-dependencies]
 dioxus = { version = "0.7.0", default-features = false, features = ["minimal"] }

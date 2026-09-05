@@ -579,6 +579,15 @@ impl PlacementSide {
             Self::Left => "left",
         }
     }
+
+    pub const fn opposite(self) -> Self {
+        match self {
+            Self::Top => Self::Bottom,
+            Self::Right => Self::Left,
+            Self::Bottom => Self::Top,
+            Self::Left => Self::Right,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -607,7 +616,86 @@ pub struct FloatingLayer {
     side_offset: f32,
     align_offset: f32,
     available_size: Option<Size>,
+    hide_when_detached: bool,
     namespace: Cow<'static, str>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FloatingArrowPosition {
+    x: Option<f32>,
+    y: Option<f32>,
+    hidden: bool,
+}
+
+impl FloatingArrowPosition {
+    pub const fn new(x: Option<f32>, y: Option<f32>, hidden: bool) -> Self {
+        Self { x, y, hidden }
+    }
+
+    pub const fn x(&self) -> Option<f32> {
+        self.x
+    }
+
+    pub const fn y(&self) -> Option<f32> {
+        self.y
+    }
+
+    pub const fn hidden(&self) -> bool {
+        self.hidden
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct FloatingPlacement {
+    side: PlacementSide,
+    align: PlacementAlign,
+    geometry: GeometryVars,
+    arrow: FloatingArrowPosition,
+    reference_hidden: bool,
+}
+
+impl FloatingPlacement {
+    pub fn new(
+        side: PlacementSide,
+        align: PlacementAlign,
+        geometry: GeometryVars,
+        arrow: FloatingArrowPosition,
+        reference_hidden: bool,
+    ) -> Self {
+        Self {
+            side,
+            align,
+            geometry,
+            arrow,
+            reference_hidden,
+        }
+    }
+
+    pub const fn side(&self) -> PlacementSide {
+        self.side
+    }
+
+    pub const fn align(&self) -> PlacementAlign {
+        self.align
+    }
+
+    pub fn geometry(&self) -> &GeometryVars {
+        &self.geometry
+    }
+
+    pub const fn arrow(&self) -> &FloatingArrowPosition {
+        &self.arrow
+    }
+
+    pub const fn reference_hidden(&self) -> bool {
+        self.reference_hidden
+    }
+
+    pub fn hide_reference(mut self) -> Self {
+        self.reference_hidden = true;
+        self.arrow = FloatingArrowPosition::new(None, None, true);
+        self
+    }
 }
 
 impl Default for FloatingLayer {
@@ -625,6 +713,7 @@ impl FloatingLayer {
             side_offset: 0.0,
             align_offset: 0.0,
             available_size: None,
+            hide_when_detached: false,
             namespace: Cow::Borrowed(GeometryVars::DEFAULT_NAMESPACE),
         }
     }
@@ -654,6 +743,11 @@ impl FloatingLayer {
         self
     }
 
+    pub fn with_hide_when_detached(mut self, hide_when_detached: bool) -> Self {
+        self.hide_when_detached = hide_when_detached;
+        self
+    }
+
     pub fn with_namespace(mut self, namespace: impl Into<Cow<'static, str>>) -> Self {
         self.namespace = namespace.into();
         self
@@ -671,6 +765,10 @@ impl FloatingLayer {
         self.direction
     }
 
+    pub const fn hide_when_detached(&self) -> bool {
+        self.hide_when_detached
+    }
+
     pub fn data_side(&self) -> &'static str {
         self.side.as_str()
     }
@@ -680,43 +778,45 @@ impl FloatingLayer {
     }
 
     pub fn geometry_vars(&self, anchor: Rect, content: Size) -> GeometryVars {
-        let resolved_inline_align = resolve_inline_align(self.align, self.direction);
+        self.position(anchor, content).geometry().clone()
+    }
+
+    pub fn position(&self, anchor: Rect, content: Size) -> FloatingPlacement {
         let available_size = self.available_size.unwrap_or_else(|| {
-            Size::new(
-                anchor.width().max(content.width()),
-                anchor.height().max(content.height()),
-            )
+            default_available_size(anchor, content, self.side, self.side_offset)
         });
+
+        self.position_with_available_size(anchor, content, available_size)
+    }
+
+    pub fn position_with_available_size(
+        &self,
+        anchor: Rect,
+        content: Size,
+        available_size: Size,
+    ) -> FloatingPlacement {
+        let resolved_inline_align = resolve_inline_align(self.align, self.direction);
+        let side = resolve_side(self.side, anchor, content, available_size, self.side_offset);
         let max_horizontal_offset = (available_size.width() - content.width()).max(0.0);
         let max_vertical_offset = (available_size.height() - content.height()).max(0.0);
-        let x = match self.side {
+        let x = match side {
             PlacementSide::Top | PlacementSide::Bottom => clamp_to_extent(
                 aligned_horizontal(anchor, content, resolved_inline_align) + self.align_offset,
                 max_horizontal_offset,
             ),
-            PlacementSide::Right => {
-                clamp_to_extent(anchor.right() + self.side_offset, max_horizontal_offset)
-            }
-            PlacementSide::Left => clamp_to_extent(
-                anchor.x() - content.width() - self.side_offset,
-                max_horizontal_offset,
-            ),
+            PlacementSide::Right => anchor.right() + self.side_offset,
+            PlacementSide::Left => anchor.x() - content.width() - self.side_offset,
         };
-        let y = match self.side {
+        let y = match side {
             PlacementSide::Left | PlacementSide::Right => clamp_to_extent(
                 aligned_vertical(anchor, content, self.align) + self.align_offset,
                 max_vertical_offset,
             ),
-            PlacementSide::Bottom => {
-                clamp_to_extent(anchor.bottom() + self.side_offset, max_vertical_offset)
-            }
-            PlacementSide::Top => clamp_to_extent(
-                anchor.y() - content.height() - self.side_offset,
-                max_vertical_offset,
-            ),
+            PlacementSide::Bottom => anchor.bottom() + self.side_offset,
+            PlacementSide::Top => anchor.y() - content.height() - self.side_offset,
         };
 
-        let transform_origin_x = match self.side {
+        let transform_origin_x = match side {
             PlacementSide::Right => 0.0,
             PlacementSide::Left => content.width(),
             PlacementSide::Top | PlacementSide::Bottom => clamp_to_extent(
@@ -724,7 +824,7 @@ impl FloatingLayer {
                 content.width(),
             ),
         };
-        let transform_origin_y = match self.side {
+        let transform_origin_y = match side {
             PlacementSide::Bottom => 0.0,
             PlacementSide::Top => content.height(),
             PlacementSide::Left | PlacementSide::Right => clamp_to_extent(
@@ -732,8 +832,7 @@ impl FloatingLayer {
                 content.height(),
             ),
         };
-
-        GeometryVars::new(
+        let geometry = GeometryVars::new(
             self.namespace.clone(),
             x,
             y,
@@ -745,7 +844,16 @@ impl FloatingLayer {
             anchor.height(),
             content.width(),
             content.height(),
-        )
+        );
+        let reference_hidden =
+            self.hide_when_detached && reference_is_hidden(anchor, available_size);
+        let arrow = if reference_hidden {
+            FloatingArrowPosition::new(None, None, true)
+        } else {
+            arrow_position(side, anchor, content, x, y)
+        };
+
+        FloatingPlacement::new(side, self.align, geometry, arrow, reference_hidden)
     }
 }
 
@@ -914,6 +1022,98 @@ fn resolve_inline_align(align: PlacementAlign, direction: Direction) -> Placemen
     }
 }
 
+fn default_available_size(
+    anchor: Rect,
+    content: Size,
+    side: PlacementSide,
+    side_offset: f32,
+) -> Size {
+    let width = match side {
+        PlacementSide::Right => anchor.right() + side_offset + content.width(),
+        _ => anchor.right().max(content.width()),
+    };
+    let height = match side {
+        PlacementSide::Bottom => anchor.bottom() + side_offset + content.height(),
+        _ => anchor.bottom().max(content.height()),
+    };
+
+    Size::new(width.max(content.width()), height.max(content.height()))
+}
+
+fn resolve_side(
+    preferred_side: PlacementSide,
+    anchor: Rect,
+    content: Size,
+    available_size: Size,
+    side_offset: f32,
+) -> PlacementSide {
+    let preferred_space = available_side_space(preferred_side, anchor, available_size);
+    let required_space = required_side_space(preferred_side, content, side_offset);
+    if preferred_space >= required_space {
+        return preferred_side;
+    }
+
+    let opposite_side = preferred_side.opposite();
+    let opposite_space = available_side_space(opposite_side, anchor, available_size);
+    if opposite_space > preferred_space {
+        return opposite_side;
+    }
+
+    preferred_side
+}
+
+fn available_side_space(side: PlacementSide, anchor: Rect, available_size: Size) -> f32 {
+    match side {
+        PlacementSide::Top => anchor.y(),
+        PlacementSide::Right => available_size.width() - anchor.right(),
+        PlacementSide::Bottom => available_size.height() - anchor.bottom(),
+        PlacementSide::Left => anchor.x(),
+    }
+}
+
+fn required_side_space(side: PlacementSide, content: Size, side_offset: f32) -> f32 {
+    match side {
+        PlacementSide::Top | PlacementSide::Bottom => content.height() + side_offset,
+        PlacementSide::Right | PlacementSide::Left => content.width() + side_offset,
+    }
+}
+
+fn reference_is_hidden(anchor: Rect, available_size: Size) -> bool {
+    anchor.width() <= 0.0
+        || anchor.height() <= 0.0
+        || anchor.right() <= 0.0
+        || anchor.bottom() <= 0.0
+        || anchor.x() >= available_size.width()
+        || anchor.y() >= available_size.height()
+}
+
+fn arrow_position(
+    side: PlacementSide,
+    anchor: Rect,
+    content: Size,
+    x: f32,
+    y: f32,
+) -> FloatingArrowPosition {
+    const ARROW_EDGE_MARGIN: f32 = 12.0;
+
+    match side {
+        PlacementSide::Top | PlacementSide::Bottom => {
+            let center_x = anchor.center_x() - x;
+            let can_center = content.width() >= ARROW_EDGE_MARGIN * 2.0
+                && center_x >= ARROW_EDGE_MARGIN
+                && center_x <= content.width() - ARROW_EDGE_MARGIN;
+            FloatingArrowPosition::new(can_center.then_some(center_x), None, !can_center)
+        }
+        PlacementSide::Right | PlacementSide::Left => {
+            let center_y = anchor.center_y() - y;
+            let can_center = content.height() >= ARROW_EDGE_MARGIN * 2.0
+                && center_y >= ARROW_EDGE_MARGIN
+                && center_y <= content.height() - ARROW_EDGE_MARGIN;
+            FloatingArrowPosition::new(None, can_center.then_some(center_y), !can_center)
+        }
+    }
+}
+
 fn aligned_horizontal(anchor: Rect, content: Size, align: PlacementAlign) -> f32 {
     match align {
         PlacementAlign::Start => anchor.x(),
@@ -1079,5 +1279,84 @@ mod tests {
                 ("--monoxus-dialog-content-height".to_string(), 12.0),
             ],
         );
+    }
+
+    #[test]
+    fn floating_layers_flip_to_the_opposite_side_and_publish_runtime_arrow_geometry() {
+        let layer = FloatingLayer::new(PlacementSide::Top)
+            .with_align(PlacementAlign::Start)
+            .with_side_offset(8.0)
+            .with_namespace("tooltip");
+        let placement = layer.position_with_available_size(
+            Rect::new(24.0, 8.0, 120.0, 38.0),
+            Size::new(184.0, 72.0),
+            Size::new(240.0, 140.0),
+        );
+
+        assert_eq!(placement.side(), PlacementSide::Bottom);
+        assert_eq!(placement.align(), PlacementAlign::Start);
+        assert_eq!(placement.geometry().x(), 24.0);
+        assert_eq!(placement.geometry().y(), 54.0);
+        assert_eq!(placement.arrow().x(), Some(60.0));
+        assert_eq!(placement.arrow().y(), None);
+        assert!(!placement.arrow().hidden());
+        assert!(!placement.reference_hidden());
+    }
+
+    #[test]
+    fn floating_layers_hide_the_arrow_when_the_live_geometry_cannot_center_it() {
+        let layer = FloatingLayer::new(PlacementSide::Bottom)
+            .with_align(PlacementAlign::Center)
+            .with_side_offset(8.0);
+        let placement = layer.position_with_available_size(
+            Rect::new(0.0, 30.0, 16.0, 20.0),
+            Size::new(100.0, 40.0),
+            Size::new(120.0, 120.0),
+        );
+
+        assert_eq!(placement.side(), PlacementSide::Bottom);
+        assert!(placement.arrow().hidden());
+        assert_eq!(placement.arrow().x(), None);
+        assert_eq!(placement.arrow().y(), None);
+        assert!(!placement.reference_hidden());
+    }
+
+    #[test]
+    fn floating_layers_can_hide_when_the_reference_detaches_from_the_viewport() {
+        let visible = FloatingLayer::new(PlacementSide::Bottom).position_with_available_size(
+            Rect::new(24.0, -8.0, 120.0, 38.0),
+            Size::new(184.0, 72.0),
+            Size::new(240.0, 140.0),
+        );
+        let hidden = FloatingLayer::new(PlacementSide::Bottom)
+            .with_hide_when_detached(true)
+            .position_with_available_size(
+                Rect::new(24.0, -80.0, 120.0, 38.0),
+                Size::new(184.0, 72.0),
+                Size::new(240.0, 140.0),
+            );
+
+        assert!(!visible.reference_hidden());
+        assert!(hidden.reference_hidden());
+        assert!(hidden.arrow().hidden());
+        assert_eq!(hidden.arrow().x(), None);
+        assert_eq!(hidden.arrow().y(), None);
+    }
+
+    #[test]
+    fn floating_layers_keep_attached_popovers_offscreen_with_their_anchor() {
+        let placement = FloatingLayer::new(PlacementSide::Bottom)
+            .with_align(PlacementAlign::Start)
+            .with_side_offset(12.0)
+            .position_with_available_size(
+                Rect::new(24.0, -198.0, 120.0, 35.0),
+                Size::new(184.0, 209.0),
+                Size::new(1280.0, 720.0),
+            );
+
+        assert_eq!(placement.side(), PlacementSide::Bottom);
+        assert!(placement.geometry().y() < 0.0);
+        assert_eq!(placement.geometry().y(), -151.0);
+        assert!(!placement.reference_hidden());
     }
 }

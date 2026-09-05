@@ -879,31 +879,19 @@ fn apply_open_focus(dialog: &Dialog) -> bool {
     }
 }
 
-fn restore_close_focus(dialog: &Dialog, state: DialogRuntimeState) {
+fn restore_close_focus(dialog: &Dialog, _state: DialogRuntimeState) {
     match dialog.lifecycle().close_focus_policy() {
         DialogCloseFocusPolicy::Trigger => {
-            if !focus_mounted_handle(state.trigger_handle.cloned()) {
-                focus_element_by_id(dialog.relationships().trigger_id());
-            }
+            restore_focus_element_by_id(dialog.relationships().trigger_id());
         }
         DialogCloseFocusPolicy::Target(target) => {
-            if !focus_registered_target(state, target) {
-                focus_element_by_id(target);
-            }
+            restore_focus_element_by_id(target);
         }
         DialogCloseFocusPolicy::None => {}
     }
 }
 
-fn focus_registered_target(state: DialogRuntimeState, target: &str) -> bool {
-    focus_mounted_handle(
-        state
-            .focus_targets
-            .with_peek(|targets| targets.get(target).cloned()),
-    )
-}
-
-fn focus_mounted_handle(handle: Option<DialogMountedHandle>) -> bool {
+pub(crate) fn focus_mounted_handle(handle: Option<DialogMountedHandle>) -> bool {
     let Some(handle) = handle else {
         return false;
     };
@@ -914,7 +902,15 @@ fn focus_mounted_handle(handle: Option<DialogMountedHandle>) -> bool {
     true
 }
 
-fn focus_element_by_id(target_id: &str) {
+pub(crate) fn focus_element_by_id(target_id: &str) {
+    focus_element_by_id_with_options(target_id, false);
+}
+
+pub(crate) fn restore_focus_element_by_id(target_id: &str) {
+    focus_element_by_id_with_options(target_id, true);
+}
+
+fn focus_element_by_id_with_options(target_id: &str, prevent_scroll: bool) {
     document::eval(&format!(
         r#"(function() {{
     const target = document.getElementById({target_id:?});
@@ -922,12 +918,12 @@ fn focus_element_by_id(target_id: &str) {
         return;
     }}
 
-    target.focus();
+    target.focus({{ preventScroll: {prevent_scroll} }});
 }})();"#,
     ));
 }
 
-fn focus_first_focusable(content_id: &str) {
+pub(crate) fn focus_first_focusable(content_id: &str) {
     document::eval(&format!(
         r#"(function() {{
     const root = document.getElementById({content_id:?});
@@ -957,7 +953,7 @@ fn focus_first_focusable(content_id: &str) {
     ));
 }
 
-fn acquire_scroll_lock(lock_id: &str) {
+pub(crate) fn acquire_scroll_lock(lock_id: &str) {
     document::eval(&format!(
         r#"(function() {{
     const lockId = {lock_id:?};
@@ -998,7 +994,7 @@ fn acquire_scroll_lock(lock_id: &str) {
     ));
 }
 
-fn release_scroll_lock(lock_id: &str, restore_delay: Option<u64>) {
+pub(crate) fn release_scroll_lock(lock_id: &str, restore_delay: Option<u64>) {
     let delay_ms = restore_delay.unwrap_or_default();
 
     document::eval(&format!(

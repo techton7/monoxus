@@ -1,3 +1,4 @@
+pub(crate) mod browser;
 pub mod compose;
 pub mod overlay;
 pub mod shared;
