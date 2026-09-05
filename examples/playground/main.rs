@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+mod accordion;
 mod alert_dialog;
 mod dialog;
 mod popover;
@@ -22,12 +23,13 @@ fn app() -> Element {
             }
             p {
                 style: "margin-top: 0; margin-bottom: 1.5rem; color: #475569;",
-                "A tiny Phase 3.1 / 3.2 / 3.3 harness for the dialog-family, positioned-overlay, and tabs data surfaces. Run it with "
+                "A tiny Phase 3.1 / 3.2 / 3.3 / 3.4 harness for dialogs, overlays, tabs, accordions, and collapsibles. Run it with "
                 code { "dx serve --example playground --web" }
                 "."
             }
             div {
                 style: "display: grid; gap: 1.5rem;",
+                accordion::AccordionPlayground {}
                 tabs::TabsPlayground {}
                 dialog::DialogPlayground {}
                 alert_dialog::AlertDialogPlayground {}

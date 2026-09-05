@@ -1,6 +1,9 @@
+pub mod accordion;
 pub mod alert_dialog;
+pub mod collapsible;
 pub mod dialog;
 pub mod foundation;
 pub mod popover;
 pub mod tabs;
 pub mod tooltip;
+
