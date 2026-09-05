@@ -3,7 +3,9 @@ use std::{rc::Rc, time::Duration};
 use dioxus::{document, document::Eval, prelude::*};
 use futures_timer::Delay;
 
-pub use crate::dialog::{compose_part_event_handlers, compose_part_refs, project_as_child};
+pub use crate::foundation::compose::{
+    compose_part_event_handlers, compose_part_refs, project_as_child,
+};
 
 use crate::foundation::{
     browser::{

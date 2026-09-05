@@ -1,18 +1,20 @@
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
-use dioxus::{document, prelude::*};
+use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::{
-        AsChildSlot, EventHandlerOptions, RefHandler, Slottable, compose_event_handlers,
-        compose_refs,
+    browser::{
+        acquire_scroll_lock, focus_element_by_id,
+        focus_first_focusable as foundation_focus_first_focusable, release_scroll_lock,
+        restore_focus_element_by_id,
     },
+    compose::MountedHandle,
     overlay::{DismissLayer, FocusGuards, FocusScope, PortalHost, Presence},
     shared::ScopeHandle,
     state::DataState,
 };
 
-pub type DialogMountedHandle = Rc<MountedData>;
+pub type DialogMountedHandle = MountedHandle;
 
 const DIALOG_FOCUSABLE_SELECTOR: &str = concat!(
     "[data-monoxus-autofocus],",
@@ -891,153 +893,8 @@ fn restore_close_focus(dialog: &Dialog, _state: DialogRuntimeState) {
     }
 }
 
-pub(crate) fn focus_mounted_handle(handle: Option<DialogMountedHandle>) -> bool {
-    let Some(handle) = handle else {
-        return false;
-    };
-
-    spawn(async move {
-        let _ = handle.set_focus(true).await;
-    });
-    true
-}
-
-pub(crate) fn focus_element_by_id(target_id: &str) {
-    focus_element_by_id_with_options(target_id, false);
-}
-
-pub(crate) fn restore_focus_element_by_id(target_id: &str) {
-    focus_element_by_id_with_options(target_id, true);
-}
-
-fn focus_element_by_id_with_options(target_id: &str, prevent_scroll: bool) {
-    document::eval(&format!(
-        r#"(function() {{
-    const target = document.getElementById({target_id:?});
-    if (!(target instanceof HTMLElement)) {{
-        return;
-    }}
-
-    target.focus({{ preventScroll: {prevent_scroll} }});
-}})();"#,
-    ));
-}
-
 pub(crate) fn focus_first_focusable(content_id: &str) {
-    document::eval(&format!(
-        r#"(function() {{
-    const root = document.getElementById({content_id:?});
-    if (!(root instanceof HTMLElement)) {{
-        return;
-    }}
-
-    const selector = {DIALOG_FOCUSABLE_SELECTOR:?};
-    const candidate =
-        (root.matches(selector) ? root : root.querySelector(selector));
-
-    if (candidate instanceof HTMLElement) {{
-        if (candidate === root && !root.hasAttribute("tabindex")) {{
-            root.setAttribute("tabindex", "-1");
-        }}
-
-        candidate.focus();
-        return;
-    }}
-
-    if (!root.hasAttribute("tabindex")) {{
-        root.setAttribute("tabindex", "-1");
-    }}
-
-    root.focus();
-}})();"#,
-    ));
-}
-
-pub(crate) fn acquire_scroll_lock(lock_id: &str) {
-    document::eval(&format!(
-        r#"(function() {{
-    const lockId = {lock_id:?};
-    const state = window.__monoxusDialogRuntime ??= {{
-        scrollLocks: new Set(),
-        previousBodyOverflow: null,
-        previousBodyPaddingRight: null,
-        previousDocumentOverflow: null,
-        restoreToken: 0,
-    }};
-
-    state.restoreToken += 1;
-    if (state.scrollLocks.has(lockId)) {{
-        return;
-    }}
-
-    if (state.scrollLocks.size === 0) {{
-        const body = document.body;
-        const documentElement = document.documentElement;
-        const computedBodyStyle = window.getComputedStyle(body);
-        const bodyPaddingRight = Number.parseFloat(computedBodyStyle.paddingRight || "0") || 0;
-        const scrollbarWidth = Math.max(0, window.innerWidth - documentElement.clientWidth);
-
-        state.previousBodyOverflow = body.style.overflow;
-        state.previousBodyPaddingRight = body.style.paddingRight;
-        state.previousDocumentOverflow = documentElement.style.overflow;
-
-        body.style.overflow = "hidden";
-        documentElement.style.overflow = "hidden";
-
-        if (scrollbarWidth > 0) {{
-            body.style.paddingRight = `${{bodyPaddingRight + scrollbarWidth}}px`;
-        }}
-    }}
-
-    state.scrollLocks.add(lockId);
-}})();"#,
-    ));
-}
-
-pub(crate) fn release_scroll_lock(lock_id: &str, restore_delay: Option<u64>) {
-    let delay_ms = restore_delay.unwrap_or_default();
-
-    document::eval(&format!(
-        r#"(function() {{
-    const lockId = {lock_id:?};
-    const delayMs = {delay_ms};
-    const state = window.__monoxusDialogRuntime;
-    if (!state || !(state.scrollLocks instanceof Set)) {{
-        return;
-    }}
-
-    state.scrollLocks.delete(lockId);
-    const restoreToken = ++state.restoreToken;
-    if (state.scrollLocks.size > 0) {{
-        return;
-    }}
-
-    const restore = () => {{
-        const currentState = window.__monoxusDialogRuntime;
-        if (!currentState || currentState.restoreToken !== restoreToken) {{
-            return;
-        }}
-
-        if (currentState.scrollLocks instanceof Set && currentState.scrollLocks.size > 0) {{
-            return;
-        }}
-
-        document.body.style.overflow = currentState.previousBodyOverflow ?? "";
-        document.body.style.paddingRight = currentState.previousBodyPaddingRight ?? "";
-        document.documentElement.style.overflow = currentState.previousDocumentOverflow ?? "";
-        currentState.previousBodyOverflow = null;
-        currentState.previousBodyPaddingRight = null;
-        currentState.previousDocumentOverflow = null;
-    }};
-
-    if (delayMs > 0) {{
-        window.setTimeout(restore, delayMs);
-        return;
-    }}
-
-    restore();
-}})();"#,
-    ));
+    foundation_focus_first_focusable(content_id, Some(DIALOG_FOCUSABLE_SELECTOR));
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1193,26 +1050,6 @@ impl DialogCloseAttributes {
     }
 }
 
-pub fn project_as_child<T, C>(target: T, content: Slottable<C>) -> (T, C) {
-    AsChildSlot::new(target).with_slottable(content)
-}
-
-pub fn compose_part_event_handlers<E, C, I>(
-    consumer: Option<C>,
-    internal: Option<I>,
-    options: EventHandlerOptions<E>,
-) -> impl FnMut(&mut E)
-where
-    C: FnMut(&mut E),
-    I: FnMut(&mut E),
-{
-    compose_event_handlers(consumer, internal, options)
-}
-
-pub fn compose_part_refs<T, I>(refs: I) -> impl FnMut(T)
-where
-    T: Clone + 'static,
-    I: IntoIterator<Item = Option<RefHandler<T>>>,
-{
-    compose_refs(refs)
-}
+pub use crate::foundation::compose::{
+    compose_part_event_handlers, compose_part_refs, project_as_child,
+};

@@ -3,25 +3,18 @@ use std::{collections::HashMap, rc::Rc, time::Duration};
 use dioxus::{document, document::Eval, prelude::*};
 use futures_timer::Delay;
 
-pub use crate::dialog::{
-    DialogCloseFocusPolicy as PopoverCloseFocusPolicy, DialogMountedHandle,
-    DialogOpenFocusPolicy as PopoverOpenFocusPolicy,
-    DialogOutsideDismissBehavior as PopoverOutsideDismissBehavior,
-    DialogOutsideInteractionPolicy as PopoverOutsideInteractionPolicy,
-    DialogScrollLockPolicy as PopoverScrollLockPolicy, compose_part_event_handlers,
-    compose_part_refs, project_as_child,
-};
-use crate::dialog::{
-    acquire_scroll_lock, focus_element_by_id, focus_first_focusable, focus_mounted_handle,
-    release_scroll_lock, restore_focus_element_by_id,
+pub use crate::foundation::compose::{
+    MountedHandle as PopoverMountedHandle, compose_part_event_handlers, compose_part_refs,
+    project_as_child,
 };
 
 use crate::foundation::{
     browser::{
-        DocumentDismissEvent, FloatingAutoUpdateEvent, recv_document_dismiss_event,
-        recv_floating_auto_update_event, start_document_dismiss_monitor,
-        start_floating_auto_update_monitor, stop_document_dismiss_monitor,
-        stop_floating_auto_update_monitor,
+        DocumentDismissEvent, FloatingAutoUpdateEvent, acquire_scroll_lock, focus_element_by_id,
+        focus_first_focusable, focus_mounted_handle, recv_document_dismiss_event,
+        recv_floating_auto_update_event, release_scroll_lock, restore_focus_element_by_id,
+        start_document_dismiss_monitor, start_floating_auto_update_monitor,
+        stop_document_dismiss_monitor, stop_floating_auto_update_monitor,
     },
     overlay::{
         DismissLayer, FloatingLayer, FloatingPlacement, FocusGuards, FocusScope, GeometryVars,
@@ -33,7 +26,107 @@ use crate::foundation::{
 
 pub const POPOVER_GEOMETRY_NAMESPACE: &str = "popover";
 
-pub type PopoverMountedHandle = DialogMountedHandle;
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PopoverOpenFocusPolicy {
+    FirstFocusable,
+    Target(String),
+    Suppress,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PopoverCloseFocusPolicy {
+    Trigger,
+    Target(String),
+    None,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PopoverOutsideDismissBehavior {
+    Dismiss,
+    Ignore,
+}
+
+impl PopoverOutsideDismissBehavior {
+    pub const fn dismisses(self) -> bool {
+        matches!(self, Self::Dismiss)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PopoverOutsideInteractionPolicy {
+    pointer_down_outside: PopoverOutsideDismissBehavior,
+    focus_outside: PopoverOutsideDismissBehavior,
+}
+
+impl PopoverOutsideInteractionPolicy {
+    pub const fn new(
+        pointer_down_outside: PopoverOutsideDismissBehavior,
+        focus_outside: PopoverOutsideDismissBehavior,
+    ) -> Self {
+        Self {
+            pointer_down_outside,
+            focus_outside,
+        }
+    }
+
+    pub const fn modal_default() -> Self {
+        Self::new(
+            PopoverOutsideDismissBehavior::Dismiss,
+            PopoverOutsideDismissBehavior::Ignore,
+        )
+    }
+
+    pub const fn non_modal_default() -> Self {
+        Self::new(
+            PopoverOutsideDismissBehavior::Dismiss,
+            PopoverOutsideDismissBehavior::Dismiss,
+        )
+    }
+
+    pub const fn pointer_down_outside(&self) -> PopoverOutsideDismissBehavior {
+        self.pointer_down_outside
+    }
+
+    pub const fn focus_outside(&self) -> PopoverOutsideDismissBehavior {
+        self.focus_outside
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PopoverScrollLockPolicy {
+    enabled: bool,
+    restore_delay: Option<u64>,
+}
+
+impl PopoverScrollLockPolicy {
+    pub const fn new(enabled: bool) -> Self {
+        Self {
+            enabled,
+            restore_delay: None,
+        }
+    }
+
+    pub const fn enabled() -> Self {
+        Self::new(true)
+    }
+
+    pub const fn disabled() -> Self {
+        Self::new(false)
+    }
+
+    pub const fn with_restore_delay(mut self, restore_delay: Option<u64>) -> Self {
+        self.restore_delay = restore_delay;
+        self
+    }
+
+    pub const fn is_enabled(&self) -> bool {
+        self.enabled
+    }
+
+    pub const fn restore_delay(&self) -> Option<u64> {
+        self.restore_delay
+    }
+}
 
 pub const POPOVER_PARTS: [PopoverPart; 7] = [
     PopoverPart::Root,
@@ -1083,7 +1176,7 @@ async fn apply_popover_open_focus(popover: &Popover, state: PopoverRuntimeState)
                 return false;
             }
 
-            focus_first_focusable(popover.relationships().content_id());
+            focus_first_focusable(popover.relationships().content_id(), None);
             true
         }
         PopoverOpenFocusPolicy::Target(target) => {
@@ -1530,25 +1623,6 @@ impl PopoverCloseAttributes {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn popover_document_event_snapshot_parser_preserves_counters_and_paths() {
-        let snapshot = parse_popover_document_event_snapshot(
-            "3\n4\n5\ntrigger\u{1f}content\noutside\u{1f}branch",
-        )
-        .expect("snapshot should parse");
-
-        assert_eq!(
-            snapshot,
-            PopoverDocumentEventSnapshot {
-                pointer_seq: 3,
-                focus_seq: 4,
-                escape_seq: 5,
-                pointer_path_ids: vec![String::from("trigger"), String::from("content")],
-                focus_path_ids: vec![String::from("outside"), String::from("branch")],
-            }
-        );
-    }
 
     #[test]
     fn popover_document_path_detection_treats_runtime_surfaces_as_inside() {

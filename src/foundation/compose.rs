@@ -1,4 +1,8 @@
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, rc::Rc};
+
+use dioxus::prelude::MountedData;
+
+pub type MountedHandle = Rc<MountedData>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AsChildSlotError {
@@ -179,6 +183,30 @@ where
             ref_handler(resolved.clone());
         }
     }
+}
+
+pub fn project_as_child<T, C>(target: T, content: Slottable<C>) -> (T, C) {
+    AsChildSlot::new(target).with_slottable(content)
+}
+
+pub fn compose_part_event_handlers<E, C, I>(
+    consumer: Option<C>,
+    internal: Option<I>,
+    options: EventHandlerOptions<E>,
+) -> impl FnMut(&mut E)
+where
+    C: FnMut(&mut E),
+    I: FnMut(&mut E),
+{
+    compose_event_handlers(consumer, internal, options)
+}
+
+pub fn compose_part_refs<T, I>(refs: I) -> impl FnMut(T)
+where
+    T: Clone + 'static,
+    I: IntoIterator<Item = Option<RefHandler<T>>>,
+{
+    compose_refs(refs)
 }
 
 #[cfg(test)]

@@ -1,4 +1,6 @@
-use dioxus::{document, document::Eval};
+use dioxus::{document, document::Eval, prelude::spawn};
+
+use crate::foundation::compose::MountedHandle;
 
 const FLOATING_AUTO_UPDATE_SIGNAL_STOP: &str = "stop";
 const FLOATING_AUTO_UPDATE_SIGNAL_STOPPED: &str = "stopped";
@@ -277,6 +279,159 @@ fn parse_document_dismiss_path_ids(value: Option<&str>) -> Vec<String> {
         .filter(|value| !value.is_empty())
         .map(String::from)
         .collect()
+}
+
+pub(crate) const DEFAULT_FOCUSABLE_SELECTOR: &str = "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])";
+
+pub(crate) fn focus_mounted_handle(handle: Option<MountedHandle>) -> bool {
+    let Some(handle) = handle else {
+        return false;
+    };
+
+    spawn(async move {
+        let _ = handle.set_focus(true).await;
+    });
+    true
+}
+
+pub(crate) fn focus_element_by_id(target_id: &str) {
+    focus_element_by_id_with_options(target_id, false);
+}
+
+pub(crate) fn restore_focus_element_by_id(target_id: &str) {
+    focus_element_by_id_with_options(target_id, true);
+}
+
+fn focus_element_by_id_with_options(target_id: &str, prevent_scroll: bool) {
+    document::eval(&format!(
+        r#"(function() {{
+    const target = document.getElementById({target_id:?});
+    if (!(target instanceof HTMLElement)) {{
+        return;
+    }}
+
+    target.focus({{ preventScroll: {prevent_scroll} }});
+}})();"#,
+    ));
+}
+
+pub(crate) fn focus_first_focusable(content_id: &str, focusable_selector: Option<&str>) {
+    let selector = focusable_selector.unwrap_or(DEFAULT_FOCUSABLE_SELECTOR);
+    document::eval(&format!(
+        r#"(function() {{
+    const root = document.getElementById({content_id:?});
+    if (!(root instanceof HTMLElement)) {{
+        return;
+    }}
+
+    const selector = {selector:?};
+    const candidate =
+        (root.matches(selector) ? root : root.querySelector(selector));
+
+    if (candidate instanceof HTMLElement) {{
+        if (candidate === root && !root.hasAttribute("tabindex")) {{
+            root.setAttribute("tabindex", "-1");
+        }}
+
+        candidate.focus();
+        return;
+    }}
+
+    if (!root.hasAttribute("tabindex")) {{
+        root.setAttribute("tabindex", "-1");
+    }}
+
+    root.focus();
+}})();"#,
+    ));
+}
+
+pub(crate) fn acquire_scroll_lock(lock_id: &str) {
+    document::eval(&format!(
+        r#"(function() {{
+    const lockId = {lock_id:?};
+    const state = window.__monoxusScrollLockRuntime ??= (window.__monoxusDialogRuntime ??= {{
+        scrollLocks: new Set(),
+        previousBodyOverflow: null,
+        previousBodyPaddingRight: null,
+        previousDocumentOverflow: null,
+        restoreToken: 0,
+    }});
+    window.__monoxusDialogRuntime = state;
+
+    state.restoreToken += 1;
+    if (state.scrollLocks.has(lockId)) {{
+        return;
+    }}
+
+    if (state.scrollLocks.size === 0) {{
+        const body = document.body;
+        const documentElement = document.documentElement;
+        const computedBodyStyle = window.getComputedStyle(body);
+        const bodyPaddingRight = Number.parseFloat(computedBodyStyle.paddingRight || "0") || 0;
+        const scrollbarWidth = Math.max(0, window.innerWidth - documentElement.clientWidth);
+
+        state.previousBodyOverflow = body.style.overflow;
+        state.previousBodyPaddingRight = body.style.paddingRight;
+        state.previousDocumentOverflow = documentElement.style.overflow;
+
+        body.style.overflow = "hidden";
+        documentElement.style.overflow = "hidden";
+
+        if (scrollbarWidth > 0) {{
+            body.style.paddingRight = `${{bodyPaddingRight + scrollbarWidth}}px`;
+        }}
+    }}
+
+    state.scrollLocks.add(lockId);
+}})();"#,
+    ));
+}
+
+pub(crate) fn release_scroll_lock(lock_id: &str, restore_delay: Option<u64>) {
+    let delay_ms = restore_delay.unwrap_or_default();
+
+    document::eval(&format!(
+        r#"(function() {{
+    const lockId = {lock_id:?};
+    const delayMs = {delay_ms};
+    const state = window.__monoxusScrollLockRuntime ?? window.__monoxusDialogRuntime;
+    if (!state || !(state.scrollLocks instanceof Set)) {{
+        return;
+    }}
+
+    state.scrollLocks.delete(lockId);
+    const restoreToken = ++state.restoreToken;
+    if (state.scrollLocks.size > 0) {{
+        return;
+    }}
+
+    const restore = () => {{
+        const currentState = window.__monoxusScrollLockRuntime ?? window.__monoxusDialogRuntime;
+        if (!currentState || currentState.restoreToken !== restoreToken) {{
+            return;
+        }}
+
+        if (currentState.scrollLocks instanceof Set && currentState.scrollLocks.size > 0) {{
+            return;
+        }}
+
+        document.body.style.overflow = currentState.previousBodyOverflow ?? "";
+        document.body.style.paddingRight = currentState.previousBodyPaddingRight ?? "";
+        document.documentElement.style.overflow = currentState.previousDocumentOverflow ?? "";
+        currentState.previousBodyOverflow = null;
+        currentState.previousBodyPaddingRight = null;
+        currentState.previousDocumentOverflow = null;
+    }};
+
+    if (delayMs > 0) {{
+        window.setTimeout(restore, delayMs);
+        return;
+    }}
+
+    restore();
+}})();"#,
+    ));
 }
 
 #[cfg(test)]
