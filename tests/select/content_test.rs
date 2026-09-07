@@ -82,3 +82,31 @@ fn select_content_reference_hidden_contract() {
     assert!(attrs.is_reference_hidden());
     assert_eq!(attrs.data_reference_hidden_str(), Some("true"));
 }
+
+#[test]
+fn select_pointer_down_outside_event_prevent_default_contract() {
+    use monoxus::select::PointerDownOutsideEvent;
+
+    let evt = PointerDownOutsideEvent::new();
+    assert!(evt.default_action_enabled());
+
+    let evt_clone = evt.clone();
+    evt_clone.prevent_default();
+
+    // prevent_default on clone mutates shared cell
+    assert!(!evt.default_action_enabled());
+    assert!(!evt_clone.default_action_enabled());
+}
+
+#[test]
+fn select_content_phase35_props_and_attributes_contract() {
+    let scope = ScopeHandle::root("select-test").child("phase35");
+    let select = Select::new(scope.clone()).with_open(true);
+
+    let attrs = select.content_attributes(None);
+    // baseline assertions
+    assert_eq!(attrs.data_state_str(), "open");
+    assert_eq!(attrs.data_side_str(), "bottom");
+    assert_eq!(attrs.data_align_str(), "start");
+}
+

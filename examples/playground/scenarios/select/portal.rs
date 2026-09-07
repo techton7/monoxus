@@ -2,8 +2,8 @@ use dioxus::prelude::*;
 use monoxus::{
     foundation::{overlay::PortalHost, shared::ScopeHandle},
     select::{
-        Select, SelectContent, SelectItem, SelectPortal, SelectRoot, SelectTrigger, SelectValue,
-        SelectViewport, use_select_runtime,
+        PointerDownOutsideEvent, Select, SelectContent, SelectItem, SelectPortal, SelectRoot,
+        SelectTrigger, SelectValue, SelectViewport, use_select_runtime,
     },
 };
 
@@ -15,6 +15,7 @@ pub fn PortaledSelectSection() -> Element {
     let selected_val = use_signal(|| Some("remote-1".to_string()));
     let is_open = use_signal(|| false);
     let mut prevent_escape = use_signal(|| false);
+    let mut prevent_outside_click = use_signal(|| false);
     let outside_clicks = use_signal(|| 0);
 
     let items = vec![
@@ -49,7 +50,7 @@ pub fn PortaledSelectSection() -> Element {
                 style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;",
                 h3 {
                     style: "margin: 0; font-size: 1rem; color: #581c87;",
-                    "8. Portaled Select (DOM Relocation & Preventable Escape)"
+                    "8. Portaled Select (DOM Relocation, Outside Click & Preventable Escape)"
                 }
                 div {
                     style: "display: flex; gap: 0.5rem; align-items: center;",
@@ -60,7 +61,7 @@ pub fn PortaledSelectSection() -> Element {
             }
             p {
                 style: MUTED_STYLE,
-                "SelectPortal physically teleports the overlay into the designated #select-portal-root host element in the live DOM. Also tests preventable Escape."
+                "SelectPortal physically teleports the overlay into the designated #select-portal-root host element in the live DOM. Also tests preventable Escape and preventable Outside PointerDown."
             }
 
             // Dedicated Portal Host Container
@@ -79,7 +80,7 @@ pub fn PortaledSelectSection() -> Element {
             }
 
             div {
-                style: "display: flex; gap: 1.5rem; align-items: center; margin-top: 1rem;",
+                style: "display: flex; gap: 1.5rem; align-items: center; margin-top: 1rem; flex-wrap: wrap;",
                 div {
                     style: "position: relative; width: 260px;",
                     SelectRoot {
@@ -97,9 +98,14 @@ pub fn PortaledSelectSection() -> Element {
                             SelectContent {
                                 class: "select-content-portaled".to_string(),
                                 style: "z-index: 50; background: white; border: 1px solid #d8b4fe; border-radius: 0.375rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); padding: 0.25rem; outline: none;",
-                                on_pointer_down_outside: move |_| {
+                                sticky: "always".to_string(),
+                                prevent_scroll: true,
+                                on_pointer_down_outside: move |evt: PointerDownOutsideEvent| {
                                     let mut c = outside_clicks;
                                     c.set(c() + 1);
+                                    if prevent_outside_click() {
+                                        evt.prevent_default();
+                                    }
                                 },
                                 on_escape_keydown: move |evt: KeyboardEvent| {
                                     if prevent_escape() {
@@ -125,16 +131,29 @@ pub fn PortaledSelectSection() -> Element {
                     }
                 }
 
-                // Interactive prevent-escape toggle
-                label {
-                    style: "display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: #581c87; cursor: pointer;",
-                    input {
-                        r#type: "checkbox",
-                        id: "prevent-escape-checkbox",
-                        checked: prevent_escape(),
-                        onchange: move |evt| prevent_escape.set(evt.value().parse().unwrap_or(false)),
+                // Interactive control toggles
+                div {
+                    style: "display: flex; flex-direction: column; gap: 0.5rem;",
+                    label {
+                        style: "display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: #581c87; cursor: pointer;",
+                        input {
+                            r#type: "checkbox",
+                            id: "prevent-escape-checkbox",
+                            checked: prevent_escape(),
+                            onchange: move |evt| prevent_escape.set(evt.value().parse().unwrap_or(false)),
+                        }
+                        span { "Prevent Dismiss on Escape Key" }
                     }
-                    span { "Prevent Dismiss on Escape Key" }
+                    label {
+                        style: "display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: #581c87; cursor: pointer;",
+                        input {
+                            r#type: "checkbox",
+                            id: "prevent-outside-click-checkbox",
+                            checked: prevent_outside_click(),
+                            onchange: move |evt| prevent_outside_click.set(evt.value().parse().unwrap_or(false)),
+                        }
+                        span { "Prevent Dismiss on Outside Click" }
+                    }
                 }
             }
         }

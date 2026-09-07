@@ -56,6 +56,33 @@ impl dioxus::events::HasKeyboardData for SyntheticEscapeKey {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct PointerDownOutsideEvent {
+    prevented: std::rc::Rc<std::cell::Cell<bool>>,
+}
+
+impl PointerDownOutsideEvent {
+    pub fn new() -> Self {
+        Self {
+            prevented: std::rc::Rc::new(std::cell::Cell::new(false)),
+        }
+    }
+
+    pub fn prevent_default(&self) {
+        self.prevented.set(true);
+    }
+
+    pub fn default_action_enabled(&self) -> bool {
+        !self.prevented.get()
+    }
+}
+
+impl Default for PointerDownOutsideEvent {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub type SelectValueChangeHandler = Rc<dyn Fn(Option<String>)>;
 pub type SelectValuesChangeHandler = Rc<dyn Fn(Vec<String>)>;
 pub type SelectOpenChangeHandler = Rc<dyn Fn(bool)>;
@@ -80,6 +107,10 @@ pub struct SelectRuntimeState {
     pub align_offset: Signal<f32>,
     pub avoid_collisions: Signal<bool>,
     pub hide_when_detached: Signal<bool>,
+    pub custom_anchor: Signal<Option<String>>,
+    pub prevent_scroll: Signal<bool>,
+    pub prevent_overflow_text_selection: Signal<bool>,
+    pub force_mount: Signal<bool>,
     pub collision_boundary: Signal<Option<String>>,
     pub collision_padding: Signal<f32>,
     pub arrow_padding: Signal<f32>,
@@ -87,7 +118,7 @@ pub struct SelectRuntimeState {
     pub reference_hidden: Signal<bool>,
     pub escape_prevented: Signal<bool>,
     pub on_escape_keydown: Signal<Option<EventHandler<KeyboardEvent>>>,
-    pub on_pointer_down_outside: Signal<Option<EventHandler<()>>>,
+    pub on_pointer_down_outside: Signal<Option<EventHandler<PointerDownOutsideEvent>>>,
     pub on_close_auto_focus: Signal<Option<EventHandler<()>>>,
     pub dismiss_monitor: Signal<Option<Eval>>,
     pub dismiss_loop_token: Signal<u64>,
@@ -177,6 +208,10 @@ where
         align_offset: use_signal(|| 0.0),
         avoid_collisions: use_signal(|| true),
         hide_when_detached: use_signal(|| false),
+        custom_anchor: use_signal(|| None),
+        prevent_scroll: use_signal(|| false),
+        prevent_overflow_text_selection: use_signal(|| false),
+        force_mount: use_signal(|| false),
         collision_boundary: use_signal(|| None),
         collision_padding: use_signal(|| 0.0),
         arrow_padding: use_signal(|| 0.0),
@@ -449,7 +484,54 @@ impl SelectRuntime {
         sig.set(cb);
     }
 
-    pub fn set_on_pointer_down_outside(&self, cb: Option<EventHandler<()>>) {
+    pub fn custom_anchor(&self) -> Option<String> {
+        self.state.custom_anchor.read().clone()
+    }
+
+    pub fn set_custom_anchor(&self, anchor: Option<String>) {
+        let mut sig = self.state.custom_anchor;
+        if *sig.peek() != anchor {
+            sig.set(anchor);
+        }
+    }
+
+    pub fn prevent_scroll(&self) -> bool {
+        *self.state.prevent_scroll.read()
+    }
+
+    pub fn set_prevent_scroll(&self, prevent: bool) {
+        let mut sig = self.state.prevent_scroll;
+        if *sig.peek() != prevent {
+            sig.set(prevent);
+        }
+    }
+
+    pub fn prevent_overflow_text_selection(&self) -> bool {
+        *self.state.prevent_overflow_text_selection.read()
+    }
+
+    pub fn set_prevent_overflow_text_selection(&self, prevent: bool) {
+        let mut sig = self.state.prevent_overflow_text_selection;
+        if *sig.peek() != prevent {
+            sig.set(prevent);
+        }
+    }
+
+    pub fn force_mount(&self) -> bool {
+        *self.state.force_mount.read()
+    }
+
+    pub fn set_force_mount(&self, force: bool) {
+        let mut sig = self.state.force_mount;
+        if *sig.peek() != force {
+            sig.set(force);
+        }
+    }
+
+    pub fn set_on_pointer_down_outside(
+        &self,
+        cb: Option<EventHandler<PointerDownOutsideEvent>>,
+    ) {
         let mut sig = self.state.on_pointer_down_outside;
         sig.set(cb);
     }
@@ -459,10 +541,12 @@ impl SelectRuntime {
         sig.set(cb);
     }
 
-    pub fn trigger_pointer_down_outside(&self) {
+    pub fn trigger_pointer_down_outside(&self) -> bool {
+        let evt = PointerDownOutsideEvent::new();
         if let Some(cb) = self.state.on_pointer_down_outside.read().clone() {
-            cb.call(());
+            cb.call(evt.clone());
         }
+        evt.default_action_enabled()
     }
 
     pub fn trigger_close_auto_focus(&self) {
@@ -698,7 +782,10 @@ impl SelectRuntime {
                         let is_inside =
                             path_ids.iter().any(|id| id == &trigger_id || id == &content_id);
                         if !is_inside {
-                            runtime.trigger_pointer_down_outside();
+                            let should_close = runtime.trigger_pointer_down_outside();
+                            if !should_close {
+                                continue;
+                            }
                             runtime.close_dropdown_without_restore();
                             break;
                         }
@@ -772,9 +859,11 @@ impl SelectRuntime {
             let trigger_id = self.relationships().trigger_id().to_owned();
             let content_id = self.relationships().content_id().to_owned();
             let boundary_id = self.collision_boundary();
+            let custom_anchor_id = self.custom_anchor();
             let script = format!(
                 r#"(function() {{
-                    const trigger = document.getElementById({trigger_id:?});
+                    const customAnchorId = {custom_anchor_id:?};
+                    const trigger = (customAnchorId ? document.getElementById(customAnchorId) : null) || document.getElementById({trigger_id:?});
                     const content = document.getElementById({content_id:?});
                     if (!trigger || !content) return null;
                     const tr = trigger.getBoundingClientRect();
@@ -856,7 +945,13 @@ impl SelectRuntime {
                                 align_sig.set(preferred_align);
                             }
                         }
-                        self.set_reference_hidden(computed.reference_hidden());
+                        let is_sticky_always = self.sticky().as_deref() == Some("always");
+                        let ref_hidden = if is_sticky_always {
+                            false
+                        } else {
+                            computed.reference_hidden()
+                        };
+                        self.set_reference_hidden(ref_hidden);
                     }
                 }
             }
