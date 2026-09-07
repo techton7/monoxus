@@ -84,7 +84,7 @@ pub fn SelectContent(
     #[props(default)] sticky: Option<String>,
     #[props(default = false)] hide_when_detached: bool,
     #[props(default = false)] same_width: bool,
-    #[props(default)] on_pointer_down_outside: Option<EventHandler<PointerEvent>>,
+    #[props(default)] on_pointer_down_outside: Option<EventHandler<()>>,
     #[props(default)] on_escape_keydown: Option<EventHandler<KeyboardEvent>>,
     #[props(default)] on_close_auto_focus: Option<EventHandler<()>>,
     children: Element,
@@ -94,9 +94,16 @@ pub fn SelectContent(
     let rels = ctx.runtime.relationships();
     let content_id = rels.content_id().to_owned();
 
-    // Sync placement props to runtime state
+    // Sync placement props and behaviors to runtime state
+    ctx.runtime.set_side(side);
+    ctx.runtime.set_align(align);
     ctx.runtime.set_side_offset(side_offset);
     ctx.runtime.set_align_offset(align_offset);
+    ctx.runtime.set_avoid_collisions(avoid_collisions);
+    ctx.runtime.set_hide_when_detached(hide_when_detached);
+    ctx.runtime.set_collision_padding(collision_padding);
+    ctx.runtime.set_on_pointer_down_outside(on_pointer_down_outside);
+    ctx.runtime.set_on_close_auto_focus(on_close_auto_focus);
 
     let runtime = ctx.runtime.clone();
     use_effect(use_reactive((&is_open,), {
@@ -181,22 +188,20 @@ pub fn SelectContent(
             "data-state": "{attrs.data_state_str()}",
             "data-side": "{attrs.data_side_str()}",
             "data-align": "{attrs.data_align_str()}",
+            "data-reference-hidden": attrs.data_reference_hidden_str().unwrap_or("false"),
             onkeydown: {
                 let runtime = ctx.runtime.clone();
                 let esc_cb = on_escape_keydown;
-                let close_focus_cb = on_close_auto_focus;
                 move |evt| {
                     if evt.key() == Key::Escape {
                         if let Some(ref cb) = esc_cb {
                             cb.call(evt.clone());
                         }
                         if !evt.default_action_enabled() {
+                            runtime.set_escape_prevented(true);
                             return;
                         }
                         runtime.close_dropdown();
-                        if let Some(ref cb) = close_focus_cb {
-                            cb.call(());
-                        }
                         return;
                     }
 

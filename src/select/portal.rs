@@ -21,10 +21,6 @@ pub fn SelectPortal(
     let ctx = use_context::<SelectContext>();
     let is_open = ctx.runtime.is_open();
 
-    if !is_open && !force_mount {
-        return rsx! {};
-    }
-
     let resolved_host = if disabled {
         PortalHost::inline()
     } else {
@@ -43,11 +39,68 @@ pub fn SelectPortal(
         resolved_host.id().unwrap_or("default")
     };
 
+    let portal_id = format!("{}-portal-root", ctx.runtime.relationships().content_id());
+
+    // Physical DOM Teleportation in browser runtime
+    #[cfg(target_arch = "wasm32")]
+    {
+        let pid = portal_id.clone();
+        let target_host = resolved_host.clone();
+        use_effect(use_reactive((&is_open,), move |(open,)| {
+            if !open && !force_mount {
+                return;
+            }
+            let pid = pid.clone();
+            let host_id = match &target_host {
+                PortalHost::Inline => "",
+                PortalHost::Named(name) => name.as_ref(),
+                PortalHost::Default => "",
+            };
+            let script = format!(
+                r#"(function() {{
+                    const el = document.getElementById({pid:?});
+                    if (!el) return;
+                    const hostId = {host_id:?};
+                    let target = hostId ? document.getElementById(hostId) : null;
+                    if (!target) {{
+                        target = document.getElementById("portal-root") || document.body;
+                    }}
+                    if (target && el.parentElement !== target) {{
+                        target.appendChild(el);
+                    }}
+                }})()"#
+            );
+            let _ = js_sys::eval(&script);
+        }));
+
+        let pid_cleanup = portal_id.clone();
+        dioxus::core::use_drop(move || {
+            let pid = pid_cleanup.clone();
+            let script = format!(
+                r#"(function() {{
+                    const el = document.getElementById({pid:?});
+                    if (el && el.parentElement) {{
+                        el.remove();
+                    }}
+                }})()"#
+            );
+            let _ = js_sys::eval(&script);
+        });
+    }
+
+    if !is_open && !force_mount {
+        return rsx! {};
+    }
+
+    let is_teleported = !disabled && !resolved_host.is_inline();
+
     rsx! {
         div {
+            id: "{portal_id}",
             style: "display: contents;",
             "data-portal-host": "{host_attr}",
             "data-portal-disabled": if disabled { "true" } else { "false" },
+            "data-portal-teleported": if is_teleported { "true" } else { "false" },
             {children}
         }
     }

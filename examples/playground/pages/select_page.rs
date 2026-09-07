@@ -1,8 +1,8 @@
 use dioxus::prelude::*;
 use crate::scenarios::select::{
     BasicFruitSelectSection, BottomConstrainedSelectSection, FormIntegrationSection,
-    GroupedSelectSection, MultipleSelectSection, ScrollableViewportSection, StaticContentSection,
-    CARD_STYLE, MUTED_STYLE, SELECT_PLAYGROUND_CSS,
+    GroupedSelectSection, MultipleSelectSection, PortaledSelectSection, ScrollableViewportSection,
+    StaticContentSection, CARD_STYLE, MUTED_STYLE, SELECT_PLAYGROUND_CSS,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -15,6 +15,7 @@ pub enum SelectScenarioTab {
     Flip,
     Multiple,
     Static,
+    Portaled,
 }
 
 impl SelectScenarioTab {
@@ -28,6 +29,7 @@ impl SelectScenarioTab {
             Self::Flip => "5. Flip",
             Self::Multiple => "6. Multiple",
             Self::Static => "7. Static",
+            Self::Portaled => "8. Portaled",
         }
     }
 }
@@ -45,6 +47,7 @@ pub fn SelectPage() -> Element {
         SelectScenarioTab::Flip,
         SelectScenarioTab::Multiple,
         SelectScenarioTab::Static,
+        SelectScenarioTab::Portaled,
     ];
 
     rsx! {
@@ -113,6 +116,9 @@ pub fn SelectPage() -> Element {
                 }
                 if current_tab() == SelectScenarioTab::All || current_tab() == SelectScenarioTab::Static {
                     StaticContentSection {}
+                }
+                if current_tab() == SelectScenarioTab::All || current_tab() == SelectScenarioTab::Portaled {
+                    PortaledSelectSection {}
                 }
             }
         }

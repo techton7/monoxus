@@ -123,6 +123,7 @@ pub struct SelectContentAttributes {
     pub data_state: DataState,
     pub data_side: PlacementSide,
     pub data_align: PlacementAlign,
+    pub reference_hidden: bool,
 }
 
 impl SelectContentAttributes {
@@ -166,6 +167,18 @@ impl SelectContentAttributes {
             PlacementAlign::Start => "start",
             PlacementAlign::Center => "center",
             PlacementAlign::End => "end",
+        }
+    }
+
+    pub fn is_reference_hidden(&self) -> bool {
+        self.reference_hidden
+    }
+
+    pub fn data_reference_hidden_str(&self) -> Option<&'static str> {
+        if self.reference_hidden {
+            Some("true")
+        } else {
+            None
         }
     }
 }

@@ -68,3 +68,17 @@ fn select_dynamic_scroll_reposition_and_flip_contract() {
     let scrolled_pos = layer.position_with_available_size(scrolled_anchor, content, viewport);
     assert_eq!(scrolled_pos.side(), PlacementSide::Bottom);
 }
+
+#[test]
+fn select_content_reference_hidden_contract() {
+    let scope = ScopeHandle::root("select-test").child("ref-hidden");
+    let select = Select::new(scope.clone()).with_open(true);
+
+    let mut attrs = select.content_attributes(None);
+    assert!(!attrs.is_reference_hidden());
+    assert_eq!(attrs.data_reference_hidden_str(), None);
+
+    attrs.reference_hidden = true;
+    assert!(attrs.is_reference_hidden());
+    assert_eq!(attrs.data_reference_hidden_str(), Some("true"));
+}

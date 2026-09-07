@@ -174,13 +174,26 @@ pub fn SelectValue(
     let ctx = use_context::<SelectContext>();
 
     let text_content = match ctx.runtime.select().mode() {
-        SelectMode::Single { .. } => ctx.runtime.value().unwrap_or_default(),
+        SelectMode::Single { .. } => {
+            if let Some(v) = ctx.runtime.value() {
+                if v.is_empty() {
+                    String::new()
+                } else {
+                    ctx.runtime.item_label(&v).unwrap_or(v)
+                }
+            } else {
+                String::new()
+            }
+        }
         SelectMode::Multiple => {
             let vals = ctx.runtime.values();
             if vals.is_empty() {
                 String::new()
             } else {
-                vals.join(", ")
+                vals.iter()
+                    .map(|v| ctx.runtime.item_label(v).unwrap_or_else(|| v.clone()))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             }
         }
     };

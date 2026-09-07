@@ -15,7 +15,16 @@ pub fn BasicFruitSelectSection() -> Element {
     let selected_val = use_signal(|| Some("apple".to_string()));
     let is_open = use_signal(|| false);
 
+    let items = vec![
+        monoxus::select::SelectItemData::new("apple", "Apple", false),
+        monoxus::select::SelectItemData::new("banana", "Banana", false),
+        monoxus::select::SelectItemData::new("blueberry", "Blueberry", false),
+        monoxus::select::SelectItemData::new("cherry", "Cherry", false),
+        monoxus::select::SelectItemData::new("grapes", "Grapes", false),
+    ];
+
     let def = Select::new(scope.clone())
+        .with_items(items)
         .with_value(selected_val())
         .with_open(is_open());
 

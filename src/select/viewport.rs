@@ -45,6 +45,15 @@ impl SelectRuntime {
         }
     }
 
+    pub fn item_label(&self, val: &str) -> Option<String> {
+        self.state
+            .items
+            .read()
+            .iter()
+            .find(|i| i.value == val)
+            .map(|i| i.text.clone())
+    }
+
     pub fn sync_dom_order(&self) {
         let content_id = self.relationships().content_id().to_owned();
         let mut items_sig = self.state.items;

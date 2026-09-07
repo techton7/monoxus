@@ -16,7 +16,14 @@ pub fn FormIntegrationSection() -> Element {
     let is_open = use_signal(|| false);
     let submitted_value = use_signal(|| None::<String>);
 
+    let items = vec![
+        monoxus::select::SelectItemData::new("starter", "Starter ($0)", false),
+        monoxus::select::SelectItemData::new("pro", "Pro ($29)", false),
+        monoxus::select::SelectItemData::new("enterprise", "Enterprise ($99)", false),
+    ];
+
     let def = Select::new(scope.clone())
+        .with_items(items)
         .with_value(selected_val())
         .with_open(is_open());
 
@@ -49,8 +56,13 @@ pub fn FormIntegrationSection() -> Element {
             form {
                 onsubmit: move |evt| {
                     evt.prevent_default();
+                    let values = evt.values();
+                    let submitted_tier = values.iter().find(|(k, _)| k == "tier").and_then(|(_, v)| match v {
+                        dioxus::html::FormValue::Text(s) => Some(s.clone()),
+                        _ => None,
+                    });
                     let mut s = submitted_value;
-                    s.set(selected_val());
+                    s.set(submitted_tier);
                 },
                 style: "display: flex; gap: 1rem; align-items: center;",
                 div {

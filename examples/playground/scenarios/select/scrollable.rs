@@ -15,7 +15,21 @@ pub fn ScrollableViewportSection() -> Element {
     let selected_val = use_signal(|| None::<String>);
     let is_open = use_signal(|| false);
 
+    let items = vec![
+        monoxus::select::SelectItemData::new("france", "France", false),
+        monoxus::select::SelectItemData::new("germany", "Germany", false),
+        monoxus::select::SelectItemData::new("italy", "Italy", false),
+        monoxus::select::SelectItemData::new("spain", "Spain", false),
+        monoxus::select::SelectItemData::new("uk", "United Kingdom", true),
+        monoxus::select::SelectItemData::new("japan", "Japan", false),
+        monoxus::select::SelectItemData::new("korea", "South Korea", false),
+        monoxus::select::SelectItemData::new("usa", "United States", false),
+        monoxus::select::SelectItemData::new("canada", "Canada", false),
+        monoxus::select::SelectItemData::new("australia", "Australia", false),
+    ];
+
     let def = Select::new(scope.clone())
+        .with_items(items)
         .with_value(selected_val())
         .with_open(is_open());
 

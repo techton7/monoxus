@@ -153,3 +153,18 @@ fn select_portal_configurable_routing_contract() {
     let inline_select = Select::new(scope).with_portal_host(inline_host.clone());
     assert!(inline_select.portal_host().is_inline());
 }
+
+#[test]
+fn select_item_text_label_lookup_contract() {
+    use monoxus::select::SelectItemData;
+    let scope = ScopeHandle::root("select-test").child("item-labels");
+    let items = vec![
+        SelectItemData::new("apple", "Fresh Red Apple", false),
+        SelectItemData::new("japan", "Japan (Tokyo)", false),
+    ];
+    let select = Select::new(scope).with_items(items);
+
+    assert_eq!(select.items().len(), 2);
+    assert_eq!(select.items()[0].text, "Fresh Red Apple");
+    assert_eq!(select.items()[1].text, "Japan (Tokyo)");
+}

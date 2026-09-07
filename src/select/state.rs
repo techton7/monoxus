@@ -323,6 +323,7 @@ impl Select {
             },
             data_side: side,
             data_align: align,
+            reference_hidden: false,
         }
     }
 

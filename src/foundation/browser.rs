@@ -219,6 +219,9 @@ const sendEvent = (signal, pathIds = []) => {{
 const handlePointerDown = (event) => sendEvent(pointerDownSignal, readPathIds(event));
 const handleFocusIn = (event) => sendEvent(focusInSignal, readPathIds(event));
 const handleKeyDown = (event) => {{
+    if (event.defaultPrevented) {{
+        return;
+    }}
     if (event.key === "Escape") {{
         sendEvent(escapeSignal);
     }}
@@ -226,7 +229,7 @@ const handleKeyDown = (event) => {{
 
 document.addEventListener("pointerdown", handlePointerDown, true);
 document.addEventListener("focusin", handleFocusIn, true);
-document.addEventListener("keydown", handleKeyDown, true);
+document.addEventListener("keydown", handleKeyDown, false);
 
 const command = await dioxus.recv();
 if (command !== stopSignal) {{

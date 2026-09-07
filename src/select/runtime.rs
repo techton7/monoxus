@@ -46,6 +46,13 @@ pub struct SelectRuntimeState {
     pub align: Signal<PlacementAlign>,
     pub side_offset: Signal<f32>,
     pub align_offset: Signal<f32>,
+    pub avoid_collisions: Signal<bool>,
+    pub hide_when_detached: Signal<bool>,
+    pub collision_padding: Signal<f32>,
+    pub reference_hidden: Signal<bool>,
+    pub escape_prevented: Signal<bool>,
+    pub on_pointer_down_outside: Signal<Option<EventHandler<()>>>,
+    pub on_close_auto_focus: Signal<Option<EventHandler<()>>>,
     pub dismiss_monitor: Signal<Option<Eval>>,
     pub dismiss_loop_token: Signal<u64>,
     pub position_monitor: Signal<Option<Eval>>,
@@ -123,13 +130,20 @@ where
         default_values: use_signal(|| initial_def_vals),
         open: use_signal(|| initial_open),
         highlighted_value: use_signal(|| None),
-        items: use_signal(Vec::new),
+        items: use_signal(|| select.items().to_vec()),
         typeahead_buffer: use_signal(String::new),
         last_key_timestamp_ms: use_signal(|| 0.0),
         side: use_signal(|| PlacementSide::Bottom),
         align: use_signal(|| PlacementAlign::Start),
         side_offset: use_signal(|| 4.0),
         align_offset: use_signal(|| 0.0),
+        avoid_collisions: use_signal(|| true),
+        hide_when_detached: use_signal(|| false),
+        collision_padding: use_signal(|| 0.0),
+        reference_hidden: use_signal(|| false),
+        escape_prevented: use_signal(|| false),
+        on_pointer_down_outside: use_signal(|| None),
+        on_close_auto_focus: use_signal(|| None),
         dismiss_monitor: use_signal(|| None),
         dismiss_loop_token: use_signal(|| 0),
         position_monitor: use_signal(|| None),
@@ -286,6 +300,83 @@ impl SelectRuntime {
         }
     }
 
+    pub fn avoid_collisions(&self) -> bool {
+        *self.state.avoid_collisions.read()
+    }
+
+    pub fn set_avoid_collisions(&self, avoid: bool) {
+        let mut sig = self.state.avoid_collisions;
+        if *sig.peek() != avoid {
+            sig.set(avoid);
+        }
+    }
+
+    pub fn hide_when_detached(&self) -> bool {
+        *self.state.hide_when_detached.read()
+    }
+
+    pub fn set_hide_when_detached(&self, hide: bool) {
+        let mut sig = self.state.hide_when_detached;
+        if *sig.peek() != hide {
+            sig.set(hide);
+        }
+    }
+
+    pub fn collision_padding(&self) -> f32 {
+        *self.state.collision_padding.read()
+    }
+
+    pub fn set_collision_padding(&self, padding: f32) {
+        let mut sig = self.state.collision_padding;
+        if *sig.peek() != padding {
+            sig.set(padding);
+        }
+    }
+
+    pub fn is_reference_hidden(&self) -> bool {
+        *self.state.reference_hidden.read()
+    }
+
+    pub fn set_reference_hidden(&self, hidden: bool) {
+        let mut sig = self.state.reference_hidden;
+        if *sig.peek() != hidden {
+            sig.set(hidden);
+        }
+    }
+
+    pub fn is_escape_prevented(&self) -> bool {
+        *self.state.escape_prevented.read()
+    }
+
+    pub fn set_escape_prevented(&self, val: bool) {
+        let mut sig = self.state.escape_prevented;
+        sig.set(val);
+    }
+
+    pub fn set_on_pointer_down_outside(&self, cb: Option<EventHandler<()>>) {
+        let mut sig = self.state.on_pointer_down_outside;
+        sig.set(cb);
+    }
+
+    pub fn set_on_close_auto_focus(&self, cb: Option<EventHandler<()>>) {
+        let mut sig = self.state.on_close_auto_focus;
+        sig.set(cb);
+    }
+
+    pub fn trigger_pointer_down_outside(&self) {
+        if let Some(cb) = self.state.on_pointer_down_outside.read().clone() {
+            cb.call(());
+        }
+    }
+
+    pub fn trigger_close_auto_focus(&self) {
+        if let Some(cb) = self.state.on_close_auto_focus.read().clone() {
+            cb.call(());
+        } else {
+            restore_focus_element_by_id(self.relationships().trigger_id());
+        }
+    }
+
     pub fn open_dropdown(&self) {
         if self.is_disabled() || self.is_open() {
             return;
@@ -354,7 +445,9 @@ impl SelectRuntime {
         self.stop_position_monitor();
 
         if restore_focus {
-            restore_focus_element_by_id(self.relationships().trigger_id());
+            self.trigger_close_auto_focus();
+        } else if let Some(cb) = self.state.on_close_auto_focus.read().clone() {
+            cb.call(());
         }
     }
 
@@ -439,6 +532,7 @@ impl SelectRuntime {
             },
             data_side: side,
             data_align: align,
+            reference_hidden: self.is_reference_hidden(),
         }
     }
 
@@ -489,6 +583,10 @@ impl SelectRuntime {
                 match recv_document_dismiss_event(&mut monitor).await {
                     Ok(DocumentDismissEvent::Stopped) => break,
                     Ok(DocumentDismissEvent::Escape) => {
+                        if runtime.is_escape_prevented() {
+                            runtime.set_escape_prevented(false);
+                            continue;
+                        }
                         runtime.close_dropdown();
                         break;
                     }
@@ -496,6 +594,7 @@ impl SelectRuntime {
                         let is_inside =
                             path_ids.iter().any(|id| id == &trigger_id || id == &content_id);
                         if !is_inside {
+                            runtime.trigger_pointer_down_outside();
                             runtime.close_dropdown_without_restore();
                             break;
                         }
@@ -596,14 +695,18 @@ impl SelectRuntime {
                         let content_size = Size::new(c_w, c_h);
                         let viewport_size = Size::new(win_w, win_h);
 
+                        let preferred_side = self.side();
+                        let avoid_collisions = self.avoid_collisions();
+                        let hide_when_detached = self.hide_when_detached();
                         let side_offset = self.side_offset();
                         let align_offset = self.align_offset();
                         let target_align = self.align();
 
-                        let layer = FloatingLayer::new(PlacementSide::Bottom)
+                        let layer = FloatingLayer::new(preferred_side)
                             .with_align(target_align)
                             .with_side_offset(side_offset)
-                            .with_align_offset(align_offset);
+                            .with_align_offset(align_offset)
+                            .with_hide_when_detached(hide_when_detached);
 
                         let computed = layer.position_with_available_size(
                             anchor_rect,
@@ -611,8 +714,11 @@ impl SelectRuntime {
                             viewport_size,
                         );
 
-                        self.set_side(computed.side());
-                        self.set_align(computed.align());
+                        if avoid_collisions {
+                            self.set_side(computed.side());
+                            self.set_align(computed.align());
+                        }
+                        self.set_reference_hidden(computed.reference_hidden());
                     }
                 }
             }
