@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use dioxus::document::{self, Eval};
 use dioxus::prelude::*;
 
 pub use crate::foundation::compose::{
@@ -7,7 +8,11 @@ pub use crate::foundation::compose::{
 };
 
 use crate::foundation::{
-    browser::focus_element_by_id,
+    browser::{
+        focus_element_by_id, recv_document_dismiss_event, start_document_dismiss_monitor,
+        stop_document_dismiss_monitor, DocumentDismissEvent,
+    },
+    overlay::{FloatingLayer, PlacementSide, PortalHost, Rect, Size},
     shared::ScopeHandle,
     state::DataState,
 };
@@ -205,12 +210,24 @@ impl SelectTriggerAttributes {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SelectPortalAttributes {
+    pub host: PortalHost,
+}
+
+impl SelectPortalAttributes {
+    pub fn host(&self) -> &PortalHost {
+        &self.host
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SelectContentAttributes {
     pub id: String,
     pub role: &'static str,
     pub tabindex: i32,
     pub aria_activedescendant: Option<String>,
     pub data_state: DataState,
+    pub data_side: PlacementSide,
 }
 
 impl SelectContentAttributes {
@@ -235,6 +252,14 @@ impl SelectContentAttributes {
             DataState::Open => "open",
             _ => "closed",
         }
+    }
+
+    pub fn data_side(&self) -> PlacementSide {
+        self.data_side
+    }
+
+    pub fn data_side_str(&self) -> &'static str {
+        self.data_side.as_str()
     }
 }
 
@@ -291,6 +316,7 @@ pub struct Select {
     open: bool,
     allow_deselect: bool,
     disabled: bool,
+    portal_host: PortalHost,
 }
 
 impl Select {
@@ -305,6 +331,7 @@ impl Select {
             open: false,
             allow_deselect: false,
             disabled: false,
+            portal_host: PortalHost::default_host(),
         }
     }
 
@@ -326,6 +353,21 @@ impl Select {
     pub fn with_disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
+    }
+
+    pub fn with_portal_host(mut self, portal_host: PortalHost) -> Self {
+        self.portal_host = portal_host;
+        self
+    }
+
+    pub fn portal_host(&self) -> &PortalHost {
+        &self.portal_host
+    }
+
+    pub fn portal_attributes(&self) -> SelectPortalAttributes {
+        SelectPortalAttributes {
+            host: self.portal_host.clone(),
+        }
     }
 
     pub fn relationships(&self) -> &SelectRelationships {
@@ -371,12 +413,21 @@ impl Select {
     }
 
     pub fn content_attributes(&self, activedescendant: Option<String>) -> SelectContentAttributes {
+        self.content_attributes_with_side(activedescendant, PlacementSide::Bottom)
+    }
+
+    pub fn content_attributes_with_side(
+        &self,
+        activedescendant: Option<String>,
+        side: PlacementSide,
+    ) -> SelectContentAttributes {
         SelectContentAttributes {
             id: self.relationships.content_id().to_owned(),
             role: "listbox",
             tabindex: -1,
             aria_activedescendant: activedescendant,
             data_state: if self.open { DataState::Open } else { DataState::Closed },
+            data_side: side,
         }
     }
 
@@ -400,7 +451,7 @@ impl Select {
 pub type SelectValueChangeHandler = Rc<dyn Fn(Option<String>)>;
 pub type SelectOpenChangeHandler = Rc<dyn Fn(bool)>;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct SelectRuntimeState {
     pub value: Signal<Option<String>>,
     pub open: Signal<bool>,
@@ -408,6 +459,9 @@ pub struct SelectRuntimeState {
     pub items: Signal<Vec<SelectItemData>>,
     pub typeahead_buffer: Signal<String>,
     pub last_key_timestamp_ms: Signal<f64>,
+    pub side: Signal<PlacementSide>,
+    pub dismiss_monitor: Signal<Option<Eval>>,
+    pub dismiss_loop_token: Signal<u64>,
 }
 
 #[derive(Clone)]
@@ -448,7 +502,17 @@ where
         items: use_signal(Vec::new),
         typeahead_buffer: use_signal(String::new),
         last_key_timestamp_ms: use_signal(|| 0.0),
+        side: use_signal(|| PlacementSide::Bottom),
+        dismiss_monitor: use_signal(|| None),
+        dismiss_loop_token: use_signal(|| 0),
     };
+
+    let cleanup_state = state;
+    dioxus::core::use_drop(move || {
+        if let Some(monitor) = cleanup_state.dismiss_monitor.peek().clone() {
+            let _ = stop_document_dismiss_monitor(monitor);
+        }
+    });
 
     let effect_state = state.clone();
 
@@ -496,6 +560,17 @@ impl SelectRuntime {
         self.state.highlighted_value.read().clone()
     }
 
+    pub fn side(&self) -> PlacementSide {
+        *self.state.side.read()
+    }
+
+    pub fn set_side(&self, side: PlacementSide) {
+        let mut side_sig = self.state.side;
+        if *side_sig.peek() != side {
+            side_sig.set(side);
+        }
+    }
+
     pub fn relationships(&self) -> &SelectRelationships {
         self.select.relationships()
     }
@@ -512,6 +587,63 @@ impl SelectRuntime {
                 text: text.to_owned(),
                 disabled,
             });
+        }
+    }
+
+    pub fn start_dismiss_monitor(&self) {
+        self.stop_dismiss_monitor();
+
+        let mut token_sig = self.state.dismiss_loop_token;
+        let next_token = token_sig.peek().saturating_add(1);
+        token_sig.set(next_token);
+
+        let monitor = start_document_dismiss_monitor();
+        let mut dm_sig = self.state.dismiss_monitor;
+        dm_sig.set(Some(monitor));
+
+        let runtime = self.clone();
+        let trigger_id = self.relationships().trigger_id().to_owned();
+        let content_id = self.relationships().content_id().to_owned();
+
+        spawn(async move {
+            let mut monitor = monitor;
+            loop {
+                if *runtime.state.dismiss_loop_token.peek() != next_token {
+                    break;
+                }
+
+                match recv_document_dismiss_event(&mut monitor).await {
+                    Ok(DocumentDismissEvent::Stopped) => break,
+                    Ok(DocumentDismissEvent::Escape) => {
+                        runtime.close_dropdown();
+                        break;
+                    }
+                    Ok(DocumentDismissEvent::PointerDown { path_ids }) => {
+                        let is_inside = path_ids.iter().any(|id| id == &trigger_id || id == &content_id);
+                        if !is_inside {
+                            runtime.close_dropdown();
+                            break;
+                        }
+                    }
+                    Ok(DocumentDismissEvent::FocusIn { path_ids }) => {
+                        let is_inside = path_ids.iter().any(|id| id == &trigger_id || id == &content_id);
+                        if !is_inside {
+                            runtime.close_dropdown();
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
+    pub fn stop_dismiss_monitor(&self) {
+        let current_monitor = self.state.dismiss_monitor.peek().clone();
+        if let Some(monitor) = current_monitor {
+            let mut dm_sig = self.state.dismiss_monitor;
+            dm_sig.set(None);
+            let _ = stop_document_dismiss_monitor(monitor);
         }
     }
 
@@ -537,6 +669,9 @@ impl SelectRuntime {
         let mut hl_sig = self.state.highlighted_value;
         hl_sig.set(init_highlight);
 
+        // Start document dismiss monitor (outside click / escape)
+        self.start_dismiss_monitor();
+
         // Focus SelectContent directly per interact.md #1
         let content_id = self.relationships().content_id().to_owned();
         focus_element_by_id(&content_id);
@@ -554,6 +689,11 @@ impl SelectRuntime {
         hl_sig.set(None);
         let mut buf_sig = self.state.typeahead_buffer;
         buf_sig.set(String::new());
+
+        // Stop document dismiss monitor
+        self.stop_dismiss_monitor();
+        let mut side_sig = self.state.side;
+        side_sig.set(PlacementSide::Bottom);
 
         // Restore focus to SelectTrigger per interact.md #1
         let trigger_id = self.relationships().trigger_id().to_owned();
@@ -880,7 +1020,11 @@ pub fn SelectIcon(
 }
 
 #[component]
-pub fn SelectPortal(children: Element) -> Element {
+pub fn SelectPortal(
+    #[props(default)] host: Option<PortalHost>,
+    children: Element,
+) -> Element {
+    let _ = host;
     rsx! {
         {children}
     }
@@ -899,16 +1043,73 @@ pub fn SelectContent(
 
     let rels = ctx.runtime.relationships();
     let content_id = rels.content_id().to_owned();
+    let trigger_id = rels.trigger_id().to_owned();
+
+    let runtime = ctx.runtime.clone();
     use_effect({
         let cid = content_id.clone();
+        let tid = trigger_id.clone();
+        let rt = runtime.clone();
         move || {
             focus_element_by_id(&cid);
+
+            // Viewport collision detection
+            let tid_c = tid.clone();
+            let cid_c = cid.clone();
+            let rt_c = rt.clone();
+            spawn(async move {
+                let eval = document::eval(&format!(
+                    r#"return (() => {{
+                        const trigger = document.getElementById({tid_c:?});
+                        const content = document.getElementById({cid_c:?});
+                        if (!trigger || !content) return null;
+                        const tRect = trigger.getBoundingClientRect();
+                        const cRect = content.getBoundingClientRect();
+                        return [
+                            tRect.x, tRect.y, tRect.width, tRect.height,
+                            cRect.width, cRect.height,
+                            window.innerWidth, window.innerHeight
+                        ];
+                    }})()"#
+                ));
+                let result: Result<Option<[f64; 8]>, _> = eval.join().await;
+                if let Ok(Some(arr)) = result {
+                    let tx = arr[0] as f32;
+                    let ty = arr[1] as f32;
+                    let tw = arr[2] as f32;
+                    let th = arr[3] as f32;
+                    let cw = arr[4] as f32;
+                    let ch = arr[5] as f32;
+                    let vpw = arr[6] as f32;
+                    let vph = arr[7] as f32;
+
+                    let anchor = Rect::new(tx, ty, tw, th);
+                    let content_size = Size::new(cw, ch);
+                    let viewport_size = Size::new(vpw, vph);
+
+                    let layer = FloatingLayer::new(PlacementSide::Bottom).with_side_offset(4.0);
+                    let placement = layer.position_with_available_size(anchor, content_size, viewport_size);
+                    rt_c.set_side(placement.side());
+                }
+            });
         }
     });
 
     let hl = ctx.runtime.highlighted_value();
     let activedescendant = hl.map(|v| rels.item_id(&v));
-    let attrs = ctx.runtime.select().content_attributes(activedescendant);
+    let side = ctx.runtime.side();
+    let attrs = ctx.runtime.select().content_attributes_with_side(activedescendant, side);
+
+    let side_placement_style = match side {
+        PlacementSide::Top => "bottom: calc(100% + 4px) !important; top: auto !important;",
+        _ => "top: calc(100% + 4px) !important; bottom: auto !important;",
+    };
+    let base_position_style = "position: absolute; left: 0; min-width: 100%;";
+    let merged_style = if let Some(custom) = style {
+        format!("{base_position_style} {side_placement_style} {custom}")
+    } else {
+        format!("{base_position_style} {side_placement_style}")
+    };
 
     rsx! {
         div {
@@ -917,8 +1118,9 @@ pub fn SelectContent(
             tabindex: "{attrs.tabindex()}",
             aria_activedescendant: attrs.aria_activedescendant(),
             class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            style: "{merged_style}",
             "data-state": "{attrs.data_state_str()}",
+            "data-side": "{attrs.data_side_str()}",
             onkeydown: {
                 let runtime = ctx.runtime.clone();
                 move |evt| {

@@ -292,3 +292,64 @@ fn select_hidden_input_form_contract() {
 
     assert_eq!(select.value(), Some("submitted-value"));
 }
+
+#[test]
+fn select_floating_layer_flips_to_top_when_space_constrained() {
+    use monoxus::foundation::overlay::{FloatingLayer, PlacementSide, Rect, Size};
+
+    // Trigger is near the bottom of an 800px tall viewport
+    // anchor: x: 100, y: 720, width: 200, height: 40 (bottom is 760)
+    // content size: width: 200, height: 150
+    // available size (viewport): width: 1024, height: 800
+    // Space below anchor: 800 - 760 = 40px < content height (150px) + offset (4px) = 154px
+    // Space above anchor: 720px > 154px
+    let anchor = Rect::new(100.0, 720.0, 200.0, 40.0);
+    let content = Size::new(200.0, 150.0);
+    let viewport = Size::new(1024.0, 800.0);
+
+    let layer = FloatingLayer::new(PlacementSide::Bottom).with_side_offset(4.0);
+    let placement = layer.position_with_available_size(anchor, content, viewport);
+
+    assert_eq!(placement.side(), PlacementSide::Top);
+}
+
+#[test]
+fn select_floating_layer_stays_bottom_when_space_sufficient() {
+    use monoxus::foundation::overlay::{FloatingLayer, PlacementSide, Rect, Size};
+
+    // Trigger is near the top of an 800px tall viewport
+    // anchor: x: 100, y: 100, width: 200, height: 40 (bottom is 140)
+    // content size: width: 200, height: 150
+    // available size (viewport): width: 1024, height: 800
+    // Space below anchor: 800 - 140 = 660px > 154px
+    let anchor = Rect::new(100.0, 100.0, 200.0, 40.0);
+    let content = Size::new(200.0, 150.0);
+    let viewport = Size::new(1024.0, 800.0);
+
+    let layer = FloatingLayer::new(PlacementSide::Bottom).with_side_offset(4.0);
+    let placement = layer.position_with_available_size(anchor, content, viewport);
+
+    assert_eq!(placement.side(), PlacementSide::Bottom);
+}
+
+#[test]
+fn select_portal_and_content_attributes_publish_side_and_host() {
+    use monoxus::foundation::overlay::{PlacementSide, PortalHost};
+
+    let scope = ScopeHandle::root("select-test").child("portal-side");
+    let custom_host = PortalHost::named("custom-portal-root");
+    let select = Select::new(scope)
+        .with_portal_host(custom_host.clone())
+        .with_open(true);
+
+    let portal_attrs = select.portal_attributes();
+    assert_eq!(portal_attrs.host(), &custom_host);
+
+    let content_bottom = select.content_attributes_with_side(None, PlacementSide::Bottom);
+    assert_eq!(content_bottom.data_side(), PlacementSide::Bottom);
+    assert_eq!(content_bottom.data_side_str(), "bottom");
+
+    let content_top = select.content_attributes_with_side(None, PlacementSide::Top);
+    assert_eq!(content_top.data_side(), PlacementSide::Top);
+    assert_eq!(content_top.data_side_str(), "top");
+}
