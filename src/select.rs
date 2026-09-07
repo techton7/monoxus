@@ -9,8 +9,10 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        recv_document_dismiss_event, restore_focus_element_by_id,
-        start_document_dismiss_monitor, stop_document_dismiss_monitor, DocumentDismissEvent,
+        recv_document_dismiss_event, recv_floating_auto_update_event, restore_focus_element_by_id,
+        start_document_dismiss_monitor, start_floating_auto_update_monitor,
+        stop_document_dismiss_monitor, stop_floating_auto_update_monitor, DocumentDismissEvent,
+        FloatingAutoUpdateEvent,
     },
     overlay::{FloatingLayer, PlacementSide, PortalHost, Rect, Size},
     shared::ScopeHandle,
@@ -462,6 +464,8 @@ pub struct SelectRuntimeState {
     pub side: Signal<PlacementSide>,
     pub dismiss_monitor: Signal<Option<Eval>>,
     pub dismiss_loop_token: Signal<u64>,
+    pub position_monitor: Signal<Option<Eval>>,
+    pub position_loop_token: Signal<u64>,
 }
 
 #[derive(Clone)]
@@ -505,12 +509,17 @@ where
         side: use_signal(|| PlacementSide::Bottom),
         dismiss_monitor: use_signal(|| None),
         dismiss_loop_token: use_signal(|| 0),
+        position_monitor: use_signal(|| None),
+        position_loop_token: use_signal(|| 0),
     };
 
     let cleanup_state = state;
     dioxus::core::use_drop(move || {
         if let Some(monitor) = cleanup_state.dismiss_monitor.peek().clone() {
             let _ = stop_document_dismiss_monitor(monitor);
+        }
+        if let Some(monitor) = cleanup_state.position_monitor.peek().clone() {
+            let _ = stop_floating_auto_update_monitor(monitor);
         }
     });
 
@@ -675,6 +684,87 @@ impl SelectRuntime {
         }
     }
 
+    pub async fn measure_and_update_placement(&self, trigger_id: &str, content_id: &str) {
+        let eval = document::eval(&format!(
+            r#"return (() => {{
+                const trigger = document.getElementById({trigger_id:?});
+                const content = document.getElementById({content_id:?});
+                if (!trigger || !content) return null;
+                const tRect = trigger.getBoundingClientRect();
+                const cRect = content.getBoundingClientRect();
+                return [
+                    tRect.x, tRect.y, tRect.width, tRect.height,
+                    cRect.width, cRect.height,
+                    window.innerWidth, window.innerHeight
+                ];
+            }})()"#
+        ));
+        let result: Result<Option<[f64; 8]>, _> = eval.join().await;
+        if let Ok(Some(arr)) = result {
+            let tx = arr[0] as f32;
+            let ty = arr[1] as f32;
+            let tw = arr[2] as f32;
+            let th = arr[3] as f32;
+            let cw = arr[4] as f32;
+            let ch = arr[5] as f32;
+            let vpw = arr[6] as f32;
+            let vph = arr[7] as f32;
+
+            let anchor = Rect::new(tx, ty, tw, th);
+            let content_size = Size::new(cw, ch);
+            let viewport_size = Size::new(vpw, vph);
+
+            let layer = FloatingLayer::new(PlacementSide::Bottom).with_side_offset(4.0);
+            let placement = layer.position_with_available_size(anchor, content_size, viewport_size);
+            self.set_side(placement.side());
+        }
+    }
+
+    pub fn start_position_monitor(&self) {
+        self.stop_position_monitor();
+
+        let mut token_sig = self.state.position_loop_token;
+        let next_token = token_sig.peek().saturating_add(1);
+        token_sig.set(next_token);
+
+        let trigger_id = self.relationships().trigger_id().to_owned();
+        let content_id = self.relationships().content_id().to_owned();
+        let monitor = start_floating_auto_update_monitor(&[&trigger_id], &content_id);
+        let mut pm_sig = self.state.position_monitor;
+        pm_sig.set(Some(monitor));
+
+        let runtime = self.clone();
+        spawn(async move {
+            let mut monitor = monitor;
+
+            // Immediate initial measurement
+            runtime.measure_and_update_placement(&trigger_id, &content_id).await;
+
+            loop {
+                if *runtime.state.position_loop_token.peek() != next_token {
+                    break;
+                }
+
+                match recv_floating_auto_update_event(&mut monitor).await {
+                    Ok(FloatingAutoUpdateEvent::Scroll) | Ok(FloatingAutoUpdateEvent::Update) => {
+                        runtime.measure_and_update_placement(&trigger_id, &content_id).await;
+                    }
+                    Ok(FloatingAutoUpdateEvent::Stopped) => break,
+                    Err(_) => break,
+                }
+            }
+        });
+    }
+
+    pub fn stop_position_monitor(&self) {
+        let current_monitor = self.state.position_monitor.peek().clone();
+        if let Some(monitor) = current_monitor {
+            let mut pm_sig = self.state.position_monitor;
+            pm_sig.set(None);
+            let _ = stop_floating_auto_update_monitor(monitor);
+        }
+    }
+
     pub fn open_dropdown(&self) {
         if self.is_disabled() {
             return;
@@ -718,8 +808,9 @@ impl SelectRuntime {
         let mut buf_sig = self.state.typeahead_buffer;
         buf_sig.set(String::new());
 
-        // Stop document dismiss monitor
+        // Stop document dismiss monitor and position monitor
         self.stop_dismiss_monitor();
+        self.stop_position_monitor();
         let mut side_sig = self.state.side;
         side_sig.set(PlacementSide::Bottom);
 
@@ -1086,56 +1177,15 @@ pub fn SelectContent(
 
     let rels = ctx.runtime.relationships();
     let content_id = rels.content_id().to_owned();
-    let trigger_id = rels.trigger_id().to_owned();
 
     let runtime = ctx.runtime.clone();
     use_effect({
         let cid = content_id.clone();
-        let tid = trigger_id.clone();
         let rt = runtime.clone();
         move || {
             restore_focus_element_by_id(&cid);
             rt.sync_dom_order();
-
-            // Viewport collision detection
-            let tid_c = tid.clone();
-            let cid_c = cid.clone();
-            let rt_c = rt.clone();
-            spawn(async move {
-                let eval = document::eval(&format!(
-                    r#"return (() => {{
-                        const trigger = document.getElementById({tid_c:?});
-                        const content = document.getElementById({cid_c:?});
-                        if (!trigger || !content) return null;
-                        const tRect = trigger.getBoundingClientRect();
-                        const cRect = content.getBoundingClientRect();
-                        return [
-                            tRect.x, tRect.y, tRect.width, tRect.height,
-                            cRect.width, cRect.height,
-                            window.innerWidth, window.innerHeight
-                        ];
-                    }})()"#
-                ));
-                let result: Result<Option<[f64; 8]>, _> = eval.join().await;
-                if let Ok(Some(arr)) = result {
-                    let tx = arr[0] as f32;
-                    let ty = arr[1] as f32;
-                    let tw = arr[2] as f32;
-                    let th = arr[3] as f32;
-                    let cw = arr[4] as f32;
-                    let ch = arr[5] as f32;
-                    let vpw = arr[6] as f32;
-                    let vph = arr[7] as f32;
-
-                    let anchor = Rect::new(tx, ty, tw, th);
-                    let content_size = Size::new(cw, ch);
-                    let viewport_size = Size::new(vpw, vph);
-
-                    let layer = FloatingLayer::new(PlacementSide::Bottom).with_side_offset(4.0);
-                    let placement = layer.position_with_available_size(anchor, content_size, viewport_size);
-                    rt_c.set_side(placement.side());
-                }
-            });
+            rt.start_position_monitor();
         }
     });
 

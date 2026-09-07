@@ -404,3 +404,28 @@ fn select_document_order_synchronization_contract() {
     let prev_idx = if curr_idx == 0 { sorted_values.len() - 1 } else { curr_idx - 1 };
     assert_eq!(sorted_values[prev_idx], "orange");
 }
+
+#[test]
+fn select_dynamic_scroll_reposition_and_flip_contract() {
+    use monoxus::foundation::overlay::{FloatingLayer, PlacementSide, Rect, Size};
+
+    let content = Size::new(200.0, 150.0);
+    let viewport = Size::new(1024.0, 800.0);
+    let layer = FloatingLayer::new(PlacementSide::Bottom).with_side_offset(4.0);
+
+    // Initial state: trigger near bottom of viewport (space below: 800 - 690 = 110 < 154)
+    let anchor_bottom_constrained = Rect::new(100.0, 650.0, 200.0, 40.0);
+    let placement1 = layer.position_with_available_size(anchor_bottom_constrained, content, viewport);
+    assert_eq!(placement1.side(), PlacementSide::Top);
+
+    // Dynamic scroll update: user scrolls down, moving trigger UP relative to viewport (space below: 800 - 340 = 460 > 154)
+    let anchor_scrolled_up = Rect::new(100.0, 300.0, 200.0, 40.0);
+    let placement2 = layer.position_with_available_size(anchor_scrolled_up, content, viewport);
+    assert_eq!(placement2.side(), PlacementSide::Bottom);
+
+    // Dynamic scroll update: user scrolls back up, moving trigger DOWN near bottom (space below: 800 - 740 = 60 < 154)
+    let anchor_scrolled_down = Rect::new(100.0, 700.0, 200.0, 40.0);
+    let placement3 = layer.position_with_available_size(anchor_scrolled_down, content, viewport);
+    assert_eq!(placement3.side(), PlacementSide::Top);
+}
+
