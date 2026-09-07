@@ -168,3 +168,13 @@ fn select_item_text_label_lookup_contract() {
     assert_eq!(select.items()[0].text, "Fresh Red Apple");
     assert_eq!(select.items()[1].text, "Japan (Tokyo)");
 }
+
+#[test]
+fn select_humanize_label_formatting_contract() {
+    use monoxus::select::humanize_label;
+    assert_eq!(humanize_label("apple"), "Apple");
+    assert_eq!(humanize_label("japan"), "Japan");
+    assert_eq!(humanize_label("remote-1"), "Remote 1");
+    assert_eq!(humanize_label("tier_pro"), "Tier Pro");
+    assert_eq!(humanize_label(""), "");
+}

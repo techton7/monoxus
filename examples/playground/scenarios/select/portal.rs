@@ -15,6 +15,7 @@ pub fn PortaledSelectSection() -> Element {
     let selected_val = use_signal(|| Some("remote-1".to_string()));
     let is_open = use_signal(|| false);
     let mut prevent_escape = use_signal(|| false);
+    let outside_clicks = use_signal(|| 0);
 
     let items = vec![
         monoxus::select::SelectItemData::new("remote-1", "Remote Item 1", false),
@@ -52,6 +53,7 @@ pub fn PortaledSelectSection() -> Element {
                 }
                 div {
                     style: "display: flex; gap: 0.5rem; align-items: center;",
+                    span { id: "outside-clicks-badge", style: BADGE_STYLE, "Outside Clicks: {outside_clicks()}" }
                     span { style: BADGE_STYLE, "Selected: {curr_val}" }
                     span { style: BADGE_STYLE, "State: {open_state}" }
                 }
@@ -95,6 +97,10 @@ pub fn PortaledSelectSection() -> Element {
                             SelectContent {
                                 class: "select-content-portaled".to_string(),
                                 style: "z-index: 50; background: white; border: 1px solid #d8b4fe; border-radius: 0.375rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); padding: 0.25rem; outline: none;",
+                                on_pointer_down_outside: move |_| {
+                                    let mut c = outside_clicks;
+                                    c.set(c() + 1);
+                                },
                                 on_escape_keydown: move |evt: KeyboardEvent| {
                                     if prevent_escape() {
                                         evt.prevent_default();

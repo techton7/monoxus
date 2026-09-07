@@ -26,6 +26,36 @@ use super::{
     types::{SelectItemData, SelectMode},
 };
 
+#[derive(Clone, Copy, Debug)]
+struct SyntheticEscapeKey;
+
+impl dioxus::html::ModifiersInteraction for SyntheticEscapeKey {
+    fn modifiers(&self) -> keyboard_types::Modifiers {
+        keyboard_types::Modifiers::empty()
+    }
+}
+
+impl dioxus::events::HasKeyboardData for SyntheticEscapeKey {
+    fn key(&self) -> Key {
+        Key::Escape
+    }
+    fn code(&self) -> keyboard_types::Code {
+        keyboard_types::Code::Escape
+    }
+    fn location(&self) -> keyboard_types::Location {
+        keyboard_types::Location::Standard
+    }
+    fn is_auto_repeating(&self) -> bool {
+        false
+    }
+    fn is_composing(&self) -> bool {
+        false
+    }
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+}
+
 pub type SelectValueChangeHandler = Rc<dyn Fn(Option<String>)>;
 pub type SelectValuesChangeHandler = Rc<dyn Fn(Vec<String>)>;
 pub type SelectOpenChangeHandler = Rc<dyn Fn(bool)>;
@@ -42,15 +72,21 @@ pub struct SelectRuntimeState {
     pub items: Signal<Vec<SelectItemData>>,
     pub typeahead_buffer: Signal<String>,
     pub last_key_timestamp_ms: Signal<f64>,
+    pub preferred_side: Signal<PlacementSide>,
+    pub preferred_align: Signal<PlacementAlign>,
     pub side: Signal<PlacementSide>,
     pub align: Signal<PlacementAlign>,
     pub side_offset: Signal<f32>,
     pub align_offset: Signal<f32>,
     pub avoid_collisions: Signal<bool>,
     pub hide_when_detached: Signal<bool>,
+    pub collision_boundary: Signal<Option<String>>,
     pub collision_padding: Signal<f32>,
+    pub arrow_padding: Signal<f32>,
+    pub sticky: Signal<Option<String>>,
     pub reference_hidden: Signal<bool>,
     pub escape_prevented: Signal<bool>,
+    pub on_escape_keydown: Signal<Option<EventHandler<KeyboardEvent>>>,
     pub on_pointer_down_outside: Signal<Option<EventHandler<()>>>,
     pub on_close_auto_focus: Signal<Option<EventHandler<()>>>,
     pub dismiss_monitor: Signal<Option<Eval>>,
@@ -133,15 +169,21 @@ where
         items: use_signal(|| select.items().to_vec()),
         typeahead_buffer: use_signal(String::new),
         last_key_timestamp_ms: use_signal(|| 0.0),
+        preferred_side: use_signal(|| PlacementSide::Bottom),
+        preferred_align: use_signal(|| PlacementAlign::Start),
         side: use_signal(|| PlacementSide::Bottom),
         align: use_signal(|| PlacementAlign::Start),
         side_offset: use_signal(|| 4.0),
         align_offset: use_signal(|| 0.0),
         avoid_collisions: use_signal(|| true),
         hide_when_detached: use_signal(|| false),
+        collision_boundary: use_signal(|| None),
         collision_padding: use_signal(|| 0.0),
+        arrow_padding: use_signal(|| 0.0),
+        sticky: use_signal(|| None),
         reference_hidden: use_signal(|| false),
         escape_prevented: use_signal(|| false),
+        on_escape_keydown: use_signal(|| None),
         on_pointer_down_outside: use_signal(|| None),
         on_close_auto_focus: use_signal(|| None),
         dismiss_monitor: use_signal(|| None),
@@ -256,15 +298,27 @@ impl SelectRuntime {
         }
     }
 
+    pub fn preferred_side(&self) -> PlacementSide {
+        *self.state.preferred_side.read()
+    }
+
     pub fn side(&self) -> PlacementSide {
         *self.state.side.read()
     }
 
     pub fn set_side(&self, side: PlacementSide) {
+        let mut pref_sig = self.state.preferred_side;
+        if *pref_sig.peek() != side {
+            pref_sig.set(side);
+        }
         let mut side_sig = self.state.side;
         if *side_sig.peek() != side {
             side_sig.set(side);
         }
+    }
+
+    pub fn preferred_align(&self) -> PlacementAlign {
+        *self.state.preferred_align.read()
     }
 
     pub fn align(&self) -> PlacementAlign {
@@ -272,6 +326,10 @@ impl SelectRuntime {
     }
 
     pub fn set_align(&self, align: PlacementAlign) {
+        let mut pref_sig = self.state.preferred_align;
+        if *pref_sig.peek() != align {
+            pref_sig.set(align);
+        }
         let mut align_sig = self.state.align;
         if *align_sig.peek() != align {
             align_sig.set(align);
@@ -322,6 +380,17 @@ impl SelectRuntime {
         }
     }
 
+    pub fn collision_boundary(&self) -> Option<String> {
+        self.state.collision_boundary.read().clone()
+    }
+
+    pub fn set_collision_boundary(&self, boundary: Option<String>) {
+        let mut sig = self.state.collision_boundary;
+        if *sig.peek() != boundary {
+            sig.set(boundary);
+        }
+    }
+
     pub fn collision_padding(&self) -> f32 {
         *self.state.collision_padding.read()
     }
@@ -330,6 +399,28 @@ impl SelectRuntime {
         let mut sig = self.state.collision_padding;
         if *sig.peek() != padding {
             sig.set(padding);
+        }
+    }
+
+    pub fn arrow_padding(&self) -> f32 {
+        *self.state.arrow_padding.read()
+    }
+
+    pub fn set_arrow_padding(&self, padding: f32) {
+        let mut sig = self.state.arrow_padding;
+        if *sig.peek() != padding {
+            sig.set(padding);
+        }
+    }
+
+    pub fn sticky(&self) -> Option<String> {
+        self.state.sticky.read().clone()
+    }
+
+    pub fn set_sticky(&self, sticky: Option<String>) {
+        let mut sig = self.state.sticky;
+        if *sig.peek() != sticky {
+            sig.set(sticky);
         }
     }
 
@@ -353,6 +444,11 @@ impl SelectRuntime {
         sig.set(val);
     }
 
+    pub fn set_on_escape_keydown(&self, cb: Option<EventHandler<KeyboardEvent>>) {
+        let mut sig = self.state.on_escape_keydown;
+        sig.set(cb);
+    }
+
     pub fn set_on_pointer_down_outside(&self, cb: Option<EventHandler<()>>) {
         let mut sig = self.state.on_pointer_down_outside;
         sig.set(cb);
@@ -372,9 +468,8 @@ impl SelectRuntime {
     pub fn trigger_close_auto_focus(&self) {
         if let Some(cb) = self.state.on_close_auto_focus.read().clone() {
             cb.call(());
-        } else {
-            restore_focus_element_by_id(self.relationships().trigger_id());
         }
+        restore_focus_element_by_id(self.relationships().trigger_id());
     }
 
     pub fn open_dropdown(&self) {
@@ -583,6 +678,15 @@ impl SelectRuntime {
                 match recv_document_dismiss_event(&mut monitor).await {
                     Ok(DocumentDismissEvent::Stopped) => break,
                     Ok(DocumentDismissEvent::Escape) => {
+                        if let Some(cb) = runtime.state.on_escape_keydown.read().clone() {
+                            let synth = SyntheticEscapeKey;
+                            let kb_data = dioxus::html::KeyboardData::new(synth);
+                            let evt = dioxus::core::Event::new(std::rc::Rc::new(kb_data), true);
+                            cb.call(evt.clone());
+                            if !evt.default_action_enabled() {
+                                continue;
+                            }
+                        }
                         if runtime.is_escape_prevented() {
                             runtime.set_escape_prevented(false);
                             continue;
@@ -667,6 +771,7 @@ impl SelectRuntime {
         {
             let trigger_id = self.relationships().trigger_id().to_owned();
             let content_id = self.relationships().content_id().to_owned();
+            let boundary_id = self.collision_boundary();
             let script = format!(
                 r#"(function() {{
                     const trigger = document.getElementById({trigger_id:?});
@@ -674,36 +779,54 @@ impl SelectRuntime {
                     if (!trigger || !content) return null;
                     const tr = trigger.getBoundingClientRect();
                     const cr = content.getBoundingClientRect();
-                    return [tr.left, tr.top, tr.width, tr.height, cr.width, cr.height, window.innerWidth, window.innerHeight];
+                    let bLeft = 0;
+                    let bTop = 0;
+                    let bRight = window.innerWidth;
+                    let bBottom = window.innerHeight;
+                    const bId = {boundary_id:?};
+                    if (bId) {{
+                        const bEl = document.getElementById(bId);
+                        if (bEl) {{
+                            const br = bEl.getBoundingClientRect();
+                            bLeft = br.left;
+                            bTop = br.top;
+                            bRight = br.right;
+                            bBottom = br.bottom;
+                        }}
+                    }}
+                    return [tr.left, tr.top, tr.width, tr.height, cr.width, cr.height, bLeft, bTop, bRight, bBottom];
                 }})()"#
             );
 
             if let Ok(val) = js_sys::eval(&script) {
                 if !val.is_null() && !val.is_undefined() {
                     let arr = js_sys::Array::from(&val);
-                    if arr.length() == 8 {
+                    if arr.length() == 10 {
                         let t_x = arr.get(0).as_f64().unwrap_or(0.0) as f32;
                         let t_y = arr.get(1).as_f64().unwrap_or(0.0) as f32;
                         let t_w = arr.get(2).as_f64().unwrap_or(0.0) as f32;
                         let t_h = arr.get(3).as_f64().unwrap_or(0.0) as f32;
                         let c_w = arr.get(4).as_f64().unwrap_or(0.0) as f32;
                         let c_h = arr.get(5).as_f64().unwrap_or(0.0) as f32;
-                        let win_w = arr.get(6).as_f64().unwrap_or(1024.0) as f32;
-                        let win_h = arr.get(7).as_f64().unwrap_or(768.0) as f32;
+                        let padding = self.collision_padding();
+                        let b_left = arr.get(6).as_f64().unwrap_or(0.0) as f32 + padding;
+                        let b_top = arr.get(7).as_f64().unwrap_or(0.0) as f32 + padding;
+                        let b_right = (arr.get(8).as_f64().unwrap_or(1024.0) as f32 - padding).max(b_left);
+                        let b_bottom = (arr.get(9).as_f64().unwrap_or(768.0) as f32 - padding).max(b_top);
 
-                        let anchor_rect = Rect::new(t_x, t_y, t_w, t_h);
+                        let anchor_rect = Rect::new(t_x - b_left, t_y - b_top, t_w, t_h);
                         let content_size = Size::new(c_w, c_h);
-                        let viewport_size = Size::new(win_w, win_h);
+                        let available_size = Size::new(b_right - b_left, b_bottom - b_top);
 
-                        let preferred_side = self.side();
+                        let preferred_side = self.preferred_side();
+                        let preferred_align = self.preferred_align();
                         let avoid_collisions = self.avoid_collisions();
                         let hide_when_detached = self.hide_when_detached();
                         let side_offset = self.side_offset();
                         let align_offset = self.align_offset();
-                        let target_align = self.align();
 
                         let layer = FloatingLayer::new(preferred_side)
-                            .with_align(target_align)
+                            .with_align(preferred_align)
                             .with_side_offset(side_offset)
                             .with_align_offset(align_offset)
                             .with_hide_when_detached(hide_when_detached);
@@ -711,12 +834,27 @@ impl SelectRuntime {
                         let computed = layer.position_with_available_size(
                             anchor_rect,
                             content_size,
-                            viewport_size,
+                            available_size,
                         );
 
                         if avoid_collisions {
-                            self.set_side(computed.side());
-                            self.set_align(computed.align());
+                            let mut side_sig = self.state.side;
+                            if *side_sig.peek() != computed.side() {
+                                side_sig.set(computed.side());
+                            }
+                            let mut align_sig = self.state.align;
+                            if *align_sig.peek() != computed.align() {
+                                align_sig.set(computed.align());
+                            }
+                        } else {
+                            let mut side_sig = self.state.side;
+                            if *side_sig.peek() != preferred_side {
+                                side_sig.set(preferred_side);
+                            }
+                            let mut align_sig = self.state.align;
+                            if *align_sig.peek() != preferred_align {
+                                align_sig.set(preferred_align);
+                            }
                         }
                         self.set_reference_hidden(computed.reference_hidden());
                     }

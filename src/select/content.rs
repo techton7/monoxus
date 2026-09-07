@@ -101,8 +101,12 @@ pub fn SelectContent(
     ctx.runtime.set_align_offset(align_offset);
     ctx.runtime.set_avoid_collisions(avoid_collisions);
     ctx.runtime.set_hide_when_detached(hide_when_detached);
+    ctx.runtime.set_collision_boundary(collision_boundary);
     ctx.runtime.set_collision_padding(collision_padding);
+    ctx.runtime.set_arrow_padding(arrow_padding);
+    ctx.runtime.set_sticky(sticky);
     ctx.runtime.set_on_pointer_down_outside(on_pointer_down_outside);
+    ctx.runtime.set_on_escape_keydown(on_escape_keydown);
     ctx.runtime.set_on_close_auto_focus(on_close_auto_focus);
 
     let runtime = ctx.runtime.clone();

@@ -164,6 +164,30 @@ pub fn SelectTrigger(
     }
 }
 
+pub fn humanize_label(val: &str) -> String {
+    if val.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<String> = val
+        .split(|c: char| c == '-' || c == '_')
+        .filter(|w| !w.is_empty())
+        .map(|word| {
+            let mut chars = word.chars();
+            if let Some(first) = chars.next() {
+                format!("{}{}", first.to_uppercase(), chars.as_str())
+            } else {
+                String::new()
+            }
+        })
+        .collect();
+
+    if parts.is_empty() {
+        val.to_string()
+    } else {
+        parts.join(" ")
+    }
+}
+
 #[component]
 pub fn SelectValue(
     #[props(default)] placeholder: Option<String>,
@@ -179,7 +203,10 @@ pub fn SelectValue(
                 if v.is_empty() {
                     String::new()
                 } else {
-                    ctx.runtime.item_label(&v).unwrap_or(v)
+                    ctx.runtime
+                        .item_label(&v)
+                        .filter(|l| !l.is_empty() && l != &v)
+                        .unwrap_or_else(|| humanize_label(&v))
                 }
             } else {
                 String::new()
@@ -191,7 +218,12 @@ pub fn SelectValue(
                 String::new()
             } else {
                 vals.iter()
-                    .map(|v| ctx.runtime.item_label(v).unwrap_or_else(|| v.clone()))
+                    .map(|v| {
+                        ctx.runtime
+                            .item_label(v)
+                            .filter(|l| !l.is_empty() && l != v)
+                            .unwrap_or_else(|| humanize_label(v))
+                    })
                     .collect::<Vec<_>>()
                     .join(", ")
             }
