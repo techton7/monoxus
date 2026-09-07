@@ -689,9 +689,11 @@ impl SelectRuntime {
             r#"return (() => {{
                 const trigger = document.getElementById({trigger_id:?});
                 const content = document.getElementById({content_id:?});
-                if (!trigger || !content) return null;
+                if (!trigger) return null;
                 const tRect = trigger.getBoundingClientRect();
-                const cRect = content.getBoundingClientRect();
+                const cRect = (content && content.offsetHeight > 0)
+                    ? content.getBoundingClientRect()
+                    : {{ width: tRect.width, height: 180 }};
                 return [
                     tRect.x, tRect.y, tRect.width, tRect.height,
                     cRect.width, cRect.height,
@@ -811,8 +813,6 @@ impl SelectRuntime {
         // Stop document dismiss monitor and position monitor
         self.stop_dismiss_monitor();
         self.stop_position_monitor();
-        let mut side_sig = self.state.side;
-        side_sig.set(PlacementSide::Bottom);
 
         if restore_focus {
             // Restore focus to SelectTrigger per interact.md #1 (with preventScroll: true)
@@ -1171,23 +1171,28 @@ pub fn SelectContent(
     children: Element,
 ) -> Element {
     let ctx = use_context::<SelectContext>();
-    if !ctx.runtime.is_open() {
-        return rsx! {};
-    }
-
+    let is_open = ctx.runtime.is_open();
     let rels = ctx.runtime.relationships();
     let content_id = rels.content_id().to_owned();
 
     let runtime = ctx.runtime.clone();
-    use_effect({
+    use_effect(use_reactive((&is_open,), {
         let cid = content_id.clone();
         let rt = runtime.clone();
-        move || {
-            restore_focus_element_by_id(&cid);
-            rt.sync_dom_order();
-            rt.start_position_monitor();
+        move |(open,)| {
+            if open {
+                restore_focus_element_by_id(&cid);
+                rt.sync_dom_order();
+                rt.start_position_monitor();
+            } else {
+                rt.stop_position_monitor();
+            }
         }
-    });
+    }));
+
+    if !is_open {
+        return rsx! {};
+    }
 
     let hl = ctx.runtime.highlighted_value();
     let activedescendant = hl.map(|v| rels.item_id(&v));
