@@ -441,6 +441,78 @@ pub(crate) fn release_scroll_lock(lock_id: &str, restore_delay: Option<u64>) {
     ));
 }
 
+pub(crate) fn scroll_element_into_view_nearest(element_id: &str) -> Eval {
+    document::eval(&format!(
+        r#"(() => {{
+            const el = document.getElementById({element_id:?});
+            if (el && typeof el.scrollIntoView === 'function') {{
+                el.scrollIntoView({{ block: 'nearest', inline: 'nearest' }});
+            }}
+        }})()"#
+    ))
+}
+
+pub(crate) const FORM_RESET_SIGNAL_STOP: &str = "stop";
+pub(crate) const FORM_RESET_SIGNAL_STOPPED: &str = "stopped";
+pub(crate) const FORM_RESET_SIGNAL_RESET: &str = "reset";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FormResetEvent {
+    Reset,
+    Stopped,
+}
+
+pub(crate) fn start_form_reset_monitor(element_id: &str, form_id: Option<&str>) -> Eval {
+    let form_id_arg = match form_id {
+        Some(fid) => format!("{fid:?}"),
+        None => "null".to_string(),
+    };
+    document::eval(&format!(
+        r#"
+const elementId = {element_id:?};
+const formId = {form_id_arg};
+const stopSignal = {FORM_RESET_SIGNAL_STOP:?};
+const stoppedSignal = {FORM_RESET_SIGNAL_STOPPED:?};
+const resetSignal = {FORM_RESET_SIGNAL_RESET:?};
+
+const el = document.getElementById(elementId);
+const form = formId ? document.getElementById(formId) : (el ? el.closest("form") : null);
+
+const handleReset = () => {{
+    dioxus.send(resetSignal);
+}};
+
+if (form) {{
+    form.addEventListener("reset", handleReset);
+}}
+
+const cmd = await dioxus.recv();
+if (form) {{
+    form.removeEventListener("reset", handleReset);
+}}
+dioxus.send(stoppedSignal);
+"#
+    ))
+}
+
+pub(crate) fn stop_form_reset_monitor(monitor: Eval) -> Result<(), String> {
+    monitor
+        .send(FORM_RESET_SIGNAL_STOP)
+        .map_err(|error| format!("form reset stop failed: {error}"))
+}
+
+pub(crate) async fn recv_form_reset_event(monitor: &mut Eval) -> Result<FormResetEvent, String> {
+    let raw = monitor
+        .recv::<String>()
+        .await
+        .map_err(|error| format!("form reset recv failed: {error}"))?;
+    match raw.as_str() {
+        FORM_RESET_SIGNAL_RESET => Ok(FormResetEvent::Reset),
+        FORM_RESET_SIGNAL_STOPPED => Ok(FormResetEvent::Stopped),
+        other => Err(format!("unexpected form reset event: {other}")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

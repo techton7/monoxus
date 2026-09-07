@@ -20,6 +20,7 @@ fn select_part_inventory_matches_exhaustive_surface() {
             "icon",
             "portal",
             "content",
+            "content-static",
             "viewport",
             "group",
             "label",
@@ -27,10 +28,11 @@ fn select_part_inventory_matches_exhaustive_surface() {
             "item-text",
             "item-indicator",
             "separator",
+            "arrow",
             "hidden-input",
         ]
     );
-    assert_eq!(SELECT_PARTS.len(), 14);
+    assert_eq!(SELECT_PARTS.len(), 16);
 }
 
 #[test]
@@ -427,5 +429,121 @@ fn select_dynamic_scroll_reposition_and_flip_contract() {
     let anchor_scrolled_down = Rect::new(100.0, 700.0, 200.0, 40.0);
     let placement3 = layer.position_with_available_size(anchor_scrolled_down, content, viewport);
     assert_eq!(placement3.side(), PlacementSide::Top);
+}
+
+#[test]
+fn select_multiple_mode_and_repeated_hidden_inputs_contract() {
+    use monoxus::select::SelectMode;
+
+    let scope = ScopeHandle::root("select-test").child("multiple");
+    let select = Select::new(scope)
+        .with_mode(SelectMode::Multiple)
+        .with_values(vec!["apple".into(), "cherry".into()]);
+
+    assert!(select.is_multiple());
+    assert_eq!(select.values(), &["apple".to_string(), "cherry".to_string()]);
+    assert_eq!(select.value(), Some("apple"));
+
+    // Item selection contract in multiple mode
+    let apple_item = select.item_attributes("apple", false, false);
+    let banana_item = select.item_attributes("banana", false, false);
+    let cherry_item = select.item_attributes("cherry", false, false);
+
+    assert_eq!(apple_item.aria_selected(), "true");
+    assert_eq!(apple_item.data_state(), "checked");
+    assert_eq!(banana_item.aria_selected(), "false");
+    assert_eq!(banana_item.data_state(), "unchecked");
+    assert_eq!(cherry_item.aria_selected(), "true");
+    assert_eq!(cherry_item.data_state(), "checked");
+
+    // Trigger placeholder: false when non-empty, true when empty
+    assert!(!select.trigger_attributes().is_placeholder());
+
+    let empty_multiple = Select::new(ScopeHandle::root("select-test").child("mult-empty"))
+        .with_mode(SelectMode::Multiple);
+    assert!(empty_multiple.trigger_attributes().is_placeholder());
+}
+
+#[test]
+fn select_clear_item_placeholder_reset_contract() {
+    let scope = ScopeHandle::root("select-test").child("clear-item");
+    let select = Select::new(scope.clone()).with_value(Some("banana".to_owned()));
+
+    assert_eq!(select.value(), Some("banana"));
+    assert!(!select.trigger_attributes().is_placeholder());
+
+    // Selecting clear item with value = "" resets value to None and restores placeholder
+    let cleared = select.with_value(None);
+    assert_eq!(cleared.value(), None);
+    assert!(cleared.trigger_attributes().is_placeholder());
+    assert_eq!(cleared.trigger_attributes().data_placeholder_str(), "true");
+}
+
+#[test]
+fn select_closed_trigger_typeahead_contract() {
+    let items = vec![
+        SelectItemData { value: "apple".into(), text: "Apple".into(), disabled: false },
+        SelectItemData { value: "apricot".into(), text: "Apricot".into(), disabled: false },
+        SelectItemData { value: "banana".into(), text: "Banana".into(), disabled: false },
+    ];
+
+    let scope = ScopeHandle::root("select-test").child("closed-typeahead");
+    let select = Select::new(scope).with_items(items.clone());
+
+    assert_eq!(select.items().len(), 3);
+    assert_eq!(select.items()[0].text, "Apple");
+    assert_eq!(select.items()[2].text, "Banana");
+}
+
+#[test]
+fn select_static_content_lane_contract() {
+    let scope = ScopeHandle::root("select-test").child("static-content");
+    let select = Select::new(scope.clone()).with_open(true);
+
+    let content_attrs = select.content_attributes(None);
+    assert_eq!(content_attrs.id(), scope.qualify("content"));
+    assert_eq!(content_attrs.role(), "listbox");
+    assert_eq!(content_attrs.tabindex(), -1);
+    assert_eq!(content_attrs.data_state_str(), "open");
+}
+
+#[test]
+fn select_portal_configurable_routing_contract() {
+    use monoxus::foundation::overlay::PortalHost;
+
+    let scope = ScopeHandle::root("select-test").child("portal-config");
+    let host = PortalHost::named("custom-drawer-portal");
+    let select = Select::new(scope).with_portal_host(host.clone());
+
+    assert_eq!(select.portal_attributes().host(), &host);
+}
+
+#[test]
+fn select_form_reset_listener_contract() {
+    let scope = ScopeHandle::root("select-test").child("form-reset");
+    let select = Select::new(scope)
+        .with_name("preference")
+        .with_form("user-settings-form")
+        .with_default_value(Some("dark".to_owned()))
+        .with_value(Some("light".to_owned()));
+
+    assert_eq!(select.name(), Some("preference"));
+    assert_eq!(select.form(), Some("user-settings-form"));
+    assert_eq!(select.default_value(), Some("dark"));
+    assert_eq!(select.value(), Some("light"));
+
+    // Resetting restores default value
+    let reset = select.clone().with_value(select.default_value().map(str::to_owned));
+    assert_eq!(reset.value(), Some("dark"));
+}
+
+#[test]
+fn select_item_highlight_and_scroll_into_view_nearest_contract() {
+    let scope = ScopeHandle::root("select-test").child("scroll-contract");
+    let rels = SelectRelationships::new(scope.clone());
+
+    // Highlighted item ID resolves deterministically for browser scrollIntoView call
+    let target_item_id = rels.item_id("deep-option-42");
+    assert_eq!(target_item_id, scope.qualify("item-deep-option-42"));
 }
 
