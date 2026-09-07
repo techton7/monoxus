@@ -1,7 +1,5 @@
 use dioxus::prelude::*;
 
-use crate::foundation::browser::scroll_element_into_view_nearest;
-
 use super::types::SelectContext;
 
 #[component]
@@ -61,8 +59,6 @@ pub fn SelectItem(
     children: Element,
 ) -> Element {
     let ctx = use_context::<SelectContext>();
-    let rels = ctx.runtime.relationships();
-    let item_id = rels.item_id(&value);
     let text_val = text.clone().unwrap_or_else(|| value.clone());
 
     // Register item
@@ -83,7 +79,6 @@ pub fn SelectItem(
     use_effect(use_reactive((&is_hl,), {
         let hl_cb = on_highlight;
         let unhl_cb = on_unhighlight;
-        let cid = item_id.clone();
         move |(current_hl,)| {
             let was_hl = *prev_hl.peek();
             if current_hl && !was_hl {
@@ -91,8 +86,6 @@ pub fn SelectItem(
                 if let Some(ref cb) = hl_cb {
                     cb.call(());
                 }
-                // Synchronize scroll-into-view with VDOM commit!
-                scroll_element_into_view_nearest(&cid);
             } else if !current_hl && was_hl {
                 prev_hl.set(false);
                 if let Some(ref cb) = unhl_cb {

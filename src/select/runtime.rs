@@ -7,10 +7,11 @@ use dioxus::prelude::*;
 use crate::foundation::{
     browser::{
         recv_document_dismiss_event, recv_floating_auto_update_event, recv_form_reset_event,
-        restore_focus_element_by_id, start_document_dismiss_monitor,
-        start_floating_auto_update_monitor, start_form_reset_monitor,
-        stop_document_dismiss_monitor, stop_floating_auto_update_monitor,
-        stop_form_reset_monitor, DocumentDismissEvent, FloatingAutoUpdateEvent, FormResetEvent,
+        restore_focus_element_by_id, scroll_element_into_view_nearest,
+        start_document_dismiss_monitor, start_floating_auto_update_monitor,
+        start_form_reset_monitor, stop_document_dismiss_monitor,
+        stop_floating_auto_update_monitor, stop_form_reset_monitor, DocumentDismissEvent,
+        FloatingAutoUpdateEvent, FormResetEvent,
     },
     overlay::{FloatingLayer, PlacementAlign, PlacementSide, Rect, Size},
     state::DataState,
@@ -329,7 +330,11 @@ impl SelectRuntime {
     pub fn set_highlighted(&self, val: Option<String>) {
         let mut hl_sig = self.state.highlighted_value;
         if *hl_sig.peek() != val {
-            hl_sig.set(val);
+            hl_sig.set(val.clone());
+            if let Some(ref v) = val {
+                let item_id = self.relationships().item_id(v);
+                scroll_element_into_view_nearest(&item_id);
+            }
         }
     }
 

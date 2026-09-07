@@ -15,7 +15,6 @@ pub const SELECT_PLAYGROUND_CSS: &str = r#"
     font-size: 0.875rem;
     cursor: pointer;
     user-select: none;
-    transition: background-color 0.12s ease, color 0.12s ease;
 }
 .select-item[data-highlighted="true"], [role="option"][data-highlighted="true"] {
     background-color: #f3e8ff !important;
