@@ -621,14 +621,14 @@ impl SelectRuntime {
                     Ok(DocumentDismissEvent::PointerDown { path_ids }) => {
                         let is_inside = path_ids.iter().any(|id| id == &trigger_id || id == &content_id);
                         if !is_inside {
-                            runtime.close_dropdown();
+                            runtime.close_dropdown_without_restore();
                             break;
                         }
                     }
                     Ok(DocumentDismissEvent::FocusIn { path_ids }) => {
                         let is_inside = path_ids.iter().any(|id| id == &trigger_id || id == &content_id);
                         if !is_inside {
-                            runtime.close_dropdown();
+                            runtime.close_dropdown_without_restore();
                             break;
                         }
                     }
@@ -677,7 +677,7 @@ impl SelectRuntime {
         restore_focus_element_by_id(&content_id);
     }
 
-    pub fn close_dropdown(&self) {
+    pub fn close_dropdown_with_options(&self, restore_focus: bool) {
         let mut open_sig = self.state.open;
         open_sig.set(false);
 
@@ -695,9 +695,19 @@ impl SelectRuntime {
         let mut side_sig = self.state.side;
         side_sig.set(PlacementSide::Bottom);
 
-        // Restore focus to SelectTrigger per interact.md #1 (with preventScroll: true)
-        let trigger_id = self.relationships().trigger_id().to_owned();
-        restore_focus_element_by_id(&trigger_id);
+        if restore_focus {
+            // Restore focus to SelectTrigger per interact.md #1 (with preventScroll: true)
+            let trigger_id = self.relationships().trigger_id().to_owned();
+            restore_focus_element_by_id(&trigger_id);
+        }
+    }
+
+    pub fn close_dropdown(&self) {
+        self.close_dropdown_with_options(true);
+    }
+
+    pub fn close_dropdown_without_restore(&self) {
+        self.close_dropdown_with_options(false);
     }
 
     pub fn toggle(&self) {
@@ -859,6 +869,10 @@ impl SelectRuntime {
             "Escape" => {
                 event.prevent_default();
                 self.close_dropdown();
+            }
+            "Tab" => {
+                // Do NOT prevent_default(), let browser naturally advance tab focus!
+                self.close_dropdown_without_restore();
             }
             _ => {
                 if key.len() == 1 {
@@ -1192,6 +1206,7 @@ pub fn SelectItem(
     #[props(default = false)] disabled: bool,
     #[props(default)] text: Option<String>,
     #[props(default)] class: Option<String>,
+    #[props(default)] style: Option<String>,
     children: Element,
 ) -> Element {
     let ctx = use_context::<SelectContext>();
@@ -1221,6 +1236,7 @@ pub fn SelectItem(
             aria_selected: "{attrs.aria_selected()}",
             aria_disabled: attrs.aria_disabled(),
             class: class.as_deref().unwrap_or_default(),
+            style: style.as_deref(),
             "data-state": "{attrs.data_state()}",
             "data-highlighted": if attrs.is_highlighted() { "true" } else { "false" },
             "data-disabled": if attrs.is_disabled() { "true" } else { "false" },
