@@ -4,6 +4,7 @@ mod accordion;
 mod alert_dialog;
 mod dialog;
 mod popover;
+mod select;
 mod tabs;
 mod tooltip;
 
@@ -23,12 +24,13 @@ fn app() -> Element {
             }
             p {
                 style: "margin-top: 0; margin-bottom: 1.5rem; color: #475569;",
-                "A tiny Phase 3.1 / 3.2 / 3.3 / 3.4 harness for dialogs, overlays, tabs, accordions, and collapsibles. Run it with "
+                "A tiny Phase 3.1 / 3.2 / 3.3 / 3.4 / 3.5 harness for dialogs, overlays, tabs, accordions, collapsibles, and selects. Run it with "
                 code { "dx serve --example playground --web" }
                 "."
             }
             div {
                 style: "display: grid; gap: 1.5rem;",
+                select::SelectPlayground {}
                 accordion::AccordionPlayground {}
                 tabs::TabsPlayground {}
                 dialog::DialogPlayground {}

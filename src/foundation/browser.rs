@@ -305,12 +305,19 @@ pub(crate) fn restore_focus_element_by_id(target_id: &str) {
 fn focus_element_by_id_with_options(target_id: &str, prevent_scroll: bool) {
     document::eval(&format!(
         r#"(function() {{
-    const target = document.getElementById({target_id:?});
-    if (!(target instanceof HTMLElement)) {{
-        return;
+    const tryFocus = () => {{
+        const target = document.getElementById({target_id:?});
+        if (target instanceof HTMLElement) {{
+            target.focus({{ preventScroll: {prevent_scroll} }});
+            return true;
+        }}
+        return false;
+    }};
+    if (!tryFocus() && typeof window !== "undefined" && window.requestAnimationFrame) {{
+        window.requestAnimationFrame(() => {{
+            tryFocus();
+        }});
     }}
-
-    target.focus({{ preventScroll: {prevent_scroll} }});
 }})();"#,
     ));
 }

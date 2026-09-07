@@ -4,6 +4,7 @@ pub mod collapsible;
 pub mod dialog;
 pub mod foundation;
 pub mod popover;
+pub mod select;
 pub mod tabs;
 pub mod tooltip;
 
