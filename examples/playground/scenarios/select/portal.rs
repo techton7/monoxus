@@ -16,6 +16,9 @@ pub fn PortaledSelectSection() -> Element {
     let is_open = use_signal(|| false);
     let mut prevent_escape = use_signal(|| false);
     let mut prevent_outside_click = use_signal(|| false);
+    let mut force_mount_enabled = use_signal(|| false);
+    let mut prevent_selection_enabled = use_signal(|| false);
+    let mut use_custom_anchor = use_signal(|| false);
     let outside_clicks = use_signal(|| 0);
 
     let items = vec![
@@ -80,7 +83,7 @@ pub fn PortaledSelectSection() -> Element {
             }
 
             div {
-                style: "display: flex; gap: 1.5rem; align-items: center; margin-top: 1rem; flex-wrap: wrap;",
+                style: "display: flex; gap: 1.5rem; align-items: flex-start; margin-top: 1rem; flex-wrap: wrap;",
                 div {
                     style: "position: relative; width: 260px;",
                     SelectRoot {
@@ -95,11 +98,15 @@ pub fn PortaledSelectSection() -> Element {
                         }
                         SelectPortal {
                             host: PortalHost::named("select-portal-root".to_string()),
+                            force_mount: force_mount_enabled(),
                             SelectContent {
                                 class: "select-content-portaled".to_string(),
                                 style: "z-index: 50; background: white; border: 1px solid #d8b4fe; border-radius: 0.375rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); padding: 0.25rem; outline: none;",
                                 sticky: "always".to_string(),
                                 prevent_scroll: true,
+                                force_mount: force_mount_enabled(),
+                                prevent_overflow_text_selection: prevent_selection_enabled(),
+                                custom_anchor: if use_custom_anchor() { Some("custom-portal-anchor".to_string()) } else { None },
                                 on_pointer_down_outside: move |evt: PointerDownOutsideEvent| {
                                     let mut c = outside_clicks;
                                     c.set(c() + 1);
@@ -129,6 +136,13 @@ pub fn PortaledSelectSection() -> Element {
                             }
                         }
                     }
+
+                    // Distinct custom anchor target for live testing
+                    div {
+                        id: "custom-portal-anchor",
+                        style: "margin-top: 0.75rem; padding: 0.5rem 0.75rem; border: 2px dashed #a855f7; border-radius: 0.375rem; background-color: #f3e8ff; font-size: 0.75rem; color: #6b21a8; font-weight: 600;",
+                        "Custom Anchor Target (#custom-portal-anchor)"
+                    }
                 }
 
                 // Interactive control toggles
@@ -153,6 +167,36 @@ pub fn PortaledSelectSection() -> Element {
                             onchange: move |evt| prevent_outside_click.set(evt.value().parse().unwrap_or(false)),
                         }
                         span { "Prevent Dismiss on Outside Click" }
+                    }
+                    label {
+                        style: "display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: #581c87; cursor: pointer;",
+                        input {
+                            r#type: "checkbox",
+                            id: "force-mount-checkbox",
+                            checked: force_mount_enabled(),
+                            onchange: move |evt| force_mount_enabled.set(evt.value().parse().unwrap_or(false)),
+                        }
+                        span { "Force Mount Content in DOM when Closed" }
+                    }
+                    label {
+                        style: "display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: #581c87; cursor: pointer;",
+                        input {
+                            r#type: "checkbox",
+                            id: "prevent-selection-checkbox",
+                            checked: prevent_selection_enabled(),
+                            onchange: move |evt| prevent_selection_enabled.set(evt.value().parse().unwrap_or(false)),
+                        }
+                        span { "Prevent Text Selection when Open" }
+                    }
+                    label {
+                        style: "display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: #581c87; cursor: pointer;",
+                        input {
+                            r#type: "checkbox",
+                            id: "custom-anchor-checkbox",
+                            checked: use_custom_anchor(),
+                            onchange: move |evt| use_custom_anchor.set(evt.value().parse().unwrap_or(false)),
+                        }
+                        span { "Anchor to Custom Element (#custom-portal-anchor)" }
                     }
                 }
             }

@@ -105,7 +105,7 @@ pub fn SelectContent(
     ctx.runtime.set_align_offset(align_offset);
     ctx.runtime.set_avoid_collisions(avoid_collisions);
     ctx.runtime.set_hide_when_detached(hide_when_detached);
-    ctx.runtime.set_custom_anchor(custom_anchor);
+    ctx.runtime.set_custom_anchor(custom_anchor.clone());
     ctx.runtime.set_prevent_scroll(prevent_scroll);
     ctx.runtime.set_prevent_overflow_text_selection(prevent_overflow_text_selection);
     ctx.runtime.set_force_mount(force_mount);
@@ -248,6 +248,7 @@ pub fn SelectContent(
             "data-prevent-scroll": if prevent_scroll { "true" } else { "false" },
             "data-prevent-overflow-text-selection": if prevent_overflow_text_selection { "true" } else { "false" },
             "data-force-mount": if force_mount { "true" } else { "false" },
+            "data-custom-anchor": custom_anchor.as_deref().unwrap_or(""),
             onkeydown: {
                 let runtime = ctx.runtime.clone();
                 let esc_cb = on_escape_keydown;

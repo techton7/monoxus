@@ -110,3 +110,38 @@ fn select_content_phase35_props_and_attributes_contract() {
     assert_eq!(attrs.data_align_str(), "start");
 }
 
+#[test]
+fn select_custom_anchor_and_prevent_overflow_text_selection_contract() {
+    use monoxus::foundation::overlay::{FloatingLayer, PlacementAlign, PlacementSide, Rect, Size};
+
+    // 1. Custom anchor dynamic floating placement:
+    // If standard trigger is constrained at bottom, placement flips to Top.
+    // But if custom anchor is at a spacious location (e.g. y=100), placement stays at Bottom!
+    let layer = FloatingLayer::new(PlacementSide::Bottom)
+        .with_align(PlacementAlign::Start)
+        .with_side_offset(4.0);
+
+    let default_trigger_anchor = Rect::new(100.0, 700.0, 200.0, 40.0);
+    let custom_target_anchor = Rect::new(100.0, 100.0, 200.0, 40.0);
+    let content = Size::new(200.0, 150.0);
+    let viewport = Size::new(1024.0, 768.0);
+
+    let default_pos = layer.position_with_available_size(default_trigger_anchor, content, viewport);
+    assert_eq!(default_pos.side(), PlacementSide::Top);
+
+    // Custom anchor at spacious coordinate stays at preferred bottom
+    let custom_pos = layer.position_with_available_size(custom_target_anchor, content, viewport);
+    assert_eq!(custom_pos.side(), PlacementSide::Bottom);
+}
+
+#[test]
+fn select_content_force_mount_state_contract() {
+    let scope = ScopeHandle::root("select-test").child("force-mount");
+    let select = Select::new(scope.clone()).with_open(false);
+
+    let attrs = select.content_attributes(None);
+    // Closed state
+    assert_eq!(attrs.data_state_str(), "closed");
+}
+
+

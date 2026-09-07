@@ -88,7 +88,8 @@ pub fn SelectPortal(
         });
     }
 
-    if !is_open && !force_mount {
+    let is_force_mounted = force_mount || ctx.runtime.force_mount();
+    if !is_open && !is_force_mounted {
         return rsx! {};
     }
 
