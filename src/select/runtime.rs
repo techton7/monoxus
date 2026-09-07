@@ -345,10 +345,10 @@ impl SelectRuntime {
         let mut pref_sig = self.state.preferred_side;
         if *pref_sig.peek() != side {
             pref_sig.set(side);
-        }
-        let mut side_sig = self.state.side;
-        if *side_sig.peek() != side {
-            side_sig.set(side);
+            let mut side_sig = self.state.side;
+            if *side_sig.peek() != side {
+                side_sig.set(side);
+            }
         }
     }
 
@@ -364,10 +364,10 @@ impl SelectRuntime {
         let mut pref_sig = self.state.preferred_align;
         if *pref_sig.peek() != align {
             pref_sig.set(align);
-        }
-        let mut align_sig = self.state.align;
-        if *align_sig.peek() != align {
-            align_sig.set(align);
+            let mut align_sig = self.state.align;
+            if *align_sig.peek() != align {
+                align_sig.set(align);
+            }
         }
     }
 
@@ -829,6 +829,7 @@ impl SelectRuntime {
 
         let runtime = self.clone();
         spawn(async move {
+            runtime.recalculate_floating_position().await;
             let mut monitor = monitor;
             loop {
                 if *runtime.state.position_loop_token.peek() != next_token {
@@ -860,9 +861,17 @@ impl SelectRuntime {
             let content_id = self.relationships().content_id().to_owned();
             let boundary_id = self.collision_boundary();
             let custom_anchor_id = self.custom_anchor();
+            let custom_anchor_js = custom_anchor_id
+                .as_deref()
+                .map(|id| format!("{id:?}"))
+                .unwrap_or_else(|| "null".to_string());
+            let boundary_js = boundary_id
+                .as_deref()
+                .map(|id| format!("{id:?}"))
+                .unwrap_or_else(|| "null".to_string());
             let script = format!(
                 r#"(function() {{
-                    const customAnchorId = {custom_anchor_id:?};
+                    const customAnchorId = {custom_anchor_js};
                     const trigger = (customAnchorId ? document.getElementById(customAnchorId) : null) || document.getElementById({trigger_id:?});
                     const content = document.getElementById({content_id:?});
                     if (!trigger || !content) return null;
@@ -872,7 +881,7 @@ impl SelectRuntime {
                     let bTop = 0;
                     let bRight = window.innerWidth;
                     let bBottom = window.innerHeight;
-                    const bId = {boundary_id:?};
+                    const bId = {boundary_js};
                     if (bId) {{
                         const bEl = document.getElementById(bId);
                         if (bEl) {{
