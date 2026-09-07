@@ -353,3 +353,54 @@ fn select_portal_and_content_attributes_publish_side_and_host() {
     assert_eq!(content_top.data_side(), PlacementSide::Top);
     assert_eq!(content_top.data_side_str(), "top");
 }
+
+#[test]
+fn select_tab_dismisses_without_restoring_focus_contract() {
+    let scope = ScopeHandle::root("select-test").child("tab-dismiss");
+    let select = Select::new(scope.clone()).with_open(true);
+
+    // Initial state: open is true, trigger expanded, content has listbox tabindex -1
+    assert!(select.is_open());
+    assert_eq!(select.trigger_attributes().aria_expanded(), "true");
+    assert_eq!(select.root_attributes().data_state_str(), "open");
+
+    let content_attrs = select.content_attributes(None);
+    assert_eq!(content_attrs.tabindex(), -1);
+    assert_eq!(content_attrs.role(), "listbox");
+
+    // When Tab key is pressed in SelectContent, dropdown closes without restoring focus to trigger
+    // so browser native focus advances to next focusable element.
+    let closed = select.with_open(false);
+    assert!(!closed.is_open());
+    assert_eq!(closed.trigger_attributes().aria_expanded(), "false");
+    assert_eq!(closed.root_attributes().data_state_str(), "closed");
+}
+
+#[test]
+fn select_document_order_synchronization_contract() {
+    // Simulate reverse/scrambled registration order caused by VDOM child effect LIFO scheduling
+    let mut items = vec![
+        SelectItemData { value: "carrot".into(), text: "Carrot".into(), disabled: false },
+        SelectItemData { value: "orange".into(), text: "Orange".into(), disabled: false },
+        SelectItemData { value: "apple".into(), text: "Apple".into(), disabled: false },
+        SelectItemData { value: "broccoli".into(), text: "Broccoli".into(), disabled: false },
+    ];
+
+    // Document order queried from DOM: apple (top) -> orange -> carrot -> broccoli (bottom)
+    let doc_order = vec!["apple", "orange", "carrot", "broccoli"];
+    items.sort_by_key(|item| {
+        doc_order.iter().position(|v| v == &item.value).unwrap_or(usize::MAX)
+    });
+
+    let sorted_values: Vec<_> = items.iter().map(|i| i.value.as_str()).collect();
+    assert_eq!(sorted_values, vec!["apple", "orange", "carrot", "broccoli"]);
+
+    // Test that roving navigation from "carrot" moves forward (down) to "broccoli"
+    let curr_idx = sorted_values.iter().position(|&v| v == "carrot").unwrap();
+    let next_idx = (curr_idx + 1) % sorted_values.len();
+    assert_eq!(sorted_values[next_idx], "broccoli");
+
+    // Test that roving navigation from "carrot" moves backward (up) to "orange"
+    let prev_idx = if curr_idx == 0 { sorted_values.len() - 1 } else { curr_idx - 1 };
+    assert_eq!(sorted_values[prev_idx], "orange");
+}

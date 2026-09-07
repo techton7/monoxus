@@ -536,12 +536,37 @@ where
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+pub fn sync_items_with_document_order(content_id: &str, items: &mut Vec<SelectItemData>) {
+    let script = format!(
+        r#"(function() {{
+            const root = document.getElementById({content_id:?});
+            if (!root) return [];
+            return Array.from(root.querySelectorAll('[role="option"]'))
+                .map(el => el.getAttribute('data-value') || "");
+        }})()"#
+    );
+    if let Ok(val) = js_sys::eval(&script) {
+        let arr = js_sys::Array::from(&val);
+        let order: Vec<String> = arr.iter().filter_map(|v| v.as_string()).collect();
+        if !order.is_empty() {
+            items.sort_by_key(|item| {
+                order.iter().position(|v| v == &item.value).unwrap_or(usize::MAX)
+            });
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn sync_items_with_document_order(_content_id: &str, _items: &mut Vec<SelectItemData>) {}
+
 impl SelectRuntime {
     pub fn select(&self) -> Select {
-        let mut updated = self.select.clone();
-        updated.value = self.state.value.read().clone();
-        updated.open = *self.state.open.read();
-        updated
+        self.select.clone()
+    }
+
+    pub fn value(&self) -> Option<String> {
+        self.state.value.read().clone()
     }
 
     pub fn is_open(&self) -> bool {
@@ -550,10 +575,6 @@ impl SelectRuntime {
 
     pub fn is_disabled(&self) -> bool {
         self.select.is_disabled()
-    }
-
-    pub fn value(&self) -> Option<String> {
-        self.state.value.read().clone()
     }
 
     pub fn highlighted_value(&self) -> Option<String> {
@@ -573,6 +594,13 @@ impl SelectRuntime {
 
     pub fn relationships(&self) -> &SelectRelationships {
         self.select.relationships()
+    }
+
+    pub fn sync_dom_order(&self) {
+        let content_id = self.relationships().content_id().to_owned();
+        let mut items_sig = self.state.items;
+        let mut list = items_sig.write();
+        sync_items_with_document_order(&content_id, &mut list);
     }
 
     pub fn register_item(&self, val: &str, text: &str, disabled: bool) {
@@ -842,6 +870,7 @@ impl SelectRuntime {
         if !self.is_open() {
             return;
         }
+        self.sync_dom_order();
         let key = event.key().to_string();
         match key.as_str() {
             "ArrowDown" => {
@@ -1066,6 +1095,7 @@ pub fn SelectContent(
         let rt = runtime.clone();
         move || {
             restore_focus_element_by_id(&cid);
+            rt.sync_dom_order();
 
             // Viewport collision detection
             let tid_c = tid.clone();
