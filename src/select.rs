@@ -9,8 +9,8 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        focus_element_by_id, recv_document_dismiss_event, start_document_dismiss_monitor,
-        stop_document_dismiss_monitor, DocumentDismissEvent,
+        recv_document_dismiss_event, restore_focus_element_by_id,
+        start_document_dismiss_monitor, stop_document_dismiss_monitor, DocumentDismissEvent,
     },
     overlay::{FloatingLayer, PlacementSide, PortalHost, Rect, Size},
     shared::ScopeHandle,
@@ -672,9 +672,9 @@ impl SelectRuntime {
         // Start document dismiss monitor (outside click / escape)
         self.start_dismiss_monitor();
 
-        // Focus SelectContent directly per interact.md #1
+        // Focus SelectContent directly per interact.md #1 (with preventScroll: true)
         let content_id = self.relationships().content_id().to_owned();
-        focus_element_by_id(&content_id);
+        restore_focus_element_by_id(&content_id);
     }
 
     pub fn close_dropdown(&self) {
@@ -695,9 +695,9 @@ impl SelectRuntime {
         let mut side_sig = self.state.side;
         side_sig.set(PlacementSide::Bottom);
 
-        // Restore focus to SelectTrigger per interact.md #1
+        // Restore focus to SelectTrigger per interact.md #1 (with preventScroll: true)
         let trigger_id = self.relationships().trigger_id().to_owned();
-        focus_element_by_id(&trigger_id);
+        restore_focus_element_by_id(&trigger_id);
     }
 
     pub fn toggle(&self) {
@@ -1051,7 +1051,7 @@ pub fn SelectContent(
         let tid = trigger_id.clone();
         let rt = runtime.clone();
         move || {
-            focus_element_by_id(&cid);
+            restore_focus_element_by_id(&cid);
 
             // Viewport collision detection
             let tid_c = tid.clone();
