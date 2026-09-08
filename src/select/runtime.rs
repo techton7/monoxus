@@ -865,7 +865,7 @@ impl SelectRuntime {
         let boundary_id = self.collision_boundary();
         let custom_anchor_id = self.custom_anchor();
 
-        if let Some(arr) = crate::foundation::browser::measure_select_floating_placement(
+        if let Some(arr) = crate::foundation::browser::measure_floating_placement(
             trigger_id,
             content_id,
             custom_anchor_id.as_deref(),

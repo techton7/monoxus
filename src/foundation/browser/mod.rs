@@ -7,7 +7,7 @@ use_js!("src/foundation/browser/viewport.js"::*);
 use_js!("src/foundation/browser/focus.js"::*);
 use_js!("src/foundation/browser/scroll_lock.js"::*);
 use_js!("src/foundation/browser/portal.js"::*);
-use_js!("src/foundation/browser/select.js"::*);
+use_js!("src/foundation/browser/floating_measure.js"::*);
 
 const FLOATING_AUTO_UPDATE_SIGNAL_STOP: &str = "stop";
 const FLOATING_AUTO_UPDATE_SIGNAL_STOPPED: &str = "stopped";
@@ -213,24 +213,18 @@ pub(crate) fn remove_element_by_id(element_id: &str) {
     });
 }
 
-pub(crate) async fn get_document_option_order(content_id: &str) -> Vec<String> {
-    let content_id = content_id.to_string();
-    let res: Result<Vec<String>, _> = getDocumentOptionOrder(content_id).await;
-    res.unwrap_or_default()
-}
-
-pub(crate) async fn measure_select_floating_placement(
-    trigger_id: &str,
+pub(crate) async fn measure_floating_placement(
+    anchor_id: &str,
     content_id: &str,
     custom_anchor_id: Option<&str>,
     boundary_id: Option<&str>,
 ) -> Option<[f64; 10]> {
-    let trigger_id = trigger_id.to_string();
+    let anchor_id = anchor_id.to_string();
     let content_id = content_id.to_string();
     let custom_anchor_id = custom_anchor_id.map(|s| s.to_string());
     let boundary_id = boundary_id.map(|s| s.to_string());
-    let res: Result<Option<[f64; 10]>, _> = measureSelectFloatingPlacement(
-        trigger_id,
+    let res: Result<Option<[f64; 10]>, _> = measureFloatingPlacement(
+        anchor_id,
         content_id,
         custom_anchor_id,
         boundary_id,

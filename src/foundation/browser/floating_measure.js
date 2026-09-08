@@ -1,6 +1,6 @@
-export function measureSelectFloatingPlacement(triggerId, contentId, customAnchorId, boundaryId) {
+export function measureFloatingPlacement(anchorId, contentId, customAnchorId, boundaryId) {
     if (typeof document === "undefined") return null;
-    const trigger = (customAnchorId ? document.getElementById(customAnchorId) : null) || document.getElementById(triggerId);
+    const trigger = (customAnchorId ? document.getElementById(customAnchorId) : null) || document.getElementById(anchorId);
     const content = document.getElementById(contentId);
     if (!trigger || !content) return null;
     const tr = trigger.getBoundingClientRect();
@@ -20,12 +20,4 @@ export function measureSelectFloatingPlacement(triggerId, contentId, customAncho
         }
     }
     return [tr.left, tr.top, tr.width, tr.height, cr.width, cr.height, bLeft, bTop, bRight, bBottom];
-}
-
-export function getDocumentOptionOrder(contentId) {
-    if (typeof document === "undefined") return [];
-    const root = document.getElementById(contentId);
-    if (!root) return [];
-    return Array.from(root.querySelectorAll('[role="option"]'))
-        .map(el => el.getAttribute("data-value") || "");
 }

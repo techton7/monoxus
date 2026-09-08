@@ -1,4 +1,5 @@
 pub mod attrs;
+pub(crate) mod browser;
 pub mod content;
 pub mod hidden_input;
 pub mod item;

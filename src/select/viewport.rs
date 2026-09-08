@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use super::{runtime::SelectRuntime, types::SelectItemData};
 
 pub async fn sync_items_with_document_order(content_id: &str, items: &mut Vec<SelectItemData>) {
-    let order = crate::foundation::browser::get_document_option_order(content_id).await;
+    let order = crate::select::browser::get_document_option_order(content_id).await;
     apply_document_order(items, &order);
 }
 
@@ -47,7 +47,7 @@ impl SelectRuntime {
         let content_id = self.relationships().content_id().to_owned();
         let runtime = self.clone();
         spawn(async move {
-            let order = crate::foundation::browser::get_document_option_order(&content_id).await;
+            let order = crate::select::browser::get_document_option_order(&content_id).await;
             if !order.is_empty() {
                 let mut items_sig = runtime.state.items;
                 let mut list = items_sig.write();
