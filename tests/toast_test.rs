@@ -805,10 +805,33 @@ fn config_surface_and_directional_gesture_contract_test() {
 
     let attrs = ToastViewportAttrs::new(&custom_cfg, false, custom_cfg.dir.as_str());
     assert_eq!(attrs.dir, "rtl");
+    assert_eq!(attrs.data_position, "bottom-right");
+    assert_eq!(attrs.data_x_position, "right");
+    assert_eq!(attrs.data_y_position, "bottom");
     assert!(attrs.style.contains("--offset-top: 24px;"));
     assert!(attrs.style.contains("--offset-right: 20px;"));
     assert!(attrs.style.contains("--offset-bottom: 24px;"));
     assert!(attrs.style.contains("--offset-left: 20px;"));
     assert!(attrs.style.contains("--mobile-offset-top: 12px;"));
     assert!(attrs.style.contains("--mobile-offset-bottom: 12px;"));
+
+    // 4. Viewport and Root position attribute alignment
+    let top_left_attrs = ToastViewportAttrs::with_position(&custom_cfg, false, "ltr", ToastPosition::TopLeft);
+    assert_eq!(top_left_attrs.data_position, "top-left");
+    assert_eq!(top_left_attrs.data_x_position, "left");
+    assert_eq!(top_left_attrs.data_y_position, "top");
+
+    let root_attrs = ToastRootAttrs::with_options_and_position(
+        ToastType::Default,
+        ToastPhase::Active,
+        0,
+        3,
+        None,
+        false,
+        ToastPosition::TopCenter,
+    );
+    assert_eq!(root_attrs.data_position, "top-center");
+    assert_eq!(root_attrs.data_x_position, "center");
+    assert_eq!(root_attrs.data_y_position, "top");
+    assert_eq!(root_attrs.data_swipe_out, "false");
 }

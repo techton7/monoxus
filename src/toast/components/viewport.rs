@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 use crate::toast::attrs::ToastViewportAttrs;
 use crate::toast::components::{ToastAction, ToastClose, ToastDescription, ToastRoot, ToastTitle};
 use crate::toast::runtime::{use_toast_runtime, TOAST_STORE};
+use crate::toast::types::ToastPosition;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToastViewportProps {
@@ -13,6 +14,8 @@ pub struct ToastViewportProps {
     pub dir: Option<String>,
     #[props(default)]
     pub style: Option<String>,
+    #[props(default)]
+    pub position: Option<ToastPosition>,
     #[props(default)]
     pub children: Option<Element>,
 }
@@ -27,7 +30,8 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
         .dir
         .as_deref()
         .unwrap_or_else(|| store.config.dir.as_str());
-    let attrs = ToastViewportAttrs::new(&store.config, is_expanded, dir);
+    let effective_position = props.position.unwrap_or(store.config.position);
+    let attrs = ToastViewportAttrs::with_position(&store.config, is_expanded, dir, effective_position);
     let viewport_id = props
         .id
         .clone()
@@ -53,6 +57,7 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
                     index: idx,
                     visible_limit: store.config.visible_toasts,
                     expanded: is_expanded,
+                    position: item.options.position.unwrap_or(effective_position),
                     test_id: item.options.test_id.clone(),
                     if let Some(ref custom_render) = item.options.custom_renderer {
                         {custom_render(item.id)}
@@ -92,6 +97,9 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
             tabindex: "{attrs.tabindex}",
             dir: "{attrs.dir}",
             "data-expanded": "{attrs.data_expanded}",
+            "data-position": "{attrs.data_position}",
+            "data-x-position": "{attrs.data_x_position}",
+            "data-y-position": "{attrs.data_y_position}",
             class: props.class.as_deref().unwrap_or_default(),
             id: "{viewport_id}",
             style: if combined_style.is_empty() { None } else { Some(combined_style.as_str()) },

@@ -312,4 +312,16 @@ pub mod toast {
     {
         promise_with_options(future, loading_msg, success_fn, error_fn, None).await
     }
+
+    /// Dynamically updates the global default toast position.
+    pub fn set_position(position: ToastPosition) {
+        let mut store = TOAST_STORE.write();
+        store.config.position = position;
+    }
+
+    /// Dynamically updates global toast configuration settings.
+    pub fn configure<F: FnOnce(&mut ToastConfig)>(updater: F) {
+        let mut store = TOAST_STORE.write();
+        updater(&mut store.config);
+    }
 }

@@ -185,9 +185,26 @@ const handlePointerDown = (e) => {
     dragStartTime = Date.now();
     swipeDirection = null;
     isDragging = false;
+    toast.removeAttribute("data-swipe-out");
+    toast.removeAttribute("data-swipe-direction");
     try {
         toast.setPointerCapture(e.pointerId);
     } catch (_) {}
+};
+
+const getEffectiveSwipeDirections = (toast) => {
+    if (toast && toast.getAttribute("data-swipe-directions")) {
+        return toast.getAttribute("data-swipe-directions").split(",").map((s) => s.trim());
+    }
+    const toastPos =
+        (toast && toast.getAttribute("data-position")) ||
+        (currentBoundViewport && currentBoundViewport.getAttribute("data-position")) ||
+        position;
+    const [y, x] = toastPos.split("-");
+    const dirs = [];
+    if (y) dirs.push(y);
+    if (x && x !== "center") dirs.push(x);
+    return dirs.length > 0 ? dirs : swipeDirections;
 };
 
 const handlePointerMove = (e) => {
@@ -202,24 +219,23 @@ const handlePointerMove = (e) => {
     }
 
     let swipeAmount = { x: 0, y: 0 };
+    const activeSwipeDirs = getEffectiveSwipeDirections(dragToast);
 
     if (swipeDirection === 'y') {
-        if (swipeDirections.includes('top') || swipeDirections.includes('bottom')) {
-            if ((swipeDirections.includes('top') && yDelta < 0) || (swipeDirections.includes('bottom') && yDelta > 0)) {
-                swipeAmount.y = yDelta;
-            } else {
-                const dampenedDelta = yDelta * getDampening(yDelta);
-                swipeAmount.y = Math.abs(dampenedDelta) < Math.abs(yDelta) ? dampenedDelta : yDelta;
-            }
+        const isAllowed = (activeSwipeDirs.includes('top') && yDelta < 0) || (activeSwipeDirs.includes('bottom') && yDelta > 0);
+        if (isAllowed) {
+            swipeAmount.y = yDelta;
+        } else {
+            const dampenedDelta = yDelta * getDampening(yDelta);
+            swipeAmount.y = Math.abs(dampenedDelta) < Math.abs(yDelta) ? dampenedDelta : yDelta;
         }
     } else if (swipeDirection === 'x') {
-        if (swipeDirections.includes('left') || swipeDirections.includes('right')) {
-            if ((swipeDirections.includes('left') && xDelta < 0) || (swipeDirections.includes('right') && xDelta > 0)) {
-                swipeAmount.x = xDelta;
-            } else {
-                const dampenedDelta = xDelta * getDampening(xDelta);
-                swipeAmount.x = Math.abs(dampenedDelta) < Math.abs(xDelta) ? dampenedDelta : xDelta;
-            }
+        const isAllowed = (activeSwipeDirs.includes('left') && xDelta < 0) || (activeSwipeDirs.includes('right') && xDelta > 0);
+        if (isAllowed) {
+            swipeAmount.x = xDelta;
+        } else {
+            const dampenedDelta = xDelta * getDampening(xDelta);
+            swipeAmount.x = Math.abs(dampenedDelta) < Math.abs(xDelta) ? dampenedDelta : xDelta;
         }
     }
 
@@ -257,23 +273,35 @@ const handlePointerEnd = (e) => {
         toast.removeAttribute("data-swiping");
         dioxus.send("swipe:end");
 
+        const activeSwipeDirs = getEffectiveSwipeDirections(toast);
         const swipeAmount = activeSwipeDirection === 'x' ? swipeAmountX : swipeAmountY;
         const velocity = Math.abs(swipeAmount) / (elapsed || 1);
 
         const isAllowedDirection =
             activeSwipeDirection === 'x'
-                ? swipeDirections.includes(swipeAmountX > 0 ? 'right' : 'left')
-                : swipeDirections.includes(swipeAmountY > 0 ? 'bottom' : 'top');
+                ? activeSwipeDirs.includes(swipeAmountX > 0 ? 'right' : 'left')
+                : activeSwipeDirs.includes(swipeAmountY > 0 ? 'bottom' : 'top');
 
         if (isAllowedDirection && (Math.abs(swipeAmount) >= swipeThreshold || velocity > 0.11)) {
             const idStr = toast.getAttribute("data-id") || toast.getAttribute("id") || "";
             const match = idStr.match(/\d+/);
             const toastId = match ? match[0] : "0";
+
+            const swipeOutDir =
+                activeSwipeDirection === 'x'
+                    ? (swipeAmountX > 0 ? 'right' : 'left')
+                    : (swipeAmountY > 0 ? 'down' : 'up');
+
+            toast.setAttribute("data-swipe-out", "true");
+            toast.setAttribute("data-swipe-direction", swipeOutDir);
+
             dioxus.send(`swipe:dismiss:${toastId}`);
         } else {
             toast.style.setProperty("--swipe-amount-x", "0px");
             toast.style.setProperty("--swipe-amount-y", "0px");
             toast.style.setProperty("--drag-offset", "0px");
+            toast.removeAttribute("data-swipe-out");
+            toast.removeAttribute("data-swipe-direction");
         }
     }
 };

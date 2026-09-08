@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use crate::toast::attrs::ToastRootAttrs;
-use crate::toast::types::{ToastId, ToastPhase, ToastType};
+use crate::toast::types::{ToastId, ToastPhase, ToastPosition, ToastType};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToastRootProps {
@@ -16,6 +16,8 @@ pub struct ToastRootProps {
     #[props(default)]
     pub expanded: bool,
     #[props(default)]
+    pub position: Option<ToastPosition>,
+    #[props(default)]
     pub test_id: Option<String>,
     #[props(default)]
     pub class: Option<String>,
@@ -26,13 +28,15 @@ pub struct ToastRootProps {
 /// Headless toast item container (<li role="status" / role="alert">).
 #[component]
 pub fn ToastRoot(props: ToastRootProps) -> Element {
-    let attrs = ToastRootAttrs::with_options(
+    let position = props.position.unwrap_or(ToastPosition::BottomRight);
+    let attrs = ToastRootAttrs::with_options_and_position(
         props.toast_type,
         props.phase,
         props.index,
         props.visible_limit,
         props.test_id,
         props.expanded,
+        position,
     );
 
     rsx! {
@@ -47,6 +51,10 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
             "data-visible": "{attrs.data_visible}",
             "data-front": "{attrs.data_front}",
             "data-expanded": "{attrs.data_expanded}",
+            "data-position": "{attrs.data_position}",
+            "data-x-position": "{attrs.data_x_position}",
+            "data-y-position": "{attrs.data_y_position}",
+            "data-swipe-out": "{attrs.data_swipe_out}",
             "data-index": "{attrs.data_index}",
             "data-testid": attrs.data_testid.as_deref().unwrap_or_default(),
             class: props.class.as_deref().unwrap_or_default(),

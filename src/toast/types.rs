@@ -77,6 +77,23 @@ impl ToastPosition {
         }
     }
 
+    /// Horizontal position alignment ('left', 'center', or 'right').
+    pub fn x_str(&self) -> &'static str {
+        match self {
+            Self::TopLeft | Self::BottomLeft => "left",
+            Self::TopCenter | Self::BottomCenter => "center",
+            Self::TopRight | Self::BottomRight => "right",
+        }
+    }
+
+    /// Vertical placement anchor ('top' or 'bottom').
+    pub fn y_str(&self) -> &'static str {
+        match self {
+            Self::TopLeft | Self::TopCenter | Self::TopRight => "top",
+            Self::BottomLeft | Self::BottomCenter | Self::BottomRight => "bottom",
+        }
+    }
+
     /// Derives the default allowed pointer swipe directions from the viewport corner position.
     pub fn default_swipe_directions(&self) -> Vec<SwipeDirection> {
         match self {

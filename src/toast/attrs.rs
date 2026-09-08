@@ -8,11 +8,23 @@ pub struct ToastViewportAttrs {
     pub tabindex: &'static str,
     pub dir: String,
     pub data_expanded: &'static str,
+    pub data_position: &'static str,
+    pub data_x_position: &'static str,
+    pub data_y_position: &'static str,
     pub style: String,
 }
 
 impl ToastViewportAttrs {
     pub fn new(config: &ToastConfig, expanded: bool, dir: impl Into<String>) -> Self {
+        Self::with_position(config, expanded, dir, config.position)
+    }
+
+    pub fn with_position(
+        config: &ToastConfig,
+        expanded: bool,
+        dir: impl Into<String>,
+        position: ToastPosition,
+    ) -> Self {
         let mut styles = Vec::new();
         if let Some(ref top) = config.offset.top {
             styles.push(format!("--offset-top: {};", top));
@@ -45,6 +57,9 @@ impl ToastViewportAttrs {
             tabindex: "-1",
             dir: dir.into(),
             data_expanded: if expanded { "true" } else { "false" },
+            data_position: position.as_str(),
+            data_x_position: position.x_str(),
+            data_y_position: position.y_str(),
             style: styles.join(" "),
         }
     }
@@ -61,6 +76,10 @@ pub struct ToastRootAttrs {
     pub data_visible: &'static str,
     pub data_front: &'static str,
     pub data_expanded: &'static str,
+    pub data_position: &'static str,
+    pub data_x_position: &'static str,
+    pub data_y_position: &'static str,
+    pub data_swipe_out: &'static str,
     pub data_index: String,
     pub data_testid: Option<String>,
 }
@@ -84,6 +103,26 @@ impl ToastRootAttrs {
         test_id: Option<String>,
         expanded: bool,
     ) -> Self {
+        Self::with_options_and_position(
+            toast_type,
+            phase,
+            index,
+            visible_limit,
+            test_id,
+            expanded,
+            ToastPosition::BottomRight,
+        )
+    }
+
+    pub fn with_options_and_position(
+        toast_type: ToastType,
+        phase: ToastPhase,
+        index: usize,
+        visible_limit: usize,
+        test_id: Option<String>,
+        expanded: bool,
+        position: ToastPosition,
+    ) -> Self {
         let (role, aria_live) = match toast_type {
             ToastType::Warning | ToastType::Error => ("alert", "assertive"),
             _ => ("status", "polite"),
@@ -98,6 +137,10 @@ impl ToastRootAttrs {
             data_visible: if index < visible_limit { "true" } else { "false" },
             data_front: if index == 0 { "true" } else { "false" },
             data_expanded: if expanded { "true" } else { "false" },
+            data_position: position.as_str(),
+            data_x_position: position.x_str(),
+            data_y_position: position.y_str(),
+            data_swipe_out: "false",
             data_index: index.to_string(),
             data_testid: test_id,
         }
