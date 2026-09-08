@@ -11,7 +11,8 @@ pub mod tooltip;
 
 use dioxus::prelude::*;
 use pages::{
-    AccordionPage, AlertDialogPage, DialogPage, PopoverPage, SelectPage, TabsPage, TooltipPage,
+    AccordionPage, AlertDialogPage, DialogPage, PopoverPage, SelectPage, TabsPage, ToastPage,
+    TooltipPage,
 };
 
 fn main() {
@@ -27,6 +28,7 @@ pub enum ComponentPage {
     AlertDialog,
     Popover,
     Tooltip,
+    Toast,
 }
 
 impl ComponentPage {
@@ -39,6 +41,7 @@ impl ComponentPage {
             Self::AlertDialog => "Alert Dialog",
             Self::Popover => "Popover",
             Self::Tooltip => "Tooltip",
+            Self::Toast => "Toast",
         }
     }
 
@@ -51,6 +54,7 @@ impl ComponentPage {
             Self::AlertDialog => "⚠",
             Self::Popover => "⌖",
             Self::Tooltip => "ℹ",
+            Self::Toast => "💬",
         }
     }
 
@@ -63,6 +67,7 @@ impl ComponentPage {
             Self::AlertDialog => "Destructive",
             Self::Popover => "Anchored",
             Self::Tooltip => "Hover/Focus",
+            Self::Toast => "Sonner Stacking",
         }
     }
 }
@@ -78,6 +83,7 @@ fn app() -> Element {
         ComponentPage::AlertDialog,
         ComponentPage::Popover,
         ComponentPage::Tooltip,
+        ComponentPage::Toast,
     ];
 
     rsx! {
@@ -173,6 +179,7 @@ fn app() -> Element {
                     ComponentPage::AlertDialog => rsx! { AlertDialogPage {} },
                     ComponentPage::Popover => rsx! { PopoverPage {} },
                     ComponentPage::Tooltip => rsx! { TooltipPage {} },
+                    ComponentPage::Toast => rsx! { ToastPage {} },
                 }
             }
         }

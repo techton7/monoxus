@@ -4,6 +4,7 @@ pub mod dialog_page;
 pub mod popover_page;
 pub mod select_page;
 pub mod tabs_page;
+pub mod toast_page;
 pub mod tooltip_page;
 
 pub use accordion_page::AccordionPage;
@@ -12,4 +13,5 @@ pub use dialog_page::DialogPage;
 pub use popover_page::PopoverPage;
 pub use select_page::SelectPage;
 pub use tabs_page::TabsPage;
+pub use toast_page::ToastPage;
 pub use tooltip_page::TooltipPage;

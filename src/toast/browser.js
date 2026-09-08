@@ -1,0 +1,366 @@
+if (typeof window.__monoxus_toast_cleanup === "function") {
+    try { window.__monoxus_toast_cleanup(); } catch (_) {}
+}
+
+let init = await dioxus.recv();
+let cfg = {};
+try {
+    cfg = JSON.parse(init);
+} catch (_) {
+    let parts = (init || "").split("\n");
+    cfg = {
+        hotkey: parts[0] || "F8",
+        viewport_id: parts[1] || "monoxus-toast-viewport",
+        gap: 14,
+        swipe_threshold: 45,
+        position: "bottom-right"
+    };
+}
+
+let hotkey = cfg.hotkey || "F8";
+let viewportId = cfg.viewport_id || "monoxus-toast-viewport";
+let gap = typeof cfg.gap === "number" ? cfg.gap : 14;
+let swipeThreshold = typeof cfg.swipe_threshold === "number" ? cfg.swipe_threshold : 45;
+let position = cfg.position || "bottom-right";
+let dir = cfg.dir || "auto";
+let swipeDirections = Array.isArray(cfg.swipe_directions) && cfg.swipe_directions.length > 0
+    ? cfg.swipe_directions
+    : (position.startsWith("top") ? ["top", "right"] : ["bottom", "right"]);
+let offset = cfg.offset || {};
+let mobileOffset = cfg.mobile_offset || {};
+
+const getResolvedDir = () => {
+    if (dir !== "auto") return dir;
+    const docDir = document.documentElement.getAttribute("dir");
+    if (docDir && docDir !== "auto") return docDir;
+    return window.getComputedStyle(document.documentElement).direction || "ltr";
+};
+
+const applyViewportStyles = (viewport) => {
+    if (!viewport) return;
+    const resolvedDir = getResolvedDir();
+    if (!viewport.getAttribute("dir")) {
+        viewport.setAttribute("dir", resolvedDir);
+    }
+    const defaultOffset = { top: "32px", right: "32px", bottom: "32px", left: "32px" };
+    const defaultMobileOffset = { top: "16px", right: "16px", bottom: "16px", left: "16px" };
+
+    ["top", "right", "bottom", "left"].forEach((key) => {
+        const offVal = offset[key] || defaultOffset[key];
+        viewport.style.setProperty(`--offset-${key}`, offVal);
+        const mobVal = mobileOffset[key] || defaultMobileOffset[key];
+        viewport.style.setProperty(`--mobile-offset-${key}`, mobVal);
+    });
+};
+
+const handleVisibilityChange = () => {
+    dioxus.send(`visibility:${document.visibilityState}`);
+};
+
+const handleKeyDown = (event) => {
+    if (event.defaultPrevented) return;
+    if (event.key === hotkey) {
+        event.preventDefault();
+        const el = document.getElementById(viewportId);
+        if (el) {
+            el.focus();
+        }
+        dioxus.send(`hotkey:${event.key}`);
+    }
+};
+
+document.addEventListener("visibilitychange", handleVisibilityChange);
+document.addEventListener("keydown", handleKeyDown);
+
+// --- Stacking Geometry & Gestures Engine ---
+const observedElements = new Set();
+const resizeObserver = new ResizeObserver(() => {
+    updateStackGeometry();
+});
+
+const updateStackGeometry = () => {
+    const viewport = document.getElementById(viewportId);
+    if (!viewport) return;
+
+    const toasts = Array.from(
+        viewport.querySelectorAll('[data-sonner-toast], li[role="status"], li[role="alert"]')
+    );
+    if (toasts.length === 0) {
+        viewport.style.removeProperty("--front-toast-height");
+        return;
+    }
+
+    const frontToast = toasts[0];
+    const frontRect = frontToast.getBoundingClientRect();
+    const frontH = Math.round(frontRect.height);
+    viewport.style.setProperty("--front-toast-height", `${frontH}px`);
+
+    let accumulatedH = 0;
+    for (let i = 0; i < toasts.length; i++) {
+        const toast = toasts[i];
+        const rect = toast.getBoundingClientRect();
+        const h = Math.round(rect.height);
+        const offset = accumulatedH + (i * gap);
+        const scale = Number((Math.max(0.7, 1.0 - (i * 0.05))).toFixed(3));
+
+        toast.style.setProperty("--height", `${h}px`);
+        toast.style.setProperty("--offset", `${offset}px`);
+        toast.style.setProperty("--scale", `${scale}`);
+        toast.style.setProperty("--index", `${i}`);
+        toast.style.setProperty("--toasts-before", `${i}`);
+        toast.style.setProperty("--z-index", `${toasts.length - i}`);
+        accumulatedH += h;
+    }
+};
+
+const syncObservedToasts = () => {
+    const viewport = document.getElementById(viewportId);
+    if (!viewport) return;
+    const toasts = Array.from(
+        viewport.querySelectorAll('[data-sonner-toast], li[role="status"], li[role="alert"]')
+    );
+    const currentSet = new Set(toasts);
+    for (const el of observedElements) {
+        if (!currentSet.has(el)) {
+            resizeObserver.unobserve(el);
+            observedElements.delete(el);
+        }
+    }
+    for (const el of toasts) {
+        if (!observedElements.has(el)) {
+            resizeObserver.observe(el);
+            observedElements.add(el);
+        }
+    }
+};
+
+let isHovered = false;
+
+const handleMouseEnter = () => {
+    if (!isHovered) {
+        isHovered = true;
+        dioxus.send("hover:enter");
+    }
+};
+
+const handleMouseMove = () => {
+    if (!isHovered) {
+        isHovered = true;
+        dioxus.send("hover:enter");
+    }
+};
+
+const handleMouseLeave = (e) => {
+    if (e && e.relatedTarget && currentBoundViewport && currentBoundViewport.contains(e.relatedTarget)) {
+        return;
+    }
+    if (isHovered) {
+        isHovered = false;
+        dioxus.send("hover:leave");
+    }
+};
+
+const handleFocusIn = () => dioxus.send("focus:enter");
+const handleFocusOut = () => dioxus.send("focus:leave");
+
+let dragToast = null;
+let dragStart = null;
+let dragStartTime = 0;
+let swipeDirection = null; // 'x' or 'y' or null
+let isDragging = false;
+
+const getDampening = (delta) => {
+    const factor = Math.abs(delta) / 20;
+    return 1 / (1.5 + factor);
+};
+
+const handlePointerDown = (e) => {
+    if (e.button === 2) return;
+    const toast = e.target.closest('[data-sonner-toast], li[role="status"], li[role="alert"]');
+    if (!toast) return;
+    if (e.target.tagName === "BUTTON" || e.target.closest("button")) return;
+
+    dragToast = toast;
+    dragStart = { x: e.clientX, y: e.clientY };
+    dragStartTime = Date.now();
+    swipeDirection = null;
+    isDragging = false;
+    try {
+        toast.setPointerCapture(e.pointerId);
+    } catch (_) {}
+};
+
+const handlePointerMove = (e) => {
+    if (!dragToast || !dragStart) return;
+    if (window.getSelection()?.toString().length > 0) return;
+
+    const xDelta = e.clientX - dragStart.x;
+    const yDelta = e.clientY - dragStart.y;
+
+    if (!swipeDirection && (Math.abs(xDelta) > 1 || Math.abs(yDelta) > 1)) {
+        swipeDirection = Math.abs(xDelta) > Math.abs(yDelta) ? 'x' : 'y';
+    }
+
+    let swipeAmount = { x: 0, y: 0 };
+
+    if (swipeDirection === 'y') {
+        if (swipeDirections.includes('top') || swipeDirections.includes('bottom')) {
+            if ((swipeDirections.includes('top') && yDelta < 0) || (swipeDirections.includes('bottom') && yDelta > 0)) {
+                swipeAmount.y = yDelta;
+            } else {
+                const dampenedDelta = yDelta * getDampening(yDelta);
+                swipeAmount.y = Math.abs(dampenedDelta) < Math.abs(yDelta) ? dampenedDelta : yDelta;
+            }
+        }
+    } else if (swipeDirection === 'x') {
+        if (swipeDirections.includes('left') || swipeDirections.includes('right')) {
+            if ((swipeDirections.includes('left') && xDelta < 0) || (swipeDirections.includes('right') && xDelta > 0)) {
+                swipeAmount.x = xDelta;
+            } else {
+                const dampenedDelta = xDelta * getDampening(xDelta);
+                swipeAmount.x = Math.abs(dampenedDelta) < Math.abs(xDelta) ? dampenedDelta : xDelta;
+            }
+        }
+    }
+
+    if (Math.abs(swipeAmount.x) > 0 || Math.abs(swipeAmount.y) > 0) {
+        if (!isDragging) {
+            isDragging = true;
+            dragToast.setAttribute("data-swiping", "true");
+            dioxus.send("swipe:start");
+        }
+        dragToast.style.setProperty("--swipe-amount-x", `${swipeAmount.x}px`);
+        dragToast.style.setProperty("--swipe-amount-y", `${swipeAmount.y}px`);
+        dragToast.style.setProperty("--drag-offset", `${swipeDirection === 'x' ? swipeAmount.x : swipeAmount.y}px`);
+    }
+};
+
+const handlePointerEnd = (e) => {
+    if (!dragToast) return;
+    const toast = dragToast;
+    const elapsed = Date.now() - dragStartTime;
+
+    const swipeAmountX = Number(
+        toast.style.getPropertyValue('--swipe-amount-x').replace('px', '') || 0
+    );
+    const swipeAmountY = Number(
+        toast.style.getPropertyValue('--swipe-amount-y').replace('px', '') || 0
+    );
+
+    const activeSwipeDirection = swipeDirection;
+    dragToast = null;
+    dragStart = null;
+    swipeDirection = null;
+
+    if (isDragging) {
+        isDragging = false;
+        toast.removeAttribute("data-swiping");
+        dioxus.send("swipe:end");
+
+        const swipeAmount = activeSwipeDirection === 'x' ? swipeAmountX : swipeAmountY;
+        const velocity = Math.abs(swipeAmount) / (elapsed || 1);
+
+        const isAllowedDirection =
+            activeSwipeDirection === 'x'
+                ? swipeDirections.includes(swipeAmountX > 0 ? 'right' : 'left')
+                : swipeDirections.includes(swipeAmountY > 0 ? 'bottom' : 'top');
+
+        if (isAllowedDirection && (Math.abs(swipeAmount) >= swipeThreshold || velocity > 0.11)) {
+            const idStr = toast.getAttribute("data-id") || toast.getAttribute("id") || "";
+            const match = idStr.match(/\d+/);
+            const toastId = match ? match[0] : "0";
+            dioxus.send(`swipe:dismiss:${toastId}`);
+        } else {
+            toast.style.setProperty("--swipe-amount-x", "0px");
+            toast.style.setProperty("--swipe-amount-y", "0px");
+            toast.style.setProperty("--drag-offset", "0px");
+        }
+    }
+};
+
+window.addEventListener("pointermove", handlePointerMove);
+window.addEventListener("pointerup", handlePointerEnd);
+window.addEventListener("pointercancel", handlePointerEnd);
+
+let viewportObserver = null;
+let currentBoundViewport = null;
+
+const bindViewport = () => {
+    const viewport = document.getElementById(viewportId);
+    if (!viewport) return false;
+    if (currentBoundViewport === viewport) return true;
+
+    if (currentBoundViewport && viewportObserver) {
+        viewportObserver.disconnect();
+        currentBoundViewport.removeEventListener("mouseenter", handleMouseEnter);
+        currentBoundViewport.removeEventListener("mouseleave", handleMouseLeave);
+        currentBoundViewport.removeEventListener("focusin", handleFocusIn);
+        currentBoundViewport.removeEventListener("focusout", handleFocusOut);
+        currentBoundViewport.removeEventListener("pointerdown", handlePointerDown);
+    }
+
+    currentBoundViewport = viewport;
+    viewportObserver = new MutationObserver(() => {
+        syncObservedToasts();
+        updateStackGeometry();
+    });
+    viewportObserver.observe(viewport, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ["data-expanded"]
+    });
+
+    viewport.addEventListener("mouseenter", handleMouseEnter);
+    viewport.addEventListener("mousemove", handleMouseMove);
+    viewport.addEventListener("mouseleave", handleMouseLeave);
+    viewport.addEventListener("focusin", handleFocusIn);
+    viewport.addEventListener("focusout", handleFocusOut);
+    viewport.addEventListener("pointerdown", handlePointerDown);
+
+    applyViewportStyles(viewport);
+    syncObservedToasts();
+    updateStackGeometry();
+    return true;
+};
+
+bindViewport();
+
+const bodyObserver = new MutationObserver(() => {
+    bindViewport();
+});
+bodyObserver.observe(document.body, { childList: true, subtree: true });
+
+const cleanup = () => {
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    document.removeEventListener("keydown", handleKeyDown);
+    window.removeEventListener("pointermove", handlePointerMove);
+    window.removeEventListener("pointerup", handlePointerEnd);
+    window.removeEventListener("pointercancel", handlePointerEnd);
+
+    bodyObserver.disconnect();
+    if (viewportObserver) viewportObserver.disconnect();
+    resizeObserver.disconnect();
+
+    if (currentBoundViewport) {
+        currentBoundViewport.removeEventListener("mouseenter", handleMouseEnter);
+        currentBoundViewport.removeEventListener("mousemove", handleMouseMove);
+        currentBoundViewport.removeEventListener("mouseleave", handleMouseLeave);
+        currentBoundViewport.removeEventListener("focusin", handleFocusIn);
+        currentBoundViewport.removeEventListener("focusout", handleFocusOut);
+        currentBoundViewport.removeEventListener("pointerdown", handlePointerDown);
+    }
+    window.__monoxus_toast_cleanup = null;
+};
+window.__monoxus_toast_cleanup = cleanup;
+
+while (true) {
+    const cmd = await dioxus.recv();
+    if (cmd === "stop") {
+        break;
+    }
+}
+
+cleanup();
+dioxus.send("stopped");
+
