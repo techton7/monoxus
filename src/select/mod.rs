@@ -22,3 +22,4 @@ pub use self::runtime::*;
 pub use self::state::*;
 pub use self::trigger::*;
 pub use self::types::*;
+pub use self::viewport::*;

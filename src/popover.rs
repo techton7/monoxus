@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc, time::Duration};
 
-use dioxus::{document, document::Eval, prelude::*};
+use dioxus::{document::Eval, prelude::*};
 use futures_timer::Delay;
 
 pub use crate::foundation::compose::{
@@ -1209,19 +1209,7 @@ fn focus_registered_target(state: PopoverRuntimeState, target: &str) -> bool {
 }
 
 async fn active_element_matches_id(target_id: &str) -> bool {
-    let Ok(is_active) = document::eval(&format!(
-        r#"(function() {{
-    const target = document.getElementById({target_id:?});
-    return target instanceof HTMLElement && document.activeElement === target;
-}})();"#,
-    ))
-    .join()
-    .await
-    else {
-        return false;
-    };
-
-    is_active
+    crate::foundation::browser::active_element_matches_id(target_id).await
 }
 
 fn sync_popover_positioning(popover: &Popover, state: PopoverRuntimeState) {
@@ -1352,40 +1340,11 @@ async fn sync_hidden_popover_placement(
 }
 
 async fn popover_reference_is_hidden(popover: &Popover) -> Result<bool, String> {
-    let anchor_ids = format!(
-        "[{:?}, {:?}]",
+    let anchor_ids = [
         popover.relationships().anchor_id(),
         popover.relationships().trigger_id(),
-    );
-    let hidden: Option<bool> = document::eval(&format!(
-        r#"(() => {{
-    const anchorIds = {anchor_ids};
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-
-    for (const id of anchorIds) {{
-        const element = document.getElementById(id);
-        if (!(element instanceof HTMLElement)) {{
-            continue;
-        }}
-
-        const rect = element.getBoundingClientRect();
-        return rect.width <= 0 ||
-            rect.height <= 0 ||
-            rect.right <= 0 ||
-            rect.bottom <= 0 ||
-            rect.left >= viewportWidth ||
-            rect.top >= viewportHeight;
-    }}
-
-    return null;
-}})();"#,
-    ))
-    .join()
-    .await
-    .map_err(|error| format!("reference hidden query failed: {error}"))?;
-
-    Ok(hidden.unwrap_or(false))
+    ];
+    crate::foundation::browser::is_reference_hidden(&anchor_ids).await
 }
 
 async fn measure_popover_placement(
@@ -1439,11 +1398,7 @@ async fn read_client_rect(mounted: PopoverMountedHandle, label: &str) -> Result<
 }
 
 async fn read_viewport_size() -> Result<Size, String> {
-    let viewport: [f64; 2] = document::eval("return [window.innerWidth, window.innerHeight];")
-        .join()
-        .await
-        .map_err(|error| format!("viewport query failed: {error}"))?;
-
+    let viewport = crate::foundation::browser::get_viewport_size().await?;
     Ok(Size::new(viewport[0] as f32, viewport[1] as f32))
 }
 

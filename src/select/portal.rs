@@ -41,52 +41,24 @@ pub fn SelectPortal(
 
     let portal_id = format!("{}-portal-root", ctx.runtime.relationships().content_id());
 
-    // Physical DOM Teleportation in browser runtime
-    #[cfg(target_arch = "wasm32")]
-    {
-        let pid = portal_id.clone();
-        let target_host = resolved_host.clone();
-        use_effect(use_reactive((&is_open,), move |(open,)| {
-            if !open && !force_mount {
-                return;
-            }
-            let pid = pid.clone();
-            let host_id = match &target_host {
-                PortalHost::Inline => "",
-                PortalHost::Named(name) => name.as_ref(),
-                PortalHost::Default => "",
-            };
-            let script = format!(
-                r#"(function() {{
-                    const el = document.getElementById({pid:?});
-                    if (!el) return;
-                    const hostId = {host_id:?};
-                    let target = hostId ? document.getElementById(hostId) : null;
-                    if (!target) {{
-                        target = document.getElementById("portal-root") || document.body;
-                    }}
-                    if (target && el.parentElement !== target) {{
-                        target.appendChild(el);
-                    }}
-                }})()"#
-            );
-            let _ = js_sys::eval(&script);
-        }));
+    let pid = portal_id.clone();
+    let target_host = resolved_host.clone();
+    use_effect(use_reactive((&is_open,), move |(open,)| {
+        if !open && !force_mount {
+            return;
+        }
+        let host_id = match &target_host {
+            PortalHost::Inline => None,
+            PortalHost::Named(name) => Some(name.as_ref()),
+            PortalHost::Default => None,
+        };
+        crate::foundation::browser::teleport_element_to_host(&pid, host_id);
+    }));
 
-        let pid_cleanup = portal_id.clone();
-        dioxus::core::use_drop(move || {
-            let pid = pid_cleanup.clone();
-            let script = format!(
-                r#"(function() {{
-                    const el = document.getElementById({pid:?});
-                    if (el && el.parentElement) {{
-                        el.remove();
-                    }}
-                }})()"#
-            );
-            let _ = js_sys::eval(&script);
-        });
-    }
+    let pid_cleanup = portal_id.clone();
+    dioxus::core::use_drop(move || {
+        crate::foundation::browser::remove_element_by_id(&pid_cleanup);
+    });
 
     let is_force_mounted = force_mount || ctx.runtime.force_mount();
     if !is_open && !is_force_mounted {

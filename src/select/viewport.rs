@@ -2,32 +2,21 @@ use dioxus::prelude::*;
 
 use super::{runtime::SelectRuntime, types::SelectItemData};
 
-#[cfg(target_arch = "wasm32")]
-pub fn sync_items_with_document_order(content_id: &str, items: &mut Vec<SelectItemData>) {
-    let script = format!(
-        r#"(function() {{
-            const root = document.getElementById({content_id:?});
-            if (!root) return [];
-            return Array.from(root.querySelectorAll('[role="option"]'))
-                .map(el => el.getAttribute('data-value') || "");
-        }})()"#
-    );
-    if let Ok(val) = js_sys::eval(&script) {
-        let arr = js_sys::Array::from(&val);
-        let order: Vec<String> = arr.iter().filter_map(|v| v.as_string()).collect();
-        if !order.is_empty() {
-            items.sort_by_key(|item| {
-                order
-                    .iter()
-                    .position(|v| v == &item.value)
-                    .unwrap_or(usize::MAX)
-            });
-        }
-    }
+pub async fn sync_items_with_document_order(content_id: &str, items: &mut Vec<SelectItemData>) {
+    let order = crate::foundation::browser::get_document_option_order(content_id).await;
+    apply_document_order(items, &order);
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub fn sync_items_with_document_order(_content_id: &str, _items: &mut Vec<SelectItemData>) {}
+pub fn apply_document_order(items: &mut Vec<SelectItemData>, order: &[String]) {
+    if !order.is_empty() {
+        items.sort_by_key(|item| {
+            order
+                .iter()
+                .position(|v| v == &item.value)
+                .unwrap_or(usize::MAX)
+        });
+    }
+}
 
 impl SelectRuntime {
     pub fn register_item(&self, val: &str, text: &str, disabled: bool) {
@@ -56,9 +45,15 @@ impl SelectRuntime {
 
     pub fn sync_dom_order(&self) {
         let content_id = self.relationships().content_id().to_owned();
-        let mut items_sig = self.state.items;
-        let mut list = items_sig.write();
-        sync_items_with_document_order(&content_id, &mut list);
+        let runtime = self.clone();
+        spawn(async move {
+            let order = crate::foundation::browser::get_document_option_order(&content_id).await;
+            if !order.is_empty() {
+                let mut items_sig = runtime.state.items;
+                let mut list = items_sig.write();
+                apply_document_order(&mut list, &order);
+            }
+        });
     }
 
     pub fn highlight_next(&self) {

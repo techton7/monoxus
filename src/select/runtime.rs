@@ -860,115 +860,80 @@ impl SelectRuntime {
     }
 
     pub async fn recalculate_floating_position(&self) {
-        #[cfg(target_arch = "wasm32")]
+        let trigger_id = self.relationships().trigger_id();
+        let content_id = self.relationships().content_id();
+        let boundary_id = self.collision_boundary();
+        let custom_anchor_id = self.custom_anchor();
+
+        if let Some(arr) = crate::foundation::browser::measure_select_floating_placement(
+            trigger_id,
+            content_id,
+            custom_anchor_id.as_deref(),
+            boundary_id.as_deref(),
+        )
+        .await
         {
-            let trigger_id = self.relationships().trigger_id().to_owned();
-            let content_id = self.relationships().content_id().to_owned();
-            let boundary_id = self.collision_boundary();
-            let custom_anchor_id = self.custom_anchor();
-            let custom_anchor_js = custom_anchor_id
-                .as_deref()
-                .map(|id| format!("{id:?}"))
-                .unwrap_or_else(|| "null".to_string());
-            let boundary_js = boundary_id
-                .as_deref()
-                .map(|id| format!("{id:?}"))
-                .unwrap_or_else(|| "null".to_string());
-            let script = format!(
-                r#"(function() {{
-                    const customAnchorId = {custom_anchor_js};
-                    const trigger = (customAnchorId ? document.getElementById(customAnchorId) : null) || document.getElementById({trigger_id:?});
-                    const content = document.getElementById({content_id:?});
-                    if (!trigger || !content) return null;
-                    const tr = trigger.getBoundingClientRect();
-                    const cr = content.getBoundingClientRect();
-                    let bLeft = 0;
-                    let bTop = 0;
-                    let bRight = window.innerWidth;
-                    let bBottom = window.innerHeight;
-                    const bId = {boundary_js};
-                    if (bId) {{
-                        const bEl = document.getElementById(bId);
-                        if (bEl) {{
-                            const br = bEl.getBoundingClientRect();
-                            bLeft = br.left;
-                            bTop = br.top;
-                            bRight = br.right;
-                            bBottom = br.bottom;
-                        }}
-                    }}
-                    return [tr.left, tr.top, tr.width, tr.height, cr.width, cr.height, bLeft, bTop, bRight, bBottom];
-                }})()"#
+            let t_x = arr[0] as f32;
+            let t_y = arr[1] as f32;
+            let t_w = arr[2] as f32;
+            let t_h = arr[3] as f32;
+            let c_w = arr[4] as f32;
+            let c_h = arr[5] as f32;
+            let padding = self.collision_padding();
+            let b_left = arr[6] as f32 + padding;
+            let b_top = arr[7] as f32 + padding;
+            let b_right = (arr[8] as f32 - padding).max(b_left);
+            let b_bottom = (arr[9] as f32 - padding).max(b_top);
+
+            let anchor_rect = Rect::new(t_x - b_left, t_y - b_top, t_w, t_h);
+            let content_size = Size::new(c_w, c_h);
+            let available_size = Size::new(b_right - b_left, b_bottom - b_top);
+
+            let preferred_side = self.preferred_side();
+            let preferred_align = self.preferred_align();
+            let avoid_collisions = self.avoid_collisions();
+            let hide_when_detached = self.hide_when_detached();
+            let side_offset = self.side_offset();
+            let align_offset = self.align_offset();
+
+            let layer = FloatingLayer::new(preferred_side)
+                .with_align(preferred_align)
+                .with_side_offset(side_offset)
+                .with_align_offset(align_offset)
+                .with_hide_when_detached(hide_when_detached);
+
+            let computed = layer.position_with_available_size(
+                anchor_rect,
+                content_size,
+                available_size,
             );
 
-            if let Ok(val) = js_sys::eval(&script) {
-                if !val.is_null() && !val.is_undefined() {
-                    let arr = js_sys::Array::from(&val);
-                    if arr.length() == 10 {
-                        let t_x = arr.get(0).as_f64().unwrap_or(0.0) as f32;
-                        let t_y = arr.get(1).as_f64().unwrap_or(0.0) as f32;
-                        let t_w = arr.get(2).as_f64().unwrap_or(0.0) as f32;
-                        let t_h = arr.get(3).as_f64().unwrap_or(0.0) as f32;
-                        let c_w = arr.get(4).as_f64().unwrap_or(0.0) as f32;
-                        let c_h = arr.get(5).as_f64().unwrap_or(0.0) as f32;
-                        let padding = self.collision_padding();
-                        let b_left = arr.get(6).as_f64().unwrap_or(0.0) as f32 + padding;
-                        let b_top = arr.get(7).as_f64().unwrap_or(0.0) as f32 + padding;
-                        let b_right = (arr.get(8).as_f64().unwrap_or(1024.0) as f32 - padding).max(b_left);
-                        let b_bottom = (arr.get(9).as_f64().unwrap_or(768.0) as f32 - padding).max(b_top);
-
-                        let anchor_rect = Rect::new(t_x - b_left, t_y - b_top, t_w, t_h);
-                        let content_size = Size::new(c_w, c_h);
-                        let available_size = Size::new(b_right - b_left, b_bottom - b_top);
-
-                        let preferred_side = self.preferred_side();
-                        let preferred_align = self.preferred_align();
-                        let avoid_collisions = self.avoid_collisions();
-                        let hide_when_detached = self.hide_when_detached();
-                        let side_offset = self.side_offset();
-                        let align_offset = self.align_offset();
-
-                        let layer = FloatingLayer::new(preferred_side)
-                            .with_align(preferred_align)
-                            .with_side_offset(side_offset)
-                            .with_align_offset(align_offset)
-                            .with_hide_when_detached(hide_when_detached);
-
-                        let computed = layer.position_with_available_size(
-                            anchor_rect,
-                            content_size,
-                            available_size,
-                        );
-
-                        if avoid_collisions {
-                            let mut side_sig = self.state.side;
-                            if *side_sig.peek() != computed.side() {
-                                side_sig.set(computed.side());
-                            }
-                            let mut align_sig = self.state.align;
-                            if *align_sig.peek() != computed.align() {
-                                align_sig.set(computed.align());
-                            }
-                        } else {
-                            let mut side_sig = self.state.side;
-                            if *side_sig.peek() != preferred_side {
-                                side_sig.set(preferred_side);
-                            }
-                            let mut align_sig = self.state.align;
-                            if *align_sig.peek() != preferred_align {
-                                align_sig.set(preferred_align);
-                            }
-                        }
-                        let is_sticky_always = self.sticky().as_deref() == Some("always");
-                        let ref_hidden = if is_sticky_always {
-                            false
-                        } else {
-                            computed.reference_hidden()
-                        };
-                        self.set_reference_hidden(ref_hidden);
-                    }
+            if avoid_collisions {
+                let mut side_sig = self.state.side;
+                if *side_sig.peek() != computed.side() {
+                    side_sig.set(computed.side());
+                }
+                let mut align_sig = self.state.align;
+                if *align_sig.peek() != computed.align() {
+                    align_sig.set(computed.align());
+                }
+            } else {
+                let mut side_sig = self.state.side;
+                if *side_sig.peek() != preferred_side {
+                    side_sig.set(preferred_side);
+                }
+                let mut align_sig = self.state.align;
+                if *align_sig.peek() != preferred_align {
+                    align_sig.set(preferred_align);
                 }
             }
+            let is_sticky_always = self.sticky().as_deref() == Some("always");
+            let ref_hidden = if is_sticky_always {
+                false
+            } else {
+                computed.reference_hidden()
+            };
+            self.set_reference_hidden(ref_hidden);
         }
     }
 

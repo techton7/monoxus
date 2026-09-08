@@ -1,6 +1,6 @@
 use std::{rc::Rc, time::Duration};
 
-use dioxus::{document, document::Eval, prelude::*};
+use dioxus::{document::Eval, prelude::*};
 use futures_timer::Delay;
 
 pub use crate::foundation::compose::{
@@ -1121,11 +1121,7 @@ async fn read_client_rect(mounted: Rc<MountedData>, label: &str) -> Result<Rect,
 }
 
 async fn read_viewport_size() -> Result<Size, String> {
-    let viewport: [f64; 2] = document::eval("return [window.innerWidth, window.innerHeight];")
-        .join()
-        .await
-        .map_err(|error| format!("viewport query failed: {error}"))?;
-
+    let viewport = crate::foundation::browser::get_viewport_size().await?;
     Ok(Size::new(viewport[0] as f32, viewport[1] as f32))
 }
 

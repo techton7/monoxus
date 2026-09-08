@@ -1,6 +1,6 @@
 use monoxus::{
     foundation::shared::ScopeHandle,
-    select::{Select, SelectItemData},
+    select::{apply_document_order, Select, SelectItemData},
 };
 
 #[test]
@@ -31,13 +31,15 @@ fn select_document_order_synchronization_contract() {
     ];
 
     let order = vec!["starter".to_string(), "pro".to_string(), "enterprise".to_string()];
-    items.sort_by_key(|item| {
-        order
-            .iter()
-            .position(|v| v == &item.value)
-            .unwrap_or(usize::MAX)
-    });
+    apply_document_order(&mut items, &order);
 
+    assert_eq!(items[0].value, "starter");
+    assert_eq!(items[1].value, "pro");
+    assert_eq!(items[2].value, "enterprise");
+
+    // Test empty order preserves existing order without mutation
+    let empty_order: Vec<String> = vec![];
+    apply_document_order(&mut items, &empty_order);
     assert_eq!(items[0].value, "starter");
     assert_eq!(items[1].value, "pro");
     assert_eq!(items[2].value, "enterprise");

@@ -17,7 +17,6 @@ pub fn SelectContentStatic(
     let is_open = ctx.runtime.is_open();
     let rels = ctx.runtime.relationships();
     let content_id = rels.content_id().to_owned();
-
     let runtime = ctx.runtime.clone();
     use_effect(use_reactive((&is_open,), {
         let cid = content_id.clone();
@@ -144,17 +143,9 @@ pub fn SelectContent(
 
     use_effect(use_reactive((&is_open, &prevent_overflow_text_selection), |(open, prev_sel)| {
         if open && prev_sel {
-            dioxus::document::eval(r#"(function() {
-                if (typeof document !== "undefined" && document.body) {
-                    document.body.style.userSelect = "none";
-                }
-            })();"#);
+            crate::foundation::browser::set_body_user_select_none();
         } else {
-            dioxus::document::eval(r#"(function() {
-                if (typeof document !== "undefined" && document.body) {
-                    document.body.style.removeProperty("user-select");
-                }
-            })();"#);
+            crate::foundation::browser::restore_body_user_select();
         }
     }));
 
@@ -162,11 +153,7 @@ pub fn SelectContent(
     use_drop(move || {
         let lock_id = format!("select-scroll-lock-{}", drop_cid);
         crate::foundation::browser::release_scroll_lock(&lock_id, None);
-        dioxus::document::eval(r#"(function() {
-            if (typeof document !== "undefined" && document.body) {
-                document.body.style.removeProperty("user-select");
-            }
-        })();"#);
+        crate::foundation::browser::restore_body_user_select();
     });
 
     if !is_open && !force_mount {
