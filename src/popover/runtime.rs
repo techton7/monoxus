@@ -18,8 +18,8 @@ use crate::foundation::{
         stop_floating_auto_update_monitor, stop_presence_monitor,
     },
     overlay::{
-        FloatingPlacement, GeometryVars, Presence, PresenceCloseCycleId, PresenceController,
-        PresenceControllerUpdate, Rect, Size,
+        FloatingPlacement, FloatingReadiness, GeometryVars, Presence, PresenceCloseCycleId,
+        PresenceController, PresenceControllerUpdate, Rect, Size,
     },
     state::DataState,
 };
@@ -36,6 +36,8 @@ use super::{
 };
 
 type PopoverOpenChangeHandler = Rc<dyn Fn(bool)>;
+const POPOVER_RADIX_COMPATIBILITY_PREFIX: &str = "radix-popover";
+const POPOVER_RADIX_ANCHOR_LABEL: &str = "trigger";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct PopoverContentPresenceLane {
@@ -87,6 +89,7 @@ struct PopoverRuntimeState {
     anchor_handle: Signal<Option<PopoverMountedHandle>>,
     content_handle: Signal<Option<PopoverMountedHandle>>,
     placement: Signal<Option<FloatingPlacement>>,
+    content_readiness: Signal<FloatingReadiness>,
     focus_targets: Signal<HashMap<String, PopoverMountedHandle>>,
     presence_lane: Signal<PopoverContentPresenceLane>,
     presence_monitor: RetainedRootPresenceMonitorState,
@@ -116,6 +119,7 @@ where
         anchor_handle: use_signal(|| None),
         content_handle: use_signal(|| None),
         placement: use_signal(|| None),
+        content_readiness: use_signal(FloatingReadiness::default),
         focus_targets: use_signal(HashMap::new),
         presence_lane: use_signal(|| {
             PopoverContentPresenceLane::new(popover.lifecycle().presence())
@@ -229,6 +233,24 @@ impl PopoverRuntime {
 
     pub fn geometry_vars(&self, anchor: Rect, content: Size) -> GeometryVars {
         self.popover.geometry_vars(anchor, content)
+    }
+
+    pub fn content_readiness(&self) -> FloatingReadiness {
+        *self.state.content_readiness.read()
+    }
+
+    pub fn content_positioning_state(&self) -> &'static str {
+        self.content_readiness().positioning_state()
+    }
+
+    pub fn content_css_variables(&self) -> Vec<(String, String)> {
+        self.placement()
+            .map(|placement| popover_content_css_variables(placement.geometry()))
+            .unwrap_or_default()
+    }
+
+    pub fn content_css_custom_properties(&self) -> String {
+        serialize_css_custom_properties(&self.content_css_variables())
     }
 
     pub fn trigger_handle(&self) -> Option<PopoverMountedHandle> {
@@ -849,6 +871,7 @@ async fn measure_popover_placement(
         let mut current = state.placement;
         current.set(Some(placement));
     }
+    set_popover_content_readiness(state, FloatingReadiness::Ready);
 
     Ok(())
 }
@@ -886,9 +909,48 @@ fn clear_popover_placement(state: PopoverRuntimeState) {
     }
 }
 
+fn set_popover_content_readiness(state: PopoverRuntimeState, readiness: FloatingReadiness) {
+    if state
+        .content_readiness
+        .with_peek(|current| *current != readiness)
+    {
+        let mut current = state.content_readiness;
+        current.set(readiness);
+    }
+}
+
+fn clear_popover_content_readiness(state: PopoverRuntimeState) {
+    set_popover_content_readiness(state, FloatingReadiness::Measuring);
+}
+
 fn clear_popover_retained_content_state(state: PopoverRuntimeState) {
     clear_popover_content_handle(state);
     clear_popover_placement(state);
+    clear_popover_content_readiness(state);
+}
+
+fn popover_content_css_variables(geometry: &GeometryVars) -> Vec<(String, String)> {
+    geometry
+        .css_iter()
+        .chain(geometry.compatibility_alias_iter(
+            POPOVER_RADIX_COMPATIBILITY_PREFIX,
+            POPOVER_RADIX_ANCHOR_LABEL,
+        ))
+        .collect()
+}
+
+fn serialize_css_custom_properties(entries: &[(String, String)]) -> String {
+    let mut style = String::new();
+
+    for (name, value) in entries {
+        style.push(' ');
+        style.push_str(name);
+        style.push_str(": ");
+        style.push_str(value);
+        style.push(';');
+    }
+
+    style
 }
 
 fn advance_popover_token(signal: Signal<u64>) -> u64 {
@@ -1022,8 +1084,10 @@ fn clear_popover_presence_monitor_state(state: PopoverRuntimeState) {
 
 #[cfg(test)]
 mod tests {
-    use super::PopoverContentPresenceLane;
-    use crate::foundation::overlay::{Presence, PresenceState};
+    use super::{
+        PopoverContentPresenceLane, popover_content_css_variables, serialize_css_custom_properties,
+    };
+    use crate::foundation::overlay::{GeometryVars, Presence, PresenceState};
 
     #[test]
     fn phase_3_7_step_4_popover_presence_lane_retains_content_until_close_completion() {
@@ -1043,5 +1107,84 @@ mod tests {
         assert!(!lane.should_render_portal());
         assert!(!lane.should_render_content());
         assert!(lane.should_clear_positioning(false));
+    }
+
+    #[test]
+    fn popover_content_css_variables_include_monoxus_and_radix_compatibility_names() {
+        let geometry = GeometryVars::new(
+            "popover", 24.0, 44.0, 26.0, 0.0, 120.0, 80.0, 40.0, 16.0, 30.0, 12.0,
+        );
+
+        let variables = popover_content_css_variables(&geometry);
+        let serialized = serialize_css_custom_properties(&variables);
+
+        assert_eq!(
+            variables,
+            vec![
+                (
+                    "--monoxus-popover-floating-x".to_string(),
+                    "24px".to_string()
+                ),
+                (
+                    "--monoxus-popover-floating-y".to_string(),
+                    "44px".to_string()
+                ),
+                (
+                    "--monoxus-popover-transform-origin-x".to_string(),
+                    "26px".to_string(),
+                ),
+                (
+                    "--monoxus-popover-transform-origin-y".to_string(),
+                    "0px".to_string(),
+                ),
+                (
+                    "--monoxus-popover-available-width".to_string(),
+                    "120px".to_string(),
+                ),
+                (
+                    "--monoxus-popover-available-height".to_string(),
+                    "80px".to_string(),
+                ),
+                (
+                    "--monoxus-popover-anchor-width".to_string(),
+                    "40px".to_string(),
+                ),
+                (
+                    "--monoxus-popover-anchor-height".to_string(),
+                    "16px".to_string(),
+                ),
+                (
+                    "--monoxus-popover-content-width".to_string(),
+                    "30px".to_string(),
+                ),
+                (
+                    "--monoxus-popover-content-height".to_string(),
+                    "12px".to_string(),
+                ),
+                (
+                    "--radix-popover-content-transform-origin".to_string(),
+                    "26px 0px".to_string(),
+                ),
+                (
+                    "--radix-popover-content-available-width".to_string(),
+                    "120px".to_string(),
+                ),
+                (
+                    "--radix-popover-content-available-height".to_string(),
+                    "80px".to_string(),
+                ),
+                (
+                    "--radix-popover-trigger-width".to_string(),
+                    "40px".to_string()
+                ),
+                (
+                    "--radix-popover-trigger-height".to_string(),
+                    "16px".to_string(),
+                ),
+            ],
+        );
+        assert!(serialized.contains("--monoxus-popover-floating-x: 24px;"));
+        assert!(serialized.contains("--radix-popover-content-transform-origin: 26px 0px;"));
+        assert!(serialized.contains("--radix-popover-trigger-height: 16px;"));
     }
 }

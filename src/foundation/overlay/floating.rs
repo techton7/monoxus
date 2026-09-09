@@ -120,6 +120,41 @@ impl PlacementAlign {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FloatingReadiness {
+    #[default]
+    Measuring,
+    Ready,
+}
+
+impl FloatingReadiness {
+    pub const fn from_is_positioned(is_positioned: bool) -> Self {
+        if is_positioned {
+            Self::Ready
+        } else {
+            Self::Measuring
+        }
+    }
+
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Measuring => "measuring",
+            Self::Ready => "ready",
+        }
+    }
+
+    pub const fn positioning_state(&self) -> &'static str {
+        match self {
+            Self::Measuring => "unpositioned",
+            Self::Ready => "positioned",
+        }
+    }
+
+    pub const fn is_positioned(&self) -> bool {
+        matches!(self, Self::Ready)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct FloatingLayer {
     side: PlacementSide,
@@ -477,13 +512,50 @@ impl GeometryVars {
         Self::variable_name(self.namespace(), suffix)
     }
 
+    pub fn css_get(&self, name: &str) -> Option<String> {
+        self.css_iter()
+            .find_map(|(candidate, value)| (candidate == name).then_some(value))
+    }
+
     pub fn get(&self, name: &str) -> Option<f32> {
         self.iter()
             .find_map(|(candidate, value)| (candidate == name).then_some(value))
     }
 
+    pub fn css_iter(&self) -> impl Iterator<Item = (String, String)> {
+        self.css_entries().into_iter()
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (String, f32)> {
         self.entries().into_iter()
+    }
+
+    pub fn compatibility_alias_iter<'a>(
+        &'a self,
+        prefix: &'a str,
+        anchor_label: &'a str,
+    ) -> impl Iterator<Item = (String, String)> + 'a {
+        self.compatibility_alias_entries(prefix, anchor_label)
+            .into_iter()
+    }
+
+    pub fn transform_origin_css_value(&self) -> String {
+        format!(
+            "{} {}",
+            Self::css_length(self.transform_origin_x),
+            Self::css_length(self.transform_origin_y),
+        )
+    }
+
+    fn compatibility_alias_variable_name(prefix: &str, suffix: &str) -> String {
+        format!("--{prefix}-{suffix}")
+    }
+
+    fn css_entries(&self) -> Vec<(String, String)> {
+        self.entries()
+            .into_iter()
+            .map(|(name, value)| (name, Self::css_length(value)))
+            .collect()
     }
 
     fn entries(&self) -> Vec<(String, f32)> {
@@ -523,6 +595,39 @@ impl GeometryVars {
                 self.content_height,
             ),
         ]
+    }
+
+    fn compatibility_alias_entries(
+        &self,
+        prefix: &str,
+        anchor_label: &str,
+    ) -> Vec<(String, String)> {
+        vec![
+            (
+                Self::compatibility_alias_variable_name(prefix, "content-transform-origin"),
+                self.transform_origin_css_value(),
+            ),
+            (
+                Self::compatibility_alias_variable_name(prefix, "content-available-width"),
+                Self::css_length(self.available_width),
+            ),
+            (
+                Self::compatibility_alias_variable_name(prefix, "content-available-height"),
+                Self::css_length(self.available_height),
+            ),
+            (
+                Self::compatibility_alias_variable_name(prefix, &format!("{anchor_label}-width")),
+                Self::css_length(self.anchor_width),
+            ),
+            (
+                Self::compatibility_alias_variable_name(prefix, &format!("{anchor_label}-height")),
+                Self::css_length(self.anchor_height),
+            ),
+        ]
+    }
+
+    fn css_length(value: f32) -> String {
+        format!("{value}px")
     }
 }
 

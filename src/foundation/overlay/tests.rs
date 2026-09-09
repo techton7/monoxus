@@ -1,6 +1,6 @@
 use super::{
-    DismissLayer, FloatingLayer, FocusGuards, FocusScope, PlacementAlign, PlacementSide,
-    PortalHost, Presence, PresenceController, PresenceState, Rect, Size,
+    DismissLayer, FloatingLayer, FloatingReadiness, FocusGuards, FocusScope, PlacementAlign,
+    PlacementSide, PortalHost, Presence, PresenceController, PresenceState, Rect, Size,
 };
 use crate::foundation::shared::Direction;
 
@@ -152,6 +152,121 @@ fn floating_layers_publish_namespaced_geometry_variables() {
             ("--monoxus-dialog-anchor-height".to_string(), 16.0),
             ("--monoxus-dialog-content-width".to_string(), 30.0),
             ("--monoxus-dialog-content-height".to_string(), 12.0),
+        ],
+    );
+}
+
+#[test]
+fn floating_readiness_exposes_measurement_and_positioning_labels() {
+    let measuring = FloatingReadiness::default();
+
+    assert_eq!(measuring, FloatingReadiness::Measuring);
+    assert_eq!(measuring.as_str(), "measuring");
+    assert_eq!(measuring.positioning_state(), "unpositioned");
+    assert!(!measuring.is_positioned());
+
+    let ready = FloatingReadiness::from_is_positioned(true);
+    assert_eq!(ready, FloatingReadiness::Ready);
+    assert_eq!(ready.as_str(), "ready");
+    assert_eq!(ready.positioning_state(), "positioned");
+    assert!(ready.is_positioned());
+
+    assert_eq!(
+        FloatingReadiness::from_is_positioned(false),
+        FloatingReadiness::Measuring,
+    );
+}
+
+#[test]
+fn geometry_vars_publish_css_values_and_compatibility_aliases() {
+    let geometry = FloatingLayer::new(PlacementSide::Bottom)
+        .with_align(PlacementAlign::Start)
+        .with_direction(Direction::Rtl)
+        .with_side_offset(8.0)
+        .with_align_offset(4.0)
+        .with_available_space(Size::new(120.0, 80.0))
+        .with_namespace("dialog")
+        .geometry_vars(Rect::new(10.0, 20.0, 40.0, 16.0), Size::new(30.0, 12.0));
+
+    assert_eq!(
+        geometry.css_get("--monoxus-dialog-floating-x"),
+        Some("24px".to_string())
+    );
+    assert_eq!(
+        geometry.css_get("--monoxus-dialog-transform-origin-y"),
+        Some("0px".to_string())
+    );
+    assert_eq!(geometry.transform_origin_css_value(), "26px 0px");
+    assert_eq!(
+        geometry.css_iter().collect::<Vec<_>>(),
+        vec![
+            (
+                "--monoxus-dialog-floating-x".to_string(),
+                "24px".to_string()
+            ),
+            (
+                "--monoxus-dialog-floating-y".to_string(),
+                "44px".to_string()
+            ),
+            (
+                "--monoxus-dialog-transform-origin-x".to_string(),
+                "26px".to_string(),
+            ),
+            (
+                "--monoxus-dialog-transform-origin-y".to_string(),
+                "0px".to_string(),
+            ),
+            (
+                "--monoxus-dialog-available-width".to_string(),
+                "120px".to_string(),
+            ),
+            (
+                "--monoxus-dialog-available-height".to_string(),
+                "80px".to_string(),
+            ),
+            (
+                "--monoxus-dialog-anchor-width".to_string(),
+                "40px".to_string(),
+            ),
+            (
+                "--monoxus-dialog-anchor-height".to_string(),
+                "16px".to_string(),
+            ),
+            (
+                "--monoxus-dialog-content-width".to_string(),
+                "30px".to_string(),
+            ),
+            (
+                "--monoxus-dialog-content-height".to_string(),
+                "12px".to_string(),
+            ),
+        ],
+    );
+    assert_eq!(
+        geometry
+            .compatibility_alias_iter("radix-popover", "trigger")
+            .collect::<Vec<_>>(),
+        vec![
+            (
+                "--radix-popover-content-transform-origin".to_string(),
+                "26px 0px".to_string(),
+            ),
+            (
+                "--radix-popover-content-available-width".to_string(),
+                "120px".to_string(),
+            ),
+            (
+                "--radix-popover-content-available-height".to_string(),
+                "80px".to_string(),
+            ),
+            (
+                "--radix-popover-trigger-width".to_string(),
+                "40px".to_string(),
+            ),
+            (
+                "--radix-popover-trigger-height".to_string(),
+                "16px".to_string(),
+            ),
         ],
     );
 }

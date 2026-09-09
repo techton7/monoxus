@@ -12,13 +12,70 @@ const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-rad
 const MUTED_STYLE: &str = "margin: 0; color: #6b21a8;";
 const CANVAS_STYLE: &str = "position: relative; min-height: 20rem; padding: 1.25rem; border-radius: 0.85rem; border: 1px dashed #d8b4fe; background: linear-gradient(135deg, #faf5ff, #f5f3ff); overflow: hidden;";
 const POPOVER_PLAYGROUND_CSS: &str = r#"
-@keyframes monoxus-popover-content-out {
-    from { opacity: 1; transform: translateY(0) scale(1); }
-    to { opacity: 0; transform: translateY(14px) scale(0.94); }
+@keyframes monoxus-popover-content-in {
+    from {
+        opacity: 0;
+        transform: translate3d(var(--monoxus-popover-motion-x), var(--monoxus-popover-motion-y), 0) scale(0.96);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0) scale(1);
+    }
 }
 
-[data-playground-popover-content='true'][data-state='closed'] {
+@keyframes monoxus-popover-content-out {
+    from {
+        opacity: 1;
+        transform: translate3d(0, 0, 0) scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: translate3d(var(--monoxus-popover-motion-x), var(--monoxus-popover-motion-y), 0) scale(0.96);
+    }
+}
+
+[data-playground-popover-content='true'] {
+    --monoxus-popover-motion-x: 0px;
+    --monoxus-popover-motion-y: -10px;
+    transform-origin: var(--radix-popover-content-transform-origin, var(--monoxus-popover-transform-origin-x, 0px) var(--monoxus-popover-transform-origin-y, 0px));
+}
+
+[data-playground-popover-content='true'][data-side='top'] {
+    --monoxus-popover-motion-y: 10px;
+}
+
+[data-playground-popover-content='true'][data-side='bottom'] {
+    --monoxus-popover-motion-y: -10px;
+}
+
+[data-playground-popover-content='true'][data-side='left'] {
+    --monoxus-popover-motion-x: 10px;
+    --monoxus-popover-motion-y: 0px;
+}
+
+[data-playground-popover-content='true'][data-side='right'] {
+    --monoxus-popover-motion-x: -10px;
+    --monoxus-popover-motion-y: 0px;
+}
+
+[data-playground-popover-content='true'][data-state='open'][data-positioning='positioned'] {
+    animation: monoxus-popover-content-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-playground-popover-content='true'][data-state='open'][data-positioning='unpositioned'] {
+    animation: none;
+    opacity: 0;
+}
+
+[data-playground-popover-content='true'][data-state='closed'][data-positioning='positioned'] {
     animation: monoxus-popover-content-out 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+[data-playground-popover-content='true'][data-state='closed'][data-positioning='unpositioned'] {
+    animation: none;
+    opacity: 0;
 }
 "#;
 
@@ -80,6 +137,8 @@ pub fn PopoverPlayground() -> Element {
             .focus_outside()
             .dismisses(),
     );
+    let content_positioning_state = popover.content_positioning_state();
+    let content_css_custom_properties = popover.content_css_custom_properties();
     let geometry_summary = placement
         .as_ref()
         .map(|placement| {
@@ -90,7 +149,12 @@ pub fn PopoverPlayground() -> Element {
             )
         })
         .unwrap_or_else(|| String::from("pending live measurement"));
-    let content_style = popover_content_style(placement.as_ref(), content.data_state());
+    let content_style = popover_content_style(
+        placement.as_ref(),
+        content.data_state(),
+        content_positioning_state,
+        content_css_custom_properties.as_str(),
+    );
     let arrow_style = popover_arrow_style(placement.as_ref());
 
     rsx! {
@@ -191,6 +255,7 @@ pub fn PopoverPlayground() -> Element {
                                 "data-state": content.data_state().as_str(),
                                 "data-side": content.data_side(),
                                 "data-align": content.data_align(),
+                                "data-positioning": content_positioning_state,
                                 "data-playground-popover-content": "true",
                                 onmounted: popover.mount_content(),
                                 style: content_style,
@@ -265,34 +330,47 @@ fn outside_behavior_label(dismisses: bool) -> &'static str {
     if dismisses { "dismisses" } else { "ignored" }
 }
 
-fn popover_content_style(placement: Option<&FloatingPlacement>, state: &DataState) -> String {
+fn popover_content_style(
+    placement: Option<&FloatingPlacement>,
+    state: &DataState,
+    positioning_state: &str,
+    css_custom_properties: &str,
+) -> String {
     let mut style = String::from(
         "position: fixed; width: 250px; max-width: calc(100vw - 2rem); padding: 1rem; border-radius: 0.85rem; border: 1px solid #c084fc; background-color: white; box-shadow: 0 18px 40px rgba(88, 28, 135, 0.18); display: grid; gap: 0.75rem; z-index: 20;",
     );
 
-    match placement {
-        Some(placement) => {
-            let visibility = if placement.reference_hidden() {
-                "hidden"
-            } else {
-                "visible"
-            };
-            style.push_str(&format!(
-                " left: {}px; top: {}px; visibility: {visibility}; pointer-events: {};",
-                placement.geometry().x(),
-                placement.geometry().y(),
-                if placement.reference_hidden() {
-                    "none"
+    style.push_str(css_custom_properties);
+
+    if positioning_state == "positioned" {
+        match placement {
+            Some(placement) => {
+                let visibility = if placement.reference_hidden() {
+                    "hidden"
                 } else {
-                    "auto"
-                }
-            ));
+                    "visible"
+                };
+                style.push_str(&format!(
+                    " left: {}px; top: {}px; visibility: {visibility}; pointer-events: {};",
+                    placement.geometry().x(),
+                    placement.geometry().y(),
+                    if placement.reference_hidden() {
+                        "none"
+                    } else {
+                        "auto"
+                    }
+                ));
+            }
+            None => style.push_str(
+                " left: -9999px; top: -9999px; visibility: hidden; pointer-events: none;",
+            ),
         }
-        None => style.push_str(" left: -9999px; top: -9999px; visibility: visible;"),
+    } else {
+        style.push_str(" left: -9999px; top: -9999px; visibility: hidden; pointer-events: none;");
     }
 
     style.push_str(
-        " transform-origin: var(--monoxus-popover-transform-origin-x, 0px) var(--monoxus-popover-transform-origin-y, 0px); will-change: opacity, transform;",
+        " transform-origin: var(--radix-popover-content-transform-origin, var(--monoxus-popover-transform-origin-x, 0px) var(--monoxus-popover-transform-origin-y, 0px)); will-change: opacity, transform;",
     );
     match state {
         DataState::Closed => {
