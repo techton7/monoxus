@@ -198,15 +198,11 @@ impl PopoverRuntime {
     }
 
     pub fn should_render_portal(&self) -> bool {
-        self.state
-            .presence_lane
-            .with_peek(|lane| lane.should_render_portal())
+        self.state.presence_lane.read().should_render_portal()
     }
 
     pub fn should_render_content(&self) -> bool {
-        self.state
-            .presence_lane
-            .with_peek(|lane| lane.should_render_content())
+        self.state.presence_lane.read().should_render_content()
     }
 
     pub fn content(&self) -> PopoverContentAttributes {
