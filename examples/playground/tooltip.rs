@@ -12,19 +12,20 @@ const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-rad
 const MUTED_STYLE: &str = "margin: 0; color: #0f766e;";
 const CANVAS_STYLE: &str = "position: relative; min-height: 15rem; padding: 1.25rem; border-radius: 0.85rem; border: 1px dashed #67e8f9; background: linear-gradient(135deg, #ecfeff, #f0fdfa);";
 const TOOLTIP_PLAYGROUND_CSS: &str = r#"
-@keyframes monoxus-tooltip-fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
 @keyframes monoxus-tooltip-fade-out {
     from { opacity: 1; }
     to { opacity: 0; }
 }
 
-@keyframes monoxus-tooltip-scale-in {
-    from { transform: scale(0.92); }
-    to { transform: scale(1); }
+@keyframes monoxus-tooltip-scale-out {
+    from { transform: scale(1); }
+    to { transform: scale(0.9); }
+}
+
+[data-playground-tooltip-content='true'][data-state='closed'] {
+    animation:
+        monoxus-tooltip-fade-out 260ms ease-in forwards,
+        monoxus-tooltip-scale-out 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 "#;
 
@@ -214,6 +215,7 @@ pub fn TooltipPlayground() -> Element {
                                 "data-state": first_content.data_state().as_str(),
                                 "data-side": first_content.data_side(),
                                 "data-align": first_content.data_align(),
+                                "data-playground-tooltip-content": "true",
                                 onmounted: first.mount_content(),
                                 onmouseenter: first.content_pointer_enter(),
                                 onmouseleave: first.content_pointer_leave(),
@@ -240,6 +242,7 @@ pub fn TooltipPlayground() -> Element {
                                 "data-state": second_content.data_state().as_str(),
                                 "data-side": second_content.data_side(),
                                 "data-align": second_content.data_align(),
+                                "data-playground-tooltip-content": "true",
                                 onmounted: second.mount_content(),
                                 onmouseenter: second.content_pointer_enter(),
                                 onmouseleave: second.content_pointer_leave(),
@@ -291,15 +294,9 @@ fn tooltip_content_style(
     style.push_str(" transform-origin: center center; will-change: opacity, transform;");
     match state {
         DataState::Closed => {
-            style.push_str(
-                " animation: monoxus-tooltip-fade-out 180ms ease-out forwards; pointer-events: none;",
-            );
+            style.push_str(" pointer-events: none;");
         }
-        _ => {
-            style.push_str(
-                " animation: monoxus-tooltip-fade-in 150ms ease-out both, monoxus-tooltip-scale-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;",
-            );
-        }
+        _ => {}
     }
 
     style
