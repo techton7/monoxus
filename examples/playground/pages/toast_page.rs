@@ -118,12 +118,15 @@ const SONNER_STYLE: &str = r#"
     pointer-events: auto;
 }
 
-/* Active Swiping Gesture: transforms both X and Y components independently */
-#monoxus-toast-viewport li[data-sonner-toast][data-swiping="true"] {
+/* Active Swiping Gesture: transforms both X and Y components independently and prevents text selection */
+#monoxus-toast-viewport li[data-sonner-toast][data-swiping="true"],
+#monoxus-toast-viewport li[data-sonner-toast][data-swiped="true"] {
     transform: var(--y)
                translateY(var(--swipe-amount-y, 0px))
                translateX(var(--swipe-amount-x, 0px)) !important;
     transition: none !important;
+    -webkit-user-select: none !important;
+    user-select: none !important;
 }
 
 /* Directional Swipe-Out Exit Animations (matching upstream Sonner / Svelte-Sonner) */

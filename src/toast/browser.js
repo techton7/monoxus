@@ -187,6 +187,8 @@ const handlePointerDown = (e) => {
     isDragging = false;
     toast.removeAttribute("data-swipe-out");
     toast.removeAttribute("data-swipe-direction");
+    toast.removeAttribute("data-swiped");
+    toast.removeAttribute("data-swiping");
     try {
         toast.setPointerCapture(e.pointerId);
     } catch (_) {}
@@ -209,7 +211,7 @@ const getEffectiveSwipeDirections = (toast) => {
 
 const handlePointerMove = (e) => {
     if (!dragToast || !dragStart) return;
-    if (window.getSelection()?.toString().length > 0) return;
+    if (!isDragging && window.getSelection()?.toString().length > 0) return;
 
     const xDelta = e.clientX - dragStart.x;
     const yDelta = e.clientY - dragStart.y;
@@ -243,6 +245,10 @@ const handlePointerMove = (e) => {
         if (!isDragging) {
             isDragging = true;
             dragToast.setAttribute("data-swiping", "true");
+            dragToast.setAttribute("data-swiped", "true");
+            try {
+                window.getSelection()?.removeAllRanges();
+            } catch (_) {}
             dioxus.send("swipe:start");
         }
         dragToast.style.setProperty("--swipe-amount-x", `${swipeAmount.x}px`);
@@ -268,9 +274,11 @@ const handlePointerEnd = (e) => {
     dragStart = null;
     swipeDirection = null;
 
+    toast.removeAttribute("data-swiping");
+    toast.removeAttribute("data-swiped");
+
     if (isDragging) {
         isDragging = false;
-        toast.removeAttribute("data-swiping");
         dioxus.send("swipe:end");
 
         const activeSwipeDirs = getEffectiveSwipeDirections(toast);
