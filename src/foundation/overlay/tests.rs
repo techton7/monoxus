@@ -1,6 +1,6 @@
 use super::{
     DismissLayer, FloatingLayer, FocusGuards, FocusScope, PlacementAlign, PlacementSide,
-    PortalHost, Presence, PresenceState, Rect, Size,
+    PortalHost, Presence, PresenceController, PresenceState, Rect, Size,
 };
 use crate::foundation::shared::Direction;
 
@@ -31,6 +31,36 @@ fn retained_presence_waits_for_completion_before_unmounting() {
 
     assert_eq!(presence.sync(true), PresenceState::Mounted);
     assert!(presence.is_mounted());
+}
+
+#[test]
+fn presence_controller_preserves_close_cycles_and_rejects_stale_completion_after_reopen() {
+    let mut controller = PresenceController::new(true).with_retained_mount(true);
+
+    let close = controller.sync(false);
+    let first_cycle = close.started_close_cycle().unwrap();
+    assert_eq!(close.state(), PresenceState::Suspended);
+    assert!(close.should_render());
+    assert_eq!(close.active_close_cycle(), Some(first_cycle));
+    assert_eq!(controller.active_close_cycle(), Some(first_cycle));
+
+    let rerender = controller.sync(false);
+    assert_eq!(rerender.state(), PresenceState::Suspended);
+    assert_eq!(rerender.started_close_cycle(), None);
+    assert_eq!(rerender.active_close_cycle(), Some(first_cycle));
+
+    let reopen = controller.sync(true);
+    assert_eq!(reopen.state(), PresenceState::Mounted);
+    assert_eq!(reopen.invalidated_close_cycle(), Some(first_cycle));
+    assert_eq!(controller.active_close_cycle(), None);
+
+    let second_cycle = controller.sync(false).started_close_cycle().unwrap();
+    assert_ne!(second_cycle, first_cycle);
+    assert!(!controller.complete_close_cycle(first_cycle));
+    assert_eq!(controller.state(), PresenceState::Suspended);
+    assert!(controller.complete_close_cycle(second_cycle));
+    assert_eq!(controller.state(), PresenceState::Unmounted);
+    assert!(!controller.should_render());
 }
 
 #[test]
@@ -93,8 +123,7 @@ fn floating_layers_publish_namespaced_geometry_variables() {
         .with_align_offset(4.0)
         .with_available_space(Size::new(120.0, 80.0))
         .with_namespace("dialog");
-    let geometry =
-        layer.geometry_vars(Rect::new(10.0, 20.0, 40.0, 16.0), Size::new(30.0, 12.0));
+    let geometry = layer.geometry_vars(Rect::new(10.0, 20.0, 40.0, 16.0), Size::new(30.0, 12.0));
 
     assert_eq!(layer.data_side(), "bottom");
     assert_eq!(layer.data_align(), "start");

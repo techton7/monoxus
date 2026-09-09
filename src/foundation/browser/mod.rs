@@ -1,7 +1,7 @@
 use dioxus::{document, document::Eval, prelude::*};
 use dioxus_use_js::use_js;
 
-use crate::foundation::compose::MountedHandle;
+use crate::foundation::{compose::MountedHandle, overlay::PresenceCloseCycleId};
 
 use_js!("src/foundation/browser/viewport.js"::*);
 use_js!("src/foundation/browser/focus.js"::*);
@@ -9,6 +9,22 @@ use_js!("src/foundation/browser/scroll_lock.js"::*);
 use_js!("src/foundation/browser/portal.js"::*);
 use_js!("src/foundation/browser/floating_measure.js"::*);
 
+#[allow(dead_code)]
+const PRESENCE_MONITOR_SIGNAL_STOP: &str = "stop";
+#[allow(dead_code)]
+const PRESENCE_MONITOR_SIGNAL_STOPPED: &str = "stopped";
+#[allow(dead_code)]
+const PRESENCE_MONITOR_SIGNAL_FALLBACK: &str = "fallback";
+#[allow(dead_code)]
+const PRESENCE_MONITOR_SIGNAL_ANIMATION_END: &str = "animationend";
+#[allow(dead_code)]
+const PRESENCE_MONITOR_SIGNAL_ANIMATION_CANCEL: &str = "animationcancel";
+#[allow(dead_code)]
+const PRESENCE_MONITOR_REASON_MISSING: &str = "missing";
+#[allow(dead_code)]
+const PRESENCE_MONITOR_REASON_HIDDEN: &str = "hidden";
+#[allow(dead_code)]
+const PRESENCE_MONITOR_REASON_NO_ANIMATION: &str = "no-animation";
 const FLOATING_AUTO_UPDATE_SIGNAL_STOP: &str = "stop";
 const FLOATING_AUTO_UPDATE_SIGNAL_STOPPED: &str = "stopped";
 const FLOATING_AUTO_UPDATE_SIGNAL_SCROLL: &str = "scroll";
@@ -19,6 +35,121 @@ const DOCUMENT_DISMISS_SIGNAL_POINTER_DOWN: &str = "pointerdown";
 const DOCUMENT_DISMISS_SIGNAL_FOCUS_IN: &str = "focusin";
 const DOCUMENT_DISMISS_SIGNAL_ESCAPE: &str = "escape";
 const DOCUMENT_DISMISS_PATH_SEPARATOR: char = '\u{1f}';
+
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PresenceMonitorFallback {
+    Missing,
+    Hidden,
+    NoAnimation,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum PresenceMonitorEvent {
+    Fallback {
+        cycle_id: PresenceCloseCycleId,
+        reason: PresenceMonitorFallback,
+    },
+    AnimationEnd {
+        cycle_id: PresenceCloseCycleId,
+        animation_name: String,
+    },
+    AnimationCancel {
+        cycle_id: PresenceCloseCycleId,
+        animation_name: String,
+    },
+    Stopped {
+        cycle_id: PresenceCloseCycleId,
+    },
+}
+
+#[allow(dead_code)]
+pub(crate) fn start_presence_monitor(root_id: &str, cycle_id: PresenceCloseCycleId) -> Eval {
+    let eval = document::eval(include_str!("presence_monitor.js"));
+    let _ = eval.send((root_id.to_string(), cycle_id.get()));
+    eval
+}
+
+#[allow(dead_code)]
+pub(crate) fn stop_presence_monitor(monitor: Eval) -> Result<(), String> {
+    monitor
+        .send(PRESENCE_MONITOR_SIGNAL_STOP)
+        .map_err(|error| format!("presence monitor stop failed: {error}"))
+}
+
+#[allow(dead_code)]
+pub(crate) async fn recv_presence_monitor_event(
+    monitor: &mut Eval,
+) -> Result<PresenceMonitorEvent, String> {
+    let payload = monitor
+        .recv::<String>()
+        .await
+        .map_err(|error| format!("presence monitor receive failed: {error}"))?;
+    parse_presence_monitor_event(&payload)
+}
+
+#[allow(dead_code)]
+fn parse_presence_monitor_event(payload: &str) -> Result<PresenceMonitorEvent, String> {
+    let mut fields = payload.splitn(3, '\n');
+    let signal = fields.next().unwrap_or_default();
+    let cycle_id = fields
+        .next()
+        .ok_or_else(|| String::from("presence monitor payload missing cycle id"))
+        .and_then(parse_presence_monitor_cycle_id)?;
+    let detail = fields.next().unwrap_or_default();
+
+    match signal {
+        PRESENCE_MONITOR_SIGNAL_FALLBACK => Ok(PresenceMonitorEvent::Fallback {
+            cycle_id,
+            reason: parse_presence_monitor_fallback(detail)?,
+        }),
+        PRESENCE_MONITOR_SIGNAL_ANIMATION_END => {
+            if detail.is_empty() {
+                return Err(String::from(
+                    "presence monitor animationend payload missing animation name",
+                ));
+            }
+
+            Ok(PresenceMonitorEvent::AnimationEnd {
+                cycle_id,
+                animation_name: detail.to_string(),
+            })
+        }
+        PRESENCE_MONITOR_SIGNAL_ANIMATION_CANCEL => {
+            if detail.is_empty() {
+                return Err(String::from(
+                    "presence monitor animationcancel payload missing animation name",
+                ));
+            }
+
+            Ok(PresenceMonitorEvent::AnimationCancel {
+                cycle_id,
+                animation_name: detail.to_string(),
+            })
+        }
+        PRESENCE_MONITOR_SIGNAL_STOPPED => Ok(PresenceMonitorEvent::Stopped { cycle_id }),
+        other => Err(format!("unknown presence monitor signal: {other}")),
+    }
+}
+
+#[allow(dead_code)]
+fn parse_presence_monitor_cycle_id(value: &str) -> Result<PresenceCloseCycleId, String> {
+    let cycle_id = value
+        .parse::<u64>()
+        .map_err(|error| format!("invalid presence monitor cycle id: {error}"))?;
+    Ok(PresenceCloseCycleId::from_raw(cycle_id))
+}
+
+#[allow(dead_code)]
+fn parse_presence_monitor_fallback(value: &str) -> Result<PresenceMonitorFallback, String> {
+    match value {
+        PRESENCE_MONITOR_REASON_MISSING => Ok(PresenceMonitorFallback::Missing),
+        PRESENCE_MONITOR_REASON_HIDDEN => Ok(PresenceMonitorFallback::Hidden),
+        PRESENCE_MONITOR_REASON_NO_ANIMATION => Ok(PresenceMonitorFallback::NoAnimation),
+        other => Err(format!("unknown presence monitor fallback reason: {other}")),
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum FloatingAutoUpdateEvent {
@@ -223,13 +354,8 @@ pub(crate) async fn measure_floating_placement(
     let content_id = content_id.to_string();
     let custom_anchor_id = custom_anchor_id.map(|s| s.to_string());
     let boundary_id = boundary_id.map(|s| s.to_string());
-    let res: Result<Option<[f64; 10]>, _> = measureFloatingPlacement(
-        anchor_id,
-        content_id,
-        custom_anchor_id,
-        boundary_id,
-    )
-    .await;
+    let res: Result<Option<[f64; 10]>, _> =
+        measureFloatingPlacement(anchor_id, content_id, custom_anchor_id, boundary_id).await;
     res.ok().flatten()
 }
 
@@ -271,8 +397,13 @@ pub(crate) async fn recv_form_reset_event(monitor: &mut Eval) -> Result<FormRese
 mod tests {
     use super::{
         DOCUMENT_DISMISS_SIGNAL_ESCAPE, DOCUMENT_DISMISS_SIGNAL_FOCUS_IN,
-        DOCUMENT_DISMISS_SIGNAL_POINTER_DOWN, DocumentDismissEvent, parse_document_dismiss_event,
+        DOCUMENT_DISMISS_SIGNAL_POINTER_DOWN, DocumentDismissEvent, PRESENCE_MONITOR_REASON_HIDDEN,
+        PRESENCE_MONITOR_REASON_MISSING, PRESENCE_MONITOR_REASON_NO_ANIMATION,
+        PRESENCE_MONITOR_SIGNAL_ANIMATION_CANCEL, PRESENCE_MONITOR_SIGNAL_ANIMATION_END,
+        PRESENCE_MONITOR_SIGNAL_FALLBACK, PRESENCE_MONITOR_SIGNAL_STOPPED, PresenceMonitorEvent,
+        PresenceMonitorFallback, parse_document_dismiss_event, parse_presence_monitor_event,
     };
+    use crate::foundation::overlay::PresenceCloseCycleId;
 
     #[test]
     fn parses_document_dismiss_events() {
@@ -294,5 +425,67 @@ mod tests {
             parse_document_dismiss_event(&format!("{DOCUMENT_DISMISS_SIGNAL_ESCAPE}\n")),
             Ok(DocumentDismissEvent::Escape),
         );
+    }
+
+    #[test]
+    fn parses_presence_monitor_events() {
+        assert_eq!(
+            parse_presence_monitor_event(&format!(
+                "{PRESENCE_MONITOR_SIGNAL_FALLBACK}\n6\n{PRESENCE_MONITOR_REASON_MISSING}"
+            )),
+            Ok(PresenceMonitorEvent::Fallback {
+                cycle_id: PresenceCloseCycleId::from_raw(6),
+                reason: PresenceMonitorFallback::Missing,
+            }),
+        );
+        assert_eq!(
+            parse_presence_monitor_event(&format!(
+                "{PRESENCE_MONITOR_SIGNAL_FALLBACK}\n7\n{PRESENCE_MONITOR_REASON_NO_ANIMATION}"
+            )),
+            Ok(PresenceMonitorEvent::Fallback {
+                cycle_id: PresenceCloseCycleId::from_raw(7),
+                reason: PresenceMonitorFallback::NoAnimation,
+            }),
+        );
+        assert_eq!(
+            parse_presence_monitor_event(&format!(
+                "{PRESENCE_MONITOR_SIGNAL_FALLBACK}\n8\n{PRESENCE_MONITOR_REASON_HIDDEN}"
+            )),
+            Ok(PresenceMonitorEvent::Fallback {
+                cycle_id: PresenceCloseCycleId::from_raw(8),
+                reason: PresenceMonitorFallback::Hidden,
+            }),
+        );
+        assert_eq!(
+            parse_presence_monitor_event(&format!(
+                "{PRESENCE_MONITOR_SIGNAL_ANIMATION_END}\n9\nfade-out"
+            )),
+            Ok(PresenceMonitorEvent::AnimationEnd {
+                cycle_id: PresenceCloseCycleId::from_raw(9),
+                animation_name: String::from("fade-out"),
+            }),
+        );
+        assert_eq!(
+            parse_presence_monitor_event(&format!(
+                "{PRESENCE_MONITOR_SIGNAL_ANIMATION_CANCEL}\n10\nfade-out"
+            )),
+            Ok(PresenceMonitorEvent::AnimationCancel {
+                cycle_id: PresenceCloseCycleId::from_raw(10),
+                animation_name: String::from("fade-out"),
+            }),
+        );
+        assert_eq!(
+            parse_presence_monitor_event(&format!("{PRESENCE_MONITOR_SIGNAL_STOPPED}\n11\n")),
+            Ok(PresenceMonitorEvent::Stopped {
+                cycle_id: PresenceCloseCycleId::from_raw(11),
+            }),
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_presence_monitor_payloads() {
+        assert!(parse_presence_monitor_event("fallback\nabc\nhidden").is_err());
+        assert!(parse_presence_monitor_event("fallback\n7\nunknown").is_err());
+        assert!(parse_presence_monitor_event("animationend\n7\n").is_err());
     }
 }
