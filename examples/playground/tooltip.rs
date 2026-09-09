@@ -12,14 +12,19 @@ const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-rad
 const MUTED_STYLE: &str = "margin: 0; color: #0f766e;";
 const CANVAS_STYLE: &str = "position: relative; min-height: 15rem; padding: 1.25rem; border-radius: 0.85rem; border: 1px dashed #67e8f9; background: linear-gradient(135deg, #ecfeff, #f0fdfa);";
 const TOOLTIP_PLAYGROUND_CSS: &str = r#"
-@keyframes monoxus-tooltip-content-in {
-    from { opacity: 0; transform: translateY(6px) scale(0.96); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+@keyframes monoxus-tooltip-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
-@keyframes monoxus-tooltip-content-out {
-    from { opacity: 1; transform: translateY(0) scale(1); }
-    to { opacity: 0; transform: translateY(6px) scale(0.96); }
+@keyframes monoxus-tooltip-fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+@keyframes monoxus-tooltip-scale-in {
+    from { transform: scale(0.92); }
+    to { transform: scale(1); }
 }
 "#;
 
@@ -287,11 +292,13 @@ fn tooltip_content_style(
     match state {
         DataState::Closed => {
             style.push_str(
-                " animation: monoxus-tooltip-content-out 140ms ease-in forwards; pointer-events: none;",
+                " animation: monoxus-tooltip-fade-out 180ms ease-out forwards; pointer-events: none;",
             );
         }
         _ => {
-            style.push_str(" animation: monoxus-tooltip-content-in 160ms ease-out both;");
+            style.push_str(
+                " animation: monoxus-tooltip-fade-in 150ms ease-out both, monoxus-tooltip-scale-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;",
+            );
         }
     }
 

@@ -15,24 +15,24 @@ const MODAL_FRAME_STYLE: &str = "position: relative; z-index: 1; width: min(100%
 const MODAL_PANEL_STYLE: &str = "display: grid; gap: 1rem; padding: 1.35rem; border-radius: 1rem; border: 1px solid #bfdbfe; background-color: white; box-shadow: 0 32px 80px rgba(15, 23, 42, 0.35);";
 const MODAL_NOTE_STYLE: &str = "display: grid; gap: 0.35rem; padding: 0.85rem 1rem; border-radius: 0.75rem; background-color: #eff6ff; color: #1d4ed8;";
 const DIALOG_PLAYGROUND_CSS: &str = r#"
-@keyframes monoxus-dialog-overlay-in {
+@keyframes monoxus-dialog-fade-in {
     from { opacity: 0; }
     to { opacity: 1; }
 }
 
-@keyframes monoxus-dialog-overlay-out {
+@keyframes monoxus-dialog-fade-out {
     from { opacity: 1; }
     to { opacity: 0; }
 }
 
-@keyframes monoxus-dialog-content-in {
-    from { opacity: 0; transform: translateY(10px) scale(0.96); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+@keyframes monoxus-dialog-scale-in {
+    from { transform: translateY(10px) scale(0.96); }
+    to { transform: translateY(0) scale(1); }
 }
 
-@keyframes monoxus-dialog-content-out {
-    from { opacity: 1; transform: translateY(0) scale(1); }
-    to { opacity: 0; transform: translateY(10px) scale(0.96); }
+@keyframes monoxus-dialog-scale-out {
+    from { transform: translateY(0) scale(1); }
+    to { transform: translateY(4px) scale(0.98); }
 }
 "#;
 
@@ -291,11 +291,13 @@ fn modal_overlay_style(state: &DataState) -> String {
     match state {
         DataState::Closed => {
             style.push_str(
-                " animation: monoxus-dialog-overlay-out 180ms ease-in forwards; pointer-events: none;",
+                " animation: monoxus-dialog-fade-out 220ms ease-in forwards; pointer-events: none;",
             );
         }
         _ => {
-            style.push_str(" animation: monoxus-dialog-overlay-in 180ms ease-out both;");
+            style.push_str(
+                " animation: monoxus-dialog-fade-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;",
+            );
         }
     }
     style
@@ -307,11 +309,13 @@ fn modal_panel_style(state: &DataState) -> String {
     match state {
         DataState::Closed => {
             style.push_str(
-                " animation: monoxus-dialog-content-out 180ms ease-in forwards; pointer-events: none;",
+                " animation: monoxus-dialog-fade-out 200ms ease-in forwards, monoxus-dialog-scale-out 220ms ease-in forwards; pointer-events: none;",
             );
         }
         _ => {
-            style.push_str(" animation: monoxus-dialog-content-in 200ms ease-out both;");
+            style.push_str(
+                " animation: monoxus-dialog-fade-in 150ms ease-out both, monoxus-dialog-scale-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;",
+            );
         }
     }
     style

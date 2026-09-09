@@ -12,14 +12,14 @@ const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-rad
 const MUTED_STYLE: &str = "margin: 0; color: #6b21a8;";
 const CANVAS_STYLE: &str = "position: relative; min-height: 20rem; padding: 1.25rem; border-radius: 0.85rem; border: 1px dashed #d8b4fe; background: linear-gradient(135deg, #faf5ff, #f5f3ff); overflow: hidden;";
 const POPOVER_PLAYGROUND_CSS: &str = r#"
-@keyframes monoxus-popover-content-in {
-    from { opacity: 0; transform: translateY(8px) scale(0.96); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+@keyframes monoxus-popover-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
 }
 
-@keyframes monoxus-popover-content-out {
-    from { opacity: 1; transform: translateY(0) scale(1); }
-    to { opacity: 0; transform: translateY(8px) scale(0.96); }
+@keyframes monoxus-popover-fade-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
 }
 "#;
 
@@ -291,15 +291,19 @@ fn popover_content_style(placement: Option<&FloatingPlacement>, state: &DataStat
         None => style.push_str(" left: -9999px; top: -9999px; visibility: visible;"),
     }
 
-    style.push_str(" transform-origin: var(--monoxus-popover-transform-origin-x, 0px) var(--monoxus-popover-transform-origin-y, 0px); will-change: opacity, transform;");
+    style.push_str(
+        " transform-origin: var(--monoxus-popover-transform-origin-x, 0px) var(--monoxus-popover-transform-origin-y, 0px); will-change: opacity;",
+    );
     match state {
         DataState::Closed => {
             style.push_str(
-                " animation: monoxus-popover-content-out 160ms ease-in forwards; pointer-events: none;",
+                " animation: monoxus-popover-fade-out 200ms ease-in forwards; pointer-events: none;",
             );
         }
         _ => {
-            style.push_str(" animation: monoxus-popover-content-in 180ms ease-out both;");
+            style.push_str(
+                " animation: monoxus-popover-fade-in 240ms cubic-bezier(0.16, 1, 0.3, 1) both;",
+            );
         }
     }
 
