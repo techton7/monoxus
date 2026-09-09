@@ -3,6 +3,7 @@ use monoxus::{
     foundation::{
         overlay::{FloatingLayer, FloatingPlacement, PlacementAlign, PlacementSide, PortalHost},
         shared::ScopeHandle,
+        state::DataState,
     },
     popover::{Popover, PopoverCloseFocusPolicy, PopoverOpenFocusPolicy, use_popover_runtime},
 };
@@ -10,6 +11,17 @@ use monoxus::{
 const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-radius: 0.75rem; border: 1px solid #d8b4fe; background-color: white; box-shadow: 0 10px 30px rgba(88, 28, 135, 0.08);";
 const MUTED_STYLE: &str = "margin: 0; color: #6b21a8;";
 const CANVAS_STYLE: &str = "position: relative; min-height: 20rem; padding: 1.25rem; border-radius: 0.85rem; border: 1px dashed #d8b4fe; background: linear-gradient(135deg, #faf5ff, #f5f3ff); overflow: hidden;";
+const POPOVER_PLAYGROUND_CSS: &str = r#"
+@keyframes monoxus-popover-content-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes monoxus-popover-content-out {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to { opacity: 0; transform: translateY(8px) scale(0.96); }
+}
+"#;
 
 #[component]
 pub fn PopoverPlayground() -> Element {
@@ -79,150 +91,151 @@ pub fn PopoverPlayground() -> Element {
             )
         })
         .unwrap_or_else(|| String::from("pending live measurement"));
-    let content_style = popover_content_style(placement.as_ref());
+    let content_style = popover_content_style(placement.as_ref(), content.data_state());
     let arrow_style = popover_arrow_style(placement.as_ref());
 
     rsx! {
         div {
             style: "min-height: 100vh; padding: 1rem;",
             section {
-            style: CARD_STYLE,
-            h2 {
-                style: "margin: 0;",
-                "Popover"
-            }
-            p {
-                style: MUTED_STYLE,
-                "This example renders a positioned card from "
-                code { "monoxus::popover" }
-                " runtime data. Trigger toggling, focus management, scroll lock, and dismiss decisions now come from "
-                code { "use_popover_runtime" }
-                ", and the runtime owns document-level outside dismissal directly."
-            }
-            div {
-                id: root.id(),
-                "data-state": root.data_state().as_str(),
-                style: "display: grid; gap: 1rem;",
-                ul {
-                    style: "margin: 0; padding-left: 1.25rem; color: #6b21a8;",
-                    li {
-                        "portal host: "
-                        code { "{portal_host}" }
-                    }
-                    li {
-                        "placement: "
-                        code { "{content.data_side()} / {content.data_align()}" }
-                    }
-                    li {
-                        "open focus: "
-                        code { "{open_focus}" }
-                    }
-                    li {
-                        "close focus: "
-                        code { "{close_focus}" }
-                    }
-                    li {
-                        "scroll lock: "
-                        code { "{scroll_lock}" }
-                    }
-                    li {
-                        "outside pointer: "
-                        code { "{outside_pointer}" }
-                        " / focus outside: "
-                        code { "{outside_focus}" }
-                    }
-                    li {
-                        "modal: "
-                        code { "{content.aria_modal()}" }
-                    }
+                style: CARD_STYLE,
+                style { "{POPOVER_PLAYGROUND_CSS}" }
+                h2 {
+                    style: "margin: 0;",
+                    "Popover"
+                }
+                p {
+                    style: MUTED_STYLE,
+                    "This example renders a positioned card from "
+                    code { "monoxus::popover" }
+                    " runtime data. Trigger toggling, focus management, scroll lock, dismiss decisions, and retained close continuity now come from "
+                    code { "use_popover_runtime" }
+                    "."
                 }
                 div {
-                    style: CANVAS_STYLE,
-                    div {
-                        id: anchor.id(),
-                        onmounted: popover.mount_anchor(),
-                        style: "position: absolute; left: 24px; top: 44px; width: 180px; padding: 0.7rem 0.85rem; border-radius: 0.75rem; border: 1px dashed #a855f7; color: #7e22ce; font-weight: 700; background-color: rgba(255, 255, 255, 0.72);",
-                        "Custom anchor lane"
-                    }
-                    button {
-                        id: restore_focus_id.clone(),
-                        r#type: "button",
-                        onmounted: popover.mount_focus_target(restore_focus_id.clone()),
-                        style: "position: absolute; left: 24px; top: 120px; padding: 0.6rem 0.8rem; border: 1px solid #c084fc; border-radius: 0.65rem; background-color: white; color: #6b21a8; font-weight: 600;",
-                        "Restore focus target"
-                    }
-                    div {
-                        style: "position: absolute; left: 232px; top: 44px; display: grid; gap: 0.6rem;",
-                        button {
-                            id: trigger.id(),
-                            r#type: "button",
-                            aria_controls: trigger.aria_controls(),
-                            aria_expanded: trigger.aria_expanded(),
-                            "data-state": trigger.data_state().as_str(),
-                            onmounted: popover.mount_trigger(),
-                            onclick: popover.trigger_click(),
-                            style: "padding: 0.7rem 0.95rem; border: 0; border-radius: 0.65rem; background-color: #9333ea; color: white; font-weight: 600; cursor: pointer;",
-                            "Toggle popover"
+                    id: root.id(),
+                    "data-state": root.data_state().as_str(),
+                    style: "display: grid; gap: 1rem;",
+                    ul {
+                        style: "margin: 0; padding-left: 1.25rem; color: #6b21a8;",
+                        li {
+                            "portal host: "
+                            code { "{portal_host}" }
+                        }
+                        li {
+                            "placement: "
+                            code { "{content.data_side()} / {content.data_align()}" }
+                        }
+                        li {
+                            "open focus: "
+                            code { "{open_focus}" }
+                        }
+                        li {
+                            "close focus: "
+                            code { "{close_focus}" }
+                        }
+                        li {
+                            "scroll lock: "
+                            code { "{scroll_lock}" }
+                        }
+                        li {
+                            "outside pointer: "
+                            code { "{outside_pointer}" }
+                            " / focus outside: "
+                            code { "{outside_focus}" }
+                        }
+                        li {
+                            "modal: "
+                            code { "{content.aria_modal()}" }
                         }
                     }
-                    p {
-                        style: "position: absolute; left: 24px; top: 172px; max-width: 18rem; margin: 0; color: #7e22ce;",
-                        "The trigger lives away from the anchor lane, so the floating card proves the dedicated "
-                        code { "Anchor" }
-                        " surface instead of assuming trigger-only positioning."
-                    }
-                    if popover.is_open() {
+                    div {
+                        style: CANVAS_STYLE,
                         div {
-                            id: content.id(),
-                            role: content.role(),
-                            aria_modal: content.aria_modal(),
-                            "data-state": content.data_state().as_str(),
-                            "data-side": content.data_side(),
-                            "data-align": content.data_align(),
-                            onmounted: popover.mount_content(),
-                            style: content_style,
-                            div {
-                                id: arrow.id(),
-                                "data-state": arrow.data_state().as_str(),
-                                "data-side": arrow.data_side(),
-                                "data-align": arrow.data_align(),
-                                style: arrow_style,
-                            }
-                            strong { "Runtime-owned positioned content" }
-                            p {
-                                style: MUTED_STYLE,
-                                "Geometry vars come from the shared floating backbone: "
-                                code { "{geometry_summary}" }
-                            }
-                            p {
-                                style: MUTED_STYLE,
-                                "The list above shows the configured open/close focus policies; close focus restores the external button in this harness, and pointer/focus/escape dismissal is exercised here through the runtime-owned dismiss decisions."
-                            }
-                            p {
-                                style: MUTED_STYLE,
-                                "This harness now mirrors the default non-modal reference lane, so body scroll stays available while the popover is open and outside interactions still collapse it."
-                            }
+                            id: anchor.id(),
+                            onmounted: popover.mount_anchor(),
+                            style: "position: absolute; left: 24px; top: 44px; width: 180px; padding: 0.7rem 0.85rem; border-radius: 0.75rem; border: 1px dashed #a855f7; color: #7e22ce; font-weight: 700; background-color: rgba(255, 255, 255, 0.72);",
+                            "Custom anchor lane"
+                        }
+                        button {
+                            id: restore_focus_id.clone(),
+                            r#type: "button",
+                            onmounted: popover.mount_focus_target(restore_focus_id.clone()),
+                            style: "position: absolute; left: 24px; top: 120px; padding: 0.6rem 0.8rem; border: 1px solid #c084fc; border-radius: 0.65rem; background-color: white; color: #6b21a8; font-weight: 600;",
+                            "Restore focus target"
+                        }
+                        div {
+                            style: "position: absolute; left: 232px; top: 44px; display: grid; gap: 0.6rem;",
                             button {
-                                id: open_focus_id.clone(),
+                                id: trigger.id(),
                                 r#type: "button",
-                                onmounted: popover.mount_focus_target(open_focus_id.clone()),
-                                style: "justify-self: start; padding: 0.55rem 0.8rem; border-radius: 0.6rem; border: 1px solid #c084fc; background-color: #faf5ff; color: #6b21a8; cursor: pointer; font-weight: 700;",
-                                "Open focus target"
-                            }
-                            button {
-                                id: close.id(),
-                                r#type: "button",
-                                "data-state": close.data_state().as_str(),
-                                onmounted: popover.mount_close(),
-                                onclick: popover.close_click(),
-                                style: "justify-self: end; padding: 0.55rem 0.8rem; border-radius: 0.6rem; border: 1px solid #c084fc; background-color: white; color: #6b21a8; cursor: pointer; font-weight: 600;",
-                                "Close"
+                                aria_controls: trigger.aria_controls(),
+                                aria_expanded: trigger.aria_expanded(),
+                                "data-state": trigger.data_state().as_str(),
+                                onmounted: popover.mount_trigger(),
+                                onclick: popover.trigger_click(),
+                                style: "padding: 0.7rem 0.95rem; border: 0; border-radius: 0.65rem; background-color: #9333ea; color: white; font-weight: 600; cursor: pointer;",
+                                "Toggle popover"
                             }
                         }
-                    } else {
                         p {
-                            style: "position: absolute; left: 24px; top: 220px; margin: 0; color: #7e22ce;",
-                            "Closed. Open the popover, then click anywhere outside the card, focus the restore target, or press Escape while focused inside the card to exercise the primitive-owned runtime dismissal path."
+                            style: "position: absolute; left: 24px; top: 172px; max-width: 18rem; margin: 0; color: #7e22ce;",
+                            "The trigger lives away from the anchor lane, so the floating card proves the dedicated "
+                            code { "Anchor" }
+                            " surface instead of assuming trigger-only positioning."
+                        }
+                        if popover.should_render_content() {
+                            div {
+                                id: content.id(),
+                                role: content.role(),
+                                aria_modal: content.aria_modal(),
+                                "data-state": content.data_state().as_str(),
+                                "data-side": content.data_side(),
+                                "data-align": content.data_align(),
+                                onmounted: popover.mount_content(),
+                                style: content_style,
+                                div {
+                                    id: arrow.id(),
+                                    "data-state": arrow.data_state().as_str(),
+                                    "data-side": arrow.data_side(),
+                                    "data-align": arrow.data_align(),
+                                    style: arrow_style,
+                                }
+                                strong { "Runtime-owned positioned content" }
+                                p {
+                                    style: MUTED_STYLE,
+                                    "Geometry vars come from the shared floating backbone: "
+                                    code { "{geometry_summary}" }
+                                }
+                                p {
+                                    style: MUTED_STYLE,
+                                    "The list above shows the configured open/close focus policies; close focus restores the external button in this harness, and close retention now keeps the measured placement stable until the primitive-owned unmount completes."
+                                }
+                                p {
+                                    style: MUTED_STYLE,
+                                    "This harness now mirrors the default non-modal reference lane, so body scroll stays available while the popover is open and outside interactions still collapse it."
+                                }
+                                button {
+                                    id: open_focus_id.clone(),
+                                    r#type: "button",
+                                    onmounted: popover.mount_focus_target(open_focus_id.clone()),
+                                    style: "justify-self: start; padding: 0.55rem 0.8rem; border-radius: 0.6rem; border: 1px solid #c084fc; background-color: #faf5ff; color: #6b21a8; cursor: pointer; font-weight: 700;",
+                                    "Open focus target"
+                                }
+                                button {
+                                    id: close.id(),
+                                    r#type: "button",
+                                    "data-state": close.data_state().as_str(),
+                                    onmounted: popover.mount_close(),
+                                    onclick: popover.close_click(),
+                                    style: "justify-self: end; padding: 0.55rem 0.8rem; border-radius: 0.6rem; border: 1px solid #c084fc; background-color: white; color: #6b21a8; cursor: pointer; font-weight: 600;",
+                                    "Close"
+                                }
+                            }
+                        } else {
+                            p {
+                                style: "position: absolute; left: 24px; top: 220px; margin: 0; color: #7e22ce;",
+                                "Closed. Open the popover, then click anywhere outside the card, focus the restore target, or press Escape while focused inside the card to exercise the primitive-owned runtime dismissal path."
                             }
                         }
                     }
@@ -252,7 +265,7 @@ fn outside_behavior_label(dismisses: bool) -> &'static str {
     if dismisses { "dismisses" } else { "ignored" }
 }
 
-fn popover_content_style(placement: Option<&FloatingPlacement>) -> String {
+fn popover_content_style(placement: Option<&FloatingPlacement>, state: &DataState) -> String {
     let mut style = String::from(
         "position: fixed; width: 250px; max-width: calc(100vw - 2rem); padding: 1rem; border-radius: 0.85rem; border: 1px solid #c084fc; background-color: white; box-shadow: 0 18px 40px rgba(88, 28, 135, 0.18); display: grid; gap: 0.75rem; z-index: 20;",
     );
@@ -276,6 +289,18 @@ fn popover_content_style(placement: Option<&FloatingPlacement>) -> String {
             ));
         }
         None => style.push_str(" left: -9999px; top: -9999px; visibility: visible;"),
+    }
+
+    style.push_str(" transform-origin: var(--monoxus-popover-transform-origin-x, 0px) var(--monoxus-popover-transform-origin-y, 0px); will-change: opacity, transform;");
+    match state {
+        DataState::Closed => {
+            style.push_str(
+                " animation: monoxus-popover-content-out 160ms ease-in forwards; pointer-events: none;",
+            );
+        }
+        _ => {
+            style.push_str(" animation: monoxus-popover-content-in 180ms ease-out both;");
+        }
     }
 
     style

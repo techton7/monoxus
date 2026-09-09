@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use dioxus::prelude::*;
+use dioxus::{document::Eval, prelude::*};
 
 pub use crate::foundation::compose::{
     compose_part_event_handlers, compose_part_refs, project_as_child,
@@ -8,9 +8,13 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        acquire_scroll_lock, focus_element_by_id,
-        focus_first_focusable as foundation_focus_first_focusable, release_scroll_lock,
-        restore_focus_element_by_id,
+        PresenceMonitorEvent, acquire_scroll_lock, focus_element_by_id,
+        focus_first_focusable as foundation_focus_first_focusable, recv_presence_monitor_event,
+        release_scroll_lock, restore_focus_element_by_id, start_presence_monitor,
+        stop_presence_monitor,
+    },
+    overlay::{
+        Presence, PresenceCloseCycleId, PresenceController, PresenceControllerUpdate, PresenceState,
     },
     state::DataState,
 };
@@ -34,9 +38,69 @@ struct DialogRuntimeState {
     trigger_handle: Signal<Option<DialogMountedHandle>>,
     content_handle: Signal<Option<DialogMountedHandle>>,
     focus_targets: Signal<HashMap<String, DialogMountedHandle>>,
+    presence_lane: Signal<DialogPresenceLane>,
+    overlay_presence_monitor: RetainedRootPresenceMonitorState,
+    content_presence_monitor: RetainedRootPresenceMonitorState,
     last_open: Signal<bool>,
     pending_open_focus: Signal<bool>,
     scroll_lock_held: Signal<bool>,
+}
+
+#[derive(Clone, Copy)]
+struct RetainedRootPresenceMonitorState {
+    monitor: Signal<Option<Eval>>,
+    cycle_id: Signal<Option<PresenceCloseCycleId>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DialogPresenceLane {
+    overlay: PresenceController,
+    content: PresenceController,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DialogPresenceLaneUpdate {
+    overlay: PresenceControllerUpdate,
+    content: PresenceControllerUpdate,
+}
+
+impl DialogPresenceLane {
+    fn new(presence: &Presence) -> Self {
+        let controller = PresenceController::new(presence.desired_present())
+            .with_retained_mount(presence.retain_mount());
+
+        Self {
+            overlay: controller,
+            content: controller,
+        }
+    }
+
+    fn sync(&mut self, desired_present: bool) -> DialogPresenceLaneUpdate {
+        DialogPresenceLaneUpdate {
+            overlay: self.overlay.sync(desired_present),
+            content: self.content.sync(desired_present),
+        }
+    }
+
+    const fn should_render_portal(&self) -> bool {
+        self.should_render_overlay() || self.should_render_content()
+    }
+
+    const fn should_render_overlay(&self) -> bool {
+        self.overlay.should_render()
+    }
+
+    const fn should_render_content(&self) -> bool {
+        self.content.should_render()
+    }
+
+    fn complete_overlay_close_cycle(&mut self, cycle_id: PresenceCloseCycleId) -> bool {
+        self.overlay.complete_close_cycle(cycle_id)
+    }
+
+    fn complete_content_close_cycle(&mut self, cycle_id: PresenceCloseCycleId) -> bool {
+        self.content.complete_close_cycle(cycle_id)
+    }
 }
 
 #[derive(Clone)]
@@ -50,6 +114,15 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         trigger_handle: use_signal(|| None),
         content_handle: use_signal(|| None),
         focus_targets: use_signal(HashMap::new),
+        presence_lane: use_signal(|| DialogPresenceLane::new(dialog.lifecycle().presence())),
+        overlay_presence_monitor: RetainedRootPresenceMonitorState {
+            monitor: use_signal(|| Option::<Eval>::None),
+            cycle_id: use_signal(|| None),
+        },
+        content_presence_monitor: RetainedRootPresenceMonitorState {
+            monitor: use_signal(|| Option::<Eval>::None),
+            cycle_id: use_signal(|| None),
+        },
         last_open: use_signal(|| dialog.is_open()),
         pending_open_focus: use_signal(|| dialog.is_open()),
         scroll_lock_held: use_signal(|| false),
@@ -57,12 +130,24 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
     let effect_state = state;
     let cleanup_state = state;
     let cleanup_key = dialog.relationships().root_id().to_owned();
+    let cleanup_overlay_id = dialog.relationships().overlay_id().to_owned();
+    let cleanup_content_id = dialog.relationships().content_id().to_owned();
 
     use_effect(use_reactive((&dialog,), move |(dialog,)| {
         sync_dialog_runtime(&dialog, effect_state);
     }));
 
     dioxus::core::use_drop(move || {
+        stop_dialog_presence_monitor(
+            cleanup_state.overlay_presence_monitor,
+            "overlay",
+            cleanup_overlay_id.as_str(),
+        );
+        stop_dialog_presence_monitor(
+            cleanup_state.content_presence_monitor,
+            "content",
+            cleanup_content_id.as_str(),
+        );
         if *cleanup_state.scroll_lock_held.peek() {
             release_scroll_lock(&cleanup_key, None);
         }
@@ -110,6 +195,24 @@ impl DialogRuntime {
 
     pub fn content(&self) -> DialogContentAttributes {
         self.dialog.content()
+    }
+
+    pub fn should_render_portal(&self) -> bool {
+        self.state
+            .presence_lane
+            .with_peek(|lane| lane.should_render_portal())
+    }
+
+    pub fn should_render_overlay(&self) -> bool {
+        self.state
+            .presence_lane
+            .with_peek(|lane| lane.should_render_overlay())
+    }
+
+    pub fn should_render_content(&self) -> bool {
+        self.state
+            .presence_lane
+            .with_peek(|lane| lane.should_render_content())
     }
 
     pub fn title(&self) -> DialogTitleAttributes {
@@ -184,7 +287,27 @@ impl DialogRuntime {
     }
 }
 
-fn sync_dialog_runtime(dialog: &Dialog, state: DialogRuntimeState) {
+fn sync_dialog_runtime(dialog: &Dialog, mut state: DialogRuntimeState) {
+    let presence_update = state
+        .presence_lane
+        .with_mut(|lane| lane.sync(dialog.is_open()));
+    sync_dialog_presence_root(
+        dialog.relationships().overlay_id(),
+        state.presence_lane,
+        state.overlay_presence_monitor,
+        presence_update.overlay,
+        DialogPresenceLane::complete_overlay_close_cycle,
+        "overlay",
+    );
+    sync_dialog_presence_root(
+        dialog.relationships().content_id(),
+        state.presence_lane,
+        state.content_presence_monitor,
+        presence_update.content,
+        DialogPresenceLane::complete_content_close_cycle,
+        "content",
+    );
+
     let is_open = dialog.is_open();
     let was_open = *state.last_open.peek();
     let should_hold_scroll_lock = is_open
@@ -266,4 +389,175 @@ fn restore_close_focus(dialog: &Dialog, _state: DialogRuntimeState) {
 
 pub(crate) fn focus_first_focusable(content_id: &str) {
     foundation_focus_first_focusable(content_id, Some(DIALOG_FOCUSABLE_SELECTOR));
+}
+
+fn sync_dialog_presence_root(
+    root_id: &str,
+    presence_lane: Signal<DialogPresenceLane>,
+    monitor_state: RetainedRootPresenceMonitorState,
+    update: PresenceControllerUpdate,
+    complete_close_cycle: fn(&mut DialogPresenceLane, PresenceCloseCycleId) -> bool,
+    root_label: &'static str,
+) {
+    if update.invalidated_close_cycle().is_some()
+        || !matches!(update.state(), PresenceState::Suspended)
+    {
+        stop_dialog_presence_monitor(monitor_state, root_label, root_id);
+    }
+
+    if let Some(cycle_id) = update.started_close_cycle() {
+        start_dialog_presence_monitor(
+            root_id.to_owned(),
+            presence_lane,
+            monitor_state,
+            cycle_id,
+            complete_close_cycle,
+            root_label,
+        );
+    }
+}
+
+fn start_dialog_presence_monitor(
+    root_id: String,
+    presence_lane: Signal<DialogPresenceLane>,
+    monitor_state: RetainedRootPresenceMonitorState,
+    cycle_id: PresenceCloseCycleId,
+    complete_close_cycle: fn(&mut DialogPresenceLane, PresenceCloseCycleId) -> bool,
+    root_label: &'static str,
+) {
+    stop_dialog_presence_monitor(monitor_state, root_label, root_id.as_str());
+
+    let monitor = start_presence_monitor(root_id.as_str(), cycle_id);
+    let mut active_monitor = monitor_state.monitor;
+    active_monitor.set(Some(monitor));
+    let mut active_cycle_id = monitor_state.cycle_id;
+    active_cycle_id.set(Some(cycle_id));
+
+    spawn(async move {
+        let mut monitor = monitor;
+
+        loop {
+            if monitor_state
+                .cycle_id
+                .with_peek(|current| *current != Some(cycle_id))
+            {
+                break;
+            }
+
+            match recv_presence_monitor_event(&mut monitor).await {
+                Ok(
+                    PresenceMonitorEvent::Fallback {
+                        cycle_id: event_cycle,
+                        ..
+                    }
+                    | PresenceMonitorEvent::AnimationEnd {
+                        cycle_id: event_cycle,
+                        ..
+                    }
+                    | PresenceMonitorEvent::AnimationCancel {
+                        cycle_id: event_cycle,
+                        ..
+                    },
+                ) => {
+                    complete_dialog_presence_close_cycle(
+                        presence_lane,
+                        monitor_state,
+                        event_cycle,
+                        complete_close_cycle,
+                    );
+                    break;
+                }
+                Ok(PresenceMonitorEvent::Stopped {
+                    cycle_id: event_cycle,
+                }) => {
+                    if monitor_state
+                        .cycle_id
+                        .with_peek(|current| *current == Some(event_cycle))
+                    {
+                        clear_dialog_presence_monitor_state(monitor_state);
+                    }
+                    break;
+                }
+                Err(error) => {
+                    if monitor_state
+                        .cycle_id
+                        .with_peek(|current| *current == Some(cycle_id))
+                    {
+                        eprintln!(
+                            "monoxus dialog runtime could not observe {root_label} presence for {root_id}: {error}",
+                        );
+                        clear_dialog_presence_monitor_state(monitor_state);
+                    }
+                    break;
+                }
+            }
+        }
+    });
+}
+
+fn complete_dialog_presence_close_cycle(
+    mut presence_lane: Signal<DialogPresenceLane>,
+    monitor_state: RetainedRootPresenceMonitorState,
+    cycle_id: PresenceCloseCycleId,
+    complete_close_cycle: fn(&mut DialogPresenceLane, PresenceCloseCycleId) -> bool,
+) {
+    clear_dialog_presence_monitor_state(monitor_state);
+    let _ = presence_lane.with_mut(|lane| complete_close_cycle(lane, cycle_id));
+}
+
+fn stop_dialog_presence_monitor(
+    monitor_state: RetainedRootPresenceMonitorState,
+    root_label: &str,
+    root_id: &str,
+) {
+    let Some(monitor) = monitor_state.monitor.with_peek(|monitor| *monitor) else {
+        return;
+    };
+
+    clear_dialog_presence_monitor_state(monitor_state);
+
+    if let Err(error) = stop_presence_monitor(monitor) {
+        eprintln!(
+            "monoxus dialog runtime could not stop {root_label} presence monitor for {root_id}: {error}",
+        );
+    }
+}
+
+fn clear_dialog_presence_monitor_state(monitor_state: RetainedRootPresenceMonitorState) {
+    let mut active_monitor = monitor_state.monitor;
+    active_monitor.set(None);
+    let mut active_cycle_id = monitor_state.cycle_id;
+    active_cycle_id.set(None);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DialogPresenceLane;
+    use crate::foundation::overlay::{Presence, PresenceState};
+
+    #[test]
+    fn phase_3_7_step_4_dialog_presence_lane_keeps_portal_alive_until_both_roots_unmount() {
+        let presence = Presence::new(true).with_retained_mount(true);
+        let mut lane = DialogPresenceLane::new(&presence);
+
+        let close = lane.sync(false);
+        let overlay_cycle = close.overlay.started_close_cycle().unwrap();
+        let content_cycle = close.content.started_close_cycle().unwrap();
+
+        assert_eq!(close.overlay.state(), PresenceState::Suspended);
+        assert_eq!(close.content.state(), PresenceState::Suspended);
+        assert!(lane.should_render_portal());
+        assert!(lane.should_render_overlay());
+        assert!(lane.should_render_content());
+
+        assert!(lane.complete_overlay_close_cycle(overlay_cycle));
+        assert!(lane.should_render_portal());
+        assert!(!lane.should_render_overlay());
+        assert!(lane.should_render_content());
+
+        assert!(lane.complete_content_close_cycle(content_cycle));
+        assert!(!lane.should_render_portal());
+        assert!(!lane.should_render_overlay());
+        assert!(!lane.should_render_content());
+    }
 }

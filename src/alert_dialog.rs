@@ -249,6 +249,18 @@ impl AlertDialogRuntime {
         self.alert.content()
     }
 
+    pub fn should_render_portal(&self) -> bool {
+        self.dialog_runtime.should_render_portal()
+    }
+
+    pub fn should_render_overlay(&self) -> bool {
+        self.dialog_runtime.should_render_overlay()
+    }
+
+    pub fn should_render_content(&self) -> bool {
+        self.dialog_runtime.should_render_content()
+    }
+
     pub fn title(&self) -> DialogTitleAttributes {
         self.alert.title()
     }

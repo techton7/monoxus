@@ -3,6 +3,7 @@ use monoxus::{
     foundation::{
         overlay::{FloatingLayer, FloatingPlacement, PlacementAlign, PlacementSide, PortalHost},
         shared::ScopeHandle,
+        state::DataState,
     },
     tooltip::{Tooltip, TooltipProvider, use_tooltip_provider_runtime, use_tooltip_runtime},
 };
@@ -10,6 +11,17 @@ use monoxus::{
 const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-radius: 0.75rem; border: 1px solid #a5f3fc; background-color: white; box-shadow: 0 10px 30px rgba(8, 145, 178, 0.08);";
 const MUTED_STYLE: &str = "margin: 0; color: #0f766e;";
 const CANVAS_STYLE: &str = "position: relative; min-height: 15rem; padding: 1.25rem; border-radius: 0.85rem; border: 1px dashed #67e8f9; background: linear-gradient(135deg, #ecfeff, #f0fdfa);";
+const TOOLTIP_PLAYGROUND_CSS: &str = r#"
+@keyframes monoxus-tooltip-content-in {
+    from { opacity: 0; transform: translateY(6px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes monoxus-tooltip-content-out {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to { opacity: 0; transform: translateY(6px) scale(0.96); }
+}
+"#;
 
 #[component]
 pub fn TooltipPlayground() -> Element {
@@ -82,9 +94,18 @@ pub fn TooltipPlayground() -> Element {
     } else {
         "delayed"
     };
-    let first_content_style = tooltip_content_style(first_placement.as_ref(), "#0f172a", "#ffffff");
-    let second_content_style =
-        tooltip_content_style(second_placement.as_ref(), "#115e59", "#ffffff");
+    let first_content_style = tooltip_content_style(
+        first_placement.as_ref(),
+        "#0f172a",
+        "#ffffff",
+        first_content.data_state(),
+    );
+    let second_content_style = tooltip_content_style(
+        second_placement.as_ref(),
+        "#115e59",
+        "#ffffff",
+        second_content.data_state(),
+    );
     let first_arrow_style = tooltip_arrow_style(first_placement.as_ref(), "#0f172a");
     let second_arrow_style = tooltip_arrow_style(second_placement.as_ref(), "#115e59");
 
@@ -93,6 +114,7 @@ pub fn TooltipPlayground() -> Element {
             style: "min-height: 100vh; padding: 1rem;",
             section {
                 style: CARD_STYLE,
+                style { "{TOOLTIP_PLAYGROUND_CSS}" }
                 h2 {
                     style: "margin: 0;",
                     "Tooltip"
@@ -180,7 +202,7 @@ pub fn TooltipPlayground() -> Element {
                                 "Shared provider trigger"
                             }
                         }
-                        if first.is_open() {
+                        if first.should_render_content() {
                             div {
                                 id: first_content.id(),
                                 role: first_content.role(),
@@ -206,7 +228,7 @@ pub fn TooltipPlayground() -> Element {
                                 }
                             }
                         }
-                        if second.is_open() {
+                        if second.should_render_content() {
                             div {
                                 id: second_content.id(),
                                 role: second_content.role(),
@@ -229,7 +251,7 @@ pub fn TooltipPlayground() -> Element {
                                     style: "margin: 0; color: #ccfbf1;",
                                     "Move from the first trigger to this one within the skip-delay window to observe grouped-provider instant open. The content stays descriptive and unfocused while rendered through "
                                     code { "aria-describedby" }
-                                    "."
+                                    ", and Step 4 now keeps the closing lane mounted long enough for Step 5 animate-out proof."
                                 }
                             }
                         }
@@ -244,6 +266,7 @@ fn tooltip_content_style(
     placement: Option<&FloatingPlacement>,
     background: &str,
     foreground: &str,
+    state: &DataState,
 ) -> String {
     let mut style = format!(
         "position: fixed; width: 184px; max-width: calc(100vw - 2rem); padding: 0.7rem 0.85rem; border-radius: 0.7rem; background-color: {background}; color: {foreground}; display: grid; gap: 0.45rem; z-index: 20;"
@@ -258,6 +281,18 @@ fn tooltip_content_style(
             ));
         }
         None => style.push_str(" left: -9999px; top: -9999px; visibility: visible;"),
+    }
+
+    style.push_str(" transform-origin: center center; will-change: opacity, transform;");
+    match state {
+        DataState::Closed => {
+            style.push_str(
+                " animation: monoxus-tooltip-content-out 140ms ease-in forwards; pointer-events: none;",
+            );
+        }
+        _ => {
+            style.push_str(" animation: monoxus-tooltip-content-in 160ms ease-out both;");
+        }
     }
 
     style

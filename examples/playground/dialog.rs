@@ -4,7 +4,7 @@ use monoxus::{
         Dialog, DialogCloseFocusPolicy, DialogMode, DialogOpenFocusPolicy,
         DialogOutsideDismissBehavior, use_dialog_runtime,
     },
-    foundation::{overlay::PortalHost, shared::ScopeHandle},
+    foundation::{overlay::PortalHost, shared::ScopeHandle, state::DataState},
 };
 
 const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-radius: 0.75rem; border: 1px solid #cbd5e1; background-color: white; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);";
@@ -14,6 +14,27 @@ const MODAL_OVERLAY_STYLE: &str = "position: absolute; inset: 0; background-colo
 const MODAL_FRAME_STYLE: &str = "position: relative; z-index: 1; width: min(100%, 44rem); max-height: calc(100vh - 3rem); overflow: auto;";
 const MODAL_PANEL_STYLE: &str = "display: grid; gap: 1rem; padding: 1.35rem; border-radius: 1rem; border: 1px solid #bfdbfe; background-color: white; box-shadow: 0 32px 80px rgba(15, 23, 42, 0.35);";
 const MODAL_NOTE_STYLE: &str = "display: grid; gap: 0.35rem; padding: 0.85rem 1rem; border-radius: 0.75rem; background-color: #eff6ff; color: #1d4ed8;";
+const DIALOG_PLAYGROUND_CSS: &str = r#"
+@keyframes monoxus-dialog-overlay-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes monoxus-dialog-overlay-out {
+    from { opacity: 1; }
+    to { opacity: 0; }
+}
+
+@keyframes monoxus-dialog-content-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.96); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes monoxus-dialog-content-out {
+    from { opacity: 1; transform: translateY(0) scale(1); }
+    to { opacity: 0; transform: translateY(10px) scale(0.96); }
+}
+"#;
 
 #[component]
 pub fn DialogPlayground() -> Element {
@@ -61,6 +82,7 @@ pub fn DialogPlayground() -> Element {
     rsx! {
         section {
             style: CARD_STYLE,
+            style { "{DIALOG_PLAYGROUND_CSS}" }
             h2 {
                 style: "margin: 0;",
                 "Dialog"
@@ -127,93 +149,97 @@ pub fn DialogPlayground() -> Element {
                         code { "{focus_outside}" }
                     }
                 }
-                if dialog.is_open() {
+                if dialog.should_render_portal() {
                     div {
                         style: MODAL_ROOT_STYLE,
-                        div {
-                            id: overlay.id(),
-                            "data-state": overlay.data_state().as_str(),
-                            onclick: move |_| open_from_overlay.set(close_request),
-                            style: MODAL_OVERLAY_STYLE,
-                            aria_label: "Dismiss dialog",
-                        }
-                        div {
-                            style: MODAL_FRAME_STYLE,
+                        if dialog.should_render_overlay() {
                             div {
-                                id: content.id(),
-                                role: content.role(),
-                                aria_modal: content.aria_modal(),
-                                aria_labelledby: content.aria_labelledby(),
-                                aria_describedby: content.aria_describedby(),
-                                "data-state": content.data_state().as_str(),
-                                onmounted: dialog.mount_content(),
-                                style: MODAL_PANEL_STYLE,
+                                id: overlay.id(),
+                                "data-state": overlay.data_state().as_str(),
+                                onclick: move |_| open_from_overlay.set(close_request),
+                                style: modal_overlay_style(overlay.data_state()),
+                                aria_label: "Dismiss dialog",
+                            }
+                        }
+                        if dialog.should_render_content() {
+                            div {
+                                style: MODAL_FRAME_STYLE,
                                 div {
-                                    style: "display: grid; gap: 0.5rem;",
-                                    p {
-                                        style: "margin: 0; color: #1d4ed8; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;",
-                                        "Centered modal sample"
-                                    }
-                                    h3 {
-                                        id: title.id(),
-                                        style: "margin: 0;",
-                                        "Headless dialog content"
-                                    }
-                                    p {
-                                        id: description.id(),
-                                        style: MUTED_STYLE,
-                                        "This example keeps renderer markup local while turning the public dialog data surface into an actual floating modal."
-                                    }
-                                }
-                                div {
-                                    style: MODAL_NOTE_STYLE,
-                                    strong { "Try it like a dialog." }
-                                    p {
-                                        style: "margin: 0;",
-                                        "Click the backdrop to dismiss, or use the close button below. The page stays visible behind a full-screen overlay."
-                                    }
-                                }
-                                div {
-                                    style: "display: grid; gap: 0.45rem;",
-                                    p {
-                                        style: "margin: 0; font-weight: 600; color: #0f172a;",
-                                        "Proof that the modal still comes from "
-                                        code { "monoxus::dialog" }
-                                    }
-                                    ul {
-                                        style: "margin: 0; padding-left: 1.25rem; color: #334155;",
-                                        li {
-                                            "content role: "
-                                            code { "{content.role()}" }
+                                    id: content.id(),
+                                    role: content.role(),
+                                    aria_modal: content.aria_modal(),
+                                    aria_labelledby: content.aria_labelledby(),
+                                    aria_describedby: content.aria_describedby(),
+                                    "data-state": content.data_state().as_str(),
+                                    onmounted: dialog.mount_content(),
+                                    style: modal_panel_style(content.data_state()),
+                                    div {
+                                        style: "display: grid; gap: 0.5rem;",
+                                        p {
+                                            style: "margin: 0; color: #1d4ed8; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;",
+                                            "Centered modal sample"
                                         }
-                                        li {
-                                            "portal host: "
-                                            code { "{portal_host}" }
+                                        h3 {
+                                            id: title.id(),
+                                            style: "margin: 0;",
+                                            "Headless dialog content"
                                         }
-                                        li {
-                                            "data-state: "
-                                            code { "{dialog.data_state()}" }
-                                        }
-                                        li {
-                                            "close focus restore: "
-                                            code { "{close_focus}" }
-                                        }
-                                        li {
-                                            "outside pointer: "
-                                            code { "{pointer_outside}" }
-                                            " / focus outside: "
-                                            code { "{focus_outside}" }
+                                        p {
+                                            id: description.id(),
+                                            style: MUTED_STYLE,
+                                            "This example keeps renderer markup local while turning the public dialog data surface into an actual floating modal."
                                         }
                                     }
-                                }
-                                button {
-                                    id: close.id(),
-                                    r#type: "button",
-                                    "data-state": close.data_state().as_str(),
-                                    onmounted: dialog.mount_close(),
-                                    onclick: move |_| open_from_close.set(close_request),
-                                    style: "justify-self: end; padding: 0.65rem 0.95rem; border-radius: 0.65rem; border: 1px solid #94a3b8; background-color: white; cursor: pointer; font-weight: 600;",
-                                    "Close dialog"
+                                    div {
+                                        style: MODAL_NOTE_STYLE,
+                                        strong { "Try it like a dialog." }
+                                        p {
+                                            style: "margin: 0;",
+                                            "Click the backdrop to dismiss, or use the close button below. The page stays visible behind a full-screen overlay, and the panel now stays mounted long enough for animate-out proof in Step 5."
+                                        }
+                                    }
+                                    div {
+                                        style: "display: grid; gap: 0.45rem;",
+                                        p {
+                                            style: "margin: 0; font-weight: 600; color: #0f172a;",
+                                            "Proof that the modal still comes from "
+                                            code { "monoxus::dialog" }
+                                        }
+                                        ul {
+                                            style: "margin: 0; padding-left: 1.25rem; color: #334155;",
+                                            li {
+                                                "content role: "
+                                                code { "{content.role()}" }
+                                            }
+                                            li {
+                                                "portal host: "
+                                                code { "{portal_host}" }
+                                            }
+                                            li {
+                                                "data-state: "
+                                                code { "{dialog.data_state()}" }
+                                            }
+                                            li {
+                                                "close focus restore: "
+                                                code { "{close_focus}" }
+                                            }
+                                            li {
+                                                "outside pointer: "
+                                                code { "{pointer_outside}" }
+                                                " / focus outside: "
+                                                code { "{focus_outside}" }
+                                            }
+                                        }
+                                    }
+                                    button {
+                                        id: close.id(),
+                                        r#type: "button",
+                                        "data-state": close.data_state().as_str(),
+                                        onmounted: dialog.mount_close(),
+                                        onclick: move |_| open_from_close.set(close_request),
+                                        style: "justify-self: end; padding: 0.65rem 0.95rem; border-radius: 0.65rem; border: 1px solid #94a3b8; background-color: white; cursor: pointer; font-weight: 600;",
+                                        "Close dialog"
+                                    }
                                 }
                             }
                         }
@@ -258,4 +284,35 @@ fn outside_behavior_label(behavior: DialogOutsideDismissBehavior) -> &'static st
         DialogOutsideDismissBehavior::Dismiss => "dismisses",
         DialogOutsideDismissBehavior::Ignore => "ignored",
     }
+}
+
+fn modal_overlay_style(state: &DataState) -> String {
+    let mut style = String::from(MODAL_OVERLAY_STYLE);
+    match state {
+        DataState::Closed => {
+            style.push_str(
+                " animation: monoxus-dialog-overlay-out 180ms ease-in forwards; pointer-events: none;",
+            );
+        }
+        _ => {
+            style.push_str(" animation: monoxus-dialog-overlay-in 180ms ease-out both;");
+        }
+    }
+    style
+}
+
+fn modal_panel_style(state: &DataState) -> String {
+    let mut style = String::from(MODAL_PANEL_STYLE);
+    style.push_str(" transform-origin: center center; will-change: opacity, transform;");
+    match state {
+        DataState::Closed => {
+            style.push_str(
+                " animation: monoxus-dialog-content-out 180ms ease-in forwards; pointer-events: none;",
+            );
+        }
+        _ => {
+            style.push_str(" animation: monoxus-dialog-content-in 200ms ease-out both;");
+        }
+    }
+    style
 }

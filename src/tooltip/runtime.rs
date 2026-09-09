@@ -9,10 +9,14 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        FloatingAutoUpdateEvent, recv_floating_auto_update_event,
-        start_floating_auto_update_monitor, stop_floating_auto_update_monitor,
+        FloatingAutoUpdateEvent, PresenceMonitorEvent, recv_floating_auto_update_event,
+        recv_presence_monitor_event, start_floating_auto_update_monitor, start_presence_monitor,
+        stop_floating_auto_update_monitor, stop_presence_monitor,
     },
-    overlay::{FloatingPlacement, GeometryVars, Rect, Size},
+    overlay::{
+        FloatingPlacement, GeometryVars, Presence, PresenceCloseCycleId, PresenceController,
+        PresenceControllerUpdate, Rect, Size,
+    },
     state::DataState,
 };
 
@@ -27,6 +31,50 @@ use super::{
 };
 
 type TooltipOpenChangeHandler = Rc<dyn Fn(bool)>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct TooltipContentPresenceLane {
+    content: PresenceController,
+}
+
+impl TooltipContentPresenceLane {
+    fn new(presence: &Presence) -> Self {
+        Self {
+            content: PresenceController::new(presence.desired_present())
+                .with_retained_mount(presence.retain_mount()),
+        }
+    }
+
+    fn sync(&mut self, desired_present: bool) -> PresenceControllerUpdate {
+        self.content.sync(desired_present)
+    }
+
+    const fn should_render_portal(&self) -> bool {
+        self.should_render_content()
+    }
+
+    const fn should_render_content(&self) -> bool {
+        self.content.should_render()
+    }
+
+    const fn should_track_live_placement(&self, desired_present: bool) -> bool {
+        desired_present && self.should_render_content()
+    }
+
+    const fn should_clear_positioning(&self, desired_present: bool) -> bool {
+        !desired_present && !self.should_render_content()
+    }
+
+    fn complete_close_cycle(&mut self, cycle_id: PresenceCloseCycleId) -> bool {
+        self.content.complete_close_cycle(cycle_id)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RetainedRootPresenceMonitorState {
+    monitor: Signal<Option<Eval>>,
+    cycle_id: Signal<Option<PresenceCloseCycleId>>,
+}
 
 #[derive(Clone, Copy)]
 struct TooltipProviderRuntimeState {
@@ -189,6 +237,8 @@ struct TooltipRuntimeState {
     trigger_handle: Signal<Option<Rc<MountedData>>>,
     content_handle: Signal<Option<Rc<MountedData>>>,
     placement: Signal<Option<FloatingPlacement>>,
+    presence_lane: Signal<TooltipContentPresenceLane>,
+    presence_monitor: RetainedRootPresenceMonitorState,
     pointer_down_inside: Signal<bool>,
     trigger_hovered: Signal<bool>,
     content_hovered: Signal<bool>,
@@ -218,6 +268,13 @@ where
         trigger_handle: use_signal(|| None),
         content_handle: use_signal(|| None),
         placement: use_signal(|| None),
+        presence_lane: use_signal(|| {
+            TooltipContentPresenceLane::new(tooltip.lifecycle().presence())
+        }),
+        presence_monitor: RetainedRootPresenceMonitorState {
+            monitor: use_signal(|| Option::<Eval>::None),
+            cycle_id: use_signal(|| None),
+        },
         pointer_down_inside: use_signal(|| false),
         trigger_hovered: use_signal(|| false),
         content_hovered: use_signal(|| false),
@@ -233,6 +290,7 @@ where
     let reset_state = state;
     let position_state = state;
     let effect_tooltip = tooltip.clone();
+    let cleanup_tooltip = tooltip.clone();
     let is_open = tooltip.is_open();
     let tooltip_root_id = tooltip.relationships().root_id().to_owned();
     let provider_active_tooltip_id = synced_provider_runtime
@@ -268,6 +326,7 @@ where
     }));
 
     dioxus::core::use_drop(move || {
+        stop_tooltip_presence_monitor(cleanup_state, cleanup_tooltip.relationships().content_id());
         advance_tooltip_token(cleanup_state.hover_transfer_token);
         advance_tooltip_token(cleanup_state.open_request_token);
         advance_tooltip_token(cleanup_state.position_loop_token);
@@ -321,6 +380,18 @@ impl TooltipRuntime {
 
     pub fn portal(&self) -> TooltipPortalAttributes {
         self.tooltip.portal()
+    }
+
+    pub fn should_render_portal(&self) -> bool {
+        self.state
+            .presence_lane
+            .with_peek(|lane| lane.should_render_portal())
+    }
+
+    pub fn should_render_content(&self) -> bool {
+        self.state
+            .presence_lane
+            .with_peek(|lane| lane.should_render_content())
     }
 
     pub fn content(&self) -> TooltipContentAttributes {
@@ -621,12 +692,24 @@ fn sync_tooltip_positioning(
     on_open_change: TooltipOpenChangeHandler,
     state: TooltipRuntimeState,
 ) {
+    sync_tooltip_presence(tooltip, state);
     stop_tooltip_position_monitor(state);
 
-    if !tooltip.is_open() {
+    let should_track_live_placement = state
+        .presence_lane
+        .with_peek(|lane| lane.should_track_live_placement(tooltip.is_open()));
+    let should_clear_positioning = state
+        .presence_lane
+        .with_peek(|lane| lane.should_clear_positioning(tooltip.is_open()));
+
+    if should_clear_positioning {
         advance_tooltip_token(state.position_loop_token);
-        clear_tooltip_content_handle(state);
-        clear_tooltip_placement(state);
+        clear_tooltip_retained_content_state(state);
+        return;
+    }
+
+    if !should_track_live_placement {
+        advance_tooltip_token(state.position_loop_token);
         return;
     }
 
@@ -779,9 +862,162 @@ fn clear_tooltip_placement(state: TooltipRuntimeState) {
     }
 }
 
+fn clear_tooltip_retained_content_state(state: TooltipRuntimeState) {
+    clear_tooltip_content_handle(state);
+    clear_tooltip_placement(state);
+}
+
 fn advance_tooltip_token(signal: Signal<u64>) -> u64 {
     let next = signal.with_peek(|value| value.saturating_add(1));
     let mut signal = signal;
     signal.set(next);
     next
+}
+
+fn sync_tooltip_presence(tooltip: &Tooltip, mut state: TooltipRuntimeState) {
+    let update = state
+        .presence_lane
+        .with_mut(|lane| lane.sync(tooltip.is_open()));
+
+    if update.invalidated_close_cycle().is_some() || !update.should_render() {
+        stop_tooltip_presence_monitor(state, tooltip.relationships().content_id());
+    }
+
+    if let Some(cycle_id) = update.started_close_cycle() {
+        start_tooltip_presence_monitor(tooltip, state, cycle_id);
+    }
+}
+
+fn start_tooltip_presence_monitor(
+    tooltip: &Tooltip,
+    state: TooltipRuntimeState,
+    cycle_id: PresenceCloseCycleId,
+) {
+    stop_tooltip_presence_monitor(state, tooltip.relationships().content_id());
+
+    let content_id = tooltip.relationships().content_id().to_owned();
+    let monitor = start_presence_monitor(content_id.as_str(), cycle_id);
+    let mut active_monitor = state.presence_monitor.monitor;
+    active_monitor.set(Some(monitor));
+    let mut active_cycle_id = state.presence_monitor.cycle_id;
+    active_cycle_id.set(Some(cycle_id));
+
+    spawn(async move {
+        let mut monitor = monitor;
+
+        loop {
+            if state
+                .presence_monitor
+                .cycle_id
+                .with_peek(|current| *current != Some(cycle_id))
+            {
+                break;
+            }
+
+            match recv_presence_monitor_event(&mut monitor).await {
+                Ok(
+                    PresenceMonitorEvent::Fallback {
+                        cycle_id: event_cycle,
+                        ..
+                    }
+                    | PresenceMonitorEvent::AnimationEnd {
+                        cycle_id: event_cycle,
+                        ..
+                    }
+                    | PresenceMonitorEvent::AnimationCancel {
+                        cycle_id: event_cycle,
+                        ..
+                    },
+                ) => {
+                    complete_tooltip_presence_close_cycle(state, event_cycle);
+                    break;
+                }
+                Ok(PresenceMonitorEvent::Stopped {
+                    cycle_id: event_cycle,
+                }) => {
+                    if state
+                        .presence_monitor
+                        .cycle_id
+                        .with_peek(|current| *current == Some(event_cycle))
+                    {
+                        clear_tooltip_presence_monitor_state(state);
+                    }
+                    break;
+                }
+                Err(error) => {
+                    if state
+                        .presence_monitor
+                        .cycle_id
+                        .with_peek(|current| *current == Some(cycle_id))
+                    {
+                        eprintln!(
+                            "monoxus tooltip runtime could not observe content presence for {content_id}: {error}",
+                        );
+                        clear_tooltip_presence_monitor_state(state);
+                    }
+                    break;
+                }
+            }
+        }
+    });
+}
+
+fn complete_tooltip_presence_close_cycle(
+    mut state: TooltipRuntimeState,
+    cycle_id: PresenceCloseCycleId,
+) {
+    clear_tooltip_presence_monitor_state(state);
+    let completed = state
+        .presence_lane
+        .with_mut(|lane| lane.complete_close_cycle(cycle_id));
+    if completed {
+        clear_tooltip_retained_content_state(state);
+    }
+}
+
+fn stop_tooltip_presence_monitor(state: TooltipRuntimeState, content_id: &str) {
+    let Some(monitor) = state.presence_monitor.monitor.with_peek(|monitor| *monitor) else {
+        return;
+    };
+
+    clear_tooltip_presence_monitor_state(state);
+
+    if let Err(error) = stop_presence_monitor(monitor) {
+        eprintln!(
+            "monoxus tooltip runtime could not stop content presence monitor for {content_id}: {error}",
+        );
+    }
+}
+
+fn clear_tooltip_presence_monitor_state(state: TooltipRuntimeState) {
+    let mut active_monitor = state.presence_monitor.monitor;
+    active_monitor.set(None);
+    let mut active_cycle_id = state.presence_monitor.cycle_id;
+    active_cycle_id.set(None);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TooltipContentPresenceLane;
+    use crate::foundation::overlay::{Presence, PresenceState};
+
+    #[test]
+    fn phase_3_7_step_4_tooltip_presence_lane_retains_content_until_close_completion() {
+        let presence = Presence::new(true).with_retained_mount(true);
+        let mut lane = TooltipContentPresenceLane::new(&presence);
+
+        let close = lane.sync(false);
+        let cycle_id = close.started_close_cycle().unwrap();
+
+        assert_eq!(close.state(), PresenceState::Suspended);
+        assert!(lane.should_render_portal());
+        assert!(lane.should_render_content());
+        assert!(!lane.should_track_live_placement(false));
+        assert!(!lane.should_clear_positioning(false));
+
+        assert!(lane.complete_close_cycle(cycle_id));
+        assert!(!lane.should_render_portal());
+        assert!(!lane.should_render_content());
+        assert!(lane.should_clear_positioning(false));
+    }
 }

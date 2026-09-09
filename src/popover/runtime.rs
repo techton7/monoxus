@@ -10,13 +10,17 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        DocumentDismissEvent, FloatingAutoUpdateEvent, acquire_scroll_lock, focus_element_by_id,
-        focus_first_focusable, focus_mounted_handle, recv_document_dismiss_event,
-        recv_floating_auto_update_event, release_scroll_lock, restore_focus_element_by_id,
-        start_document_dismiss_monitor, start_floating_auto_update_monitor,
-        stop_document_dismiss_monitor, stop_floating_auto_update_monitor,
+        DocumentDismissEvent, FloatingAutoUpdateEvent, PresenceMonitorEvent, acquire_scroll_lock,
+        focus_element_by_id, focus_first_focusable, focus_mounted_handle,
+        recv_document_dismiss_event, recv_floating_auto_update_event, recv_presence_monitor_event,
+        release_scroll_lock, restore_focus_element_by_id, start_document_dismiss_monitor,
+        start_floating_auto_update_monitor, start_presence_monitor, stop_document_dismiss_monitor,
+        stop_floating_auto_update_monitor, stop_presence_monitor,
     },
-    overlay::{FloatingPlacement, GeometryVars, Rect, Size},
+    overlay::{
+        FloatingPlacement, GeometryVars, Presence, PresenceCloseCycleId, PresenceController,
+        PresenceControllerUpdate, Rect, Size,
+    },
     state::DataState,
 };
 
@@ -28,12 +32,54 @@ use super::{
     },
     relationships::PopoverRelationships,
     state::{Popover, PopoverLifecycle},
-    types::{
-        PopoverCloseFocusPolicy, PopoverOpenFocusPolicy, PopoverStateRequest,
-    },
+    types::{PopoverCloseFocusPolicy, PopoverOpenFocusPolicy, PopoverStateRequest},
 };
 
 type PopoverOpenChangeHandler = Rc<dyn Fn(bool)>;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PopoverContentPresenceLane {
+    content: PresenceController,
+}
+
+impl PopoverContentPresenceLane {
+    fn new(presence: &Presence) -> Self {
+        Self {
+            content: PresenceController::new(presence.desired_present())
+                .with_retained_mount(presence.retain_mount()),
+        }
+    }
+
+    fn sync(&mut self, desired_present: bool) -> PresenceControllerUpdate {
+        self.content.sync(desired_present)
+    }
+
+    const fn should_render_portal(&self) -> bool {
+        self.should_render_content()
+    }
+
+    const fn should_render_content(&self) -> bool {
+        self.content.should_render()
+    }
+
+    const fn should_track_live_placement(&self, desired_present: bool) -> bool {
+        desired_present && self.should_render_content()
+    }
+
+    const fn should_clear_positioning(&self, desired_present: bool) -> bool {
+        !desired_present && !self.should_render_content()
+    }
+
+    fn complete_close_cycle(&mut self, cycle_id: PresenceCloseCycleId) -> bool {
+        self.content.complete_close_cycle(cycle_id)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RetainedRootPresenceMonitorState {
+    monitor: Signal<Option<Eval>>,
+    cycle_id: Signal<Option<PresenceCloseCycleId>>,
+}
 
 #[derive(Clone, Copy)]
 struct PopoverRuntimeState {
@@ -42,6 +88,8 @@ struct PopoverRuntimeState {
     content_handle: Signal<Option<PopoverMountedHandle>>,
     placement: Signal<Option<FloatingPlacement>>,
     focus_targets: Signal<HashMap<String, PopoverMountedHandle>>,
+    presence_lane: Signal<PopoverContentPresenceLane>,
+    presence_monitor: RetainedRootPresenceMonitorState,
     position_loop_token: Signal<u64>,
     position_monitor: Signal<Option<Eval>>,
     dismiss_loop_token: Signal<u64>,
@@ -69,6 +117,13 @@ where
         content_handle: use_signal(|| None),
         placement: use_signal(|| None),
         focus_targets: use_signal(HashMap::new),
+        presence_lane: use_signal(|| {
+            PopoverContentPresenceLane::new(popover.lifecycle().presence())
+        }),
+        presence_monitor: RetainedRootPresenceMonitorState {
+            monitor: use_signal(|| Option::<Eval>::None),
+            cycle_id: use_signal(|| None),
+        },
         position_loop_token: use_signal(|| 0),
         position_monitor: use_signal(|| Option::<Eval>::None),
         dismiss_loop_token: use_signal(|| 0),
@@ -80,6 +135,7 @@ where
     let effect_state = state;
     let cleanup_state = state;
     let cleanup_key = popover.relationships().root_id().to_owned();
+    let cleanup_content_id = popover.relationships().content_id().to_owned();
     let effect_open_change = Rc::clone(&synced_open_change);
 
     use_effect(use_reactive((&popover,), move |(popover,)| {
@@ -87,6 +143,7 @@ where
     }));
 
     dioxus::core::use_drop(move || {
+        stop_popover_presence_monitor(cleanup_state, cleanup_content_id.as_str());
         advance_popover_token(cleanup_state.position_loop_token);
         stop_popover_position_monitor(cleanup_state);
         advance_popover_token(cleanup_state.dismiss_loop_token);
@@ -138,6 +195,18 @@ impl PopoverRuntime {
 
     pub fn portal(&self) -> PopoverPortalAttributes {
         self.popover.portal()
+    }
+
+    pub fn should_render_portal(&self) -> bool {
+        self.state
+            .presence_lane
+            .with_peek(|lane| lane.should_render_portal())
+    }
+
+    pub fn should_render_content(&self) -> bool {
+        self.state
+            .presence_lane
+            .with_peek(|lane| lane.should_render_content())
     }
 
     pub fn content(&self) -> PopoverContentAttributes {
@@ -410,6 +479,8 @@ fn sync_popover_runtime(
     state: PopoverRuntimeState,
     on_open_change: PopoverOpenChangeHandler,
 ) {
+    sync_popover_presence(popover, state);
+
     let is_open = popover.is_open();
     let was_open = *state.last_open.peek();
     let should_hold_scroll_lock = is_open
@@ -607,10 +678,21 @@ async fn active_element_matches_id(target_id: &str) -> bool {
 fn sync_popover_positioning(popover: &Popover, state: PopoverRuntimeState) {
     stop_popover_position_monitor(state);
 
-    if !popover.is_open() {
+    let should_track_live_placement = state
+        .presence_lane
+        .with_peek(|lane| lane.should_track_live_placement(popover.is_open()));
+    let should_clear_positioning = state
+        .presence_lane
+        .with_peek(|lane| lane.should_clear_positioning(popover.is_open()));
+
+    if should_clear_positioning {
         advance_popover_token(state.position_loop_token);
-        clear_popover_content_handle(state);
-        clear_popover_placement(state);
+        clear_popover_retained_content_state(state);
+        return;
+    }
+
+    if !should_track_live_placement {
+        advance_popover_token(state.position_loop_token);
         return;
     }
 
@@ -808,9 +890,162 @@ fn clear_popover_placement(state: PopoverRuntimeState) {
     }
 }
 
+fn clear_popover_retained_content_state(state: PopoverRuntimeState) {
+    clear_popover_content_handle(state);
+    clear_popover_placement(state);
+}
+
 fn advance_popover_token(signal: Signal<u64>) -> u64 {
     let next = signal.with_peek(|value| value.saturating_add(1));
     let mut signal = signal;
     signal.set(next);
     next
+}
+
+fn sync_popover_presence(popover: &Popover, mut state: PopoverRuntimeState) {
+    let update = state
+        .presence_lane
+        .with_mut(|lane| lane.sync(popover.is_open()));
+
+    if update.invalidated_close_cycle().is_some() || !update.should_render() {
+        stop_popover_presence_monitor(state, popover.relationships().content_id());
+    }
+
+    if let Some(cycle_id) = update.started_close_cycle() {
+        start_popover_presence_monitor(popover, state, cycle_id);
+    }
+}
+
+fn start_popover_presence_monitor(
+    popover: &Popover,
+    state: PopoverRuntimeState,
+    cycle_id: PresenceCloseCycleId,
+) {
+    stop_popover_presence_monitor(state, popover.relationships().content_id());
+
+    let content_id = popover.relationships().content_id().to_owned();
+    let monitor = start_presence_monitor(content_id.as_str(), cycle_id);
+    let mut active_monitor = state.presence_monitor.monitor;
+    active_monitor.set(Some(monitor));
+    let mut active_cycle_id = state.presence_monitor.cycle_id;
+    active_cycle_id.set(Some(cycle_id));
+
+    spawn(async move {
+        let mut monitor = monitor;
+
+        loop {
+            if state
+                .presence_monitor
+                .cycle_id
+                .with_peek(|current| *current != Some(cycle_id))
+            {
+                break;
+            }
+
+            match recv_presence_monitor_event(&mut monitor).await {
+                Ok(
+                    PresenceMonitorEvent::Fallback {
+                        cycle_id: event_cycle,
+                        ..
+                    }
+                    | PresenceMonitorEvent::AnimationEnd {
+                        cycle_id: event_cycle,
+                        ..
+                    }
+                    | PresenceMonitorEvent::AnimationCancel {
+                        cycle_id: event_cycle,
+                        ..
+                    },
+                ) => {
+                    complete_popover_presence_close_cycle(state, event_cycle);
+                    break;
+                }
+                Ok(PresenceMonitorEvent::Stopped {
+                    cycle_id: event_cycle,
+                }) => {
+                    if state
+                        .presence_monitor
+                        .cycle_id
+                        .with_peek(|current| *current == Some(event_cycle))
+                    {
+                        clear_popover_presence_monitor_state(state);
+                    }
+                    break;
+                }
+                Err(error) => {
+                    if state
+                        .presence_monitor
+                        .cycle_id
+                        .with_peek(|current| *current == Some(cycle_id))
+                    {
+                        eprintln!(
+                            "monoxus popover runtime could not observe content presence for {content_id}: {error}",
+                        );
+                        clear_popover_presence_monitor_state(state);
+                    }
+                    break;
+                }
+            }
+        }
+    });
+}
+
+fn complete_popover_presence_close_cycle(
+    mut state: PopoverRuntimeState,
+    cycle_id: PresenceCloseCycleId,
+) {
+    clear_popover_presence_monitor_state(state);
+    let completed = state
+        .presence_lane
+        .with_mut(|lane| lane.complete_close_cycle(cycle_id));
+    if completed {
+        clear_popover_retained_content_state(state);
+    }
+}
+
+fn stop_popover_presence_monitor(state: PopoverRuntimeState, content_id: &str) {
+    let Some(monitor) = state.presence_monitor.monitor.with_peek(|monitor| *monitor) else {
+        return;
+    };
+
+    clear_popover_presence_monitor_state(state);
+
+    if let Err(error) = stop_presence_monitor(monitor) {
+        eprintln!(
+            "monoxus popover runtime could not stop content presence monitor for {content_id}: {error}",
+        );
+    }
+}
+
+fn clear_popover_presence_monitor_state(state: PopoverRuntimeState) {
+    let mut active_monitor = state.presence_monitor.monitor;
+    active_monitor.set(None);
+    let mut active_cycle_id = state.presence_monitor.cycle_id;
+    active_cycle_id.set(None);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::PopoverContentPresenceLane;
+    use crate::foundation::overlay::{Presence, PresenceState};
+
+    #[test]
+    fn phase_3_7_step_4_popover_presence_lane_retains_content_until_close_completion() {
+        let presence = Presence::new(true).with_retained_mount(true);
+        let mut lane = PopoverContentPresenceLane::new(&presence);
+
+        let close = lane.sync(false);
+        let cycle_id = close.started_close_cycle().unwrap();
+
+        assert_eq!(close.state(), PresenceState::Suspended);
+        assert!(lane.should_render_portal());
+        assert!(lane.should_render_content());
+        assert!(!lane.should_track_live_placement(false));
+        assert!(!lane.should_clear_positioning(false));
+
+        assert!(lane.complete_close_cycle(cycle_id));
+        assert!(!lane.should_render_portal());
+        assert!(!lane.should_render_content());
+        assert!(lane.should_clear_positioning(false));
+    }
 }
