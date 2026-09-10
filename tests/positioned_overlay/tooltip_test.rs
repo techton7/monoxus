@@ -8,10 +8,10 @@ use monoxus::{
         state::DataState,
     },
     tooltip::{
+        Tooltip, TooltipProvider, TooltipRuntime, TooltipStateRequest,
         compose_part_event_handlers as compose_tooltip_event_handlers,
         compose_part_refs as compose_tooltip_refs, project_as_child as project_tooltip_as_child,
-        use_tooltip_provider_runtime, use_tooltip_runtime, Tooltip, TooltipProvider,
-        TooltipRuntime, TooltipStateRequest,
+        use_tooltip_provider_runtime, use_tooltip_runtime,
     },
 };
 

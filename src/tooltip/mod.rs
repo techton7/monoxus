@@ -1,4 +1,5 @@
 pub mod attrs;
+pub(crate) mod browser;
 pub mod relationships;
 pub mod runtime;
 pub mod state;

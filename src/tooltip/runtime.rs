@@ -14,8 +14,8 @@ use crate::foundation::{
         stop_floating_auto_update_monitor, stop_presence_monitor,
     },
     overlay::{
-        FloatingPlacement, GeometryVars, Presence, PresenceCloseCycleId, PresenceController,
-        PresenceControllerUpdate, Rect, Size,
+        FloatingPlacement, FloatingReadiness, GeometryVars, Presence, PresenceCloseCycleId,
+        PresenceController, PresenceControllerUpdate, Rect, Size,
     },
     state::DataState,
 };
@@ -25,10 +25,17 @@ use super::{
         TooltipArrowAttributes, TooltipContentAttributes, TooltipPortalAttributes,
         TooltipRootAttributes, TooltipTriggerAttributes,
     },
+    browser::{
+        TooltipBrowserEvent, parse_tooltip_browser_event, start_tooltip_grace_monitor,
+        stop_tooltip_grace_monitor,
+    },
     relationships::TooltipRelationships,
     state::{Tooltip, TooltipLifecycle, TooltipProvider},
     types::TOOLTIP_HOVER_TRANSFER_GRACE_MS,
 };
+
+const TOOLTIP_RADIX_COMPATIBILITY_PREFIX: &str = "radix-tooltip";
+const TOOLTIP_RADIX_ANCHOR_LABEL: &str = "trigger";
 
 type TooltipOpenChangeHandler = Rc<dyn Fn(bool)>;
 
@@ -237,6 +244,7 @@ struct TooltipRuntimeState {
     trigger_handle: Signal<Option<Rc<MountedData>>>,
     content_handle: Signal<Option<Rc<MountedData>>>,
     placement: Signal<Option<FloatingPlacement>>,
+    content_readiness: Signal<FloatingReadiness>,
     presence_lane: Signal<TooltipContentPresenceLane>,
     presence_monitor: RetainedRootPresenceMonitorState,
     pointer_down_inside: Signal<bool>,
@@ -246,6 +254,7 @@ struct TooltipRuntimeState {
     open_request_token: Signal<u64>,
     position_loop_token: Signal<u64>,
     position_monitor: Signal<Option<Eval>>,
+    grace_monitor: Signal<Option<Eval>>,
 }
 
 #[derive(Clone)]
@@ -268,6 +277,7 @@ where
         trigger_handle: use_signal(|| None),
         content_handle: use_signal(|| None),
         placement: use_signal(|| None),
+        content_readiness: use_signal(FloatingReadiness::default),
         presence_lane: use_signal(|| {
             TooltipContentPresenceLane::new(tooltip.lifecycle().presence())
         }),
@@ -282,6 +292,7 @@ where
         open_request_token: use_signal(|| 0),
         position_loop_token: use_signal(|| 0),
         position_monitor: use_signal(|| Option::<Eval>::None),
+        grace_monitor: use_signal(|| Option::<Eval>::None),
     };
     let cleanup_state = state;
     let synced_provider_runtime = provider_runtime.clone();
@@ -315,9 +326,16 @@ where
                 let mut pointer_down_inside = reset_state.pointer_down_inside;
                 pointer_down_inside.set(false);
             }
+            stop_tooltip_grace_monitor_state(reset_state);
         }
 
         sync_tooltip_positioning(
+            &effect_tooltip,
+            synced_provider_runtime.clone(),
+            Rc::clone(&effect_open_change),
+            position_state,
+        );
+        sync_tooltip_grace_monitor(
             &effect_tooltip,
             synced_provider_runtime.clone(),
             Rc::clone(&effect_open_change),
@@ -331,6 +349,7 @@ where
         advance_tooltip_token(cleanup_state.open_request_token);
         advance_tooltip_token(cleanup_state.position_loop_token);
         stop_tooltip_position_monitor(cleanup_state);
+        stop_tooltip_grace_monitor_state(cleanup_state);
     });
 
     TooltipRuntime {
@@ -412,8 +431,39 @@ impl TooltipRuntime {
         self.tooltip.geometry_vars(anchor, content)
     }
 
+    pub fn content_readiness(&self) -> FloatingReadiness {
+        *self.state.content_readiness.read()
+    }
+
+    pub fn content_positioning_state(&self) -> &'static str {
+        self.content_readiness().positioning_state()
+    }
+
+    pub fn content_css_variables(&self) -> Vec<(String, String)> {
+        self.placement()
+            .map(|placement| tooltip_content_css_variables(placement.geometry()))
+            .unwrap_or_default()
+    }
+
+    pub fn content_css_custom_properties(&self) -> String {
+        serialize_css_custom_properties(&self.content_css_variables())
+    }
+
     pub fn placement(&self) -> Option<FloatingPlacement> {
         self.state.placement.cloned()
+    }
+
+    pub fn has_active_grace_monitor(&self) -> bool {
+        self.state.grace_monitor.with_peek(|monitor| monitor.is_some())
+    }
+
+    fn sync_grace_monitor(&self) {
+        sync_tooltip_grace_monitor(
+            &self.tooltip,
+            self.provider_runtime.clone(),
+            Rc::clone(&self.on_open_change),
+            self.state,
+        );
     }
 
     pub fn mount_trigger(&self) -> impl FnMut(MountedEvent) + 'static {
@@ -422,6 +472,7 @@ impl TooltipRuntime {
             let mut trigger_handle = runtime.state.trigger_handle;
             trigger_handle.set(Some(event.data()));
             runtime.refresh_live_placement();
+            runtime.sync_grace_monitor();
         }
     }
 
@@ -431,6 +482,7 @@ impl TooltipRuntime {
             let mut content_handle = runtime.state.content_handle;
             content_handle.set(Some(event.data()));
             runtime.refresh_live_placement();
+            runtime.sync_grace_monitor();
         }
     }
 
@@ -515,7 +567,7 @@ impl TooltipRuntime {
 
             if runtime.disable_hoverable_content() {
                 runtime.request_close();
-            } else {
+            } else if !runtime.has_active_grace_monitor() {
                 runtime.schedule_hover_transfer_close();
             }
         }
@@ -577,7 +629,7 @@ impl TooltipRuntime {
             let mut content_hovered = runtime.state.content_hovered;
             content_hovered.set(false);
 
-            if !*runtime.state.trigger_hovered.peek() {
+            if !runtime.has_active_grace_monitor() && !*runtime.state.trigger_hovered.peek() {
                 runtime.request_close();
             }
         }
@@ -821,6 +873,7 @@ async fn measure_tooltip_placement(
         let mut current = state.placement;
         current.set(Some(placement));
     }
+    set_tooltip_content_readiness(state, FloatingReadiness::Ready);
 
     Ok(())
 }
@@ -858,9 +911,126 @@ fn clear_tooltip_placement(state: TooltipRuntimeState) {
     }
 }
 
+fn set_tooltip_content_readiness(state: TooltipRuntimeState, readiness: FloatingReadiness) {
+    if state
+        .content_readiness
+        .with_peek(|current| *current != readiness)
+    {
+        let mut content_readiness = state.content_readiness;
+        content_readiness.set(readiness);
+    }
+}
+
+fn clear_tooltip_content_readiness(state: TooltipRuntimeState) {
+    set_tooltip_content_readiness(state, FloatingReadiness::Measuring);
+}
+
 fn clear_tooltip_retained_content_state(state: TooltipRuntimeState) {
+    stop_tooltip_grace_monitor_state(state);
     clear_tooltip_content_handle(state);
     clear_tooltip_placement(state);
+    clear_tooltip_content_readiness(state);
+}
+
+fn stop_tooltip_grace_monitor_state(state: TooltipRuntimeState) {
+    let Some(monitor) = state.grace_monitor.with_peek(|monitor| *monitor) else {
+        return;
+    };
+
+    let mut grace_monitor = state.grace_monitor;
+    grace_monitor.set(None);
+
+    if let Err(error) = stop_tooltip_grace_monitor(monitor) {
+        eprintln!("monoxus tooltip runtime could not stop grace monitor: {error}");
+    }
+}
+
+fn sync_tooltip_grace_monitor(
+    tooltip: &Tooltip,
+    provider_runtime: Option<TooltipProviderRuntime>,
+    on_open_change: TooltipOpenChangeHandler,
+    state: TooltipRuntimeState,
+) {
+    if !tooltip.is_open() {
+        stop_tooltip_grace_monitor_state(state);
+        return;
+    }
+
+    if tooltip
+        .provider()
+        .map(TooltipProvider::disable_hoverable_content)
+        .unwrap_or(false)
+    {
+        stop_tooltip_grace_monitor_state(state);
+        return;
+    }
+
+    let has_handles = state.trigger_handle.with_peek(|handle| handle.is_some())
+        && state.content_handle.with_peek(|handle| handle.is_some());
+    if !has_handles {
+        return;
+    }
+
+    if state.grace_monitor.with_peek(|monitor| monitor.is_some()) {
+        return;
+    }
+
+    let Some(monitor) = start_tooltip_grace_monitor(
+        tooltip.relationships().trigger_id(),
+        tooltip.relationships().content_id(),
+    ) else {
+        return;
+    };
+
+    let mut grace_monitor = state.grace_monitor;
+    grace_monitor.set(Some(monitor));
+
+    let tooltip_root_id = tooltip.relationships().root_id().to_owned();
+    let mut receiver_monitor = monitor;
+
+    spawn(async move {
+        loop {
+            match receiver_monitor.recv::<String>().await {
+                Ok(message) => match parse_tooltip_browser_event(&message) {
+                    TooltipBrowserEvent::GraceLeave => {
+                        if let Some(provider_runtime) = &provider_runtime {
+                            provider_runtime.request_close(&tooltip_root_id);
+                        } else {
+                            on_open_change(false);
+                        }
+                        break;
+                    }
+                    TooltipBrowserEvent::Stopped => break,
+                    TooltipBrowserEvent::Unknown(_) => break,
+                },
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+fn tooltip_content_css_variables(geometry: &GeometryVars) -> Vec<(String, String)> {
+    geometry
+        .css_iter()
+        .chain(geometry.compatibility_alias_iter(
+            TOOLTIP_RADIX_COMPATIBILITY_PREFIX,
+            TOOLTIP_RADIX_ANCHOR_LABEL,
+        ))
+        .collect()
+}
+
+fn serialize_css_custom_properties(entries: &[(String, String)]) -> String {
+    let mut style = String::new();
+
+    for (name, value) in entries {
+        style.push(' ');
+        style.push_str(name);
+        style.push_str(": ");
+        style.push_str(value);
+        style.push(';');
+    }
+
+    style
 }
 
 fn advance_tooltip_token(signal: Signal<u64>) -> u64 {
@@ -994,8 +1164,10 @@ fn clear_tooltip_presence_monitor_state(state: TooltipRuntimeState) {
 
 #[cfg(test)]
 mod tests {
-    use super::TooltipContentPresenceLane;
-    use crate::foundation::overlay::{Presence, PresenceState};
+    use super::{
+        TooltipContentPresenceLane, serialize_css_custom_properties, tooltip_content_css_variables,
+    };
+    use crate::foundation::overlay::{FloatingReadiness, GeometryVars, Presence, PresenceState};
 
     #[test]
     fn phase_3_7_step_4_tooltip_presence_lane_retains_content_until_close_completion() {
@@ -1015,5 +1187,94 @@ mod tests {
         assert!(!lane.should_render_portal());
         assert!(!lane.should_render_content());
         assert!(lane.should_clear_positioning(false));
+    }
+
+    #[test]
+    fn tooltip_content_css_variables_include_monoxus_and_radix_compatibility_names() {
+        let geometry = GeometryVars::new(
+            "tooltip", 24.0, 44.0, 26.0, 0.0, 120.0, 80.0, 40.0, 16.0, 30.0, 12.0,
+        );
+
+        let variables = tooltip_content_css_variables(&geometry);
+        let serialized = serialize_css_custom_properties(&variables);
+
+        assert_eq!(
+            variables,
+            vec![
+                (
+                    "--monoxus-tooltip-floating-x".to_string(),
+                    "24px".to_string()
+                ),
+                (
+                    "--monoxus-tooltip-floating-y".to_string(),
+                    "44px".to_string()
+                ),
+                (
+                    "--monoxus-tooltip-transform-origin-x".to_string(),
+                    "26px".to_string(),
+                ),
+                (
+                    "--monoxus-tooltip-transform-origin-y".to_string(),
+                    "0px".to_string(),
+                ),
+                (
+                    "--monoxus-tooltip-available-width".to_string(),
+                    "120px".to_string(),
+                ),
+                (
+                    "--monoxus-tooltip-available-height".to_string(),
+                    "80px".to_string(),
+                ),
+                (
+                    "--monoxus-tooltip-anchor-width".to_string(),
+                    "40px".to_string(),
+                ),
+                (
+                    "--monoxus-tooltip-anchor-height".to_string(),
+                    "16px".to_string(),
+                ),
+                (
+                    "--monoxus-tooltip-content-width".to_string(),
+                    "30px".to_string(),
+                ),
+                (
+                    "--monoxus-tooltip-content-height".to_string(),
+                    "12px".to_string(),
+                ),
+                (
+                    "--radix-tooltip-content-transform-origin".to_string(),
+                    "26px 0px".to_string(),
+                ),
+                (
+                    "--radix-tooltip-content-available-width".to_string(),
+                    "120px".to_string(),
+                ),
+                (
+                    "--radix-tooltip-content-available-height".to_string(),
+                    "80px".to_string(),
+                ),
+                (
+                    "--radix-tooltip-trigger-width".to_string(),
+                    "40px".to_string()
+                ),
+                (
+                    "--radix-tooltip-trigger-height".to_string(),
+                    "16px".to_string(),
+                ),
+            ],
+        );
+        assert!(serialized.contains("--monoxus-tooltip-floating-x: 24px;"));
+        assert!(serialized.contains("--radix-tooltip-content-transform-origin: 26px 0px;"));
+        assert!(serialized.contains("--radix-tooltip-trigger-height: 16px;"));
+    }
+
+    #[test]
+    fn tooltip_readiness_and_positioning_state_contract() {
+        let initial = FloatingReadiness::default();
+        assert_eq!(initial, FloatingReadiness::Measuring);
+        assert_eq!(initial.positioning_state(), "unpositioned");
+
+        let ready = FloatingReadiness::Ready;
+        assert_eq!(ready.positioning_state(), "positioned");
     }
 }

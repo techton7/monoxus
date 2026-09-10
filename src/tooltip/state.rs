@@ -1,5 +1,7 @@
 use crate::foundation::{
-    overlay::{DismissLayer, FloatingLayer, GeometryVars, PlacementSide, PortalHost, Presence, Rect, Size},
+    overlay::{
+        DismissLayer, FloatingLayer, GeometryVars, PlacementSide, PortalHost, Presence, Rect, Size,
+    },
     shared::ScopeHandle,
     state::DataState,
 };

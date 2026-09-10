@@ -12,20 +12,70 @@ const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-rad
 const MUTED_STYLE: &str = "margin: 0; color: #0f766e;";
 const CANVAS_STYLE: &str = "position: relative; min-height: 15rem; padding: 1.25rem; border-radius: 0.85rem; border: 1px dashed #67e8f9; background: linear-gradient(135deg, #ecfeff, #f0fdfa);";
 const TOOLTIP_PLAYGROUND_CSS: &str = r#"
-@keyframes monoxus-tooltip-fade-out {
-    from { opacity: 1; }
-    to { opacity: 0; }
+@keyframes monoxus-tooltip-content-in {
+    from {
+        opacity: 0;
+        transform: translate3d(var(--monoxus-tooltip-motion-x), var(--monoxus-tooltip-motion-y), 0) scale(0.96);
+    }
+
+    to {
+        opacity: 1;
+        transform: translate3d(0, 0, 0) scale(1);
+    }
 }
 
-@keyframes monoxus-tooltip-scale-out {
-    from { transform: scale(1); }
-    to { transform: scale(0.9); }
+@keyframes monoxus-tooltip-content-out {
+    from {
+        opacity: 1;
+        transform: translate3d(0, 0, 0) scale(1);
+    }
+
+    to {
+        opacity: 0;
+        transform: translate3d(var(--monoxus-tooltip-motion-x), var(--monoxus-tooltip-motion-y), 0) scale(0.96);
+    }
 }
 
-[data-playground-tooltip-content='true'][data-state='closed'] {
-    animation:
-        monoxus-tooltip-fade-out 260ms ease-in forwards,
-        monoxus-tooltip-scale-out 300ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+[data-playground-tooltip-content='true'] {
+    --monoxus-tooltip-motion-x: 0px;
+    --monoxus-tooltip-motion-y: -6px;
+    transform-origin: var(--radix-tooltip-content-transform-origin, var(--monoxus-tooltip-transform-origin-x, 0px) var(--monoxus-tooltip-transform-origin-y, 0px));
+}
+
+[data-playground-tooltip-content='true'][data-side='top'] {
+    --monoxus-tooltip-motion-y: 6px;
+}
+
+[data-playground-tooltip-content='true'][data-side='bottom'] {
+    --monoxus-tooltip-motion-y: -6px;
+}
+
+[data-playground-tooltip-content='true'][data-side='left'] {
+    --monoxus-tooltip-motion-x: 6px;
+    --monoxus-tooltip-motion-y: 0px;
+}
+
+[data-playground-tooltip-content='true'][data-side='right'] {
+    --monoxus-tooltip-motion-x: -6px;
+    --monoxus-tooltip-motion-y: 0px;
+}
+
+[data-playground-tooltip-content='true'][data-state='open'][data-positioning='positioned'] {
+    animation: monoxus-tooltip-content-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+[data-playground-tooltip-content='true'][data-state='open'][data-positioning='unpositioned'] {
+    animation: none;
+    opacity: 0;
+}
+
+[data-playground-tooltip-content='true'][data-state='closed'][data-positioning='positioned'] {
+    animation: monoxus-tooltip-content-out 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+[data-playground-tooltip-content='true'][data-state='closed'][data-positioning='unpositioned'] {
+    animation: none;
+    opacity: 0;
 }
 "#;
 
@@ -100,17 +150,26 @@ pub fn TooltipPlayground() -> Element {
     } else {
         "delayed"
     };
+    let first_positioning_state = first.content_positioning_state();
+    let first_css_custom_properties = first.content_css_custom_properties();
+    let second_positioning_state = second.content_positioning_state();
+    let second_css_custom_properties = second.content_css_custom_properties();
+
     let first_content_style = tooltip_content_style(
         first_placement.as_ref(),
         "#0f172a",
         "#ffffff",
         first_content.data_state(),
+        first_positioning_state,
+        first_css_custom_properties.as_str(),
     );
     let second_content_style = tooltip_content_style(
         second_placement.as_ref(),
         "#115e59",
         "#ffffff",
         second_content.data_state(),
+        second_positioning_state,
+        second_css_custom_properties.as_str(),
     );
     let first_arrow_style = tooltip_arrow_style(first_placement.as_ref(), "#0f172a");
     let second_arrow_style = tooltip_arrow_style(second_placement.as_ref(), "#115e59");
@@ -162,6 +221,12 @@ pub fn TooltipPlayground() -> Element {
                             code { "{active_tooltip}" }
                             " / provider phase: "
                             code { "{provider_phase}" }
+                        }
+                        li {
+                            "first positioning: "
+                            code { "{first_positioning_state}" }
+                            " / second positioning: "
+                            code { "{second_positioning_state}" }
                         }
                     }
                     div {
@@ -215,6 +280,7 @@ pub fn TooltipPlayground() -> Element {
                                 "data-state": first_content.data_state().as_str(),
                                 "data-side": first_content.data_side(),
                                 "data-align": first_content.data_align(),
+                                "data-positioning": first_positioning_state,
                                 "data-playground-tooltip-content": "true",
                                 onmounted: first.mount_content(),
                                 onmouseenter: first.content_pointer_enter(),
@@ -242,6 +308,7 @@ pub fn TooltipPlayground() -> Element {
                                 "data-state": second_content.data_state().as_str(),
                                 "data-side": second_content.data_side(),
                                 "data-align": second_content.data_align(),
+                                "data-positioning": second_positioning_state,
                                 "data-playground-tooltip-content": "true",
                                 onmounted: second.mount_content(),
                                 onmouseenter: second.content_pointer_enter(),
@@ -275,23 +342,45 @@ fn tooltip_content_style(
     background: &str,
     foreground: &str,
     state: &DataState,
+    positioning_state: &'static str,
+    css_custom_properties: &str,
 ) -> String {
     let mut style = format!(
         "position: fixed; width: 184px; max-width: calc(100vw - 2rem); padding: 0.7rem 0.85rem; border-radius: 0.7rem; background-color: {background}; color: {foreground}; display: grid; gap: 0.45rem; z-index: 20;"
     );
 
-    match placement {
-        Some(placement) => {
-            style.push_str(&format!(
-                " left: {}px; top: {}px;",
-                placement.geometry().x(),
-                placement.geometry().y()
-            ));
+    style.push_str(css_custom_properties);
+
+    if positioning_state == "positioned" {
+        match placement {
+            Some(placement) => {
+                let visibility = if placement.reference_hidden() {
+                    "hidden"
+                } else {
+                    "visible"
+                };
+                style.push_str(&format!(
+                    " left: {}px; top: {}px; visibility: {visibility}; pointer-events: {};",
+                    placement.geometry().x(),
+                    placement.geometry().y(),
+                    if placement.reference_hidden() {
+                        "none"
+                    } else {
+                        "auto"
+                    }
+                ));
+            }
+            None => style.push_str(
+                " left: -9999px; top: -9999px; visibility: hidden; pointer-events: none;",
+            ),
         }
-        None => style.push_str(" left: -9999px; top: -9999px; visibility: visible;"),
+    } else {
+        style.push_str(" left: -9999px; top: -9999px; visibility: hidden; pointer-events: none;");
     }
 
-    style.push_str(" transform-origin: center center; will-change: opacity, transform;");
+    style.push_str(
+        " transform-origin: var(--radix-tooltip-content-transform-origin, var(--monoxus-tooltip-transform-origin-x, 0px) var(--monoxus-tooltip-transform-origin-y, 0px)); will-change: opacity, transform;",
+    );
     match state {
         DataState::Closed => {
             style.push_str(" pointer-events: none;");
