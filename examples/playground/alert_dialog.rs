@@ -13,24 +13,52 @@ const MODAL_FRAME_STYLE: &str = "position: relative; z-index: 1; width: min(100%
 const MODAL_PANEL_STYLE: &str = "display: grid; gap: 1rem; padding: 1.35rem; border-radius: 1rem; border: 1px solid #fecaca; background-color: white; box-shadow: 0 32px 80px rgba(127, 29, 29, 0.32);";
 const MODAL_WARNING_STYLE: &str = "display: grid; gap: 0.35rem; padding: 0.9rem 1rem; border-radius: 0.75rem; background-color: #fef2f2; color: #991b1b;";
 const ALERT_DIALOG_PLAYGROUND_CSS: &str = r#"
+@keyframes monoxus-alert-dialog-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
 @keyframes monoxus-alert-dialog-fade-out {
     from { opacity: 1; }
     to { opacity: 0; }
 }
 
+@keyframes monoxus-alert-dialog-scale-in {
+    from {
+        transform: scale(0.95);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
 @keyframes monoxus-alert-dialog-scale-out {
-    from { transform: translateY(0) scale(1); }
-    to { transform: translateY(18px) scale(0.92); }
+    from {
+        transform: scale(1);
+        opacity: 1;
+    }
+    to {
+        transform: scale(0.95);
+        opacity: 0;
+    }
+}
+
+[data-playground-alert-dialog-overlay='true'][data-state='open'] {
+    animation: monoxus-alert-dialog-fade-in 200ms ease-out forwards;
 }
 
 [data-playground-alert-dialog-overlay='true'][data-state='closed'] {
-    animation: monoxus-alert-dialog-fade-out 340ms ease-in forwards;
+    animation: monoxus-alert-dialog-fade-out 200ms ease-in forwards;
+}
+
+[data-playground-alert-dialog-panel='true'][data-state='open'] {
+    animation: monoxus-alert-dialog-scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 [data-playground-alert-dialog-panel='true'][data-state='closed'] {
-    animation:
-        monoxus-alert-dialog-fade-out 300ms ease-in forwards,
-        monoxus-alert-dialog-scale-out 340ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: monoxus-alert-dialog-scale-out 200ms ease-in forwards;
 }
 "#;
 

@@ -15,24 +15,52 @@ const MODAL_FRAME_STYLE: &str = "position: relative; z-index: 1; width: min(100%
 const MODAL_PANEL_STYLE: &str = "display: grid; gap: 1rem; padding: 1.35rem; border-radius: 1rem; border: 1px solid #bfdbfe; background-color: white; box-shadow: 0 32px 80px rgba(15, 23, 42, 0.35);";
 const MODAL_NOTE_STYLE: &str = "display: grid; gap: 0.35rem; padding: 0.85rem 1rem; border-radius: 0.75rem; background-color: #eff6ff; color: #1d4ed8;";
 const DIALOG_PLAYGROUND_CSS: &str = r#"
+@keyframes monoxus-dialog-fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
 @keyframes monoxus-dialog-fade-out {
     from { opacity: 1; }
     to { opacity: 0; }
 }
 
+@keyframes monoxus-dialog-scale-in {
+    from {
+        transform: scale(0.95);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
 @keyframes monoxus-dialog-scale-out {
-    from { transform: translateY(0) scale(1); }
-    to { transform: translateY(18px) scale(0.92); }
+    from {
+        transform: scale(1);
+        opacity: 1;
+    }
+    to {
+        transform: scale(0.95);
+        opacity: 0;
+    }
+}
+
+[data-playground-dialog-overlay='true'][data-state='open'] {
+    animation: monoxus-dialog-fade-in 200ms ease-out forwards;
 }
 
 [data-playground-dialog-overlay='true'][data-state='closed'] {
-    animation: monoxus-dialog-fade-out 340ms ease-in forwards;
+    animation: monoxus-dialog-fade-out 200ms ease-in forwards;
+}
+
+[data-playground-dialog-panel='true'][data-state='open'] {
+    animation: monoxus-dialog-scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 [data-playground-dialog-panel='true'][data-state='closed'] {
-    animation:
-        monoxus-dialog-fade-out 300ms ease-in forwards,
-        monoxus-dialog-scale-out 340ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    animation: monoxus-dialog-scale-out 200ms ease-in forwards;
 }
 "#;
 
@@ -290,7 +318,7 @@ fn outside_behavior_label(behavior: DialogOutsideDismissBehavior) -> &'static st
 
 fn modal_overlay_style(state: &DataState) -> String {
     let mut style = String::from(MODAL_OVERLAY_STYLE);
-    style.push_str(" opacity: 1; will-change: opacity;");
+    style.push_str(" will-change: opacity;");
     if matches!(state, DataState::Closed) {
         style.push_str(" pointer-events: none;");
     }
@@ -299,7 +327,7 @@ fn modal_overlay_style(state: &DataState) -> String {
 
 fn modal_panel_style(state: &DataState) -> String {
     let mut style = String::from(MODAL_PANEL_STYLE);
-    style.push_str(" opacity: 1; transform: translateY(0) scale(1); transform-origin: center center; will-change: opacity, transform;");
+    style.push_str(" transform-origin: center center; will-change: opacity, transform;");
     if matches!(state, DataState::Closed) {
         style.push_str(" pointer-events: none;");
     }
