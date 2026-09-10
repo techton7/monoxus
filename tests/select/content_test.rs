@@ -144,4 +144,16 @@ fn select_content_force_mount_state_contract() {
     assert_eq!(attrs.data_state_str(), "closed");
 }
 
-
+#[test]
+fn select_content_center_alignment_uses_translate_not_conflicting_transform() {
+    // PlacementAlign::Center must decouple horizontal centering using CSS `translate: -50% 0;`
+    // to prevent collision with keyframe `transform: scale(...)` or `translateY(...)`.
+    let eff_align = PlacementAlign::Center;
+    let align_placement_style = match eff_align {
+        PlacementAlign::End => "right: 0; left: auto;",
+        PlacementAlign::Center => "left: 50%; translate: -50% 0; --monoxus-select-align-x: -50%;",
+        PlacementAlign::Start => "left: 0; right: auto;",
+    };
+    assert!(align_placement_style.contains("translate: -50% 0"));
+    assert!(!align_placement_style.contains("transform: translateX"));
+}

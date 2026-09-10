@@ -1,13 +1,14 @@
 use monoxus::{
-    accordion::{
-        ACCORDION_PARTS, Accordion, AccordionMode, AccordionPart, AccordionRelationships,
-    },
+    accordion::{ACCORDION_PARTS, Accordion, AccordionMode, AccordionPart, AccordionRelationships},
     foundation::shared::ScopeHandle,
 };
 
 #[test]
 fn accordion_part_inventory_matches_exhaustive_surface() {
-    let parts: Vec<_> = Accordion::parts().iter().map(AccordionPart::as_str).collect();
+    let parts: Vec<_> = Accordion::parts()
+        .iter()
+        .map(AccordionPart::as_str)
+        .collect();
     assert_eq!(parts, vec!["root", "item", "header", "trigger", "content"]);
     assert_eq!(ACCORDION_PARTS.len(), 5);
 }
@@ -19,10 +20,22 @@ fn accordion_relationships_produce_deterministic_ids() {
 
     assert_eq!(relationships.scope(), &scope);
     assert_eq!(relationships.root_id(), scope.token());
-    assert_eq!(relationships.item_id("item-1"), scope.qualify("item-item-1"));
-    assert_eq!(relationships.header_id("item-1"), scope.qualify("header-item-1"));
-    assert_eq!(relationships.trigger_id("item-1"), scope.qualify("trigger-item-1"));
-    assert_eq!(relationships.content_id("item-1"), scope.qualify("content-item-1"));
+    assert_eq!(
+        relationships.item_id("item-1"),
+        scope.qualify("item-item-1")
+    );
+    assert_eq!(
+        relationships.header_id("item-1"),
+        scope.qualify("header-item-1")
+    );
+    assert_eq!(
+        relationships.trigger_id("item-1"),
+        scope.qualify("trigger-item-1")
+    );
+    assert_eq!(
+        relationships.content_id("item-1"),
+        scope.qualify("content-item-1")
+    );
 }
 
 #[test]

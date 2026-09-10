@@ -6,8 +6,8 @@ use monoxus::{
 #[test]
 fn accordion_single_non_collapsible_mode() {
     let scope = ScopeHandle::root("accordion-test").child("single-non-collapsible");
-    let mut accordion = Accordion::new(scope, AccordionMode::Single { collapsible: false })
-        .with_value("item-1");
+    let mut accordion =
+        Accordion::new(scope, AccordionMode::Single { collapsible: false }).with_value("item-1");
 
     assert!(accordion.is_open("item-1"));
     assert!(!accordion.is_open("item-2"));
@@ -44,8 +44,8 @@ fn accordion_single_non_collapsible_mode() {
 #[test]
 fn accordion_single_collapsible_mode() {
     let scope = ScopeHandle::root("accordion-test").child("single-collapsible");
-    let mut accordion = Accordion::new(scope, AccordionMode::Single { collapsible: true })
-        .with_value("item-1");
+    let mut accordion =
+        Accordion::new(scope, AccordionMode::Single { collapsible: true }).with_value("item-1");
 
     assert!(accordion.is_open("item-1"));
     let trigger_1 = accordion.trigger("item-1", false);
@@ -64,8 +64,8 @@ fn accordion_single_collapsible_mode() {
 #[test]
 fn accordion_multiple_mode() {
     let scope = ScopeHandle::root("accordion-test").child("multiple");
-    let mut accordion = Accordion::new(scope, AccordionMode::Multiple)
-        .with_values(vec!["item-1".to_string()]);
+    let mut accordion =
+        Accordion::new(scope, AccordionMode::Multiple).with_values(vec!["item-1".to_string()]);
 
     assert!(accordion.is_open("item-1"));
     assert!(!accordion.is_open("item-2"));

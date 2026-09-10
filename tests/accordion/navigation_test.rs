@@ -9,8 +9,8 @@ use monoxus::{
 #[test]
 fn accordion_roving_focus_and_keyboard_navigation() {
     let scope = ScopeHandle::root("accordion-test").child("roving");
-    let accordion = Accordion::new(scope, AccordionMode::Single { collapsible: true })
-        .with_value("item-1");
+    let accordion =
+        Accordion::new(scope, AccordionMode::Single { collapsible: true }).with_value("item-1");
 
     let items = vec![
         AccordionItemRegistration {
@@ -40,8 +40,14 @@ fn accordion_roving_focus_and_keyboard_navigation() {
     assert_eq!(wrap_prev, Some("item-3".to_string()));
 
     // Boundary keys Home / End
-    assert_eq!(accordion.resolve_key_navigation(&items, "item-3", "Home"), Some("item-1".to_string()));
-    assert_eq!(accordion.resolve_key_navigation(&items, "item-1", "End"), Some("item-3".to_string()));
+    assert_eq!(
+        accordion.resolve_key_navigation(&items, "item-3", "Home"),
+        Some("item-1".to_string())
+    );
+    assert_eq!(
+        accordion.resolve_key_navigation(&items, "item-1", "End"),
+        Some("item-3".to_string())
+    );
 
     // Horizontal with RTL: ArrowRight goes prev, ArrowLeft goes next
     let rtl_accordion = Accordion::new(

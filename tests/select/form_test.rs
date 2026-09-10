@@ -14,10 +14,7 @@ fn select_hidden_input_form_contract() {
     assert_eq!(select.form(), Some("checkout-form"));
     assert_eq!(select.autocomplete(), Some("off"));
     assert!(select.is_required());
-    assert_eq!(
-        select.trigger_attributes().aria_required(),
-        Some("true")
-    );
+    assert_eq!(select.trigger_attributes().aria_required(), Some("true"));
 }
 
 #[test]

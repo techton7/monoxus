@@ -3,7 +3,7 @@ use monoxus::select::{
     SelectContent, SelectItem, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
 };
 
-use super::shared::{ItemRow, BADGE_STYLE};
+use super::shared::{BADGE_STYLE, ItemRow};
 
 #[component]
 pub fn FormIntegrationSection() -> Element {

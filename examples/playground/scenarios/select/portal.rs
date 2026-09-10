@@ -7,7 +7,7 @@ use monoxus::{
     },
 };
 
-use super::shared::{BADGE_STYLE, MUTED_STYLE, ItemRow};
+use super::shared::{BADGE_STYLE, ItemRow, MUTED_STYLE};
 
 #[component]
 pub fn PortaledSelectSection() -> Element {

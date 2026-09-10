@@ -6,14 +6,17 @@ use dioxus::prelude::*;
 #[allow(unused_imports)]
 use crate::foundation::{
     browser::{
-        recv_document_dismiss_event, recv_floating_auto_update_event, recv_form_reset_event,
-        restore_focus_element_by_id, scroll_element_into_view_nearest,
+        DocumentDismissEvent, FloatingAutoUpdateEvent, PresenceMonitorEvent,
+        WatchFormResetWatcher, recv_document_dismiss_event, recv_floating_auto_update_event,
+        recv_presence_monitor_event, restore_focus_element_by_id, scroll_element_into_view_nearest,
         start_document_dismiss_monitor, start_floating_auto_update_monitor,
-        start_form_reset_monitor, stop_document_dismiss_monitor,
-        stop_floating_auto_update_monitor, stop_form_reset_monitor, DocumentDismissEvent,
-        FloatingAutoUpdateEvent, FormResetEvent,
+        start_form_reset_monitor, start_presence_monitor, stop_document_dismiss_monitor,
+        stop_floating_auto_update_monitor, stop_presence_monitor,
     },
-    overlay::{FloatingLayer, PlacementAlign, PlacementSide, Rect, Size},
+    overlay::{
+        FloatingLayer, PlacementAlign, PlacementSide, Presence, PresenceCloseCycleId,
+        PresenceController, PresenceControllerUpdate, PresenceState, Rect, Size,
+    },
     state::DataState,
 };
 
@@ -89,6 +92,42 @@ pub type SelectValuesChangeHandler = Rc<dyn Fn(Vec<String>)>;
 pub type SelectOpenChangeHandler = Rc<dyn Fn(bool)>;
 pub type SelectOpenChangeCompleteHandler = Rc<dyn Fn(bool)>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SelectContentPresenceLane {
+    pub(crate) content: PresenceController,
+}
+
+impl SelectContentPresenceLane {
+    pub fn new(presence: &Presence) -> Self {
+        Self {
+            content: PresenceController::new(presence.desired_present())
+                .with_retained_mount(presence.retain_mount()),
+        }
+    }
+
+    pub fn sync(&mut self, desired_present: bool) -> PresenceControllerUpdate {
+        self.content.sync(desired_present)
+    }
+
+    pub const fn should_render_portal(&self) -> bool {
+        self.should_render_content()
+    }
+
+    pub const fn should_render_content(&self) -> bool {
+        self.content.should_render()
+    }
+
+    pub fn complete_close_cycle(&mut self, cycle_id: PresenceCloseCycleId) -> bool {
+        self.content.complete_close_cycle(cycle_id)
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub struct RetainedRootPresenceMonitorState {
+    pub monitor: Signal<Option<Eval>>,
+    pub cycle_id: Signal<Option<PresenceCloseCycleId>>,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub struct SelectRuntimeState {
     pub value: Signal<Option<String>>,
@@ -125,8 +164,9 @@ pub struct SelectRuntimeState {
     pub dismiss_loop_token: Signal<u64>,
     pub position_monitor: Signal<Option<Eval>>,
     pub position_loop_token: Signal<u64>,
-    pub form_reset_monitor: Signal<Option<Eval>>,
-    pub form_reset_loop_token: Signal<u64>,
+    pub form_reset_monitor: Signal<Option<WatchFormResetWatcher>>,
+    pub presence_lane: Signal<SelectContentPresenceLane>,
+    pub presence_monitor: RetainedRootPresenceMonitorState,
 }
 
 #[derive(Clone)]
@@ -227,21 +267,32 @@ where
         position_monitor: use_signal(|| None),
         position_loop_token: use_signal(|| 0),
         form_reset_monitor: use_signal(|| None),
-        form_reset_loop_token: use_signal(|| 0),
+        presence_lane: use_signal(|| SelectContentPresenceLane::new(select.presence())),
+        presence_monitor: RetainedRootPresenceMonitorState {
+            monitor: use_signal(|| None),
+            cycle_id: use_signal(|| None),
+        },
     };
 
     let cleanup_state = state;
+    let cleanup_content_id = select.relationships().content_id().to_owned();
     dioxus::core::use_drop(move || {
+        stop_select_presence_monitor(cleanup_state, cleanup_content_id.as_str());
         if let Some(monitor) = cleanup_state.dismiss_monitor.peek().clone() {
             let _ = stop_document_dismiss_monitor(monitor);
         }
         if let Some(monitor) = cleanup_state.position_monitor.peek().clone() {
             let _ = stop_floating_auto_update_monitor(monitor);
         }
-        if let Some(monitor) = cleanup_state.form_reset_monitor.peek().clone() {
-            let _ = stop_form_reset_monitor(monitor);
-        }
+        let mut frm_sig = cleanup_state.form_reset_monitor;
+        frm_sig.set(None);
     });
+
+    let presence_sync_state = state;
+    let presence_content_id = select.relationships().content_id().to_owned();
+    use_effect(use_reactive((&state.open,), move |(open,)| {
+        sync_select_presence(&presence_content_id, presence_sync_state, *open.read());
+    }));
 
     let effect_state = state;
     use_effect(use_reactive((&select,), move |(select,)| {
@@ -288,6 +339,18 @@ impl SelectRuntime {
 
     pub fn relationships(&self) -> &SelectRelationships {
         self.select.relationships()
+    }
+
+    pub fn should_render_portal(&self) -> bool {
+        self.state.presence_lane.read().should_render_portal()
+    }
+
+    pub fn should_render_content(&self) -> bool {
+        self.state.presence_lane.read().should_render_content()
+    }
+
+    pub fn presence_state(&self) -> PresenceState {
+        self.state.presence_lane.read().content.state()
     }
 
     pub fn value(&self) -> Option<String> {
@@ -533,10 +596,7 @@ impl SelectRuntime {
         }
     }
 
-    pub fn set_on_pointer_down_outside(
-        &self,
-        cb: Option<EventHandler<PointerDownOutsideEvent>>,
-    ) {
+    pub fn set_on_pointer_down_outside(&self, cb: Option<EventHandler<PointerDownOutsideEvent>>) {
         let mut sig = self.state.on_pointer_down_outside;
         sig.set(cb);
     }
@@ -589,12 +649,7 @@ impl SelectRuntime {
                     .find(|i| &i.value == v && !i.disabled)
                     .map(|i| i.value.clone())
             })
-            .or_else(|| {
-                items
-                    .iter()
-                    .find(|i| !i.disabled)
-                    .map(|i| i.value.clone())
-            });
+            .or_else(|| items.iter().find(|i| !i.disabled).map(|i| i.value.clone()));
 
         self.set_highlighted(init_highlight);
 
@@ -691,11 +746,7 @@ impl SelectRuntime {
     }
 
     pub fn content_attributes(&self, activedescendant: Option<String>) -> SelectContentAttributes {
-        self.content_attributes_with_side_and_align(
-            activedescendant,
-            self.side(),
-            self.align(),
-        )
+        self.content_attributes_with_side_and_align(activedescendant, self.side(), self.align())
     }
 
     pub fn content_attributes_with_side_and_align(
@@ -784,8 +835,9 @@ impl SelectRuntime {
                         break;
                     }
                     Ok(DocumentDismissEvent::PointerDown { path_ids }) => {
-                        let is_inside =
-                            path_ids.iter().any(|id| id == &trigger_id || id == &content_id);
+                        let is_inside = path_ids
+                            .iter()
+                            .any(|id| id == &trigger_id || id == &content_id);
                         if !is_inside {
                             let should_close = runtime.trigger_pointer_down_outside();
                             if !should_close {
@@ -796,8 +848,9 @@ impl SelectRuntime {
                         }
                     }
                     Ok(DocumentDismissEvent::FocusIn { path_ids }) => {
-                        let is_inside =
-                            path_ids.iter().any(|id| id == &trigger_id || id == &content_id);
+                        let is_inside = path_ids
+                            .iter()
+                            .any(|id| id == &trigger_id || id == &content_id);
                         if !is_inside {
                             runtime.close_dropdown_without_restore();
                             break;
@@ -902,11 +955,8 @@ impl SelectRuntime {
                 .with_align_offset(align_offset)
                 .with_hide_when_detached(hide_when_detached);
 
-            let computed = layer.position_with_available_size(
-                anchor_rect,
-                content_size,
-                available_size,
-            );
+            let computed =
+                layer.position_with_available_size(anchor_rect, content_size, available_size);
 
             if avoid_collisions {
                 let mut side_sig = self.state.side;
@@ -943,38 +993,17 @@ impl SelectRuntime {
         let trigger_id = self.relationships().trigger_id().to_owned();
         let form_id = self.select.form().map(str::to_owned);
 
-        let mut token_sig = self.state.form_reset_loop_token;
-        let next_token = token_sig.peek().saturating_add(1);
-        token_sig.set(next_token);
-
-        let monitor = start_form_reset_monitor(&trigger_id, form_id.as_deref());
-        let mut frm_sig = self.state.form_reset_monitor;
-        frm_sig.set(Some(monitor.clone()));
-
         let runtime = self.clone();
-        spawn(async move {
-            let mut monitor = monitor;
-            loop {
-                if *runtime.state.form_reset_loop_token.peek() != next_token {
-                    break;
-                }
-                match recv_form_reset_event(&mut monitor).await {
-                    Ok(FormResetEvent::Reset) => {
-                        runtime.handle_form_reset();
-                    }
-                    Ok(FormResetEvent::Stopped) | Err(_) => break,
-                }
-            }
+        let watcher = start_form_reset_monitor(&trigger_id, form_id.as_deref(), move || {
+            runtime.handle_form_reset();
         });
+        let mut frm_sig = self.state.form_reset_monitor;
+        frm_sig.set(Some(watcher));
     }
 
     pub fn stop_form_reset_monitor(&self) {
-        let current_monitor = self.state.form_reset_monitor.peek().clone();
-        if let Some(monitor) = current_monitor {
-            let mut frm_sig = self.state.form_reset_monitor;
-            frm_sig.set(None);
-            let _ = stop_form_reset_monitor(monitor);
-        }
+        let mut frm_sig = self.state.form_reset_monitor;
+        frm_sig.set(None);
     }
 
     pub fn handle_form_reset(&self) {
@@ -997,4 +1026,119 @@ impl SelectRuntime {
             }
         }
     }
+}
+
+fn sync_select_presence(content_id: &str, mut state: SelectRuntimeState, open: bool) {
+    let update = state
+        .presence_lane
+        .with_mut(|lane| lane.sync(open));
+
+    if update.invalidated_close_cycle().is_some() || !update.should_render() {
+        stop_select_presence_monitor(state, content_id);
+    }
+
+    if let Some(cycle_id) = update.started_close_cycle() {
+        start_select_presence_monitor(content_id, state, cycle_id);
+    }
+}
+
+fn start_select_presence_monitor(
+    content_id: &str,
+    state: SelectRuntimeState,
+    cycle_id: PresenceCloseCycleId,
+) {
+    stop_select_presence_monitor(state, content_id);
+
+    let monitor = start_presence_monitor(content_id, cycle_id);
+    let mut active_monitor = state.presence_monitor.monitor;
+    active_monitor.set(Some(monitor.clone()));
+    let mut active_cycle_id = state.presence_monitor.cycle_id;
+    active_cycle_id.set(Some(cycle_id));
+
+    let content_id_owned = content_id.to_string();
+    spawn(async move {
+        let mut monitor = monitor;
+
+        loop {
+            if state
+                .presence_monitor
+                .cycle_id
+                .with_peek(|current| *current != Some(cycle_id))
+            {
+                break;
+            }
+
+            match recv_presence_monitor_event(&mut monitor).await {
+                Ok(
+                    PresenceMonitorEvent::Fallback {
+                        cycle_id: event_cycle,
+                        ..
+                    }
+                    | PresenceMonitorEvent::AnimationEnd {
+                        cycle_id: event_cycle,
+                        ..
+                    }
+                    | PresenceMonitorEvent::AnimationCancel {
+                        cycle_id: event_cycle,
+                        ..
+                    },
+                ) => {
+                    complete_select_presence_close_cycle(state, event_cycle);
+                    break;
+                }
+                Ok(PresenceMonitorEvent::Stopped {
+                    cycle_id: event_cycle,
+                }) => {
+                    if state
+                        .presence_monitor
+                        .cycle_id
+                        .with_peek(|current| *current == Some(event_cycle))
+                    {
+                        clear_select_presence_monitor_state(state);
+                    }
+                    break;
+                }
+                Err(error) => {
+                    if state
+                        .presence_monitor
+                        .cycle_id
+                        .with_peek(|current| *current == Some(cycle_id))
+                    {
+                        eprintln!(
+                            "monoxus select runtime could not observe content presence for {content_id_owned}: {error}",
+                        );
+                        clear_select_presence_monitor_state(state);
+                    }
+                    break;
+                }
+            }
+        }
+    });
+}
+
+fn stop_select_presence_monitor(state: SelectRuntimeState, _content_id: &str) {
+    let Some(monitor) = state.presence_monitor.monitor.with_peek(|m| m.clone()) else {
+        clear_select_presence_monitor_state(state);
+        return;
+    };
+
+    clear_select_presence_monitor_state(state);
+    let _ = stop_presence_monitor(monitor);
+}
+
+fn clear_select_presence_monitor_state(state: SelectRuntimeState) {
+    let mut active_monitor = state.presence_monitor.monitor;
+    active_monitor.set(None);
+    let mut active_cycle_id = state.presence_monitor.cycle_id;
+    active_cycle_id.set(None);
+}
+
+fn complete_select_presence_close_cycle(
+    mut state: SelectRuntimeState,
+    cycle_id: PresenceCloseCycleId,
+) {
+    clear_select_presence_monitor_state(state);
+    let _ = state
+        .presence_lane
+        .with_mut(|lane| lane.complete_close_cycle(cycle_id));
 }

@@ -1,5 +1,5 @@
 use crate::foundation::{
-    overlay::{PlacementAlign, PlacementSide, PortalHost},
+    overlay::{PlacementAlign, PlacementSide, PortalHost, Presence},
     shared::ScopeHandle,
     state::DataState,
 };
@@ -10,7 +10,7 @@ use super::{
         SelectRootAttributes, SelectTriggerAttributes,
     },
     relationships::SelectRelationships,
-    types::{SelectItemData, SelectMode, SelectPart, SELECT_PARTS},
+    types::{SELECT_PARTS, SelectItemData, SelectMode, SelectPart},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -29,6 +29,7 @@ pub struct Select {
     form: Option<String>,
     autocomplete: Option<String>,
     portal_host: PortalHost,
+    presence: Presence,
     items: Vec<SelectItemData>,
     loop_selection: bool,
 }
@@ -54,6 +55,7 @@ impl Select {
             form: None,
             autocomplete: None,
             portal_host: PortalHost::default_host(),
+            presence: Presence::new(false).with_retained_mount(true),
             items: Vec::new(),
             loop_selection: false,
         }
@@ -117,6 +119,17 @@ impl Select {
 
     pub fn with_open(mut self, open: bool) -> Self {
         self.open = open;
+        self.presence.sync(open);
+        self
+    }
+
+    pub fn with_retained_mount(mut self, retain_mount: bool) -> Self {
+        self.presence = self.presence.with_retained_mount(retain_mount);
+        self
+    }
+
+    pub fn with_presence(mut self, presence: Presence) -> Self {
+        self.presence = presence;
         self
     }
 
@@ -177,6 +190,10 @@ impl Select {
 
     pub fn portal_host(&self) -> &PortalHost {
         &self.portal_host
+    }
+
+    pub fn presence(&self) -> &Presence {
+        &self.presence
     }
 
     pub fn portal_attributes(&self) -> SelectPortalAttributes {
@@ -260,9 +277,7 @@ impl Select {
 
     pub fn trigger_attributes(&self) -> SelectTriggerAttributes {
         let is_placeholder = match self.mode {
-            SelectMode::Single { .. } => {
-                self.value.is_none() || self.value.as_deref() == Some("")
-            }
+            SelectMode::Single { .. } => self.value.is_none() || self.value.as_deref() == Some(""),
             SelectMode::Multiple => self.values.is_empty(),
         };
 
@@ -298,11 +313,7 @@ impl Select {
         activedescendant: Option<String>,
         side: PlacementSide,
     ) -> SelectContentAttributes {
-        self.content_attributes_with_side_and_align(
-            activedescendant,
-            side,
-            PlacementAlign::Start,
-        )
+        self.content_attributes_with_side_and_align(activedescendant, side, PlacementAlign::Start)
     }
 
     pub fn content_attributes_with_side_and_align(

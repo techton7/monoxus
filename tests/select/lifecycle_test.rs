@@ -1,6 +1,6 @@
 use monoxus::{
     foundation::shared::ScopeHandle,
-    select::{apply_document_order, Select, SelectItemData},
+    select::{Select, SelectItemData, apply_document_order},
 };
 
 #[test]
@@ -30,7 +30,11 @@ fn select_document_order_synchronization_contract() {
         SelectItemData::new("enterprise", "Enterprise", false),
     ];
 
-    let order = vec!["starter".to_string(), "pro".to_string(), "enterprise".to_string()];
+    let order = vec![
+        "starter".to_string(),
+        "pro".to_string(),
+        "enterprise".to_string(),
+    ];
     apply_document_order(&mut items, &order);
 
     assert_eq!(items[0].value, "starter");
@@ -66,4 +70,32 @@ fn select_uncontrolled_and_controlled_open_contract() {
 
     let opened = Select::new(scope).with_open(true);
     assert!(opened.is_open());
+}
+
+#[test]
+fn select_presence_lifecycle_and_retained_mount_contract() {
+    use monoxus::foundation::overlay::{Presence, PresenceState};
+
+    let scope = ScopeHandle::root("select-test").child("presence");
+    let select = Select::new(scope.clone());
+
+    // Select::new() starts closed with retained mount enabled
+    assert_eq!(select.presence().state(), PresenceState::Unmounted);
+    assert!(select.presence().retain_mount());
+    assert!(!select.presence().desired_present());
+
+    // with_open(true) transitions presence to Mounted
+    let opened = select.clone().with_open(true);
+    assert_eq!(opened.presence().state(), PresenceState::Mounted);
+    assert!(opened.presence().desired_present());
+
+    // with_retained_mount(false) disables retained mount
+    let no_retain = select.clone().with_retained_mount(false);
+    assert!(!no_retain.presence().retain_mount());
+
+    // with_presence replaces presence model
+    let custom_presence = Presence::new(true).with_retained_mount(false);
+    let with_pres = select.with_presence(custom_presence);
+    assert_eq!(with_pres.presence().state(), PresenceState::Mounted);
+    assert!(!with_pres.presence().retain_mount());
 }

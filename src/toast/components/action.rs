@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
 use crate::toast::attrs::ToastActionAttrs;
 use crate::toast::runtime::toast;
 use crate::toast::types::{ToastActionEvent, ToastId};
+use dioxus::prelude::*;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToastActionProps {
@@ -27,7 +27,10 @@ pub fn ToastAction(props: ToastActionProps) -> Element {
         if let Some(cb) = &props.on_click {
             cb.call(action_evt.clone());
         }
-        if let Some(id) = props.toast_id.filter(|_| !action_evt.is_default_prevented()) {
+        if let Some(id) = props
+            .toast_id
+            .filter(|_| !action_evt.is_default_prevented())
+        {
             toast::dismiss(Some(id));
         }
     };

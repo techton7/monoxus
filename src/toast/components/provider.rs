@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::toast::runtime::TOAST_STORE;
 use crate::toast::types::ToastConfig;
+use dioxus::prelude::*;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToastProviderProps {

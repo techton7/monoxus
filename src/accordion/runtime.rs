@@ -32,7 +32,10 @@ pub struct AccordionRuntime {
     state: AccordionRuntimeState,
 }
 
-pub fn use_accordion_runtime<F>(accordion: Accordion, on_value_change: Option<F>) -> AccordionRuntime
+pub fn use_accordion_runtime<F>(
+    accordion: Accordion,
+    on_value_change: Option<F>,
+) -> AccordionRuntime
 where
     F: Fn(Vec<String>) + 'static,
 {

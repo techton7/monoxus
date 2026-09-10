@@ -1,7 +1,7 @@
+use dioxus::prelude::*;
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Duration;
-use dioxus::prelude::*;
 
 /// Monotonic unique identifier for an individual toast.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

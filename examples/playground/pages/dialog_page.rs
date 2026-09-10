@@ -1,5 +1,5 @@
-use dioxus::prelude::*;
 use crate::dialog::DialogPlayground;
+use dioxus::prelude::*;
 
 #[component]
 pub fn DialogPage() -> Element {

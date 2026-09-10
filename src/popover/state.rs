@@ -15,9 +15,8 @@ use super::{
     },
     relationships::PopoverRelationships,
     types::{
-        POPOVER_GEOMETRY_NAMESPACE, POPOVER_PARTS, PopoverCloseFocusPolicy,
-        PopoverOpenFocusPolicy, PopoverOutsideInteractionPolicy, PopoverPart,
-        PopoverScrollLockPolicy, PopoverStateRequest,
+        POPOVER_GEOMETRY_NAMESPACE, POPOVER_PARTS, PopoverCloseFocusPolicy, PopoverOpenFocusPolicy,
+        PopoverOutsideInteractionPolicy, PopoverPart, PopoverScrollLockPolicy, PopoverStateRequest,
     },
 };
 

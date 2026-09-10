@@ -1,18 +1,11 @@
 use monoxus::{
-    foundation::{
-        overlay::PortalHost,
-        shared::ScopeHandle,
-        state::DataState,
-    },
-    select::{Select, SelectPart, SelectRelationships, SELECT_PARTS},
+    foundation::{overlay::PortalHost, shared::ScopeHandle, state::DataState},
+    select::{SELECT_PARTS, Select, SelectPart, SelectRelationships},
 };
 
 #[test]
 fn select_part_inventory_matches_exhaustive_surface() {
-    let parts: Vec<_> = Select::parts()
-        .iter()
-        .map(SelectPart::as_str)
-        .collect();
+    let parts: Vec<_> = Select::parts().iter().map(SelectPart::as_str).collect();
     assert_eq!(
         parts,
         vec![
@@ -46,10 +39,7 @@ fn select_relationships_produce_deterministic_ids() {
     assert_eq!(relationships.root_id(), scope.token());
     assert_eq!(relationships.trigger_id(), scope.qualify("trigger"));
     assert_eq!(relationships.content_id(), scope.qualify("content"));
-    assert_eq!(
-        relationships.item_id("apple"),
-        scope.qualify("item-apple")
-    );
+    assert_eq!(relationships.item_id("apple"), scope.qualify("item-apple"));
     assert_eq!(
         relationships.group_id("fruits"),
         scope.qualify("group-fruits")

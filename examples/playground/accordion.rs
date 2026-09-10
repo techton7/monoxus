@@ -1,8 +1,7 @@
 use dioxus::prelude::*;
 use monoxus::{
     accordion::{
-        Accordion, AccordionDirection, AccordionMode, AccordionOrientation,
-        use_accordion_runtime,
+        Accordion, AccordionDirection, AccordionMode, AccordionOrientation, use_accordion_runtime,
     },
     collapsible::{Collapsible, use_collapsible_runtime},
     foundation::shared::ScopeHandle,
@@ -129,9 +128,21 @@ fn SingleCollapsibleSection() -> Element {
     }));
 
     let items = [
-        ("item-1", "What is Monoxus?", "Monoxus is a high-performance, headless UI library for Dioxus web applications."),
-        ("item-2", "Is it accessible?", "Yes, all primitives strictly adhere to the WAI-ARIA 1.2 authoring guidelines."),
-        ("item-3", "Can it collapse completely?", "Yes, in Single Collapsible mode, clicking the open item collapses it."),
+        (
+            "item-1",
+            "What is Monoxus?",
+            "Monoxus is a high-performance, headless UI library for Dioxus web applications.",
+        ),
+        (
+            "item-2",
+            "Is it accessible?",
+            "Yes, all primitives strictly adhere to the WAI-ARIA 1.2 authoring guidelines.",
+        ),
+        (
+            "item-3",
+            "Can it collapse completely?",
+            "Yes, in Single Collapsible mode, clicking the open item collapses it.",
+        ),
     ];
 
     let active_desc = format!("{:?}", runtime.active_values());
@@ -253,9 +264,21 @@ fn SingleNonCollapsibleSection() -> Element {
     }));
 
     let items = [
-        ("step-1", "Step 1: Account Setup", "Configure your organization credentials and profile settings."),
-        ("step-2", "Step 2: Billing & Plans", "Select an enterprise subscription tier and payment method."),
-        ("step-3", "Step 3: Verification", "Review your submitted information and confirm activation."),
+        (
+            "step-1",
+            "Step 1: Account Setup",
+            "Configure your organization credentials and profile settings.",
+        ),
+        (
+            "step-2",
+            "Step 2: Billing & Plans",
+            "Select an enterprise subscription tier and payment method.",
+        ),
+        (
+            "step-3",
+            "Step 3: Verification",
+            "Review your submitted information and confirm activation.",
+        ),
     ];
 
     let active_desc = format!("{:?}", runtime.active_values());
@@ -364,8 +387,7 @@ fn MultipleAccordionSection() -> Element {
     let scope = ScopeHandle::root("playground").child("accordion-multiple");
     let active_sig = use_signal(|| vec!["notif-email".to_string(), "notif-sms".to_string()]);
 
-    let def = Accordion::new(scope.clone(), AccordionMode::Multiple)
-        .with_values(active_sig());
+    let def = Accordion::new(scope.clone(), AccordionMode::Multiple).with_values(active_sig());
 
     let runtime = use_accordion_runtime(
         def,
@@ -385,9 +407,21 @@ fn MultipleAccordionSection() -> Element {
     }));
 
     let items = [
-        ("notif-email", "Email Notifications", "Receive security alerts, system digests, and invoices via your primary inbox."),
-        ("notif-sms", "SMS Critical Alerts", "Get real-time SMS broadcasts for urgent system incidents and 2FA logins."),
-        ("notif-push", "Push Notifications", "In-app notifications in your browser tab when critical events occur."),
+        (
+            "notif-email",
+            "Email Notifications",
+            "Receive security alerts, system digests, and invoices via your primary inbox.",
+        ),
+        (
+            "notif-sms",
+            "SMS Critical Alerts",
+            "Get real-time SMS broadcasts for urgent system incidents and 2FA logins.",
+        ),
+        (
+            "notif-push",
+            "Push Notifications",
+            "In-app notifications in your browser tab when critical events occur.",
+        ),
     ];
 
     let active_desc = format!("{:?}", runtime.active_values());
@@ -511,9 +545,24 @@ fn HorizontalRtlSection() -> Element {
     }));
 
     let items = [
-        ("panel-1", "لوحة 1", "محتوى اللوحة الأولى (Panel 1 content in RTL)", false),
-        ("panel-2", "لوحة 2 (معطلة)", "هذه اللوحة معطلة (Disabled Panel 2)", true),
-        ("panel-3", "لوحة 3", "محتوى اللوحة الثالثة (Panel 3 content in RTL)", false),
+        (
+            "panel-1",
+            "لوحة 1",
+            "محتوى اللوحة الأولى (Panel 1 content in RTL)",
+            false,
+        ),
+        (
+            "panel-2",
+            "لوحة 2 (معطلة)",
+            "هذه اللوحة معطلة (Disabled Panel 2)",
+            true,
+        ),
+        (
+            "panel-3",
+            "لوحة 3",
+            "محتوى اللوحة الثالثة (Panel 3 content in RTL)",
+            false,
+        ),
     ];
 
     let active_desc = format!("{:?}", runtime.active_values());

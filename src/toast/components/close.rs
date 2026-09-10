@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
 use crate::toast::attrs::ToastCloseAttrs;
-use crate::toast::runtime::{toast, TOAST_STORE};
+use crate::toast::runtime::{TOAST_STORE, toast};
 use crate::toast::types::ToastId;
+use dioxus::prelude::*;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToastCloseProps {

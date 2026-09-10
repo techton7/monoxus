@@ -19,7 +19,6 @@ pub fn SelectPortal(
     children: Element,
 ) -> Element {
     let ctx = use_context::<SelectContext>();
-    let is_open = ctx.runtime.is_open();
 
     let resolved_host = if disabled {
         PortalHost::inline()
@@ -43,8 +42,9 @@ pub fn SelectPortal(
 
     let pid = portal_id.clone();
     let target_host = resolved_host.clone();
-    use_effect(use_reactive((&is_open,), move |(open,)| {
-        if !open && !force_mount {
+    let should_render_portal = ctx.runtime.should_render_portal();
+    use_effect(use_reactive((&should_render_portal,), move |(should_render,)| {
+        if !should_render && !force_mount {
             return;
         }
         let host_id = match &target_host {
@@ -61,7 +61,8 @@ pub fn SelectPortal(
     });
 
     let is_force_mounted = force_mount || ctx.runtime.force_mount();
-    if !is_open && !is_force_mounted {
+    let should_render = should_render_portal || is_force_mounted;
+    if !should_render {
         return rsx! {};
     }
 

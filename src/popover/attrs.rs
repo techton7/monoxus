@@ -1,5 +1,5 @@
-use crate::foundation::{overlay::PortalHost, state::DataState};
 use super::types::PopoverStateRequest;
+use crate::foundation::{overlay::PortalHost, state::DataState};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PopoverRootAttributes {

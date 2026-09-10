@@ -1,5 +1,5 @@
-use dioxus::{document, document::Eval};
 use super::types::{ToastConfig, ToastId};
+use dioxus::{document, document::Eval};
 
 pub(crate) const TOAST_MONITOR_STOP: &str = "stop";
 pub(crate) const TOAST_MONITOR_STOPPED: &str = "stopped";

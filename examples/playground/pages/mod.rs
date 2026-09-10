@@ -6,6 +6,7 @@ pub mod select_page;
 pub mod tabs_page;
 pub mod toast_page;
 pub mod tooltip_page;
+pub mod js_bindgen_page;
 
 pub use accordion_page::AccordionPage;
 pub use alert_dialog_page::AlertDialogPage;
@@ -15,3 +16,4 @@ pub use select_page::SelectPage;
 pub use tabs_page::TabsPage;
 pub use toast_page::ToastPage;
 pub use tooltip_page::TooltipPage;
+pub use js_bindgen_page::JsBindgenPage;

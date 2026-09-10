@@ -1,7 +1,7 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
 use dioxus::prelude::*;
 use monoxus::toast::*;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 #[test]
 fn part_inventory_export_test() {
@@ -63,13 +63,20 @@ fn queue_reducer_test() {
         },
     ));
     assert_eq!(store.toasts.len(), 2);
-    assert_eq!(store.toasts[0].id, id2, "Newest toast must be prepended to index 0");
+    assert_eq!(
+        store.toasts[0].id, id2,
+        "Newest toast must be prepended to index 0"
+    );
     assert_eq!(store.toasts[1].id, id1);
 
     // 3. Dismiss toast: verify transition to ToastPhase::Dismissing (data-state="closed")
     let dismissed = store.dismiss_toast(id1);
     assert!(dismissed);
-    assert_eq!(store.toasts.len(), 2, "Dismissing toast remains in queue during exit phase");
+    assert_eq!(
+        store.toasts.len(),
+        2,
+        "Dismissing toast remains in queue during exit phase"
+    );
     let item1 = store.toasts.iter().find(|t| t.id == id1).unwrap();
     assert_eq!(item1.phase, ToastPhase::Dismissing);
 
@@ -121,11 +128,23 @@ fn same_id_update_safety_test() {
     ));
 
     assert_eq!(returned_id, target_id);
-    assert_eq!(store.toasts.len(), 1, "Queue must not create duplicate items for the same ID");
+    assert_eq!(
+        store.toasts.len(),
+        1,
+        "Queue must not create duplicate items for the same ID"
+    );
     let toast = &store.toasts[0];
     assert_eq!(toast.title, "Updated Title");
-    assert_eq!(toast.phase, ToastPhase::Active, "Recreating with same ID must resurrect toast to Active");
-    assert_eq!(toast.remaining_duration, Duration::from_millis(5000), "Remaining duration must be reset");
+    assert_eq!(
+        toast.phase,
+        ToastPhase::Active,
+        "Recreating with same ID must resurrect toast to Active"
+    );
+    assert_eq!(
+        toast.remaining_duration,
+        Duration::from_millis(5000),
+        "Remaining duration must be reset"
+    );
 }
 
 #[test]
@@ -147,20 +166,39 @@ fn visible_toasts_data_visible_test() {
     }
 
     // Assert that the queue holds all 5 items (never capped or dropped)
-    assert_eq!(store.toasts.len(), 5, "Store must keep all active toasts in queue");
+    assert_eq!(
+        store.toasts.len(),
+        5,
+        "Store must keep all active toasts in queue"
+    );
 
     // Evaluate visibility calculation
     let visible_list = store.visible_items();
     assert_eq!(visible_list.len(), 5);
 
     // Front 3 toasts (indices 0, 1, 2) must be visible=true
-    assert_eq!(visible_list[0].1, true, "Index 0 must have data-visible=true");
-    assert_eq!(visible_list[1].1, true, "Index 1 must have data-visible=true");
-    assert_eq!(visible_list[2].1, true, "Index 2 must have data-visible=true");
+    assert_eq!(
+        visible_list[0].1, true,
+        "Index 0 must have data-visible=true"
+    );
+    assert_eq!(
+        visible_list[1].1, true,
+        "Index 1 must have data-visible=true"
+    );
+    assert_eq!(
+        visible_list[2].1, true,
+        "Index 2 must have data-visible=true"
+    );
 
     // Toasts beyond limit (indices 3, 4) must be visible=false
-    assert_eq!(visible_list[3].1, false, "Index 3 must have data-visible=false");
-    assert_eq!(visible_list[4].1, false, "Index 4 must have data-visible=false");
+    assert_eq!(
+        visible_list[3].1, false,
+        "Index 3 must have data-visible=false"
+    );
+    assert_eq!(
+        visible_list[4].1, false,
+        "Index 4 must have data-visible=false"
+    );
 }
 
 #[test]
@@ -181,30 +219,47 @@ fn timer_remaining_duration_test() {
     store.pause_all();
     assert!(store.paused);
     let rem1 = store.toasts[0].remaining_duration;
-    assert!(rem1 < Duration::from_millis(4000), "Remaining duration must decrease after running");
-    assert!(rem1 >= Duration::from_millis(3500), "Remaining duration must deduct reasonable elapsed time");
+    assert!(
+        rem1 < Duration::from_millis(4000),
+        "Remaining duration must decrease after running"
+    );
+    assert!(
+        rem1 >= Duration::from_millis(3500),
+        "Remaining duration must deduct reasonable elapsed time"
+    );
 
     // Sleep while paused: time must NOT be deducted
     std::thread::sleep(Duration::from_millis(60));
-    assert_eq!(store.toasts[0].remaining_duration, rem1, "Duration must not decrease while paused");
+    assert_eq!(
+        store.toasts[0].remaining_duration, rem1,
+        "Duration must not decrease while paused"
+    );
 
     // Resume all
     store.resume_all();
     assert!(!store.paused);
-    assert_eq!(store.toasts[0].remaining_duration, rem1, "Remaining duration preserved upon resume");
+    assert_eq!(
+        store.toasts[0].remaining_duration, rem1,
+        "Remaining duration preserved upon resume"
+    );
 
     // Allow more time to elapse after resume
     std::thread::sleep(Duration::from_millis(60));
     store.pause_all();
     let rem2 = store.toasts[0].remaining_duration;
-    assert!(rem2 < rem1, "Remaining duration must decrease further after second running segment");
+    assert!(
+        rem2 < rem1,
+        "Remaining duration must decrease further after second running segment"
+    );
 }
 
 fn block_on<F: std::future::Future>(future: F) -> F::Output {
-    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
     use std::pin::pin;
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
 
-    fn clone(_: *const ()) -> RawWaker { RawWaker::new(std::ptr::null(), &VTABLE) }
+    fn clone(_: *const ()) -> RawWaker {
+        RawWaker::new(std::ptr::null(), &VTABLE)
+    }
     fn wake(_: *const ()) {}
     fn wake_by_ref(_: *const ()) {}
     fn drop(_: *const ()) {}
@@ -308,7 +363,11 @@ fn promise_lifecycle_test() {
     while start.elapsed() < Duration::from_millis(1500) {
         let is_dismissing = dom.in_runtime(|| {
             let store = TOAST_STORE.read();
-            store.toasts.first().map(|t| t.phase == ToastPhase::Dismissing).unwrap_or(false)
+            store
+                .toasts
+                .first()
+                .map(|t| t.phase == ToastPhase::Dismissing)
+                .unwrap_or(false)
         });
         if is_dismissing {
             saw_dismissing = true;
@@ -383,7 +442,11 @@ fn promise_lifecycle_test() {
     while start3.elapsed() < Duration::from_millis(1500) {
         let is_dismissing = dom.in_runtime(|| {
             let store = TOAST_STORE.read();
-            store.toasts.first().map(|t| t.phase == ToastPhase::Dismissing).unwrap_or(false)
+            store
+                .toasts
+                .first()
+                .map(|t| t.phase == ToastPhase::Dismissing)
+                .unwrap_or(false)
         });
         if is_dismissing {
             saw_error_dismissing = true;
@@ -431,7 +494,6 @@ fn promise_lifecycle_test() {
     });
 }
 
-
 #[dioxus::prelude::component]
 fn ActionTestComponent() -> dioxus::prelude::Element {
     use dioxus::prelude::*;
@@ -455,8 +517,14 @@ fn ActionTestComponent() -> dioxus::prelude::Element {
         dismissed2.set(true);
     }
 
-    assert!(!dismissed(), "ToastAction must suppress dismissal when prevent_default is called");
-    assert!(dismissed2(), "ToastAction must automatically dismiss when prevent_default is not called");
+    assert!(
+        !dismissed(),
+        "ToastAction must suppress dismissal when prevent_default is called"
+    );
+    assert!(
+        dismissed2(),
+        "ToastAction must automatically dismiss when prevent_default is not called"
+    );
 
     VNode::empty()
 }
@@ -525,7 +593,10 @@ fn wai_aria_live_region_test() {
     assert_eq!(root_attrs_error.data_visible, "false");
     assert_eq!(root_attrs_error.data_front, "false");
     assert_eq!(root_attrs_error.data_index, "3");
-    assert_eq!(root_attrs_error.data_testid, Some("error-card-testid".to_string()));
+    assert_eq!(
+        root_attrs_error.data_testid,
+        Some("error-card-testid".to_string())
+    );
 
     // 4. Action button attrs
     let action_attrs = ToastActionAttrs::new("Undo changes".to_string());
@@ -604,8 +675,14 @@ fn interaction_state_precedence_test() {
 
     // Hover ends, but page is still hidden -> timers remain paused!
     store.set_hovered(false);
-    assert!(store.paused, "Timers must remain paused while page is hidden even if hover leaves");
-    assert!(!store.expanded, "Expanded collapses when hover and focus are false");
+    assert!(
+        store.paused,
+        "Timers must remain paused while page is hidden even if hover leaves"
+    );
+    assert!(
+        !store.expanded,
+        "Expanded collapses when hover and focus are false"
+    );
 
     // Page becomes visible -> resumes
     store.set_page_hidden(false);
@@ -791,7 +868,10 @@ fn config_surface_and_directional_gesture_contract_test() {
     // 2. Explicit swipe_directions override
     let mut config = ToastConfig::default();
     config.swipe_directions = Some(vec![SwipeDirection::Right]);
-    assert_eq!(config.effective_swipe_directions(), vec![SwipeDirection::Right]);
+    assert_eq!(
+        config.effective_swipe_directions(),
+        vec![SwipeDirection::Right]
+    );
 
     // 3. ToastViewportAttrs publishing dynamic dir and offset CSS variables
     let mut custom_cfg = ToastConfig::default();
@@ -816,7 +896,8 @@ fn config_surface_and_directional_gesture_contract_test() {
     assert!(attrs.style.contains("--mobile-offset-bottom: 12px;"));
 
     // 4. Viewport and Root position attribute alignment
-    let top_left_attrs = ToastViewportAttrs::with_position(&custom_cfg, false, "ltr", ToastPosition::TopLeft);
+    let top_left_attrs =
+        ToastViewportAttrs::with_position(&custom_cfg, false, "ltr", ToastPosition::TopLeft);
     assert_eq!(top_left_attrs.data_position, "top-left");
     assert_eq!(top_left_attrs.data_x_position, "left");
     assert_eq!(top_left_attrs.data_y_position, "top");

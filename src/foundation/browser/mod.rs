@@ -1,13 +1,10 @@
 use dioxus::{document, document::Eval, prelude::*};
-use dioxus_use_js::use_js;
 
 use crate::foundation::{compose::MountedHandle, overlay::PresenceCloseCycleId};
 
-use_js!("src/foundation/browser/viewport.js"::*);
-use_js!("src/foundation/browser/focus.js"::*);
-use_js!("src/foundation/browser/scroll_lock.js"::*);
-use_js!("src/foundation/browser/portal.js"::*);
-use_js!("src/foundation/browser/floating_measure.js"::*);
+mod dom_bridge {
+    dioxus_js_bindgen::bind_js!("src/foundation/browser/dom.ts"::*);
+}
 
 #[allow(dead_code)]
 const PRESENCE_MONITOR_SIGNAL_STOP: &str = "stop";
@@ -253,21 +250,16 @@ pub(crate) fn focus_mounted_handle(handle: Option<MountedHandle>) -> bool {
 }
 
 pub(crate) async fn get_viewport_size() -> Result<[f64; 2], String> {
-    let res: Result<[f64; 2], _> = getViewportSize().await;
-    res.map_err(|error| format!("viewport query failed: {error}"))
+    dom_bridge::get_viewport_size().await.map_err(|e| e.to_string())
 }
 
 pub(crate) async fn active_element_matches_id(target_id: &str) -> bool {
-    let target_id = target_id.to_string();
-    let res: Result<bool, _> = isElementActive(target_id).await;
-    res.unwrap_or(false)
+    dom_bridge::is_element_active(target_id).await.unwrap_or(false)
 }
 
 pub(crate) async fn is_reference_hidden(anchor_ids: &[&str]) -> Result<bool, String> {
-    let ids: Vec<String> = anchor_ids.iter().map(|id| id.to_string()).collect();
-    let res: Result<Option<bool>, _> = isReferenceHidden(ids).await;
-    let hidden = res.map_err(|error| format!("reference hidden query failed: {error}"))?;
-    Ok(hidden.unwrap_or(false))
+    let res = dom_bridge::is_reference_hidden(anchor_ids).await.map_err(|e| e.to_string())?;
+    Ok(res.unwrap_or(false))
 }
 
 pub(crate) fn focus_element_by_id(target_id: &str) {
@@ -279,69 +271,41 @@ pub(crate) fn restore_focus_element_by_id(target_id: &str) {
 }
 
 fn focus_element_by_id_with_options(target_id: &str, prevent_scroll: bool) {
-    let target_id = target_id.to_string();
-    spawn(async move {
-        let _: Result<(), _> = focusElementByIdWithOptions(target_id, prevent_scroll).await;
-    });
+    dom_bridge::focus_element_by_id_with_options(target_id, prevent_scroll);
 }
 
 pub(crate) fn focus_first_focusable(content_id: &str, focusable_selector: Option<&str>) {
-    let content_id = content_id.to_string();
-    let selector = focusable_selector
-        .unwrap_or(DEFAULT_FOCUSABLE_SELECTOR)
-        .to_string();
-    spawn(async move {
-        let _: Result<(), _> = focusFirstFocusable(content_id, selector).await;
-    });
+    let selector = focusable_selector.unwrap_or(DEFAULT_FOCUSABLE_SELECTOR);
+    dom_bridge::focus_first_focusable(content_id, selector);
 }
 
 pub(crate) fn acquire_scroll_lock(lock_id: &str) {
-    let lock_id = lock_id.to_string();
-    spawn(async move {
-        let _: Result<(), _> = acquireScrollLock(lock_id).await;
-    });
+    dom_bridge::acquire_scroll_lock(lock_id);
 }
 
 pub(crate) fn release_scroll_lock(lock_id: &str, restore_delay: Option<u64>) {
-    let lock_id = lock_id.to_string();
-    let delay_ms = restore_delay.unwrap_or_default();
-    spawn(async move {
-        let _: Result<(), _> = releaseScrollLock(lock_id, delay_ms).await;
-    });
+    let delay_ms = restore_delay.unwrap_or_default() as f64;
+    dom_bridge::release_scroll_lock(lock_id, delay_ms);
 }
 
 pub(crate) fn scroll_element_into_view_nearest(element_id: &str) {
-    let element_id = element_id.to_string();
-    spawn(async move {
-        let _: Result<(), _> = scrollElementIntoViewNearest(element_id).await;
-    });
+    dom_bridge::scroll_element_into_view_nearest(element_id);
 }
 
 pub(crate) fn set_body_user_select_none() {
-    spawn(async move {
-        let _: Result<(), _> = setBodyUserSelect(true).await;
-    });
+    dom_bridge::set_body_user_select(true);
 }
 
 pub(crate) fn restore_body_user_select() {
-    spawn(async move {
-        let _: Result<(), _> = setBodyUserSelect(false).await;
-    });
+    dom_bridge::set_body_user_select(false);
 }
 
 pub(crate) fn teleport_element_to_host(element_id: &str, host_id: Option<&str>) {
-    let element_id = element_id.to_string();
-    let host_id = host_id.map(|s| s.to_string());
-    spawn(async move {
-        let _: Result<(), _> = teleportElementToHost(element_id, host_id).await;
-    });
+    dom_bridge::teleport_element_to_host(element_id, host_id);
 }
 
 pub(crate) fn remove_element_by_id(element_id: &str) {
-    let element_id = element_id.to_string();
-    spawn(async move {
-        let _: Result<(), _> = removeElementById(element_id).await;
-    });
+    dom_bridge::remove_element_by_id(element_id);
 }
 
 pub(crate) async fn measure_floating_placement(
@@ -350,47 +314,23 @@ pub(crate) async fn measure_floating_placement(
     custom_anchor_id: Option<&str>,
     boundary_id: Option<&str>,
 ) -> Option<[f64; 10]> {
-    let anchor_id = anchor_id.to_string();
-    let content_id = content_id.to_string();
-    let custom_anchor_id = custom_anchor_id.map(|s| s.to_string());
-    let boundary_id = boundary_id.map(|s| s.to_string());
-    let res: Result<Option<[f64; 10]>, _> =
-        measureFloatingPlacement(anchor_id, content_id, custom_anchor_id, boundary_id).await;
-    res.ok().flatten()
-}
-
-pub(crate) const FORM_RESET_SIGNAL_STOP: &str = "stop";
-pub(crate) const FORM_RESET_SIGNAL_STOPPED: &str = "stopped";
-pub(crate) const FORM_RESET_SIGNAL_RESET: &str = "reset";
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FormResetEvent {
-    Reset,
-    Stopped,
-}
-
-pub(crate) fn start_form_reset_monitor(element_id: &str, form_id: Option<&str>) -> Eval {
-    let eval = document::eval(include_str!("form_reset.js"));
-    let _ = eval.send((element_id.to_string(), form_id.map(|s| s.to_string())));
-    eval
-}
-
-pub(crate) fn stop_form_reset_monitor(monitor: Eval) -> Result<(), String> {
-    monitor
-        .send(FORM_RESET_SIGNAL_STOP)
-        .map_err(|error| format!("form reset stop failed: {error}"))
-}
-
-pub(crate) async fn recv_form_reset_event(monitor: &mut Eval) -> Result<FormResetEvent, String> {
-    let raw = monitor
-        .recv::<String>()
+    dom_bridge::measure_floating_placement(anchor_id, content_id, custom_anchor_id, boundary_id)
         .await
-        .map_err(|error| format!("form reset recv failed: {error}"))?;
-    match raw.as_str() {
-        FORM_RESET_SIGNAL_RESET => Ok(FormResetEvent::Reset),
-        FORM_RESET_SIGNAL_STOPPED => Ok(FormResetEvent::Stopped),
-        other => Err(format!("unexpected form reset event: {other}")),
-    }
+        .ok()
+        .flatten()
+}
+
+pub(crate) use dom_bridge::WatchFormResetWatcher;
+
+pub(crate) fn start_form_reset_monitor(
+    element_id: &str,
+    form_id: Option<&str>,
+    on_reset: impl FnMut() + 'static,
+) -> WatchFormResetWatcher {
+    let mut on_reset = on_reset;
+    WatchFormResetWatcher::start(element_id, form_id, move |_sig| {
+        on_reset();
+    })
 }
 
 #[cfg(test)]

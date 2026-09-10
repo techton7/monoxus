@@ -1,8 +1,8 @@
-use dioxus::prelude::*;
 use crate::toast::attrs::ToastViewportAttrs;
 use crate::toast::components::{ToastAction, ToastClose, ToastDescription, ToastRoot, ToastTitle};
-use crate::toast::runtime::{use_toast_runtime, TOAST_STORE};
+use crate::toast::runtime::{TOAST_STORE, use_toast_runtime};
 use crate::toast::types::ToastPosition;
+use dioxus::prelude::*;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToastViewportProps {
@@ -31,7 +31,8 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
         .as_deref()
         .unwrap_or_else(|| store.config.dir.as_str());
     let effective_position = props.position.unwrap_or(store.config.position);
-    let attrs = ToastViewportAttrs::with_position(&store.config, is_expanded, dir, effective_position);
+    let attrs =
+        ToastViewportAttrs::with_position(&store.config, is_expanded, dir, effective_position);
     let viewport_id = props
         .id
         .clone()

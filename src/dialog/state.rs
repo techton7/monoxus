@@ -37,7 +37,11 @@ impl DialogLifecycle {
         Self::new_with_mode(relationships, open, DialogMode::Modal)
     }
 
-    pub fn new_with_mode(relationships: &DialogRelationships, open: bool, mode: DialogMode) -> Self {
+    pub fn new_with_mode(
+        relationships: &DialogRelationships,
+        open: bool,
+        mode: DialogMode,
+    ) -> Self {
         let outside_interaction_policy = match mode {
             DialogMode::Modal => DialogOutsideInteractionPolicy::modal_default(),
             DialogMode::NonModal => DialogOutsideInteractionPolicy::non_modal_default(),

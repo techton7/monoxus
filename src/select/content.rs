@@ -15,6 +15,7 @@ pub fn SelectContentStatic(
 ) -> Element {
     let ctx = use_context::<SelectContext>();
     let is_open = ctx.runtime.is_open();
+    let should_render = ctx.runtime.should_render_content();
     let rels = ctx.runtime.relationships();
     let content_id = rels.content_id().to_owned();
     let runtime = ctx.runtime.clone();
@@ -29,7 +30,7 @@ pub fn SelectContentStatic(
         }
     }));
 
-    if !is_open {
+    if !should_render {
         return rsx! {};
     }
 
@@ -46,7 +47,7 @@ pub fn SelectContentStatic(
             aria_activedescendant: attrs.aria_activedescendant(),
             class: class.as_deref().unwrap_or_default(),
             style: style.as_deref().unwrap_or_default(),
-            "data-state": "{attrs.data_state_str()}",
+            "data-state": if is_open { "open" } else { "closed" },
             "data-side": "{attrs.data_side_str()}",
             "data-align": "{attrs.data_align_str()}",
             onkeydown: {
@@ -87,7 +88,9 @@ pub fn SelectContent(
     #[props(default = false)] prevent_scroll: bool,
     #[props(default = false)] prevent_overflow_text_selection: bool,
     #[props(default = false)] force_mount: bool,
-    #[props(default)] on_pointer_down_outside: Option<EventHandler<super::runtime::PointerDownOutsideEvent>>,
+    #[props(default)] on_pointer_down_outside: Option<
+        EventHandler<super::runtime::PointerDownOutsideEvent>,
+    >,
     #[props(default)] on_escape_keydown: Option<EventHandler<KeyboardEvent>>,
     #[props(default)] on_close_auto_focus: Option<EventHandler<()>>,
     children: Element,
@@ -106,13 +109,15 @@ pub fn SelectContent(
     ctx.runtime.set_hide_when_detached(hide_when_detached);
     ctx.runtime.set_custom_anchor(custom_anchor.clone());
     ctx.runtime.set_prevent_scroll(prevent_scroll);
-    ctx.runtime.set_prevent_overflow_text_selection(prevent_overflow_text_selection);
+    ctx.runtime
+        .set_prevent_overflow_text_selection(prevent_overflow_text_selection);
     ctx.runtime.set_force_mount(force_mount);
     ctx.runtime.set_collision_boundary(collision_boundary);
     ctx.runtime.set_collision_padding(collision_padding);
     ctx.runtime.set_arrow_padding(arrow_padding);
     ctx.runtime.set_sticky(sticky.clone());
-    ctx.runtime.set_on_pointer_down_outside(on_pointer_down_outside);
+    ctx.runtime
+        .set_on_pointer_down_outside(on_pointer_down_outside);
     ctx.runtime.set_on_escape_keydown(on_escape_keydown);
     ctx.runtime.set_on_close_auto_focus(on_close_auto_focus);
 
@@ -132,22 +137,28 @@ pub fn SelectContent(
     }));
 
     let scroll_cid = content_id.clone();
-    use_effect(use_reactive((&is_open, &prevent_scroll), move |(open, prev_scroll)| {
-        let lock_id = format!("select-scroll-lock-{}", scroll_cid);
-        if open && prev_scroll {
-            crate::foundation::browser::acquire_scroll_lock(&lock_id);
-        } else {
-            crate::foundation::browser::release_scroll_lock(&lock_id, None);
-        }
-    }));
+    use_effect(use_reactive(
+        (&is_open, &prevent_scroll),
+        move |(open, prev_scroll)| {
+            let lock_id = format!("select-scroll-lock-{}", scroll_cid);
+            if open && prev_scroll {
+                crate::foundation::browser::acquire_scroll_lock(&lock_id);
+            } else {
+                crate::foundation::browser::release_scroll_lock(&lock_id, None);
+            }
+        },
+    ));
 
-    use_effect(use_reactive((&is_open, &prevent_overflow_text_selection), |(open, prev_sel)| {
-        if open && prev_sel {
-            crate::foundation::browser::set_body_user_select_none();
-        } else {
-            crate::foundation::browser::restore_body_user_select();
-        }
-    }));
+    use_effect(use_reactive(
+        (&is_open, &prevent_overflow_text_selection),
+        |(open, prev_sel)| {
+            if open && prev_sel {
+                crate::foundation::browser::set_body_user_select_none();
+            } else {
+                crate::foundation::browser::restore_body_user_select();
+            }
+        },
+    ));
 
     let drop_cid = content_id.clone();
     use_drop(move || {
@@ -156,7 +167,9 @@ pub fn SelectContent(
         crate::foundation::browser::restore_body_user_select();
     });
 
-    if !is_open && !force_mount {
+    let is_suspended = ctx.runtime.presence_state() == crate::foundation::overlay::PresenceState::Suspended;
+    let should_render = ctx.runtime.should_render_content() || force_mount;
+    if !should_render {
         return rsx! {};
     }
 
@@ -165,11 +178,9 @@ pub fn SelectContent(
     let eff_side = ctx.runtime.side();
     let eff_align = ctx.runtime.align();
     // Read live runtime state for content attributes
-    let attrs = ctx.runtime.content_attributes_with_side_and_align(
-        activedescendant,
-        eff_side,
-        eff_align,
-    );
+    let attrs =
+        ctx.runtime
+            .content_attributes_with_side_and_align(activedescendant, eff_side, eff_align);
 
     let side_placement_style = match eff_side {
         PlacementSide::Top => format!(
@@ -183,7 +194,7 @@ pub fn SelectContent(
     };
     let align_placement_style = match eff_align {
         PlacementAlign::End => "right: 0; left: auto;",
-        PlacementAlign::Center => "left: 50%; transform: translateX(-50%);",
+        PlacementAlign::Center => "left: 50%; translate: -50% 0; --monoxus-select-align-x: -50%;",
         PlacementAlign::Start => "left: 0; right: auto;",
     };
 
@@ -204,14 +215,14 @@ pub fn SelectContent(
         (PlacementSide::Right, _) => "center left",
     };
 
-    let force_mount_style = if !is_open && force_mount {
+    let force_mount_style = if !is_open && !is_suspended && force_mount {
         "display: none;"
     } else {
         ""
     };
 
     let base_position_style = format!(
-        "position: absolute; {align_placement_style} {width_style} --bits-select-content-transform-origin: {transform_origin}; --bits-select-anchor-width: 100%; --bits-select-arrow-padding: {arrow_padding}px; {force_mount_style}"
+        "position: absolute; {align_placement_style} {width_style} --bits-select-content-transform-origin: {transform_origin}; --radix-select-content-transform-origin: {transform_origin}; transform-origin: var(--bits-select-content-transform-origin, {transform_origin}); --bits-select-anchor-width: 100%; --bits-select-arrow-padding: {arrow_padding}px; {force_mount_style}"
     );
     let merged_style = if let Some(custom) = style {
         format!("{base_position_style} {side_placement_style} {custom}")
@@ -330,4 +341,3 @@ pub fn SelectArrow(
         }
     }
 }
-

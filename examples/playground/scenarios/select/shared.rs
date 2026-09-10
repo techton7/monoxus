@@ -25,6 +25,104 @@ pub const SELECT_PLAYGROUND_CSS: &str = r#"
     cursor: not-allowed !important;
     pointer-events: none !important;
 }
+
+@keyframes monoxus-select-scale-in {
+    from {
+        transform: scale(0.95);
+        opacity: 0;
+    }
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes monoxus-select-scale-out {
+    from {
+        transform: scale(1);
+        opacity: 1;
+    }
+    to {
+        transform: scale(0.95);
+        opacity: 0;
+    }
+}
+
+@keyframes monoxus-select-enter-bottom {
+    from {
+        transform: translateY(-0.25rem) scale(0.95);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes monoxus-select-exit-bottom {
+    from {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+    to {
+        transform: translateY(-0.25rem) scale(0.95);
+        opacity: 0;
+    }
+}
+
+@keyframes monoxus-select-enter-top {
+    from {
+        transform: translateY(0.25rem) scale(0.95);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes monoxus-select-exit-top {
+    from {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+    }
+    to {
+        transform: translateY(0.25rem) scale(0.95);
+        opacity: 0;
+    }
+}
+
+[role="listbox"][data-side="bottom"] {
+    transform-origin: top center;
+}
+
+[role="listbox"][data-side="top"] {
+    transform-origin: bottom center;
+}
+
+[role="listbox"][data-state="open"] {
+    animation: monoxus-select-scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+[role="listbox"][data-state="closed"] {
+    animation: monoxus-select-scale-out 200ms ease-in forwards;
+}
+
+[role="listbox"][data-side="bottom"][data-state="open"] {
+    animation: monoxus-select-enter-bottom 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+[role="listbox"][data-side="bottom"][data-state="closed"] {
+    animation: monoxus-select-exit-bottom 200ms ease-in forwards;
+}
+
+[role="listbox"][data-side="top"][data-state="open"] {
+    animation: monoxus-select-enter-top 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+[role="listbox"][data-side="top"][data-state="closed"] {
+    animation: monoxus-select-exit-top 200ms ease-in forwards;
+}
 "#;
 
 #[component]

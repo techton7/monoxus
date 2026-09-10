@@ -4,7 +4,7 @@ use crate::foundation::shared::ScopeHandle;
 
 use super::{
     hidden_input::SelectHiddenInput,
-    runtime::{use_select_runtime_full, SelectRuntime},
+    runtime::{SelectRuntime, use_select_runtime_full},
     state::Select,
     types::{SelectContext, SelectItemData, SelectMode},
 };
@@ -38,7 +38,10 @@ pub fn SelectRoot(
 ) -> Element {
     let fallback_scope_id = id.clone().unwrap_or_else(|| "select".to_string());
     let fallback_val = value.clone().or(default_value.clone());
-    let fallback_vals = values.clone().or(default_values.clone()).unwrap_or_default();
+    let fallback_vals = values
+        .clone()
+        .or(default_values.clone())
+        .unwrap_or_default();
 
     let mut fallback_select = Select::new(ScopeHandle::root("select").child(fallback_scope_id))
         .with_value(fallback_val)

@@ -1,9 +1,9 @@
-use dioxus::prelude::*;
 use crate::scenarios::select::{
-    BasicFruitSelectSection, BottomConstrainedSelectSection, FormIntegrationSection,
-    GroupedSelectSection, MultipleSelectSection, PortaledSelectSection, ScrollableViewportSection,
-    StaticContentSection, CARD_STYLE, MUTED_STYLE, SELECT_PLAYGROUND_CSS,
+    BasicFruitSelectSection, BottomConstrainedSelectSection, CARD_STYLE, FormIntegrationSection,
+    GroupedSelectSection, MUTED_STYLE, MultipleSelectSection, PortaledSelectSection,
+    SELECT_PLAYGROUND_CSS, ScrollableViewportSection, StaticContentSection,
 };
+use dioxus::prelude::*;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum SelectScenarioTab {

@@ -7,7 +7,7 @@ use monoxus::{
     },
 };
 
-use super::shared::{BADGE_STYLE, MUTED_STYLE, ItemRow};
+use super::shared::{BADGE_STYLE, ItemRow, MUTED_STYLE};
 
 #[component]
 pub fn MultipleSelectSection() -> Element {
@@ -30,7 +30,11 @@ pub fn MultipleSelectSection() -> Element {
     );
 
     let count = runtime.values().len();
-    let display_str = if count == 0 { "None".to_string() } else { runtime.values().join(", ") };
+    let display_str = if count == 0 {
+        "None".to_string()
+    } else {
+        runtime.values().join(", ")
+    };
 
     rsx! {
         div {

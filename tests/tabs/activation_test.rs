@@ -1,8 +1,8 @@
 use monoxus::{
     foundation::shared::ScopeHandle,
     tabs::{
-        compose_part_event_handlers, compose_part_refs, project_as_child, use_controllable_state,
-        ControllableStateProps, Tabs, TabsActivationMode, TabsPart,
+        ControllableStateProps, Tabs, TabsActivationMode, TabsPart, compose_part_event_handlers,
+        compose_part_refs, project_as_child, use_controllable_state,
     },
 };
 

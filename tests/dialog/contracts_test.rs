@@ -3,9 +3,9 @@ use std::{cell::RefCell, rc::Rc};
 use monoxus::{
     alert_dialog::AlertDialog,
     dialog::{
-        compose_part_event_handlers, compose_part_refs, project_as_child, Dialog,
-        DialogCloseFocusPolicy, DialogMode, DialogOpenFocusPolicy, DialogOutsideInteractionPolicy,
-        DialogPart, DialogScrollLockPolicy, DialogStateRequest,
+        Dialog, DialogCloseFocusPolicy, DialogMode, DialogOpenFocusPolicy,
+        DialogOutsideInteractionPolicy, DialogPart, DialogScrollLockPolicy, DialogStateRequest,
+        compose_part_event_handlers, compose_part_refs, project_as_child,
     },
     foundation::{
         compose::{EventHandlerOptions, RefHandler, Slottable},
@@ -15,7 +15,7 @@ use monoxus::{
     },
 };
 
-use super::fixtures::{is_default_prevented, TestEvent};
+use super::fixtures::{TestEvent, is_default_prevented};
 
 #[test]
 fn dialog_family_publishes_stable_relationships_and_wrapper_safe_attributes() {

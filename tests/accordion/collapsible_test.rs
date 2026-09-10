@@ -1,7 +1,5 @@
 use monoxus::{
-    collapsible::{
-        COLLAPSIBLE_PARTS, Collapsible, CollapsiblePart, CollapsibleRelationships,
-    },
+    collapsible::{COLLAPSIBLE_PARTS, Collapsible, CollapsiblePart, CollapsibleRelationships},
     foundation::{shared::ScopeHandle, state::DataState},
 };
 

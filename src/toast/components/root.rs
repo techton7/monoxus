@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::toast::attrs::ToastRootAttrs;
 use crate::toast::types::{ToastId, ToastPhase, ToastPosition, ToastType};
+use dioxus::prelude::*;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToastRootProps {

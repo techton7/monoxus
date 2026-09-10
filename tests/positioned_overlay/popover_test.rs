@@ -8,15 +8,15 @@ use monoxus::{
         state::{self, DataState},
     },
     popover::{
-        compose_part_event_handlers as compose_popover_event_handlers,
+        Popover, PopoverCloseFocusPolicy, PopoverOpenFocusPolicy, PopoverOutsideDismissBehavior,
+        PopoverOutsideInteractionPolicy, PopoverRuntime, PopoverScrollLockPolicy,
+        PopoverStateRequest, compose_part_event_handlers as compose_popover_event_handlers,
         compose_part_refs as compose_popover_refs, project_as_child as project_popover_as_child,
-        use_popover_runtime, Popover, PopoverCloseFocusPolicy, PopoverOpenFocusPolicy,
-        PopoverOutsideDismissBehavior, PopoverOutsideInteractionPolicy, PopoverRuntime,
-        PopoverScrollLockPolicy, PopoverStateRequest,
+        use_popover_runtime,
     },
 };
 
-use super::fixtures::{is_default_prevented, TestEvent};
+use super::fixtures::{TestEvent, is_default_prevented};
 
 #[test]
 fn popover_reuses_the_shared_state_composition_and_overlay_backbone() {

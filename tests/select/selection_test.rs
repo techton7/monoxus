@@ -40,13 +40,22 @@ fn select_multiple_mode_and_repeated_hidden_inputs_contract() {
 fn select_clear_item_placeholder_reset_contract() {
     let scope = ScopeHandle::root("select-test").child("clear");
     let select_none = Select::new(scope.clone()).with_value(None);
-    assert_eq!(select_none.trigger_attributes().data_placeholder_str(), "true");
+    assert_eq!(
+        select_none.trigger_attributes().data_placeholder_str(),
+        "true"
+    );
 
     let select_empty = Select::new(scope.clone()).with_value(Some("".to_string()));
-    assert_eq!(select_empty.trigger_attributes().data_placeholder_str(), "true");
+    assert_eq!(
+        select_empty.trigger_attributes().data_placeholder_str(),
+        "true"
+    );
 
     let select_val = Select::new(scope).with_value(Some("apple".to_string()));
-    assert_eq!(select_val.trigger_attributes().data_placeholder_str(), "false");
+    assert_eq!(
+        select_val.trigger_attributes().data_placeholder_str(),
+        "false"
+    );
 }
 
 #[test]
@@ -88,12 +97,10 @@ fn select_circular_roving_logic() {
 #[test]
 fn select_loop_false_clamping_contract() {
     let scope = ScopeHandle::root("select-test").child("loop-false");
-    let select = Select::new(scope)
-        .with_loop(false)
-        .with_items(vec![
-            SelectItemData::new("a", "A", false),
-            SelectItemData::new("b", "B", false),
-        ]);
+    let select = Select::new(scope).with_loop(false).with_items(vec![
+        SelectItemData::new("a", "A", false),
+        SelectItemData::new("b", "B", false),
+    ]);
 
     assert!(!select.loop_selection());
 }

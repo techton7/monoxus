@@ -53,7 +53,9 @@ impl ToastViewportAttrs {
 
         Self {
             role: "region",
-            aria_label: config.container_aria_label.replace("{hotkey}", &config.hotkey),
+            aria_label: config
+                .container_aria_label
+                .replace("{hotkey}", &config.hotkey),
             tabindex: "-1",
             dir: dir.into(),
             data_expanded: if expanded { "true" } else { "false" },
@@ -134,7 +136,11 @@ impl ToastRootAttrs {
             aria_atomic: "true",
             data_state: phase.as_state_str(),
             data_type: toast_type.as_str(),
-            data_visible: if index < visible_limit { "true" } else { "false" },
+            data_visible: if index < visible_limit {
+                "true"
+            } else {
+                "false"
+            },
             data_front: if index == 0 { "true" } else { "false" },
             data_expanded: if expanded { "true" } else { "false" },
             data_position: position.as_str(),

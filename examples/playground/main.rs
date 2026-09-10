@@ -11,7 +11,7 @@ pub mod tooltip;
 
 use dioxus::prelude::*;
 use pages::{
-    AccordionPage, AlertDialogPage, DialogPage, PopoverPage, SelectPage, TabsPage, ToastPage,
+    AccordionPage, AlertDialogPage, DialogPage, JsBindgenPage, PopoverPage, SelectPage, TabsPage, ToastPage,
     TooltipPage,
 };
 
@@ -21,6 +21,7 @@ fn main() {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ComponentPage {
+    JsBindgen,
     Select,
     Accordion,
     Tabs,
@@ -34,6 +35,7 @@ pub enum ComponentPage {
 impl ComponentPage {
     pub fn title(&self) -> &'static str {
         match self {
+            Self::JsBindgen => "JS Bindgen",
             Self::Select => "Select",
             Self::Accordion => "Accordion",
             Self::Tabs => "Tabs",
@@ -47,6 +49,7 @@ impl ComponentPage {
 
     pub fn icon(&self) -> &'static str {
         match self {
+            Self::JsBindgen => "⚡",
             Self::Select => "▾",
             Self::Accordion => "≡",
             Self::Tabs => "◫",
@@ -60,6 +63,7 @@ impl ComponentPage {
 
     pub fn badge(&self) -> &'static str {
         match self {
+            Self::JsBindgen => "CQS Live Proof",
             Self::Select => "7 Scenarios",
             Self::Accordion => "Interactive",
             Self::Tabs => "WAI-ARIA",
@@ -73,9 +77,10 @@ impl ComponentPage {
 }
 
 fn app() -> Element {
-    let mut current_page = use_signal(|| ComponentPage::Select);
+    let mut current_page = use_signal(|| ComponentPage::JsBindgen);
 
     let pages = [
+        ComponentPage::JsBindgen,
         ComponentPage::Select,
         ComponentPage::Accordion,
         ComponentPage::Tabs,
@@ -172,6 +177,7 @@ fn app() -> Element {
 
                 // Active Page Rendered in Complete Isolation
                 match current_page() {
+                    ComponentPage::JsBindgen => rsx! { JsBindgenPage {} },
                     ComponentPage::Select => rsx! { SelectPage {} },
                     ComponentPage::Accordion => rsx! { AccordionPage {} },
                     ComponentPage::Tabs => rsx! { TabsPage {} },

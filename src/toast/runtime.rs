@@ -1,8 +1,8 @@
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
-use dioxus::prelude::*;
 use super::state::ToastStore;
 use super::types::*;
+use dioxus::prelude::*;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 /// Delay duration before evicted toast is removed from store to allow exit animations.
 pub const TIME_BEFORE_UNMOUNT: Duration = Duration::from_millis(200);
@@ -69,7 +69,9 @@ pub fn use_toast_runtime() -> ToastRuntime {
                 return;
             };
 
-            while let Ok(event) = crate::toast::browser::recv_toast_browser_event(&mut monitor).await {
+            while let Ok(event) =
+                crate::toast::browser::recv_toast_browser_event(&mut monitor).await
+            {
                 match event {
                     crate::toast::browser::ToastBrowserEvent::Visibility(visible) => {
                         let should_pause = TOAST_STORE.peek().config.pause_when_page_is_hidden;

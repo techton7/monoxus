@@ -106,7 +106,11 @@ impl ToastStore {
     ///
     /// The item remains in the queue to permit exit animations until `remove_toast` is called.
     pub fn dismiss_toast(&mut self, id: ToastId) -> bool {
-        if let Some(item) = self.toasts.iter_mut().find(|t| t.id == id && t.phase == ToastPhase::Active) {
+        if let Some(item) = self
+            .toasts
+            .iter_mut()
+            .find(|t| t.id == id && t.phase == ToastPhase::Active)
+        {
             item.phase = ToastPhase::Dismissing;
             if let Some(cb) = &item.options.on_dismiss {
                 cb.call(());
