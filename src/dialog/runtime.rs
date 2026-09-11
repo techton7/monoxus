@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use dioxus::{document::Eval, prelude::*};
+use dioxus::prelude::*;
 
 pub use crate::foundation::compose::{
     compose_part_event_handlers, compose_part_refs, project_as_child,
@@ -8,10 +8,9 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        PresenceMonitorEvent, acquire_scroll_lock, focus_element_by_id,
-        focus_first_focusable as foundation_focus_first_focusable, recv_presence_monitor_event,
+        PresenceMonitorEvent, WatcherGuard, acquire_scroll_lock, focus_element_by_id,
+        focus_first_focusable as foundation_focus_first_focusable,
         release_scroll_lock, restore_focus_element_by_id, start_presence_monitor,
-        stop_presence_monitor,
     },
     overlay::{
         Presence, PresenceCloseCycleId, PresenceController, PresenceControllerUpdate, PresenceState,
@@ -48,7 +47,7 @@ struct DialogRuntimeState {
 
 #[derive(Clone, Copy)]
 struct RetainedRootPresenceMonitorState {
-    monitor: Signal<Option<Eval>>,
+    monitor: Signal<Option<WatcherGuard>>,
     cycle_id: Signal<Option<PresenceCloseCycleId>>,
 }
 
@@ -116,11 +115,11 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         focus_targets: use_signal(HashMap::new),
         presence_lane: use_signal(|| DialogPresenceLane::new(dialog.lifecycle().presence())),
         overlay_presence_monitor: RetainedRootPresenceMonitorState {
-            monitor: use_signal(|| Option::<Eval>::None),
+            monitor: use_signal(|| None),
             cycle_id: use_signal(|| None),
         },
         content_presence_monitor: RetainedRootPresenceMonitorState {
-            monitor: use_signal(|| Option::<Eval>::None),
+            monitor: use_signal(|| None),
             cycle_id: use_signal(|| None),
         },
         last_open: use_signal(|| dialog.is_open()),
@@ -421,72 +420,43 @@ fn start_dialog_presence_monitor(
 ) {
     stop_dialog_presence_monitor(monitor_state, root_label, root_id.as_str());
 
-    let monitor = start_presence_monitor(root_id.as_str(), cycle_id);
-    let mut active_monitor = monitor_state.monitor;
-    active_monitor.set(Some(monitor));
-    let mut active_cycle_id = monitor_state.cycle_id;
-    active_cycle_id.set(Some(cycle_id));
-
-    spawn(async move {
-        let mut monitor = monitor;
-
-        loop {
-            if monitor_state
-                .cycle_id
-                .with_peek(|current| *current != Some(cycle_id))
-            {
-                break;
+    let watcher = start_presence_monitor(root_id.as_str(), cycle_id, move |event| {
+        match event {
+            PresenceMonitorEvent::Fallback {
+                cycle_id: event_cycle,
+                ..
             }
-
-            match recv_presence_monitor_event(&mut monitor).await {
-                Ok(
-                    PresenceMonitorEvent::Fallback {
-                        cycle_id: event_cycle,
-                        ..
-                    }
-                    | PresenceMonitorEvent::AnimationEnd {
-                        cycle_id: event_cycle,
-                        ..
-                    }
-                    | PresenceMonitorEvent::AnimationCancel {
-                        cycle_id: event_cycle,
-                        ..
-                    },
-                ) => {
-                    complete_dialog_presence_close_cycle(
-                        presence_lane,
-                        monitor_state,
-                        event_cycle,
-                        complete_close_cycle,
-                    );
-                    break;
-                }
-                Ok(PresenceMonitorEvent::Stopped {
-                    cycle_id: event_cycle,
-                }) => {
-                    if monitor_state
-                        .cycle_id
-                        .with_peek(|current| *current == Some(event_cycle))
-                    {
-                        clear_dialog_presence_monitor_state(monitor_state);
-                    }
-                    break;
-                }
-                Err(error) => {
-                    if monitor_state
-                        .cycle_id
-                        .with_peek(|current| *current == Some(cycle_id))
-                    {
-                        eprintln!(
-                            "monoxus dialog runtime could not observe {root_label} presence for {root_id}: {error}",
-                        );
-                        clear_dialog_presence_monitor_state(monitor_state);
-                    }
-                    break;
+            | PresenceMonitorEvent::AnimationEnd {
+                cycle_id: event_cycle,
+                ..
+            }
+            | PresenceMonitorEvent::AnimationCancel {
+                cycle_id: event_cycle,
+                ..
+            } => {
+                complete_dialog_presence_close_cycle(
+                    presence_lane,
+                    monitor_state,
+                    event_cycle,
+                    complete_close_cycle,
+                );
+            }
+            PresenceMonitorEvent::Stopped {
+                cycle_id: event_cycle,
+            } => {
+                if monitor_state
+                    .cycle_id
+                    .with_peek(|current| *current == Some(event_cycle))
+                {
+                    clear_dialog_presence_monitor_state(monitor_state);
                 }
             }
         }
     });
+    let mut active_monitor = monitor_state.monitor;
+    active_monitor.set(Some(watcher));
+    let mut active_cycle_id = monitor_state.cycle_id;
+    active_cycle_id.set(Some(cycle_id));
 }
 
 fn complete_dialog_presence_close_cycle(
@@ -501,20 +471,10 @@ fn complete_dialog_presence_close_cycle(
 
 fn stop_dialog_presence_monitor(
     monitor_state: RetainedRootPresenceMonitorState,
-    root_label: &str,
-    root_id: &str,
+    _root_label: &str,
+    _root_id: &str,
 ) {
-    let Some(monitor) = monitor_state.monitor.with_peek(|monitor| *monitor) else {
-        return;
-    };
-
     clear_dialog_presence_monitor_state(monitor_state);
-
-    if let Err(error) = stop_presence_monitor(monitor) {
-        eprintln!(
-            "monoxus dialog runtime could not stop {root_label} presence monitor for {root_id}: {error}",
-        );
-    }
 }
 
 fn clear_dialog_presence_monitor_state(monitor_state: RetainedRootPresenceMonitorState) {

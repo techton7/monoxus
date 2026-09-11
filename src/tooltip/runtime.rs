@@ -1,6 +1,6 @@
 use std::{rc::Rc, time::Duration};
 
-use dioxus::{document::Eval, prelude::*};
+use dioxus::prelude::*;
 use futures_timer::Delay;
 
 pub use crate::foundation::compose::{
@@ -9,9 +9,8 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        FloatingAutoUpdateEvent, PresenceMonitorEvent, recv_floating_auto_update_event,
-        recv_presence_monitor_event, start_floating_auto_update_monitor, start_presence_monitor,
-        stop_floating_auto_update_monitor, stop_presence_monitor,
+        FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard,
+        start_floating_auto_update_monitor, start_presence_monitor,
     },
     overlay::{
         FloatingPlacement, FloatingReadiness, GeometryVars, Presence, PresenceCloseCycleId,
@@ -25,10 +24,7 @@ use super::{
         TooltipArrowAttributes, TooltipContentAttributes, TooltipPortalAttributes,
         TooltipRootAttributes, TooltipTriggerAttributes,
     },
-    browser::{
-        TooltipBrowserEvent, parse_tooltip_browser_event, start_tooltip_grace_monitor,
-        stop_tooltip_grace_monitor,
-    },
+    browser::start_tooltip_grace_monitor,
     relationships::TooltipRelationships,
     state::{Tooltip, TooltipLifecycle, TooltipProvider},
     types::TOOLTIP_HOVER_TRANSFER_GRACE_MS,
@@ -79,7 +75,7 @@ impl TooltipContentPresenceLane {
 
 #[derive(Clone, Copy)]
 struct RetainedRootPresenceMonitorState {
-    monitor: Signal<Option<Eval>>,
+    monitor: Signal<Option<WatcherGuard>>,
     cycle_id: Signal<Option<PresenceCloseCycleId>>,
 }
 
@@ -253,8 +249,8 @@ struct TooltipRuntimeState {
     hover_transfer_token: Signal<u64>,
     open_request_token: Signal<u64>,
     position_loop_token: Signal<u64>,
-    position_monitor: Signal<Option<Eval>>,
-    grace_monitor: Signal<Option<Eval>>,
+    position_monitor: Signal<Option<WatcherGuard>>,
+    grace_monitor: Signal<Option<WatcherGuard>>,
 }
 
 #[derive(Clone)]
@@ -282,7 +278,7 @@ where
             TooltipContentPresenceLane::new(tooltip.lifecycle().presence())
         }),
         presence_monitor: RetainedRootPresenceMonitorState {
-            monitor: use_signal(|| Option::<Eval>::None),
+            monitor: use_signal(|| None),
             cycle_id: use_signal(|| None),
         },
         pointer_down_inside: use_signal(|| false),
@@ -291,8 +287,8 @@ where
         hover_transfer_token: use_signal(|| 0),
         open_request_token: use_signal(|| 0),
         position_loop_token: use_signal(|| 0),
-        position_monitor: use_signal(|| Option::<Eval>::None),
-        grace_monitor: use_signal(|| Option::<Eval>::None),
+        position_monitor: use_signal(|| None),
+        grace_monitor: use_signal(|| None),
     };
     let cleanup_state = state;
     let synced_provider_runtime = provider_runtime.clone();
@@ -761,60 +757,40 @@ fn sync_tooltip_positioning(
         return;
     }
 
-    let position_loop_token = advance_tooltip_token(state.position_loop_token);
-    let tooltip = tooltip.clone();
-    let provider_runtime = provider_runtime.clone();
-    let on_open_change = Rc::clone(&on_open_change);
-    let monitor = start_floating_auto_update_monitor(
+    let _position_loop_token = advance_tooltip_token(state.position_loop_token);
+    let tooltip_clone = tooltip.clone();
+    let provider_clone = provider_runtime.clone();
+    let on_open_change_clone = Rc::clone(&on_open_change);
+
+    let watcher = start_floating_auto_update_monitor(
         &[tooltip.relationships().trigger_id()],
         tooltip.relationships().content_id(),
+        move |event| {
+            if event == FloatingAutoUpdateEvent::Scroll {
+                close_tooltip_from_scroll(&tooltip_clone, provider_clone.as_ref(), &on_open_change_clone);
+                return;
+            }
+            let tooltip = tooltip_clone.clone();
+            spawn(async move {
+                if let Err(error) = measure_tooltip_placement(&tooltip, state).await {
+                    eprintln!(
+                        "monoxus tooltip runtime could not measure placement for {}: {error}",
+                        tooltip.relationships().root_id(),
+                    );
+                }
+            });
+        },
     );
     let mut position_monitor = state.position_monitor;
-    position_monitor.set(Some(monitor));
+    position_monitor.set(Some(watcher));
 
+    let tooltip = tooltip.clone();
     spawn(async move {
-        let mut monitor = monitor;
-
         if let Err(error) = measure_tooltip_placement(&tooltip, state).await {
             eprintln!(
                 "monoxus tooltip runtime could not measure placement for {}: {error}",
                 tooltip.relationships().root_id(),
             );
-        }
-
-        loop {
-            if *state.position_loop_token.peek() != position_loop_token {
-                break;
-            }
-
-            match recv_floating_auto_update_event(&mut monitor).await {
-                Ok(FloatingAutoUpdateEvent::Scroll) => {
-                    close_tooltip_from_scroll(&tooltip, provider_runtime.as_ref(), &on_open_change);
-                    break;
-                }
-                Ok(FloatingAutoUpdateEvent::Update) => {}
-                Ok(FloatingAutoUpdateEvent::Stopped) => break,
-                Err(error) => {
-                    if *state.position_loop_token.peek() == position_loop_token {
-                        eprintln!(
-                            "monoxus tooltip runtime auto-update monitor failed for {}: {error}",
-                            tooltip.relationships().root_id(),
-                        );
-                    }
-                    break;
-                }
-            }
-
-            if *state.position_loop_token.peek() != position_loop_token {
-                break;
-            }
-
-            if let Err(error) = measure_tooltip_placement(&tooltip, state).await {
-                eprintln!(
-                    "monoxus tooltip runtime could not measure placement for {}: {error}",
-                    tooltip.relationships().root_id(),
-                );
-            }
         }
     });
 }
@@ -833,16 +809,8 @@ fn close_tooltip_from_scroll(
 }
 
 fn stop_tooltip_position_monitor(state: TooltipRuntimeState) {
-    let Some(monitor) = state.position_monitor.with_peek(|monitor| *monitor) else {
-        return;
-    };
-
     let mut position_monitor = state.position_monitor;
     position_monitor.set(None);
-
-    if let Err(error) = stop_floating_auto_update_monitor(monitor) {
-        eprintln!("monoxus tooltip runtime could not stop auto-update monitor: {error}");
-    }
 }
 
 async fn measure_tooltip_placement(
@@ -932,24 +900,15 @@ fn clear_tooltip_retained_content_state(state: TooltipRuntimeState) {
     clear_tooltip_content_readiness(state);
 }
 
-fn stop_tooltip_grace_monitor_state(state: TooltipRuntimeState) {
-    let Some(monitor) = state.grace_monitor.with_peek(|monitor| *monitor) else {
-        return;
-    };
-
-    let mut grace_monitor = state.grace_monitor;
-    grace_monitor.set(None);
-
-    if let Err(error) = stop_tooltip_grace_monitor(monitor) {
-        eprintln!("monoxus tooltip runtime could not stop grace monitor: {error}");
-    }
+fn stop_tooltip_grace_monitor_state(mut state: TooltipRuntimeState) {
+    state.grace_monitor.set(None);
 }
 
 fn sync_tooltip_grace_monitor(
     tooltip: &Tooltip,
     provider_runtime: Option<TooltipProviderRuntime>,
     on_open_change: TooltipOpenChangeHandler,
-    state: TooltipRuntimeState,
+    mut state: TooltipRuntimeState,
 ) {
     if !tooltip.is_open() {
         stop_tooltip_grace_monitor_state(state);
@@ -975,38 +934,24 @@ fn sync_tooltip_grace_monitor(
         return;
     }
 
+    let tooltip_root_id = tooltip.relationships().root_id().to_owned();
+    let on_leave = move || {
+        if let Some(provider_runtime) = &provider_runtime {
+            provider_runtime.request_close(&tooltip_root_id);
+        } else {
+            on_open_change(false);
+        }
+    };
+
     let Some(monitor) = start_tooltip_grace_monitor(
         tooltip.relationships().trigger_id(),
         tooltip.relationships().content_id(),
+        on_leave,
     ) else {
         return;
     };
 
-    let mut grace_monitor = state.grace_monitor;
-    grace_monitor.set(Some(monitor));
-
-    let tooltip_root_id = tooltip.relationships().root_id().to_owned();
-    let mut receiver_monitor = monitor;
-
-    spawn(async move {
-        loop {
-            match receiver_monitor.recv::<String>().await {
-                Ok(message) => match parse_tooltip_browser_event(&message) {
-                    TooltipBrowserEvent::GraceLeave => {
-                        if let Some(provider_runtime) = &provider_runtime {
-                            provider_runtime.request_close(&tooltip_root_id);
-                        } else {
-                            on_open_change(false);
-                        }
-                        break;
-                    }
-                    TooltipBrowserEvent::Stopped => break,
-                    TooltipBrowserEvent::Unknown(_) => break,
-                },
-                Err(_) => break,
-            }
-        }
-    });
+    state.grace_monitor.set(Some(monitor));
 }
 
 fn tooltip_content_css_variables(geometry: &GeometryVars) -> Vec<(String, String)> {
@@ -1062,70 +1007,39 @@ fn start_tooltip_presence_monitor(
     stop_tooltip_presence_monitor(state, tooltip.relationships().content_id());
 
     let content_id = tooltip.relationships().content_id().to_owned();
-    let monitor = start_presence_monitor(content_id.as_str(), cycle_id);
-    let mut active_monitor = state.presence_monitor.monitor;
-    active_monitor.set(Some(monitor));
-    let mut active_cycle_id = state.presence_monitor.cycle_id;
-    active_cycle_id.set(Some(cycle_id));
-
-    spawn(async move {
-        let mut monitor = monitor;
-
-        loop {
-            if state
-                .presence_monitor
-                .cycle_id
-                .with_peek(|current| *current != Some(cycle_id))
-            {
-                break;
+    let watcher = start_presence_monitor(content_id.as_str(), cycle_id, move |event| {
+        match event {
+            PresenceMonitorEvent::Fallback {
+                cycle_id: event_cycle,
+                ..
             }
-
-            match recv_presence_monitor_event(&mut monitor).await {
-                Ok(
-                    PresenceMonitorEvent::Fallback {
-                        cycle_id: event_cycle,
-                        ..
-                    }
-                    | PresenceMonitorEvent::AnimationEnd {
-                        cycle_id: event_cycle,
-                        ..
-                    }
-                    | PresenceMonitorEvent::AnimationCancel {
-                        cycle_id: event_cycle,
-                        ..
-                    },
-                ) => {
-                    complete_tooltip_presence_close_cycle(state, event_cycle);
-                    break;
-                }
-                Ok(PresenceMonitorEvent::Stopped {
-                    cycle_id: event_cycle,
-                }) => {
-                    if state
-                        .presence_monitor
-                        .cycle_id
-                        .with_peek(|current| *current == Some(event_cycle))
-                    {
-                        clear_tooltip_presence_monitor_state(state);
-                    }
-                    break;
-                }
-                Err(error) => {
-                    if state
-                        .presence_monitor
-                        .cycle_id
-                        .with_peek(|current| *current == Some(cycle_id))
-                    {
-                        eprintln!(
-                            "monoxus tooltip runtime could not observe content presence for {content_id}: {error}",
-                        );
-                        clear_tooltip_presence_monitor_state(state);
-                    }
-                    break;
+            | PresenceMonitorEvent::AnimationEnd {
+                cycle_id: event_cycle,
+                ..
+            }
+            | PresenceMonitorEvent::AnimationCancel {
+                cycle_id: event_cycle,
+                ..
+            } => {
+                complete_tooltip_presence_close_cycle(state, event_cycle);
+            }
+            PresenceMonitorEvent::Stopped {
+                cycle_id: event_cycle,
+            } => {
+                if state
+                    .presence_monitor
+                    .cycle_id
+                    .with_peek(|current| *current == Some(event_cycle))
+                {
+                    clear_tooltip_presence_monitor_state(state);
                 }
             }
         }
     });
+    let mut active_monitor = state.presence_monitor.monitor;
+    active_monitor.set(Some(watcher));
+    let mut active_cycle_id = state.presence_monitor.cycle_id;
+    active_cycle_id.set(Some(cycle_id));
 }
 
 fn complete_tooltip_presence_close_cycle(
@@ -1141,18 +1055,8 @@ fn complete_tooltip_presence_close_cycle(
     }
 }
 
-fn stop_tooltip_presence_monitor(state: TooltipRuntimeState, content_id: &str) {
-    let Some(monitor) = state.presence_monitor.monitor.with_peek(|monitor| *monitor) else {
-        return;
-    };
-
+fn stop_tooltip_presence_monitor(state: TooltipRuntimeState, _content_id: &str) {
     clear_tooltip_presence_monitor_state(state);
-
-    if let Err(error) = stop_presence_monitor(monitor) {
-        eprintln!(
-            "monoxus tooltip runtime could not stop content presence monitor for {content_id}: {error}",
-        );
-    }
 }
 
 fn clear_tooltip_presence_monitor_state(state: TooltipRuntimeState) {

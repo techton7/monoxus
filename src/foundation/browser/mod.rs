@@ -1,47 +1,80 @@
-use dioxus::{document, document::Eval, prelude::*};
+use dioxus::prelude::*;
 
 use crate::foundation::{compose::MountedHandle, overlay::PresenceCloseCycleId};
 
-mod dom_bridge {
-    dioxus_js_bindgen::bind_js!("src/foundation/browser/dom.ts"::*);
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum DocumentDismissEventPayload {
+    PointerDown {
+        #[serde(rename = "pathIds")]
+        path_ids: Vec<String>,
+    },
+    FocusIn {
+        #[serde(rename = "pathIds")]
+        path_ids: Vec<String>,
+    },
+    Escape,
 }
 
-#[allow(dead_code)]
-const PRESENCE_MONITOR_SIGNAL_STOP: &str = "stop";
-#[allow(dead_code)]
-const PRESENCE_MONITOR_SIGNAL_STOPPED: &str = "stopped";
-#[allow(dead_code)]
-const PRESENCE_MONITOR_SIGNAL_FALLBACK: &str = "fallback";
-#[allow(dead_code)]
-const PRESENCE_MONITOR_SIGNAL_ANIMATION_END: &str = "animationend";
-#[allow(dead_code)]
-const PRESENCE_MONITOR_SIGNAL_ANIMATION_CANCEL: &str = "animationcancel";
-#[allow(dead_code)]
-const PRESENCE_MONITOR_REASON_MISSING: &str = "missing";
-#[allow(dead_code)]
-const PRESENCE_MONITOR_REASON_HIDDEN: &str = "hidden";
-#[allow(dead_code)]
-const PRESENCE_MONITOR_REASON_NO_ANIMATION: &str = "no-animation";
-const FLOATING_AUTO_UPDATE_SIGNAL_STOP: &str = "stop";
-const FLOATING_AUTO_UPDATE_SIGNAL_STOPPED: &str = "stopped";
-const FLOATING_AUTO_UPDATE_SIGNAL_SCROLL: &str = "scroll";
-const FLOATING_AUTO_UPDATE_SIGNAL_UPDATE: &str = "update";
-const DOCUMENT_DISMISS_SIGNAL_STOP: &str = "stop";
-const DOCUMENT_DISMISS_SIGNAL_STOPPED: &str = "stopped";
-const DOCUMENT_DISMISS_SIGNAL_POINTER_DOWN: &str = "pointerdown";
-const DOCUMENT_DISMISS_SIGNAL_FOCUS_IN: &str = "focusin";
-const DOCUMENT_DISMISS_SIGNAL_ESCAPE: &str = "escape";
-const DOCUMENT_DISMISS_PATH_SEPARATOR: char = '\u{1f}';
-
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PresenceMonitorFallback {
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PresenceMonitorFallback {
     Missing,
     Hidden,
     NoAnimation,
 }
 
-#[allow(dead_code)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PresenceEventPayload {
+    Fallback {
+        #[serde(rename = "cycleId")]
+        cycle_id: u64,
+        reason: PresenceMonitorFallback,
+    },
+    AnimationEnd {
+        #[serde(rename = "cycleId")]
+        cycle_id: u64,
+        #[serde(rename = "animationName")]
+        animation_name: String,
+    },
+    AnimationCancel {
+        #[serde(rename = "cycleId")]
+        cycle_id: u64,
+        #[serde(rename = "animationName")]
+        animation_name: String,
+    },
+    Stopped {
+        #[serde(rename = "cycleId")]
+        cycle_id: u64,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FormResetEventPayload {
+    Reset,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FloatingAutoUpdatePayload {
+    Scroll,
+    Update,
+}
+
+pub type FloatingAutoUpdateEvent = FloatingAutoUpdatePayload;
+
+mod dom_bridge {
+    use super::{
+        DocumentDismissEventPayload, FloatingAutoUpdatePayload, FormResetEventPayload,
+        PresenceEventPayload,
+    };
+    dioxus_js_bindgen::bind_js!("src/foundation/browser/dom.ts"::*);
+}
+
+pub use dioxus_js_bindgen::WatcherGuard;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PresenceMonitorEvent {
     Fallback {
@@ -61,127 +94,53 @@ pub(crate) enum PresenceMonitorEvent {
     },
 }
 
-#[allow(dead_code)]
-pub(crate) fn start_presence_monitor(root_id: &str, cycle_id: PresenceCloseCycleId) -> Eval {
-    let eval = document::eval(include_str!("presence_monitor.js"));
-    let _ = eval.send((root_id.to_string(), cycle_id.get()));
-    eval
+pub(crate) fn start_presence_monitor(
+    root_id: &str,
+    cycle_id: PresenceCloseCycleId,
+    mut on_event: impl FnMut(PresenceMonitorEvent) + 'static,
+) -> WatcherGuard {
+    dom_bridge::watch_presence(
+        root_id,
+        cycle_id.get() as f64,
+        move |payload: PresenceEventPayload| {
+            let event = match payload {
+                PresenceEventPayload::Fallback { cycle_id, reason } => {
+                    PresenceMonitorEvent::Fallback {
+                        cycle_id: PresenceCloseCycleId::from_raw(cycle_id),
+                        reason,
+                    }
+                }
+                PresenceEventPayload::AnimationEnd {
+                    cycle_id,
+                    animation_name,
+                } => PresenceMonitorEvent::AnimationEnd {
+                    cycle_id: PresenceCloseCycleId::from_raw(cycle_id),
+                    animation_name,
+                },
+                PresenceEventPayload::AnimationCancel {
+                    cycle_id,
+                    animation_name,
+                } => PresenceMonitorEvent::AnimationCancel {
+                    cycle_id: PresenceCloseCycleId::from_raw(cycle_id),
+                    animation_name,
+                },
+                PresenceEventPayload::Stopped { cycle_id } => PresenceMonitorEvent::Stopped {
+                    cycle_id: PresenceCloseCycleId::from_raw(cycle_id),
+                },
+            };
+            on_event(event);
+        },
+    )
 }
 
-#[allow(dead_code)]
-pub(crate) fn stop_presence_monitor(monitor: Eval) -> Result<(), String> {
-    monitor
-        .send(PRESENCE_MONITOR_SIGNAL_STOP)
-        .map_err(|error| format!("presence monitor stop failed: {error}"))
-}
-
-#[allow(dead_code)]
-pub(crate) async fn recv_presence_monitor_event(
-    monitor: &mut Eval,
-) -> Result<PresenceMonitorEvent, String> {
-    let payload = monitor
-        .recv::<String>()
-        .await
-        .map_err(|error| format!("presence monitor receive failed: {error}"))?;
-    parse_presence_monitor_event(&payload)
-}
-
-#[allow(dead_code)]
-fn parse_presence_monitor_event(payload: &str) -> Result<PresenceMonitorEvent, String> {
-    let mut fields = payload.splitn(3, '\n');
-    let signal = fields.next().unwrap_or_default();
-    let cycle_id = fields
-        .next()
-        .ok_or_else(|| String::from("presence monitor payload missing cycle id"))
-        .and_then(parse_presence_monitor_cycle_id)?;
-    let detail = fields.next().unwrap_or_default();
-
-    match signal {
-        PRESENCE_MONITOR_SIGNAL_FALLBACK => Ok(PresenceMonitorEvent::Fallback {
-            cycle_id,
-            reason: parse_presence_monitor_fallback(detail)?,
-        }),
-        PRESENCE_MONITOR_SIGNAL_ANIMATION_END => {
-            if detail.is_empty() {
-                return Err(String::from(
-                    "presence monitor animationend payload missing animation name",
-                ));
-            }
-
-            Ok(PresenceMonitorEvent::AnimationEnd {
-                cycle_id,
-                animation_name: detail.to_string(),
-            })
-        }
-        PRESENCE_MONITOR_SIGNAL_ANIMATION_CANCEL => {
-            if detail.is_empty() {
-                return Err(String::from(
-                    "presence monitor animationcancel payload missing animation name",
-                ));
-            }
-
-            Ok(PresenceMonitorEvent::AnimationCancel {
-                cycle_id,
-                animation_name: detail.to_string(),
-            })
-        }
-        PRESENCE_MONITOR_SIGNAL_STOPPED => Ok(PresenceMonitorEvent::Stopped { cycle_id }),
-        other => Err(format!("unknown presence monitor signal: {other}")),
-    }
-}
-
-#[allow(dead_code)]
-fn parse_presence_monitor_cycle_id(value: &str) -> Result<PresenceCloseCycleId, String> {
-    let cycle_id = value
-        .parse::<u64>()
-        .map_err(|error| format!("invalid presence monitor cycle id: {error}"))?;
-    Ok(PresenceCloseCycleId::from_raw(cycle_id))
-}
-
-#[allow(dead_code)]
-fn parse_presence_monitor_fallback(value: &str) -> Result<PresenceMonitorFallback, String> {
-    match value {
-        PRESENCE_MONITOR_REASON_MISSING => Ok(PresenceMonitorFallback::Missing),
-        PRESENCE_MONITOR_REASON_HIDDEN => Ok(PresenceMonitorFallback::Hidden),
-        PRESENCE_MONITOR_REASON_NO_ANIMATION => Ok(PresenceMonitorFallback::NoAnimation),
-        other => Err(format!("unknown presence monitor fallback reason: {other}")),
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FloatingAutoUpdateEvent {
-    Scroll,
-    Update,
-    Stopped,
-}
-
-pub(crate) fn start_floating_auto_update_monitor(anchor_ids: &[&str], content_id: &str) -> Eval {
-    let eval = document::eval(include_str!("floating_auto_update.js"));
-    let ids: Vec<String> = anchor_ids.iter().map(|id| id.to_string()).collect();
-    let _ = eval.send((ids, content_id.to_string()));
-    eval
-}
-
-pub(crate) fn stop_floating_auto_update_monitor(monitor: Eval) -> Result<(), String> {
-    monitor
-        .send(FLOATING_AUTO_UPDATE_SIGNAL_STOP)
-        .map_err(|error| format!("floating auto-update stop failed: {error}"))
-}
-
-pub(crate) async fn recv_floating_auto_update_event(
-    monitor: &mut Eval,
-) -> Result<FloatingAutoUpdateEvent, String> {
-    let signal: String = monitor
-        .recv()
-        .await
-        .map_err(|error| format!("floating auto-update receive failed: {error}"))?;
-
-    match signal.as_str() {
-        FLOATING_AUTO_UPDATE_SIGNAL_SCROLL => Ok(FloatingAutoUpdateEvent::Scroll),
-        FLOATING_AUTO_UPDATE_SIGNAL_UPDATE => Ok(FloatingAutoUpdateEvent::Update),
-        FLOATING_AUTO_UPDATE_SIGNAL_STOPPED => Ok(FloatingAutoUpdateEvent::Stopped),
-        other => Err(format!("unknown floating auto-update signal: {other}")),
-    }
+pub(crate) fn start_floating_auto_update_monitor(
+    anchor_ids: &[&str],
+    content_id: &str,
+    mut on_event: impl FnMut(FloatingAutoUpdateEvent) + 'static,
+) -> WatcherGuard {
+    dom_bridge::watch_floating_auto_update(anchor_ids, content_id, move |payload: FloatingAutoUpdatePayload| {
+        on_event(payload);
+    })
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -189,51 +148,23 @@ pub(crate) enum DocumentDismissEvent {
     PointerDown { path_ids: Vec<String> },
     FocusIn { path_ids: Vec<String> },
     Escape,
-    Stopped,
 }
 
-pub(crate) fn start_document_dismiss_monitor() -> Eval {
-    document::eval(include_str!("document_dismiss.js"))
-}
-
-pub(crate) fn stop_document_dismiss_monitor(monitor: Eval) -> Result<(), String> {
-    monitor
-        .send(DOCUMENT_DISMISS_SIGNAL_STOP)
-        .map_err(|error| format!("document dismiss stop failed: {error}"))
-}
-
-pub(crate) async fn recv_document_dismiss_event(
-    monitor: &mut Eval,
-) -> Result<DocumentDismissEvent, String> {
-    let payload: String = monitor
-        .recv()
-        .await
-        .map_err(|error| format!("document dismiss receive failed: {error}"))?;
-
-    parse_document_dismiss_event(&payload)
-}
-
-fn parse_document_dismiss_event(payload: &str) -> Result<DocumentDismissEvent, String> {
-    let mut fields = payload.splitn(2, '\n');
-    let signal = fields.next().unwrap_or_default();
-    let path_ids = parse_document_dismiss_path_ids(fields.next());
-
-    match signal {
-        DOCUMENT_DISMISS_SIGNAL_POINTER_DOWN => Ok(DocumentDismissEvent::PointerDown { path_ids }),
-        DOCUMENT_DISMISS_SIGNAL_FOCUS_IN => Ok(DocumentDismissEvent::FocusIn { path_ids }),
-        DOCUMENT_DISMISS_SIGNAL_ESCAPE => Ok(DocumentDismissEvent::Escape),
-        DOCUMENT_DISMISS_SIGNAL_STOPPED => Ok(DocumentDismissEvent::Stopped),
-        other => Err(format!("unknown document dismiss signal: {other}")),
-    }
-}
-
-fn parse_document_dismiss_path_ids(value: Option<&str>) -> Vec<String> {
-    value
-        .unwrap_or_default()
-        .split(DOCUMENT_DISMISS_PATH_SEPARATOR)
-        .filter(|value| !value.is_empty())
-        .map(String::from)
-        .collect()
+pub(crate) fn start_document_dismiss_monitor(
+    mut on_event: impl FnMut(DocumentDismissEvent) + 'static,
+) -> WatcherGuard {
+    dom_bridge::watch_document_dismiss(move |payload: DocumentDismissEventPayload| {
+        let event = match payload {
+            DocumentDismissEventPayload::PointerDown { path_ids } => {
+                DocumentDismissEvent::PointerDown { path_ids }
+            }
+            DocumentDismissEventPayload::FocusIn { path_ids } => {
+                DocumentDismissEvent::FocusIn { path_ids }
+            }
+            DocumentDismissEventPayload::Escape => DocumentDismissEvent::Escape,
+        };
+        on_event(event);
+    })
 }
 
 pub(crate) const DEFAULT_FOCUSABLE_SELECTOR: &str = "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])";
@@ -320,15 +251,13 @@ pub(crate) async fn measure_floating_placement(
         .flatten()
 }
 
-pub(crate) use dom_bridge::WatchFormResetWatcher;
-
 pub(crate) fn start_form_reset_monitor(
     element_id: &str,
     form_id: Option<&str>,
     on_reset: impl FnMut() + 'static,
-) -> WatchFormResetWatcher {
+) -> WatcherGuard {
     let mut on_reset = on_reset;
-    WatchFormResetWatcher::start(element_id, form_id, move |_sig| {
+    dom_bridge::watch_form_reset(element_id, form_id, move |_sig: FormResetEventPayload| {
         on_reset();
     })
 }
@@ -336,96 +265,77 @@ pub(crate) fn start_form_reset_monitor(
 #[cfg(test)]
 mod tests {
     use super::{
-        DOCUMENT_DISMISS_SIGNAL_ESCAPE, DOCUMENT_DISMISS_SIGNAL_FOCUS_IN,
-        DOCUMENT_DISMISS_SIGNAL_POINTER_DOWN, DocumentDismissEvent, PRESENCE_MONITOR_REASON_HIDDEN,
-        PRESENCE_MONITOR_REASON_MISSING, PRESENCE_MONITOR_REASON_NO_ANIMATION,
-        PRESENCE_MONITOR_SIGNAL_ANIMATION_CANCEL, PRESENCE_MONITOR_SIGNAL_ANIMATION_END,
-        PRESENCE_MONITOR_SIGNAL_FALLBACK, PRESENCE_MONITOR_SIGNAL_STOPPED, PresenceMonitorEvent,
-        PresenceMonitorFallback, parse_document_dismiss_event, parse_presence_monitor_event,
+        DocumentDismissEventPayload, FloatingAutoUpdatePayload, FormResetEventPayload,
+        PresenceEventPayload, PresenceMonitorFallback,
     };
-    use crate::foundation::overlay::PresenceCloseCycleId;
 
     #[test]
-    fn parses_document_dismiss_events() {
+    fn parses_document_dismiss_payload() {
+        let json = r#"{"kind":"pointer_down","pathIds":["content","child"]}"#;
+        let payload: DocumentDismissEventPayload = serde_json::from_str(json).unwrap();
         assert_eq!(
-            parse_document_dismiss_event(&format!(
-                "{DOCUMENT_DISMISS_SIGNAL_POINTER_DOWN}\ncontent\u{1f}child"
-            )),
-            Ok(DocumentDismissEvent::PointerDown {
-                path_ids: vec![String::from("content"), String::from("child")],
-            }),
+            payload,
+            DocumentDismissEventPayload::PointerDown {
+                path_ids: vec!["content".to_string(), "child".to_string()]
+            }
         );
+
+        let json = r#"{"kind":"focus_in","pathIds":["content"]}"#;
+        let payload: DocumentDismissEventPayload = serde_json::from_str(json).unwrap();
         assert_eq!(
-            parse_document_dismiss_event(&format!("{DOCUMENT_DISMISS_SIGNAL_FOCUS_IN}\ncontent")),
-            Ok(DocumentDismissEvent::FocusIn {
-                path_ids: vec![String::from("content")],
-            }),
+            payload,
+            DocumentDismissEventPayload::FocusIn {
+                path_ids: vec!["content".to_string()]
+            }
         );
-        assert_eq!(
-            parse_document_dismiss_event(&format!("{DOCUMENT_DISMISS_SIGNAL_ESCAPE}\n")),
-            Ok(DocumentDismissEvent::Escape),
-        );
+
+        let json = r#"{"kind":"escape"}"#;
+        let payload: DocumentDismissEventPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload, DocumentDismissEventPayload::Escape);
     }
 
     #[test]
-    fn parses_presence_monitor_events() {
+    fn parses_presence_event_payload() {
+        let json = r#"{"kind":"fallback","cycleId":6,"reason":"missing"}"#;
+        let payload: PresenceEventPayload = serde_json::from_str(json).unwrap();
         assert_eq!(
-            parse_presence_monitor_event(&format!(
-                "{PRESENCE_MONITOR_SIGNAL_FALLBACK}\n6\n{PRESENCE_MONITOR_REASON_MISSING}"
-            )),
-            Ok(PresenceMonitorEvent::Fallback {
-                cycle_id: PresenceCloseCycleId::from_raw(6),
+            payload,
+            PresenceEventPayload::Fallback {
+                cycle_id: 6,
                 reason: PresenceMonitorFallback::Missing,
-            }),
+            }
         );
+
+        let json = r#"{"kind":"animation_end","cycleId":9,"animationName":"fade-out"}"#;
+        let payload: PresenceEventPayload = serde_json::from_str(json).unwrap();
         assert_eq!(
-            parse_presence_monitor_event(&format!(
-                "{PRESENCE_MONITOR_SIGNAL_FALLBACK}\n7\n{PRESENCE_MONITOR_REASON_NO_ANIMATION}"
-            )),
-            Ok(PresenceMonitorEvent::Fallback {
-                cycle_id: PresenceCloseCycleId::from_raw(7),
-                reason: PresenceMonitorFallback::NoAnimation,
-            }),
+            payload,
+            PresenceEventPayload::AnimationEnd {
+                cycle_id: 9,
+                animation_name: "fade-out".to_string(),
+            }
         );
-        assert_eq!(
-            parse_presence_monitor_event(&format!(
-                "{PRESENCE_MONITOR_SIGNAL_FALLBACK}\n8\n{PRESENCE_MONITOR_REASON_HIDDEN}"
-            )),
-            Ok(PresenceMonitorEvent::Fallback {
-                cycle_id: PresenceCloseCycleId::from_raw(8),
-                reason: PresenceMonitorFallback::Hidden,
-            }),
-        );
-        assert_eq!(
-            parse_presence_monitor_event(&format!(
-                "{PRESENCE_MONITOR_SIGNAL_ANIMATION_END}\n9\nfade-out"
-            )),
-            Ok(PresenceMonitorEvent::AnimationEnd {
-                cycle_id: PresenceCloseCycleId::from_raw(9),
-                animation_name: String::from("fade-out"),
-            }),
-        );
-        assert_eq!(
-            parse_presence_monitor_event(&format!(
-                "{PRESENCE_MONITOR_SIGNAL_ANIMATION_CANCEL}\n10\nfade-out"
-            )),
-            Ok(PresenceMonitorEvent::AnimationCancel {
-                cycle_id: PresenceCloseCycleId::from_raw(10),
-                animation_name: String::from("fade-out"),
-            }),
-        );
-        assert_eq!(
-            parse_presence_monitor_event(&format!("{PRESENCE_MONITOR_SIGNAL_STOPPED}\n11\n")),
-            Ok(PresenceMonitorEvent::Stopped {
-                cycle_id: PresenceCloseCycleId::from_raw(11),
-            }),
-        );
+
+        let json = r#"{"kind":"stopped","cycleId":11}"#;
+        let payload: PresenceEventPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload, PresenceEventPayload::Stopped { cycle_id: 11 });
     }
 
     #[test]
-    fn rejects_invalid_presence_monitor_payloads() {
-        assert!(parse_presence_monitor_event("fallback\nabc\nhidden").is_err());
-        assert!(parse_presence_monitor_event("fallback\n7\nunknown").is_err());
-        assert!(parse_presence_monitor_event("animationend\n7\n").is_err());
+    fn parses_floating_auto_update_payload() {
+        let json = r#"{"kind":"scroll"}"#;
+        let payload: FloatingAutoUpdatePayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload, FloatingAutoUpdatePayload::Scroll);
+
+        let json = r#"{"kind":"update"}"#;
+        let payload: FloatingAutoUpdatePayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload, FloatingAutoUpdatePayload::Update);
+    }
+
+    #[test]
+    fn parses_form_reset_payload() {
+        let json = r#"{"kind":"reset"}"#;
+        let payload: FormResetEventPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload, FormResetEventPayload::Reset);
     }
 }

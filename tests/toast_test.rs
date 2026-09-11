@@ -613,49 +613,60 @@ fn wai_aria_live_region_test() {
 #[test]
 fn browser_event_parser_test() {
     assert_eq!(
-        parse_toast_browser_event("visibility:visible"),
-        ToastBrowserEvent::Visibility(true)
+        parse_toast_browser_event(r#"{"kind":"visibility","visible":true}"#).unwrap(),
+        ToastBrowserEvent::Visibility { visible: true }
     );
     assert_eq!(
-        parse_toast_browser_event("visibility:hidden"),
-        ToastBrowserEvent::Visibility(false)
+        parse_toast_browser_event(r#"{"kind":"visibility","visible":false}"#).unwrap(),
+        ToastBrowserEvent::Visibility { visible: false }
     );
     assert_eq!(
-        parse_toast_browser_event("hover:enter"),
-        ToastBrowserEvent::Hover(true)
+        parse_toast_browser_event(r#"{"kind":"hover","hovered":true}"#).unwrap(),
+        ToastBrowserEvent::Hover { hovered: true }
     );
     assert_eq!(
-        parse_toast_browser_event("hover:leave"),
-        ToastBrowserEvent::Hover(false)
+        parse_toast_browser_event(r#"{"kind":"hover","hovered":false}"#).unwrap(),
+        ToastBrowserEvent::Hover { hovered: false }
     );
     assert_eq!(
-        parse_toast_browser_event("focus:enter"),
-        ToastBrowserEvent::Focus(true)
+        parse_toast_browser_event(r#"{"kind":"focus","focused":true}"#).unwrap(),
+        ToastBrowserEvent::Focus { focused: true }
     );
     assert_eq!(
-        parse_toast_browser_event("focus:leave"),
-        ToastBrowserEvent::Focus(false)
+        parse_toast_browser_event(r#"{"kind":"focus","focused":false}"#).unwrap(),
+        ToastBrowserEvent::Focus { focused: false }
     );
     assert_eq!(
-        parse_toast_browser_event("swipe:start"),
-        ToastBrowserEvent::SwipeActive(true)
+        parse_toast_browser_event(r#"{"kind":"swipe_active","swiping":true}"#).unwrap(),
+        ToastBrowserEvent::SwipeActive { swiping: true }
     );
     assert_eq!(
-        parse_toast_browser_event("swipe:end"),
-        ToastBrowserEvent::SwipeActive(false)
+        parse_toast_browser_event(r#"{"kind":"swipe_active","swiping":false}"#).unwrap(),
+        ToastBrowserEvent::SwipeActive { swiping: false }
     );
     assert_eq!(
-        parse_toast_browser_event("swipe:dismiss:77"),
-        ToastBrowserEvent::SwipeDismiss(ToastId(77))
+        parse_toast_browser_event(r#"{"kind":"swipe_dismiss","id":77}"#).unwrap(),
+        ToastBrowserEvent::SwipeDismiss { id: 77 }
     );
     assert_eq!(
-        parse_toast_browser_event("hotkey:F8"),
-        ToastBrowserEvent::Hotkey("F8".to_string())
+        parse_toast_browser_event(r#"{"kind":"hotkey","key":"F8"}"#).unwrap(),
+        ToastBrowserEvent::Hotkey {
+            key: "F8".to_string()
+        }
     );
     assert_eq!(
-        parse_toast_browser_event("stopped"),
+        parse_toast_browser_event(r#"{"kind":"stopped"}"#).unwrap(),
         ToastBrowserEvent::Stopped
     );
+}
+
+#[test]
+fn toast_watcher_reset_contract_test() {
+    reset_toast_watcher();
+    ensure_toast_watcher("custom-viewport-1");
+    ensure_toast_watcher("custom-viewport-1"); // idempotent
+    ensure_toast_watcher("custom-viewport-2"); // rebound to new id
+    reset_toast_watcher();
 }
 
 #[test]

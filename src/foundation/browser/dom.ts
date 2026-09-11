@@ -238,6 +238,10 @@ export function measureFloatingPlacement(
     return [tr.left, tr.top, tr.width, tr.height, cr.width, cr.height, bLeft, bTop, bRight, bBottom];
 }
 
+export interface FormResetEventPayload {
+    kind: "reset";
+}
+
 /**
  * Watch form reset events for an element (Watcher)
  * #[watcher]
@@ -245,13 +249,13 @@ export function measureFloatingPlacement(
 export function watchFormReset(
     elementId: string,
     formId: string | null,
-    emit: (signal: string) => void
+    emit: (event: FormResetEventPayload) => void
 ): () => void {
     const el = document.getElementById(elementId);
     const form = formId ? document.getElementById(formId) : (el ? el.closest("form") : null);
 
     const handleReset = () => {
-        emit("reset");
+        emit({ kind: "reset" });
     };
 
     if (form) {
@@ -264,3 +268,301 @@ export function watchFormReset(
         }
     };
 }
+
+export type DocumentDismissEventPayload =
+    | { kind: "pointer_down"; pathIds: string[] }
+    | { kind: "focus_in"; pathIds: string[] }
+    | { kind: "escape" };
+
+/**
+ * Watch document dismiss events (pointerdown outside, focusin outside, escape keydown)
+ * #[watcher]
+ */
+export function watchDocumentDismiss(
+    emit: (event: DocumentDismissEventPayload) => void
+): () => void {
+    const readPathIds = (event: Event): string[] => {
+        if (!event || typeof event.composedPath !== "function") {
+            return [];
+        }
+        return event
+            .composedPath()
+            .filter((node): node is HTMLElement => node instanceof HTMLElement && typeof node.id === "string" && node.id.length > 0)
+            .map((node) => node.id);
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+        emit({ kind: "pointer_down", pathIds: readPathIds(event) });
+    };
+    const handleFocusIn = (event: FocusEvent) => {
+        emit({ kind: "focus_in", pathIds: readPathIds(event) });
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+        if (event.defaultPrevented) {
+            return;
+        }
+        if (event.key === "Escape") {
+            emit({ kind: "escape" });
+        }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("focusin", handleFocusIn, true);
+    document.addEventListener("keydown", handleKeyDown, false);
+
+    return () => {
+        document.removeEventListener("pointerdown", handlePointerDown, true);
+        document.removeEventListener("focusin", handleFocusIn, true);
+        document.removeEventListener("keydown", handleKeyDown, false);
+    };
+}
+
+export type FloatingAutoUpdatePayload =
+    | { kind: "scroll" }
+    | { kind: "update" };
+
+/**
+ * Watch floating element and anchor element updates (scroll, resize, mutation)
+ * #[watcher]
+ */
+export function watchFloatingAutoUpdate(
+    anchorIds: string[],
+    contentId: string,
+    emit: (event: FloatingAutoUpdatePayload) => void
+): () => void {
+    const mutationTarget = document.body ?? document.documentElement;
+    const visualViewport = window.visualViewport ?? null;
+    const ResizeObserverCtor = window.ResizeObserver ?? null;
+    const MutationObserverCtor = window.MutationObserver ?? null;
+    let stopped = false;
+    let framePending = false;
+    let scrollTriggered = false;
+    let resizeObserver: ResizeObserver | null = null;
+    let mutationObserver: MutationObserver | null = null;
+    let currentAnchor: HTMLElement | null = null;
+    let currentContent: HTMLElement | null = null;
+
+    const readElement = (id: string): HTMLElement | null => {
+        const element = document.getElementById(id);
+        return element instanceof HTMLElement ? element : null;
+    };
+
+    const resolveAnchor = (): HTMLElement | null => {
+        for (const id of anchorIds) {
+            const anchor = readElement(id);
+            if (anchor) {
+                return anchor;
+            }
+        }
+        return null;
+    };
+
+    const reconnectObservedElements = () => {
+        const nextAnchor = resolveAnchor();
+        const nextContent = readElement(contentId);
+
+        if (ResizeObserverCtor === null) {
+            currentAnchor = nextAnchor;
+            currentContent = nextContent;
+            return;
+        }
+
+        if (resizeObserver === null) {
+            resizeObserver = new ResizeObserverCtor(() => queueUpdate());
+        }
+
+        if (currentAnchor === nextAnchor && currentContent === nextContent) {
+            return;
+        }
+
+        resizeObserver.disconnect();
+        resizeObserver.observe(document.documentElement);
+
+        currentAnchor = nextAnchor;
+        currentContent = nextContent;
+
+        if (currentAnchor) {
+            resizeObserver.observe(currentAnchor);
+        }
+
+        if (currentContent) {
+            resizeObserver.observe(currentContent);
+        }
+    };
+
+    const queueUpdate = ({ fromScroll = false } = {}) => {
+        if (stopped || framePending) {
+            return;
+        }
+
+        scrollTriggered = scrollTriggered || fromScroll;
+        framePending = true;
+        window.requestAnimationFrame(() => {
+            framePending = false;
+            if (stopped) {
+                return;
+            }
+
+            const event: FloatingAutoUpdatePayload = {
+                kind: scrollTriggered ? "scroll" : "update",
+            };
+            scrollTriggered = false;
+            emit(event);
+        });
+    };
+
+    const handleScroll = () => queueUpdate({ fromScroll: true });
+    const handleResize = () => queueUpdate();
+
+    window.addEventListener("scroll", handleScroll, { capture: true, passive: true });
+    window.addEventListener("resize", handleResize, { passive: true });
+
+    if (visualViewport) {
+        visualViewport.addEventListener("scroll", handleScroll, { passive: true });
+        visualViewport.addEventListener("resize", handleResize, { passive: true });
+    }
+
+    if (MutationObserverCtor) {
+        mutationObserver = new MutationObserverCtor(() => {
+            reconnectObservedElements();
+            queueUpdate();
+        });
+    }
+
+    if (mutationTarget && mutationObserver) {
+        mutationObserver.observe(mutationTarget, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            attributeFilter: ["class", "style", "hidden"],
+        });
+    }
+
+    reconnectObservedElements();
+
+    return () => {
+        stopped = true;
+        window.removeEventListener("scroll", handleScroll, true);
+        window.removeEventListener("resize", handleResize);
+
+        if (visualViewport) {
+            visualViewport.removeEventListener("scroll", handleScroll);
+            visualViewport.removeEventListener("resize", handleResize);
+        }
+
+        mutationObserver?.disconnect();
+        resizeObserver?.disconnect();
+    };
+}
+
+export type PresenceEventPayload =
+    | { kind: "fallback"; cycleId: number; reason: "missing" | "hidden" | "no_animation" }
+    | { kind: "animation_end"; cycleId: number; animationName: string }
+    | { kind: "animation_cancel"; cycleId: number; animationName: string }
+    | { kind: "stopped"; cycleId: number };
+
+/**
+ * Watch element presence lifecycle during unmount/close animations
+ * #[watcher]
+ */
+export function watchPresence(
+    rootId: string,
+    cycleId: number,
+    emit: (event: PresenceEventPayload) => void
+): () => void {
+    const MutationObserverCtor = window.MutationObserver ?? null;
+    const root = document.getElementById(rootId);
+    let activeAnimationNames: string[] = [];
+    let finished = false;
+    let mutationObserver: MutationObserver | null = null;
+
+    const parseAnimationNames = (value: string | null): string[] =>
+        String(value ?? "")
+            .split(",")
+            .map((name) => name.trim())
+            .filter((name) => name.length > 0 && name !== "none");
+
+    const cleanup = () => {
+        mutationObserver?.disconnect();
+        if (!(root instanceof HTMLElement)) {
+            return;
+        }
+        root.removeEventListener("animationend", handleAnimationEnd);
+        root.removeEventListener("animationcancel", handleAnimationCancel);
+    };
+
+    const finish = (event: PresenceEventPayload) => {
+        if (finished) {
+            return;
+        }
+        finished = true;
+        cleanup();
+        emit(event);
+    };
+
+    const refreshRootState = () => {
+        if (!(root instanceof HTMLElement) || !root.isConnected) {
+            finish({ kind: "fallback", cycleId, reason: "missing" });
+            return;
+        }
+
+        const computed = window.getComputedStyle(root);
+        if (root.hidden || computed.display === "none") {
+            finish({ kind: "fallback", cycleId, reason: "hidden" });
+            return;
+        }
+
+        activeAnimationNames = parseAnimationNames(computed.animationName);
+        if (activeAnimationNames.length === 0) {
+            finish({ kind: "fallback", cycleId, reason: "no_animation" });
+        }
+    };
+
+    const handleAnimation = (event: AnimationEvent, kind: "animation_end" | "animation_cancel") => {
+        if (finished || event.target !== root) {
+            return;
+        }
+        if (
+            typeof event.animationName !== "string" ||
+            !activeAnimationNames.includes(event.animationName)
+        ) {
+            return;
+        }
+        finish({ kind, cycleId, animationName: event.animationName });
+    };
+
+    const handleAnimationEnd = (event: AnimationEvent) => handleAnimation(event, "animation_end");
+    const handleAnimationCancel = (event: AnimationEvent) => handleAnimation(event, "animation_cancel");
+
+    if (root instanceof HTMLElement) {
+        root.addEventListener("animationend", handleAnimationEnd);
+        root.addEventListener("animationcancel", handleAnimationCancel);
+    }
+
+    if (MutationObserverCtor !== null) {
+        mutationObserver = new MutationObserverCtor(() => {
+            refreshRootState();
+        });
+        const target = document.body ?? document.documentElement;
+        if (target) {
+            mutationObserver.observe(target, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                attributeFilter: ["class", "style", "hidden"],
+            });
+        }
+    }
+
+    window.requestAnimationFrame(() => {
+        refreshRootState();
+    });
+
+    return () => {
+        if (!finished) {
+            finish({ kind: "stopped", cycleId });
+        }
+        cleanup();
+    };
+}
+

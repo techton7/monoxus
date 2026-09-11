@@ -1,7 +1,8 @@
+use super::browser::WatcherGuard;
 use super::state::ToastStore;
 use super::types::*;
 use dioxus::prelude::*;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::RefCell;
 use std::time::Duration;
 
 /// Delay duration before evicted toast is removed from store to allow exit animations.
@@ -10,8 +11,9 @@ pub const TIME_BEFORE_UNMOUNT: Duration = Duration::from_millis(200);
 /// Canonical global signal store powering imperative `toast::*` calls across the application.
 pub static TOAST_STORE: GlobalSignal<ToastStore> = GlobalSignal::new(ToastStore::default);
 
-/// Singleton flag ensuring only one long-lived browser event monitor task runs concurrently.
-static MONITOR_RUNNING: AtomicBool = AtomicBool::new(false);
+thread_local! {
+    static TOAST_WATCHER: RefCell<Option<(String, WatcherGuard)>> = const { RefCell::new(None) };
+}
 
 /// Reactive runtime handle for observing and managing toast notifications.
 #[derive(Clone, Copy, Debug, Default)]
@@ -49,60 +51,79 @@ impl ToastRuntime {
     }
 }
 
-/// Reactive hook subscribing to toast notifications and binding window visibility listeners.
-pub fn use_toast_runtime() -> ToastRuntime {
-    use_hook(move || {
-        if MONITOR_RUNNING
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .is_err()
-        {
-            return;
+/// Ensures that the global browser toast watcher is active and bound to the specified viewport ID.
+///
+/// If a watcher is already bound to this exact `viewport_id`, this call is an idempotent no-op.
+/// If a watcher was previously bound to a different `viewport_id`, it is gracefully stopped and
+/// rebound to the new `viewport_id`.
+pub fn ensure_toast_watcher(viewport_id: &str) {
+    if dioxus::core::Runtime::try_current().is_none() {
+        return;
+    }
+
+    TOAST_WATCHER.with(|slot| {
+        let mut slot_ref = slot.borrow_mut();
+        if let Some((bound_id, _)) = slot_ref.as_ref() {
+            if bound_id == viewport_id {
+                return;
+            }
+            if let Some((_, watcher)) = slot_ref.take() {
+                watcher.stop();
+            }
         }
 
-        let config = TOAST_STORE.peek().config.clone();
-        safe_spawn(async move {
-            let Some(mut monitor) = crate::toast::browser::start_toast_browser_monitor(
-                &config,
-                "monoxus-toast-viewport",
-            ) else {
-                MONITOR_RUNNING.store(false, Ordering::SeqCst);
-                return;
-            };
+        let config = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            TOAST_STORE.peek().config.clone()
+        }))
+        .unwrap_or_default();
 
-            while let Ok(event) =
-                crate::toast::browser::recv_toast_browser_event(&mut monitor).await
-            {
-                match event {
-                    crate::toast::browser::ToastBrowserEvent::Visibility(visible) => {
-                        let should_pause = TOAST_STORE.peek().config.pause_when_page_is_hidden;
-                        if should_pause {
-                            TOAST_STORE.write().set_page_hidden(!visible);
-                        }
+        if let Some(watcher) = crate::toast::browser::start_toast_browser_monitor(
+            &config,
+            viewport_id,
+            |event| match event {
+                crate::toast::browser::ToastBrowserEvent::Visibility { visible } => {
+                    let should_pause = TOAST_STORE.peek().config.pause_when_page_is_hidden;
+                    if should_pause {
+                        TOAST_STORE.write().set_page_hidden(!visible);
                     }
-                    crate::toast::browser::ToastBrowserEvent::Hover(hovered) => {
-                        TOAST_STORE.write().set_hovered(hovered);
-                    }
-                    crate::toast::browser::ToastBrowserEvent::Focus(focused) => {
-                        TOAST_STORE.write().set_focused(focused);
-                    }
-                    crate::toast::browser::ToastBrowserEvent::SwipeActive(swiping) => {
-                        TOAST_STORE.write().set_swiping(swiping);
-                    }
-                    crate::toast::browser::ToastBrowserEvent::SwipeDismiss(id) => {
-                        toast::dismiss(Some(id));
-                    }
-                    crate::toast::browser::ToastBrowserEvent::Hotkey(_) => {
-                        // Landmark focus handled directly in browser.js
-                    }
-                    crate::toast::browser::ToastBrowserEvent::Stopped => break,
-                    crate::toast::browser::ToastBrowserEvent::Unknown(_) => {}
                 }
-            }
-            MONITOR_RUNNING.store(false, Ordering::SeqCst);
-        });
+                crate::toast::browser::ToastBrowserEvent::Hover { hovered } => {
+                    TOAST_STORE.write().set_hovered(hovered);
+                }
+                crate::toast::browser::ToastBrowserEvent::Focus { focused } => {
+                    TOAST_STORE.write().set_focused(focused);
+                }
+                crate::toast::browser::ToastBrowserEvent::SwipeActive { swiping } => {
+                    TOAST_STORE.write().set_swiping(swiping);
+                }
+                crate::toast::browser::ToastBrowserEvent::SwipeDismiss { id } => {
+                    toast::dismiss(Some(ToastId(id)));
+                }
+                crate::toast::browser::ToastBrowserEvent::Hotkey { .. }
+                | crate::toast::browser::ToastBrowserEvent::Stopped => {}
+            },
+        ) {
+            *slot_ref = Some((viewport_id.to_string(), watcher));
+        }
     });
+}
 
+/// Reactive hook subscribing to toast notifications and ensuring the viewport monitor is bound.
+pub fn use_toast_runtime() -> ToastRuntime {
+    ensure_toast_watcher("monoxus-toast-viewport");
     ToastRuntime
+}
+
+/// Resets the active toast watcher handle, disconnecting global browser listeners.
+///
+/// This is primarily designed for deterministic test isolation between test runs,
+/// but is also safe for runtime reinitialization if global viewport configuration changes.
+pub fn reset_toast_watcher() {
+    TOAST_WATCHER.with(|slot| {
+        if let Some((_, watcher)) = slot.borrow_mut().take() {
+            watcher.stop();
+        }
+    });
 }
 
 /// Imperative toast dispatch API.

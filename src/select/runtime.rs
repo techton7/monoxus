@@ -1,17 +1,14 @@
 use std::rc::Rc;
 
-use dioxus::document::Eval;
 use dioxus::prelude::*;
 
 #[allow(unused_imports)]
 use crate::foundation::{
     browser::{
         DocumentDismissEvent, FloatingAutoUpdateEvent, PresenceMonitorEvent,
-        WatchFormResetWatcher, recv_document_dismiss_event, recv_floating_auto_update_event,
-        recv_presence_monitor_event, restore_focus_element_by_id, scroll_element_into_view_nearest,
+        WatcherGuard, restore_focus_element_by_id, scroll_element_into_view_nearest,
         start_document_dismiss_monitor, start_floating_auto_update_monitor,
-        start_form_reset_monitor, start_presence_monitor, stop_document_dismiss_monitor,
-        stop_floating_auto_update_monitor, stop_presence_monitor,
+        start_form_reset_monitor, start_presence_monitor,
     },
     overlay::{
         FloatingLayer, PlacementAlign, PlacementSide, Presence, PresenceCloseCycleId,
@@ -124,7 +121,7 @@ impl SelectContentPresenceLane {
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct RetainedRootPresenceMonitorState {
-    pub monitor: Signal<Option<Eval>>,
+    pub monitor: Signal<Option<WatcherGuard>>,
     pub cycle_id: Signal<Option<PresenceCloseCycleId>>,
 }
 
@@ -160,11 +157,11 @@ pub struct SelectRuntimeState {
     pub on_escape_keydown: Signal<Option<EventHandler<KeyboardEvent>>>,
     pub on_pointer_down_outside: Signal<Option<EventHandler<PointerDownOutsideEvent>>>,
     pub on_close_auto_focus: Signal<Option<EventHandler<()>>>,
-    pub dismiss_monitor: Signal<Option<Eval>>,
+    pub dismiss_monitor: Signal<Option<WatcherGuard>>,
     pub dismiss_loop_token: Signal<u64>,
-    pub position_monitor: Signal<Option<Eval>>,
+    pub position_monitor: Signal<Option<WatcherGuard>>,
     pub position_loop_token: Signal<u64>,
-    pub form_reset_monitor: Signal<Option<WatchFormResetWatcher>>,
+    pub form_reset_monitor: Signal<Option<WatcherGuard>>,
     pub presence_lane: Signal<SelectContentPresenceLane>,
     pub presence_monitor: RetainedRootPresenceMonitorState,
 }
@@ -278,12 +275,10 @@ where
     let cleanup_content_id = select.relationships().content_id().to_owned();
     dioxus::core::use_drop(move || {
         stop_select_presence_monitor(cleanup_state, cleanup_content_id.as_str());
-        if let Some(monitor) = cleanup_state.dismiss_monitor.peek().clone() {
-            let _ = stop_document_dismiss_monitor(monitor);
-        }
-        if let Some(monitor) = cleanup_state.position_monitor.peek().clone() {
-            let _ = stop_floating_auto_update_monitor(monitor);
-        }
+        let mut dm_sig = cleanup_state.dismiss_monitor;
+        dm_sig.set(None);
+        let mut pm_sig = cleanup_state.position_monitor;
+        pm_sig.set(None);
         let mut frm_sig = cleanup_state.form_reset_monitor;
         frm_sig.set(None);
     });
@@ -796,79 +791,58 @@ impl SelectRuntime {
     pub fn start_dismiss_monitor(&self) {
         self.stop_dismiss_monitor();
 
-        let mut token_sig = self.state.dismiss_loop_token;
-        let next_token = token_sig.peek().saturating_add(1);
-        token_sig.set(next_token);
-
-        let monitor = start_document_dismiss_monitor();
-        let mut dm_sig = self.state.dismiss_monitor;
-        dm_sig.set(Some(monitor.clone()));
-
         let runtime = self.clone();
         let trigger_id = self.relationships().trigger_id().to_owned();
         let content_id = self.relationships().content_id().to_owned();
 
-        spawn(async move {
-            let mut monitor = monitor;
-            loop {
-                if *runtime.state.dismiss_loop_token.peek() != next_token {
-                    break;
+        let watcher = start_document_dismiss_monitor(move |event| {
+            match event {
+                DocumentDismissEvent::Escape => {
+                    if let Some(cb) = runtime.state.on_escape_keydown.read().clone() {
+                        let synth = SyntheticEscapeKey;
+                        let kb_data = dioxus::html::KeyboardData::new(synth);
+                        let evt = dioxus::core::Event::new(std::rc::Rc::new(kb_data), true);
+                        cb.call(evt.clone());
+                        if !evt.default_action_enabled() {
+                            return;
+                        }
+                    }
+                    if runtime.is_escape_prevented() {
+                        runtime.set_escape_prevented(false);
+                        return;
+                    }
+                    runtime.close_dropdown();
                 }
-
-                match recv_document_dismiss_event(&mut monitor).await {
-                    Ok(DocumentDismissEvent::Stopped) => break,
-                    Ok(DocumentDismissEvent::Escape) => {
-                        if let Some(cb) = runtime.state.on_escape_keydown.read().clone() {
-                            let synth = SyntheticEscapeKey;
-                            let kb_data = dioxus::html::KeyboardData::new(synth);
-                            let evt = dioxus::core::Event::new(std::rc::Rc::new(kb_data), true);
-                            cb.call(evt.clone());
-                            if !evt.default_action_enabled() {
-                                continue;
-                            }
+                DocumentDismissEvent::PointerDown { path_ids } => {
+                    let is_inside = path_ids
+                        .iter()
+                        .any(|id| id == &trigger_id || id == &content_id);
+                    if !is_inside {
+                        let should_close = runtime.trigger_pointer_down_outside();
+                        if !should_close {
+                            return;
                         }
-                        if runtime.is_escape_prevented() {
-                            runtime.set_escape_prevented(false);
-                            continue;
-                        }
-                        runtime.close_dropdown();
-                        break;
+                        runtime.close_dropdown_without_restore();
                     }
-                    Ok(DocumentDismissEvent::PointerDown { path_ids }) => {
-                        let is_inside = path_ids
-                            .iter()
-                            .any(|id| id == &trigger_id || id == &content_id);
-                        if !is_inside {
-                            let should_close = runtime.trigger_pointer_down_outside();
-                            if !should_close {
-                                continue;
-                            }
-                            runtime.close_dropdown_without_restore();
-                            break;
-                        }
+                }
+                DocumentDismissEvent::FocusIn { path_ids } => {
+                    let is_inside = path_ids
+                        .iter()
+                        .any(|id| id == &trigger_id || id == &content_id);
+                    if !is_inside {
+                        runtime.close_dropdown_without_restore();
                     }
-                    Ok(DocumentDismissEvent::FocusIn { path_ids }) => {
-                        let is_inside = path_ids
-                            .iter()
-                            .any(|id| id == &trigger_id || id == &content_id);
-                        if !is_inside {
-                            runtime.close_dropdown_without_restore();
-                            break;
-                        }
-                    }
-                    Err(_) => break,
                 }
             }
         });
+
+        let mut dm_sig = self.state.dismiss_monitor;
+        dm_sig.set(Some(watcher));
     }
 
     pub fn stop_dismiss_monitor(&self) {
-        let current_monitor = self.state.dismiss_monitor.peek().clone();
-        if let Some(monitor) = current_monitor {
-            let mut dm_sig = self.state.dismiss_monitor;
-            dm_sig.set(None);
-            let _ = stop_document_dismiss_monitor(monitor);
-        }
+        let mut dm_sig = self.state.dismiss_monitor;
+        dm_sig.set(None);
     }
 
     pub fn start_position_monitor(&self) {
@@ -876,40 +850,31 @@ impl SelectRuntime {
 
         let trigger_id = self.relationships().trigger_id().to_owned();
         let content_id = self.relationships().content_id().to_owned();
-        let monitor = start_floating_auto_update_monitor(&[&trigger_id], &content_id);
+
+        let runtime = self.clone();
+        let watcher = start_floating_auto_update_monitor(
+            &[&trigger_id],
+            &content_id,
+            move |_event| {
+                let runtime = runtime.clone();
+                spawn(async move {
+                    runtime.recalculate_floating_position().await;
+                });
+            },
+        );
 
         let mut monitor_sig = self.state.position_monitor;
-        monitor_sig.set(Some(monitor.clone()));
-
-        let mut token_sig = self.state.position_loop_token;
-        let next_token = token_sig.peek().saturating_add(1);
-        token_sig.set(next_token);
+        monitor_sig.set(Some(watcher));
 
         let runtime = self.clone();
         spawn(async move {
             runtime.recalculate_floating_position().await;
-            let mut monitor = monitor;
-            loop {
-                if *runtime.state.position_loop_token.peek() != next_token {
-                    break;
-                }
-                match recv_floating_auto_update_event(&mut monitor).await {
-                    Ok(FloatingAutoUpdateEvent::Scroll) | Ok(FloatingAutoUpdateEvent::Update) => {
-                        runtime.recalculate_floating_position().await;
-                    }
-                    Ok(FloatingAutoUpdateEvent::Stopped) | Err(_) => break,
-                }
-            }
         });
     }
 
     pub fn stop_position_monitor(&self) {
-        let current_monitor = self.state.position_monitor.peek().clone();
-        if let Some(monitor) = current_monitor {
-            let mut pm_sig = self.state.position_monitor;
-            pm_sig.set(None);
-            let _ = stop_floating_auto_update_monitor(monitor);
-        }
+        let mut pm_sig = self.state.position_monitor;
+        pm_sig.set(None);
     }
 
     pub async fn recalculate_floating_position(&self) {
@@ -1049,81 +1014,43 @@ fn start_select_presence_monitor(
 ) {
     stop_select_presence_monitor(state, content_id);
 
-    let monitor = start_presence_monitor(content_id, cycle_id);
-    let mut active_monitor = state.presence_monitor.monitor;
-    active_monitor.set(Some(monitor.clone()));
-    let mut active_cycle_id = state.presence_monitor.cycle_id;
-    active_cycle_id.set(Some(cycle_id));
-
-    let content_id_owned = content_id.to_string();
-    spawn(async move {
-        let mut monitor = monitor;
-
-        loop {
-            if state
-                .presence_monitor
-                .cycle_id
-                .with_peek(|current| *current != Some(cycle_id))
-            {
-                break;
+    let watcher = start_presence_monitor(content_id, cycle_id, move |event| {
+        match event {
+            PresenceMonitorEvent::Fallback {
+                cycle_id: event_cycle,
+                ..
             }
-
-            match recv_presence_monitor_event(&mut monitor).await {
-                Ok(
-                    PresenceMonitorEvent::Fallback {
-                        cycle_id: event_cycle,
-                        ..
-                    }
-                    | PresenceMonitorEvent::AnimationEnd {
-                        cycle_id: event_cycle,
-                        ..
-                    }
-                    | PresenceMonitorEvent::AnimationCancel {
-                        cycle_id: event_cycle,
-                        ..
-                    },
-                ) => {
-                    complete_select_presence_close_cycle(state, event_cycle);
-                    break;
-                }
-                Ok(PresenceMonitorEvent::Stopped {
-                    cycle_id: event_cycle,
-                }) => {
-                    if state
-                        .presence_monitor
-                        .cycle_id
-                        .with_peek(|current| *current == Some(event_cycle))
-                    {
-                        clear_select_presence_monitor_state(state);
-                    }
-                    break;
-                }
-                Err(error) => {
-                    if state
-                        .presence_monitor
-                        .cycle_id
-                        .with_peek(|current| *current == Some(cycle_id))
-                    {
-                        eprintln!(
-                            "monoxus select runtime could not observe content presence for {content_id_owned}: {error}",
-                        );
-                        clear_select_presence_monitor_state(state);
-                    }
-                    break;
+            | PresenceMonitorEvent::AnimationEnd {
+                cycle_id: event_cycle,
+                ..
+            }
+            | PresenceMonitorEvent::AnimationCancel {
+                cycle_id: event_cycle,
+                ..
+            } => {
+                complete_select_presence_close_cycle(state, event_cycle);
+            }
+            PresenceMonitorEvent::Stopped {
+                cycle_id: event_cycle,
+            } => {
+                if state
+                    .presence_monitor
+                    .cycle_id
+                    .with_peek(|current| *current == Some(event_cycle))
+                {
+                    clear_select_presence_monitor_state(state);
                 }
             }
         }
     });
+    let mut active_monitor = state.presence_monitor.monitor;
+    active_monitor.set(Some(watcher));
+    let mut active_cycle_id = state.presence_monitor.cycle_id;
+    active_cycle_id.set(Some(cycle_id));
 }
 
 fn stop_select_presence_monitor(state: SelectRuntimeState, _content_id: &str) {
-    let Some(monitor) = state.presence_monitor.monitor.with_peek(|m| m.clone()) else {
-        clear_select_presence_monitor_state(state);
-        return;
-    };
-
     clear_select_presence_monitor_state(state);
-    let _ = stop_presence_monitor(monitor);
 }
 
 fn clear_select_presence_monitor_state(state: SelectRuntimeState) {

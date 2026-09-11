@@ -70,15 +70,19 @@ pub fn PortaledSelectSection() -> Element {
             // Dedicated Portal Host Container
             div {
                 id: "select-portal-root",
-                style: "margin-top: 1rem; margin-bottom: 1rem; border: 2px dashed #9333ea; border-radius: 0.5rem; padding: 0.75rem 1rem; background-color: #ffffff; min-height: 50px;",
+                style: "position: relative; min-height: 140px; margin-top: 1rem; margin-bottom: 1rem; border: 2px dashed #9333ea; border-radius: 0.5rem; padding: 0.75rem 1rem; background-color: #faf5ff;",
                 span {
                     style: "display: block; font-size: 0.75rem; font-weight: 700; color: #7e22ce; text-transform: uppercase; margin-bottom: 0.25rem;",
                     "Portal Host Destination (#select-portal-root)"
                 }
                 span {
                     id: "select-portal-status-label",
-                    style: "font-size: 0.8125rem; color: #64748b;",
-                    "When open, SelectContent is relocated here."
+                    style: "font-size: 0.8125rem; color: #64748b; margin-bottom: 0.5rem; display: block;",
+                    if is_open() {
+                        "Status: Mounted inside #select-portal-root (DOM Teleport Active)"
+                    } else {
+                        "Status: Idle (Content unmounted from host)"
+                    }
                 }
             }
 
@@ -101,7 +105,7 @@ pub fn PortaledSelectSection() -> Element {
                             force_mount: force_mount_enabled(),
                             SelectContent {
                                 class: "select-content-portaled".to_string(),
-                                style: "z-index: 50; background: white; border: 1px solid #d8b4fe; border-radius: 0.375rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); padding: 0.25rem; outline: none;",
+                                style: "position: relative !important; top: 0.5rem !important; left: 0 !important; width: 260px !important; z-index: 50; background: white; border: 1px solid #d8b4fe; border-radius: 0.375rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); padding: 0.25rem; outline: none;",
                                 sticky: "always".to_string(),
                                 prevent_scroll: true,
                                 force_mount: force_mount_enabled(),

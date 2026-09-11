@@ -9,11 +9,11 @@ repository = "https://github.com/techton7/monoxus"
 
 [dependencies]
 dioxus = { version = "0.7.0", default-features = false, features = ["devtools", "document", "hooks", "html", "mounted", "signals", "macro", "asset"] }
-dioxus-js-bindgen = { path = "../../util/dioxus_js_bindgen/crates/dioxus-js-bindgen" }
+dioxus-js-bindgen = { version = "0.1.1", path = "../../util/dioxus_js_bindgen/crates/dioxus-js-bindgen" }
 serde = { version = "1.0", features = ["derive"] }
-dioxus-use-js = "0.5.0"
 futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 js-sys = "0.3"
 
 [dev-dependencies]
 dioxus = { version = "0.7.0", default-features = false, features = ["minimal"] }
+serde_json = "1.0"

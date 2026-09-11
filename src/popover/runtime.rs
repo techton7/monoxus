@@ -1,6 +1,6 @@
 use std::{collections::HashMap, rc::Rc, time::Duration};
 
-use dioxus::{document::Eval, prelude::*};
+use dioxus::prelude::*;
 use futures_timer::Delay;
 
 pub use crate::foundation::compose::{
@@ -10,12 +10,12 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        DocumentDismissEvent, FloatingAutoUpdateEvent, PresenceMonitorEvent, acquire_scroll_lock,
-        focus_element_by_id, focus_first_focusable, focus_mounted_handle,
-        recv_document_dismiss_event, recv_floating_auto_update_event, recv_presence_monitor_event,
-        release_scroll_lock, restore_focus_element_by_id, start_document_dismiss_monitor,
-        start_floating_auto_update_monitor, start_presence_monitor, stop_document_dismiss_monitor,
-        stop_floating_auto_update_monitor, stop_presence_monitor,
+        DocumentDismissEvent, FloatingAutoUpdateEvent, PresenceMonitorEvent,
+        WatcherGuard,
+        acquire_scroll_lock, focus_element_by_id, focus_first_focusable, focus_mounted_handle,
+        release_scroll_lock, restore_focus_element_by_id,
+        start_document_dismiss_monitor, start_floating_auto_update_monitor,
+        start_presence_monitor,
     },
     overlay::{
         FloatingPlacement, FloatingReadiness, GeometryVars, Presence, PresenceCloseCycleId,
@@ -79,7 +79,7 @@ impl PopoverContentPresenceLane {
 
 #[derive(Clone, Copy)]
 struct RetainedRootPresenceMonitorState {
-    monitor: Signal<Option<Eval>>,
+    monitor: Signal<Option<WatcherGuard>>,
     cycle_id: Signal<Option<PresenceCloseCycleId>>,
 }
 
@@ -94,9 +94,9 @@ struct PopoverRuntimeState {
     presence_lane: Signal<PopoverContentPresenceLane>,
     presence_monitor: RetainedRootPresenceMonitorState,
     position_loop_token: Signal<u64>,
-    position_monitor: Signal<Option<Eval>>,
+    position_monitor: Signal<Option<WatcherGuard>>,
     dismiss_loop_token: Signal<u64>,
-    dismiss_monitor: Signal<Option<Eval>>,
+    dismiss_monitor: Signal<Option<WatcherGuard>>,
     last_open: Signal<bool>,
     pending_open_focus: Signal<bool>,
     scroll_lock_held: Signal<bool>,
@@ -125,13 +125,13 @@ where
             PopoverContentPresenceLane::new(popover.lifecycle().presence())
         }),
         presence_monitor: RetainedRootPresenceMonitorState {
-            monitor: use_signal(|| Option::<Eval>::None),
+            monitor: use_signal(|| None),
             cycle_id: use_signal(|| None),
         },
         position_loop_token: use_signal(|| 0),
-        position_monitor: use_signal(|| Option::<Eval>::None),
+        position_monitor: use_signal(|| None),
         dismiss_loop_token: use_signal(|| 0),
-        dismiss_monitor: use_signal(|| Option::<Eval>::None),
+        dismiss_monitor: use_signal(|| None),
         last_open: use_signal(|| popover.is_open()),
         pending_open_focus: use_signal(|| popover.is_open()),
         scroll_lock_held: use_signal(|| false),
@@ -559,40 +559,15 @@ fn sync_popover_document_dismissal(
         return;
     }
 
-    let dismiss_loop_token = advance_popover_token(state.dismiss_loop_token);
+    advance_popover_token(state.dismiss_loop_token);
     let popover = popover.clone();
-    let monitor = start_document_dismiss_monitor();
-    let mut dismiss_monitor = state.dismiss_monitor;
-    dismiss_monitor.set(Some(monitor));
-
-    spawn(async move {
-        let mut monitor = monitor;
-
-        loop {
-            if *state.dismiss_loop_token.peek() != dismiss_loop_token {
-                break;
-            }
-
-            match recv_document_dismiss_event(&mut monitor).await {
-                Ok(DocumentDismissEvent::Stopped) => break,
-                Ok(event) => {
-                    if should_dismiss_popover_from_document_event(&popover, &event) {
-                        (on_open_change)(false);
-                        break;
-                    }
-                }
-                Err(error) => {
-                    if *state.dismiss_loop_token.peek() == dismiss_loop_token {
-                        eprintln!(
-                            "monoxus popover runtime could not read dismissal events for {}: {error}",
-                            popover.relationships().root_id(),
-                        );
-                    }
-                    break;
-                }
-            }
+    let watcher = start_document_dismiss_monitor(move |event| {
+        if should_dismiss_popover_from_document_event(&popover, &event) {
+            (on_open_change)(false);
         }
     });
+    let mut dismiss_monitor = state.dismiss_monitor;
+    dismiss_monitor.set(Some(watcher));
 }
 
 fn should_dismiss_popover_from_document_event(
@@ -619,7 +594,6 @@ fn should_dismiss_popover_from_document_event(
             .lifecycle()
             .dismiss_layer()
             .should_dismiss_escape(&dismiss_stack),
-        DocumentDismissEvent::Stopped => false,
     }
 }
 
@@ -714,37 +688,20 @@ fn sync_popover_positioning(popover: &Popover, state: PopoverRuntimeState) {
         return;
     }
 
-    let position_loop_token = advance_popover_token(state.position_loop_token);
-    let popover = popover.clone();
-    let monitor = start_floating_auto_update_monitor(
+    let _position_loop_token = advance_popover_token(state.position_loop_token);
+    let popover_clone = popover.clone();
+    let watcher = start_floating_auto_update_monitor(
         &[
             popover.relationships().anchor_id(),
             popover.relationships().trigger_id(),
         ],
         popover.relationships().content_id(),
-    );
-    let mut position_monitor = state.position_monitor;
-    position_monitor.set(Some(monitor));
-
-    spawn(async move {
-        let mut monitor = monitor;
-
-        if let Err(error) = measure_popover_placement(&popover, state).await {
-            eprintln!(
-                "monoxus popover runtime could not measure placement for {}: {error}",
-                popover.relationships().root_id(),
-            );
-        }
-
-        loop {
-            if *state.position_loop_token.peek() != position_loop_token {
-                break;
-            }
-
-            match recv_floating_auto_update_event(&mut monitor).await {
-                Ok(FloatingAutoUpdateEvent::Scroll) => {
+        move |event| {
+            let popover = popover_clone.clone();
+            spawn(async move {
+                if event == FloatingAutoUpdateEvent::Scroll {
                     match sync_hidden_popover_placement(&popover, state).await {
-                        Ok(true) => continue,
+                        Ok(true) => return,
                         Ok(false) => {}
                         Err(error) => {
                             eprintln!(
@@ -754,57 +711,37 @@ fn sync_popover_positioning(popover: &Popover, state: PopoverRuntimeState) {
                         }
                     }
                 }
-                Ok(FloatingAutoUpdateEvent::Update) => {}
-                Ok(FloatingAutoUpdateEvent::Stopped) => break,
-                Err(error) => {
-                    if *state.position_loop_token.peek() == position_loop_token {
-                        eprintln!(
-                            "monoxus popover runtime auto-update monitor failed for {}: {error}",
-                            popover.relationships().root_id(),
-                        );
-                    }
-                    break;
+                if let Err(error) = measure_popover_placement(&popover, state).await {
+                    eprintln!(
+                        "monoxus popover runtime could not measure placement for {}: {error}",
+                        popover.relationships().root_id(),
+                    );
                 }
-            }
+            });
+        },
+    );
+    let mut position_monitor = state.position_monitor;
+    position_monitor.set(Some(watcher));
 
-            if *state.position_loop_token.peek() != position_loop_token {
-                break;
-            }
-
-            if let Err(error) = measure_popover_placement(&popover, state).await {
-                eprintln!(
-                    "monoxus popover runtime could not measure placement for {}: {error}",
-                    popover.relationships().root_id(),
-                );
-            }
+    let popover = popover.clone();
+    spawn(async move {
+        if let Err(error) = measure_popover_placement(&popover, state).await {
+            eprintln!(
+                "monoxus popover runtime could not measure placement for {}: {error}",
+                popover.relationships().root_id(),
+            );
         }
     });
 }
 
 fn stop_popover_position_monitor(state: PopoverRuntimeState) {
-    let Some(monitor) = state.position_monitor.with_peek(|monitor| *monitor) else {
-        return;
-    };
-
     let mut position_monitor = state.position_monitor;
     position_monitor.set(None);
-
-    if let Err(error) = stop_floating_auto_update_monitor(monitor) {
-        eprintln!("monoxus popover runtime could not stop auto-update monitor: {error}");
-    }
 }
 
 fn stop_popover_dismiss_monitor(state: PopoverRuntimeState) {
-    let Some(monitor) = state.dismiss_monitor.with_peek(|monitor| *monitor) else {
-        return;
-    };
-
     let mut dismiss_monitor = state.dismiss_monitor;
     dismiss_monitor.set(None);
-
-    if let Err(error) = stop_document_dismiss_monitor(monitor) {
-        eprintln!("monoxus popover runtime could not stop dismiss monitor: {error}");
-    }
 }
 
 async fn sync_hidden_popover_placement(
@@ -982,70 +919,39 @@ fn start_popover_presence_monitor(
     stop_popover_presence_monitor(state, popover.relationships().content_id());
 
     let content_id = popover.relationships().content_id().to_owned();
-    let monitor = start_presence_monitor(content_id.as_str(), cycle_id);
-    let mut active_monitor = state.presence_monitor.monitor;
-    active_monitor.set(Some(monitor));
-    let mut active_cycle_id = state.presence_monitor.cycle_id;
-    active_cycle_id.set(Some(cycle_id));
-
-    spawn(async move {
-        let mut monitor = monitor;
-
-        loop {
-            if state
-                .presence_monitor
-                .cycle_id
-                .with_peek(|current| *current != Some(cycle_id))
-            {
-                break;
+    let watcher = start_presence_monitor(content_id.as_str(), cycle_id, move |event| {
+        match event {
+            PresenceMonitorEvent::Fallback {
+                cycle_id: event_cycle,
+                ..
             }
-
-            match recv_presence_monitor_event(&mut monitor).await {
-                Ok(
-                    PresenceMonitorEvent::Fallback {
-                        cycle_id: event_cycle,
-                        ..
-                    }
-                    | PresenceMonitorEvent::AnimationEnd {
-                        cycle_id: event_cycle,
-                        ..
-                    }
-                    | PresenceMonitorEvent::AnimationCancel {
-                        cycle_id: event_cycle,
-                        ..
-                    },
-                ) => {
-                    complete_popover_presence_close_cycle(state, event_cycle);
-                    break;
-                }
-                Ok(PresenceMonitorEvent::Stopped {
-                    cycle_id: event_cycle,
-                }) => {
-                    if state
-                        .presence_monitor
-                        .cycle_id
-                        .with_peek(|current| *current == Some(event_cycle))
-                    {
-                        clear_popover_presence_monitor_state(state);
-                    }
-                    break;
-                }
-                Err(error) => {
-                    if state
-                        .presence_monitor
-                        .cycle_id
-                        .with_peek(|current| *current == Some(cycle_id))
-                    {
-                        eprintln!(
-                            "monoxus popover runtime could not observe content presence for {content_id}: {error}",
-                        );
-                        clear_popover_presence_monitor_state(state);
-                    }
-                    break;
+            | PresenceMonitorEvent::AnimationEnd {
+                cycle_id: event_cycle,
+                ..
+            }
+            | PresenceMonitorEvent::AnimationCancel {
+                cycle_id: event_cycle,
+                ..
+            } => {
+                complete_popover_presence_close_cycle(state, event_cycle);
+            }
+            PresenceMonitorEvent::Stopped {
+                cycle_id: event_cycle,
+            } => {
+                if state
+                    .presence_monitor
+                    .cycle_id
+                    .with_peek(|current| *current == Some(event_cycle))
+                {
+                    clear_popover_presence_monitor_state(state);
                 }
             }
         }
     });
+    let mut active_monitor = state.presence_monitor.monitor;
+    active_monitor.set(Some(watcher));
+    let mut active_cycle_id = state.presence_monitor.cycle_id;
+    active_cycle_id.set(Some(cycle_id));
 }
 
 fn complete_popover_presence_close_cycle(
@@ -1061,18 +967,8 @@ fn complete_popover_presence_close_cycle(
     }
 }
 
-fn stop_popover_presence_monitor(state: PopoverRuntimeState, content_id: &str) {
-    let Some(monitor) = state.presence_monitor.monitor.with_peek(|monitor| *monitor) else {
-        return;
-    };
-
+fn stop_popover_presence_monitor(state: PopoverRuntimeState, _content_id: &str) {
     clear_popover_presence_monitor_state(state);
-
-    if let Err(error) = stop_presence_monitor(monitor) {
-        eprintln!(
-            "monoxus popover runtime could not stop content presence monitor for {content_id}: {error}",
-        );
-    }
 }
 
 fn clear_popover_presence_monitor_state(state: PopoverRuntimeState) {

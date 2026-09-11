@@ -29,13 +29,11 @@ pub fn JsBindgenPage() -> Element {
 
     // Reactive watcher via use_watcher hook
     use_watcher(move || {
-        if watcher_enabled() {
-            Some(WatchWindowResizeWatcher::start(move |metrics| {
+        watcher_enabled().then(|| {
+            watch_window_resize(move |metrics| {
                 watcher_metrics.set(Some(metrics));
-            }))
-        } else {
-            None
-        }
+            })
+        })
     });
 
     rsx! {

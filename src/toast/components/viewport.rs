@@ -1,6 +1,6 @@
 use crate::toast::attrs::ToastViewportAttrs;
 use crate::toast::components::{ToastAction, ToastClose, ToastDescription, ToastRoot, ToastTitle};
-use crate::toast::runtime::{TOAST_STORE, use_toast_runtime};
+use crate::toast::runtime::TOAST_STORE;
 use crate::toast::types::ToastPosition;
 use dioxus::prelude::*;
 
@@ -23,7 +23,12 @@ pub struct ToastViewportProps {
 /// Landmark container (<ol role="region">) mounting and structuring active notifications.
 #[component]
 pub fn ToastViewport(props: ToastViewportProps) -> Element {
-    let _runtime = use_toast_runtime();
+    let viewport_id = props
+        .id
+        .clone()
+        .unwrap_or_else(|| "monoxus-toast-viewport".to_string());
+    crate::toast::runtime::ensure_toast_watcher(&viewport_id);
+
     let store = TOAST_STORE.read();
     let is_expanded = store.expanded;
     let dir = props
@@ -33,10 +38,6 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
     let effective_position = props.position.unwrap_or(store.config.position);
     let attrs =
         ToastViewportAttrs::with_position(&store.config, is_expanded, dir, effective_position);
-    let viewport_id = props
-        .id
-        .clone()
-        .unwrap_or_else(|| "monoxus-toast-viewport".to_string());
 
     let combined_style = match (&props.style, attrs.style.is_empty()) {
         (Some(s), false) => format!("{} {}", attrs.style, s),
