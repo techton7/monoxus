@@ -87,3 +87,26 @@ fn dialog_family_supports_open_focus_suppression_without_manual_close_focus_wiri
     assert_eq!(lifecycle.focus_scope_mut().activate(), None);
     assert_eq!(lifecycle.focus_scope_mut().deactivate(), Some(trigger_id));
 }
+
+#[test]
+fn dialog_scroll_lock_policy_defaults_to_modal_exit_duration_and_supports_override() {
+    use monoxus::dialog::DEFAULT_DIALOG_RESTORE_DELAY_MS;
+
+    let policy = DialogScrollLockPolicy::enabled();
+    assert!(policy.is_enabled());
+    assert_eq!(policy.restore_delay(), Some(DEFAULT_DIALOG_RESTORE_DELAY_MS));
+    assert_eq!(policy.restore_delay(), Some(200));
+
+    let overridden = policy.with_restore_delay(Some(350));
+    assert_eq!(overridden.restore_delay(), Some(350));
+
+    let immediate = policy.with_restore_delay(None);
+    assert_eq!(immediate.restore_delay(), None);
+
+    let disabled = DialogScrollLockPolicy::disabled();
+    assert!(!disabled.is_enabled());
+    assert_eq!(disabled.restore_delay(), None);
+
+    let dialog = Dialog::new(ScopeHandle::root("dialog").child("default-scroll-lock"), false);
+    assert_eq!(dialog.lifecycle().scroll_lock_policy().restore_delay(), Some(200));
+}

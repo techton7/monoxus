@@ -100,7 +100,7 @@ pub const SELECT_PLAYGROUND_CSS: &str = r#"
     transform-origin: bottom center;
 }
 
-[role="listbox"][data-state="open"] {
+[role="listbox"][data-positioning-state="positioned"][data-state="open"] {
     animation: monoxus-select-scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
@@ -108,7 +108,7 @@ pub const SELECT_PLAYGROUND_CSS: &str = r#"
     animation: monoxus-select-scale-out 200ms ease-in forwards;
 }
 
-[role="listbox"][data-side="bottom"][data-state="open"] {
+[role="listbox"][data-positioning-state="positioned"][data-side="bottom"][data-state="open"] {
     animation: monoxus-select-enter-bottom 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
@@ -116,7 +116,7 @@ pub const SELECT_PLAYGROUND_CSS: &str = r#"
     animation: monoxus-select-exit-bottom 200ms ease-in forwards;
 }
 
-[role="listbox"][data-side="top"][data-state="open"] {
+[role="listbox"][data-positioning-state="positioned"][data-side="top"][data-state="open"] {
     animation: monoxus-select-enter-top 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 

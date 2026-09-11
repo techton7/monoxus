@@ -1,7 +1,10 @@
 use dioxus::prelude::*;
 use monoxus::{
     foundation::{
-        overlay::{FloatingLayer, FloatingPlacement, PlacementAlign, PlacementSide, PortalHost},
+        overlay::{
+            FloatingLayer, FloatingPlacement, FloatingReadiness, PlacementAlign, PlacementSide,
+            PortalHost,
+        },
         shared::ScopeHandle,
         state::DataState,
     },
@@ -60,22 +63,12 @@ const TOOLTIP_PLAYGROUND_CSS: &str = r#"
     --monoxus-tooltip-motion-y: 0px;
 }
 
-[data-playground-tooltip-content='true'][data-state='open'][data-positioning='positioned'] {
+[data-playground-tooltip-content='true'][data-state='open'][data-positioning-state='positioned'] {
     animation: monoxus-tooltip-content-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-[data-playground-tooltip-content='true'][data-state='open'][data-positioning='unpositioned'] {
-    animation: none;
-    opacity: 0;
-}
-
-[data-playground-tooltip-content='true'][data-state='closed'][data-positioning='positioned'] {
+[data-playground-tooltip-content='true'][data-state='closed'] {
     animation: monoxus-tooltip-content-out 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-[data-playground-tooltip-content='true'][data-state='closed'][data-positioning='unpositioned'] {
-    animation: none;
-    opacity: 0;
 }
 "#;
 
@@ -155,20 +148,39 @@ pub fn TooltipPlayground() -> Element {
     let second_positioning_state = second.content_positioning_state();
     let second_css_custom_properties = second.content_css_custom_properties();
 
+    let (first_wrapper_style, first_ref_hidden_str) = if first_positioning_state == "positioned" {
+        if let Some(ref p) = first_placement {
+            let w_pos_style = p.wrapper_style(FloatingReadiness::Ready, Some("20"));
+            let ref_hidden = if p.reference_hidden() { "true" } else { "false" };
+            (w_pos_style, ref_hidden)
+        } else {
+            (FloatingReadiness::wrapper_measuring_style(Some("20")), "false")
+        }
+    } else {
+        (FloatingReadiness::wrapper_measuring_style(Some("20")), "false")
+    };
+    let (second_wrapper_style, second_ref_hidden_str) = if second_positioning_state == "positioned" {
+        if let Some(ref p) = second_placement {
+            let w_pos_style = p.wrapper_style(FloatingReadiness::Ready, Some("20"));
+            let ref_hidden = if p.reference_hidden() { "true" } else { "false" };
+            (w_pos_style, ref_hidden)
+        } else {
+            (FloatingReadiness::wrapper_measuring_style(Some("20")), "false")
+        }
+    } else {
+        (FloatingReadiness::wrapper_measuring_style(Some("20")), "false")
+    };
+
     let first_content_style = tooltip_content_style(
-        first_placement.as_ref(),
         "#0f172a",
         "#ffffff",
         first_content.data_state(),
-        first_positioning_state,
         first_css_custom_properties.as_str(),
     );
     let second_content_style = tooltip_content_style(
-        second_placement.as_ref(),
         "#115e59",
         "#ffffff",
         second_content.data_state(),
-        second_positioning_state,
         second_css_custom_properties.as_str(),
     );
     let first_arrow_style = tooltip_arrow_style(first_placement.as_ref(), "#0f172a");
@@ -275,58 +287,70 @@ pub fn TooltipPlayground() -> Element {
                         }
                         if first.should_render_content() {
                             div {
-                                id: first_content.id(),
-                                role: first_content.role(),
-                                "data-state": first_content.data_state().as_str(),
-                                "data-side": first_content.data_side(),
-                                "data-align": first_content.data_align(),
-                                "data-positioning": first_positioning_state,
-                                "data-playground-tooltip-content": "true",
-                                onmounted: first.mount_content(),
-                                onmouseenter: first.content_pointer_enter(),
-                                onmouseleave: first.content_pointer_leave(),
-                                style: first_content_style.clone(),
+                                "data-monoxus-floating-content-wrapper": "",
+                                style: "{first_wrapper_style}",
+                                "data-reference-hidden": "{first_ref_hidden_str}",
+
                                 div {
-                                    id: first_arrow.id(),
-                                    "data-state": first_arrow.data_state().as_str(),
-                                    "data-side": first_arrow.data_side(),
-                                    "data-align": first_arrow.data_align(),
-                                    style: first_arrow_style,
-                                }
-                                strong { "Delayed provider open" }
-                                p {
-                                    style: "margin: 0; color: #cffafe;",
-                                    "Shared provider id: "
-                                    code { "{first_trigger.provider_id().unwrap_or(\"none\")}" }
+                                    id: first_content.id(),
+                                    role: first_content.role(),
+                                    "data-state": first_content.data_state().as_str(),
+                                    "data-side": first_content.data_side(),
+                                    "data-align": first_content.data_align(),
+                                    "data-positioning-state": first_positioning_state,
+                                    "data-playground-tooltip-content": "true",
+                                    onmounted: first.mount_content(),
+                                    onmouseenter: first.content_pointer_enter(),
+                                    onmouseleave: first.content_pointer_leave(),
+                                    style: first_content_style.clone(),
+                                    div {
+                                        id: first_arrow.id(),
+                                        "data-state": first_arrow.data_state().as_str(),
+                                        "data-side": first_arrow.data_side(),
+                                        "data-align": first_arrow.data_align(),
+                                        style: first_arrow_style,
+                                    }
+                                    strong { "Delayed provider open" }
+                                    p {
+                                        style: "margin: 0; color: #cffafe;",
+                                        "Shared provider id: "
+                                        code { "{first_trigger.provider_id().unwrap_or(\"none\")}" }
+                                    }
                                 }
                             }
                         }
                         if second.should_render_content() {
                             div {
-                                id: second_content.id(),
-                                role: second_content.role(),
-                                "data-state": second_content.data_state().as_str(),
-                                "data-side": second_content.data_side(),
-                                "data-align": second_content.data_align(),
-                                "data-positioning": second_positioning_state,
-                                "data-playground-tooltip-content": "true",
-                                onmounted: second.mount_content(),
-                                onmouseenter: second.content_pointer_enter(),
-                                onmouseleave: second.content_pointer_leave(),
-                                style: second_content_style.clone(),
+                                "data-monoxus-floating-content-wrapper": "",
+                                style: "{second_wrapper_style}",
+                                "data-reference-hidden": "{second_ref_hidden_str}",
+
                                 div {
-                                    id: second_arrow.id(),
-                                    "data-state": second_arrow.data_state().as_str(),
-                                    "data-side": second_arrow.data_side(),
-                                    "data-align": second_arrow.data_align(),
-                                    style: second_arrow_style,
-                                }
-                                strong { "Skip-delay instant handoff" }
-                                p {
-                                    style: "margin: 0; color: #ccfbf1;",
-                                    "Move from the first trigger to this one within the skip-delay window to observe grouped-provider instant open. The content stays descriptive and unfocused while rendered through "
-                                    code { "aria-describedby" }
-                                    ", and Step 4 now keeps the closing lane mounted long enough for Step 5 animate-out proof."
+                                    id: second_content.id(),
+                                    role: second_content.role(),
+                                    "data-state": second_content.data_state().as_str(),
+                                    "data-side": second_content.data_side(),
+                                    "data-align": second_content.data_align(),
+                                    "data-positioning-state": second_positioning_state,
+                                    "data-playground-tooltip-content": "true",
+                                    onmounted: second.mount_content(),
+                                    onmouseenter: second.content_pointer_enter(),
+                                    onmouseleave: second.content_pointer_leave(),
+                                    style: second_content_style.clone(),
+                                    div {
+                                        id: second_arrow.id(),
+                                        "data-state": second_arrow.data_state().as_str(),
+                                        "data-side": second_arrow.data_side(),
+                                        "data-align": second_arrow.data_align(),
+                                        style: second_arrow_style,
+                                    }
+                                    strong { "Skip-delay instant handoff" }
+                                    p {
+                                        style: "margin: 0; color: #ccfbf1;",
+                                        "Move from the first trigger to this one within the skip-delay window to observe grouped-provider instant open. The content stays descriptive and unfocused while rendered through "
+                                        code { "aria-describedby" }
+                                        ", and Step 4 now keeps the closing lane mounted long enough for Step 5 animate-out proof."
+                                    }
                                 }
                             }
                         }
@@ -338,54 +362,21 @@ pub fn TooltipPlayground() -> Element {
 }
 
 fn tooltip_content_style(
-    placement: Option<&FloatingPlacement>,
     background: &str,
     foreground: &str,
     state: &DataState,
-    positioning_state: &'static str,
     css_custom_properties: &str,
 ) -> String {
     let mut style = format!(
-        "position: fixed; width: 184px; max-width: calc(100vw - 2rem); padding: 0.7rem 0.85rem; border-radius: 0.7rem; background-color: {background}; color: {foreground}; display: grid; gap: 0.45rem; z-index: 20;"
+        "position: relative; width: 184px; max-width: calc(100vw - 2rem); padding: 0.7rem 0.85rem; border-radius: 0.7rem; background-color: {background}; color: {foreground}; display: grid; gap: 0.45rem;"
     );
 
     style.push_str(css_custom_properties);
-
-    if positioning_state == "positioned" {
-        match placement {
-            Some(placement) => {
-                let visibility = if placement.reference_hidden() {
-                    "hidden"
-                } else {
-                    "visible"
-                };
-                style.push_str(&format!(
-                    " left: {}px; top: {}px; visibility: {visibility}; pointer-events: {};",
-                    placement.geometry().x(),
-                    placement.geometry().y(),
-                    if placement.reference_hidden() {
-                        "none"
-                    } else {
-                        "auto"
-                    }
-                ));
-            }
-            None => style.push_str(
-                " left: -9999px; top: -9999px; visibility: hidden; pointer-events: none;",
-            ),
-        }
-    } else {
-        style.push_str(" left: -9999px; top: -9999px; visibility: hidden; pointer-events: none;");
-    }
-
     style.push_str(
         " transform-origin: var(--radix-tooltip-content-transform-origin, var(--monoxus-tooltip-transform-origin-x, 0px) var(--monoxus-tooltip-transform-origin-y, 0px)); will-change: opacity, transform;",
     );
-    match state {
-        DataState::Closed => {
-            style.push_str(" pointer-events: none;");
-        }
-        _ => {}
+    if let DataState::Closed = state {
+        style.push_str(" pointer-events: none;");
     }
 
     style

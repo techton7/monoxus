@@ -11,10 +11,10 @@ pub type TooltipGraceEvent = TooltipGraceEventPayload;
 
 mod dom_bridge {
     use super::TooltipGraceEventPayload;
-    dioxus_js_bindgen::bind_js!("src/tooltip/browser.ts"::*);
+    dioxus_js_interop::bind_js!("src/tooltip/browser.ts"::*);
 }
 
-pub(crate) use dioxus_js_bindgen::WatcherGuard;
+pub(crate) use dioxus_js_interop::WatcherGuard;
 
 /// Launches the browser-side Safe Polygon (Grace Area) monitor for hover transit protection.
 ///

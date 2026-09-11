@@ -19,6 +19,7 @@ pub fn PortaledSelectSection() -> Element {
     let mut force_mount_enabled = use_signal(|| false);
     let mut prevent_selection_enabled = use_signal(|| false);
     let mut use_custom_anchor = use_signal(|| false);
+    let mut prevent_scroll_enabled = use_signal(|| false);
     let outside_clicks = use_signal(|| 0);
 
     let items = vec![
@@ -58,6 +59,11 @@ pub fn PortaledSelectSection() -> Element {
                 div {
                     style: "display: flex; gap: 0.5rem; align-items: center;",
                     span { id: "outside-clicks-badge", style: BADGE_STYLE, "Outside Clicks: {outside_clicks()}" }
+                    span {
+                        id: "portal-anchor-badge",
+                        style: BADGE_STYLE,
+                        if use_custom_anchor() { "Anchor: #custom-portal-anchor" } else { "Anchor: SelectTrigger" }
+                    }
                     span { style: BADGE_STYLE, "Selected: {curr_val}" }
                     span { style: BADGE_STYLE, "State: {open_state}" }
                 }
@@ -79,7 +85,11 @@ pub fn PortaledSelectSection() -> Element {
                     id: "select-portal-status-label",
                     style: "font-size: 0.8125rem; color: #64748b; margin-bottom: 0.5rem; display: block;",
                     if is_open() {
-                        "Status: Mounted inside #select-portal-root (DOM Teleport Active)"
+                        if use_custom_anchor() {
+                            "Status: Mounted inside #select-portal-root (DOM Teleport Active) • Anchored to #custom-portal-anchor"
+                        } else {
+                            "Status: Mounted inside #select-portal-root (DOM Teleport Active) • Anchored to SelectTrigger"
+                        }
                     } else {
                         "Status: Idle (Content unmounted from host)"
                     }
@@ -105,9 +115,9 @@ pub fn PortaledSelectSection() -> Element {
                             force_mount: force_mount_enabled(),
                             SelectContent {
                                 class: "select-content-portaled".to_string(),
-                                style: "position: relative !important; top: 0.5rem !important; left: 0 !important; width: 260px !important; z-index: 50; background: white; border: 1px solid #d8b4fe; border-radius: 0.375rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); padding: 0.25rem; outline: none;",
+                                style: "z-index: 50; background: white; border: 1px solid #d8b4fe; border-radius: 0.375rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); padding: 0.25rem; outline: none;",
                                 sticky: "always".to_string(),
-                                prevent_scroll: true,
+                                prevent_scroll: prevent_scroll_enabled(),
                                 force_mount: force_mount_enabled(),
                                 prevent_overflow_text_selection: prevent_selection_enabled(),
                                 custom_anchor: if use_custom_anchor() { Some("custom-portal-anchor".to_string()) } else { None },
@@ -144,8 +154,16 @@ pub fn PortaledSelectSection() -> Element {
                     // Distinct custom anchor target for live testing
                     div {
                         id: "custom-portal-anchor",
-                        style: "margin-top: 0.75rem; padding: 0.5rem 0.75rem; border: 2px dashed #a855f7; border-radius: 0.375rem; background-color: #f3e8ff; font-size: 0.75rem; color: #6b21a8; font-weight: 600;",
-                        "Custom Anchor Target (#custom-portal-anchor)"
+                        style: if use_custom_anchor() {
+                            "margin-top: 0.75rem; padding: 0.5rem 0.75rem; border: 2px solid #9333ea; border-radius: 0.375rem; background-color: #ede9fe; font-size: 0.75rem; color: #581c87; font-weight: 700; box-shadow: 0 0 0 2px #d8b4fe; transition: all 0.2s ease;"
+                        } else {
+                            "margin-top: 0.75rem; padding: 0.5rem 0.75rem; border: 2px dashed #a855f7; border-radius: 0.375rem; background-color: #f3e8ff; font-size: 0.75rem; color: #6b21a8; font-weight: 600; transition: all 0.2s ease;"
+                        },
+                        if use_custom_anchor() {
+                            "✓ Active Anchor Target (#custom-portal-anchor) - Floating math measures this rect"
+                        } else {
+                            "Custom Anchor Target (#custom-portal-anchor) - Unchecked (measures trigger)"
+                        }
                     }
                 }
 
@@ -201,6 +219,16 @@ pub fn PortaledSelectSection() -> Element {
                             onchange: move |evt| use_custom_anchor.set(evt.value().parse().unwrap_or(false)),
                         }
                         span { "Anchor to Custom Element (#custom-portal-anchor)" }
+                    }
+                    label {
+                        style: "display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: #581c87; cursor: pointer;",
+                        input {
+                            r#type: "checkbox",
+                            id: "prevent-scroll-checkbox",
+                            checked: prevent_scroll_enabled(),
+                            onchange: move |evt| prevent_scroll_enabled.set(evt.value().parse().unwrap_or(false)),
+                        }
+                        span { "Enable Scroll Lock (prevent_scroll)" }
                     }
                 }
             }

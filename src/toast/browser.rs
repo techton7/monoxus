@@ -105,16 +105,16 @@ pub type ToastBrowserEvent = ToastEventPayload;
 
 mod dom_bridge {
     use super::{ToastBrowserOptions, ToastEventPayload};
-    dioxus_js_bindgen::bind_js!("src/toast/browser.ts"::*);
+    dioxus_js_interop::bind_js!("src/toast/browser.ts"::*);
 }
 
-pub use dioxus_js_bindgen::WatcherGuard;
+pub use dioxus_js_interop::WatcherGuard;
 
 /// Parses the typed JSON payload emitted from `src/toast/browser.ts`.
 pub fn parse_toast_browser_event(
     json: &str,
-) -> Result<ToastBrowserEvent, dioxus_js_bindgen::serde_json::Error> {
-    dioxus_js_bindgen::serde_json::from_str(json)
+) -> Result<ToastBrowserEvent, dioxus_js_interop::serde_json::Error> {
+    dioxus_js_interop::serde_json::from_str(json)
 }
 
 /// Launches the colocated browser monitor for visibility change, gestures, and landmark hotkey focus.

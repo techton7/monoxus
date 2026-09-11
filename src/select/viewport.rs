@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use super::{runtime::SelectRuntime, types::SelectItemData};
+use super::{
+    runtime::SelectRuntime,
+    types::{SelectItemData, SelectMode},
+};
 
 pub async fn sync_items_with_document_order(content_id: &str, items: &mut Vec<SelectItemData>) {
     let order = crate::select::browser::get_document_option_order(content_id).await;
@@ -21,16 +24,30 @@ pub fn apply_document_order(items: &mut Vec<SelectItemData>, order: &[String]) {
 impl SelectRuntime {
     pub fn register_item(&self, val: &str, text: &str, disabled: bool) {
         let mut items = self.state.items;
-        let mut list = items.write();
-        if let Some(existing) = list.iter_mut().find(|i| i.value == val) {
-            existing.text = text.to_owned();
-            existing.disabled = disabled;
-        } else {
-            list.push(SelectItemData {
-                value: val.to_owned(),
-                text: text.to_owned(),
-                disabled,
-            });
+        {
+            let mut list = items.write();
+            if let Some(existing) = list.iter_mut().find(|i| i.value == val) {
+                existing.text = text.to_owned();
+                existing.disabled = disabled;
+            } else {
+                list.push(SelectItemData {
+                    value: val.to_owned(),
+                    text: text.to_owned(),
+                    disabled,
+                });
+            }
+        }
+
+        if self.is_open() && !disabled {
+            let current_val = match self.select.mode() {
+                SelectMode::Single { .. } => self.value(),
+                SelectMode::Multiple => self.values().first().cloned(),
+            };
+            if current_val.as_deref() == Some(val) {
+                self.set_highlighted(Some(val.to_owned()));
+            } else if self.highlighted_value().is_none() {
+                self.set_highlighted(Some(val.to_owned()));
+            }
         }
     }
 
@@ -175,3 +192,19 @@ impl SelectRuntime {
         }
     }
 }
+
+#[component]
+pub fn SelectViewport(
+    #[props(default)] class: Option<String>,
+    #[props(default)] style: Option<String>,
+    children: Element,
+) -> Element {
+    rsx! {
+        div {
+            class: class.as_deref().unwrap_or_default(),
+            style: style.as_deref().unwrap_or("overflow-y: auto;"),
+            {children}
+        }
+    }
+}
+

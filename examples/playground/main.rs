@@ -21,8 +21,8 @@ fn main() {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ComponentPage {
-    JsBindgen,
     Select,
+    JsBindgen,
     Accordion,
     Tabs,
     Dialog,
@@ -35,8 +35,8 @@ pub enum ComponentPage {
 impl ComponentPage {
     pub fn title(&self) -> &'static str {
         match self {
-            Self::JsBindgen => "JS Bindgen",
             Self::Select => "Select",
+            Self::JsBindgen => "JS Bindgen",
             Self::Accordion => "Accordion",
             Self::Tabs => "Tabs",
             Self::Dialog => "Dialog",
@@ -49,8 +49,8 @@ impl ComponentPage {
 
     pub fn icon(&self) -> &'static str {
         match self {
-            Self::JsBindgen => "⚡",
             Self::Select => "▾",
+            Self::JsBindgen => "⚡",
             Self::Accordion => "≡",
             Self::Tabs => "◫",
             Self::Dialog => "◻",
@@ -63,8 +63,8 @@ impl ComponentPage {
 
     pub fn badge(&self) -> &'static str {
         match self {
-            Self::JsBindgen => "CQS Live Proof",
             Self::Select => "7 Scenarios",
+            Self::JsBindgen => "CQS Live Proof",
             Self::Accordion => "Interactive",
             Self::Tabs => "WAI-ARIA",
             Self::Dialog => "Modal",
@@ -77,11 +77,11 @@ impl ComponentPage {
 }
 
 fn app() -> Element {
-    let mut current_page = use_signal(|| ComponentPage::JsBindgen);
+    let mut current_page = use_signal(|| ComponentPage::Select);
 
     let pages = [
-        ComponentPage::JsBindgen,
         ComponentPage::Select,
+        ComponentPage::JsBindgen,
         ComponentPage::Accordion,
         ComponentPage::Tabs,
         ComponentPage::Dialog,
@@ -177,8 +177,8 @@ fn app() -> Element {
 
                 // Active Page Rendered in Complete Isolation
                 match current_page() {
-                    ComponentPage::JsBindgen => rsx! { JsBindgenPage {} },
                     ComponentPage::Select => rsx! { SelectPage {} },
+                    ComponentPage::JsBindgen => rsx! { JsBindgenPage {} },
                     ComponentPage::Accordion => rsx! { AccordionPage {} },
                     ComponentPage::Tabs => rsx! { TabsPage {} },
                     ComponentPage::Dialog => rsx! { DialogPage {} },

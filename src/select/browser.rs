@@ -1,5 +1,5 @@
 mod js {
-    dioxus_js_bindgen::bind_js!("src/select/browser.ts"::*);
+    dioxus_js_interop::bind_js!("src/select/browser.ts"::*);
 }
 
 pub(crate) async fn get_document_option_order(content_id: &str) -> Vec<String> {

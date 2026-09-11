@@ -538,13 +538,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "dioxus-js-bindgen"
+name = "dioxus-js-interop"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea31e1a8d9e76d723a0fd651ad0fbd7fdf1d1de70d23c2df1a3fba4fec79a0e3"
 dependencies = [
  "dioxus",
- "dioxus-js-bindgen-macro",
+ "dioxus-js-interop-macro",
  "serde",
  "serde_json",
  "thiserror 2.0.20",
@@ -552,10 +550,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "dioxus-js-bindgen-macro"
+name = "dioxus-js-interop-macro"
 version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d88a727c745f1eea86b3d2c624f6a7812d78e7e294689e155bea1c53abcd6eca"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -1292,7 +1288,7 @@ name = "monoxus"
 version = "0.1.0"
 dependencies = [
  "dioxus",
- "dioxus-js-bindgen",
+ "dioxus-js-interop",
  "futures-timer",
  "js-sys",
  "serde",

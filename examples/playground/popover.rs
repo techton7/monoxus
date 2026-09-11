@@ -1,11 +1,17 @@
 use dioxus::prelude::*;
 use monoxus::{
     foundation::{
-        overlay::{FloatingLayer, FloatingPlacement, PlacementAlign, PlacementSide, PortalHost},
+        overlay::{
+            FloatingLayer, FloatingPlacement, FloatingReadiness, PlacementAlign, PlacementSide,
+            PortalHost,
+        },
         shared::ScopeHandle,
         state::DataState,
     },
-    popover::{Popover, PopoverCloseFocusPolicy, PopoverOpenFocusPolicy, use_popover_runtime},
+    popover::{
+        use_popover_runtime, Popover, PopoverCloseFocusPolicy, PopoverOpenFocusPolicy,
+        PopoverScrollLockPolicy,
+    },
 };
 
 const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-radius: 0.75rem; border: 1px solid #d8b4fe; background-color: white; box-shadow: 0 10px 30px rgba(88, 28, 135, 0.08);";
@@ -60,39 +66,36 @@ const POPOVER_PLAYGROUND_CSS: &str = r#"
     --monoxus-popover-motion-y: 0px;
 }
 
-[data-playground-popover-content='true'][data-state='open'][data-positioning='positioned'] {
+[data-playground-popover-content='true'][data-state='open'][data-positioning-state='positioned'] {
     animation: monoxus-popover-content-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-[data-playground-popover-content='true'][data-state='open'][data-positioning='unpositioned'] {
-    animation: none;
-    opacity: 0;
-}
-
-[data-playground-popover-content='true'][data-state='closed'][data-positioning='positioned'] {
+[data-playground-popover-content='true'][data-state='closed'] {
     animation: monoxus-popover-content-out 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-[data-playground-popover-content='true'][data-state='closed'][data-positioning='unpositioned'] {
-    animation: none;
-    opacity: 0;
 }
 "#;
 
 #[component]
 pub fn PopoverPlayground() -> Element {
     let open = use_signal(|| false);
+    let mut scroll_lock_enabled = use_signal(|| false);
     let scope = ScopeHandle::root("playground").child("popover");
     let restore_focus_id = scope.qualify("restore-focus");
     let open_focus_id = scope.qualify("primary-action");
     let popover = use_popover_runtime(
         Popover::new(scope.clone(), open())
+            .with_modal(scroll_lock_enabled())
             .with_portal_host(PortalHost::inline())
             .with_floating(
                 FloatingLayer::new(PlacementSide::Bottom)
                     .with_align(PlacementAlign::Start)
                     .with_side_offset(10.0),
             )
+            .with_scroll_lock_policy(if scroll_lock_enabled() {
+                PopoverScrollLockPolicy::enabled()
+            } else {
+                PopoverScrollLockPolicy::disabled()
+            })
             .with_open_focus_policy(PopoverOpenFocusPolicy::Target(open_focus_id.clone()))
             .with_close_focus_policy(PopoverCloseFocusPolicy::Target(restore_focus_id.clone())),
         move |next_open| {
@@ -149,10 +152,19 @@ pub fn PopoverPlayground() -> Element {
             )
         })
         .unwrap_or_else(|| String::from("pending live measurement"));
+    let (wrapper_style, ref_hidden_str) = if content_positioning_state == "positioned" {
+        if let Some(ref p) = placement {
+            let w_pos_style = p.wrapper_style(FloatingReadiness::Ready, Some("20"));
+            let ref_hidden = if p.reference_hidden() { "true" } else { "false" };
+            (w_pos_style, ref_hidden)
+        } else {
+            (FloatingReadiness::wrapper_measuring_style(Some("20")), "false")
+        }
+    } else {
+        (FloatingReadiness::wrapper_measuring_style(Some("20")), "false")
+    };
     let content_style = popover_content_style(
-        placement.as_ref(),
         content.data_state(),
-        content_positioning_state,
         content_css_custom_properties.as_str(),
     );
     let arrow_style = popover_arrow_style(placement.as_ref());
@@ -213,6 +225,19 @@ pub fn PopoverPlayground() -> Element {
                         }
                     }
                     div {
+                        style: "display: flex; gap: 1rem; align-items: center; padding: 0.75rem 1rem; background-color: #faf5ff; border: 1px solid #e9d5ff; border-radius: 0.5rem;",
+                        label {
+                            style: "display: flex; align-items: center; gap: 0.5rem; font-size: 0.8125rem; color: #581c87; font-weight: 600; cursor: pointer;",
+                            input {
+                                r#type: "checkbox",
+                                id: "popover-scroll-lock-checkbox",
+                                checked: scroll_lock_enabled(),
+                                onchange: move |evt| scroll_lock_enabled.set(evt.value().parse().unwrap_or(false)),
+                            }
+                            span { "Enable Scroll Lock (prevent_scroll)" }
+                        }
+                    }
+                    div {
                         style: CANVAS_STYLE,
                         div {
                             id: anchor.id(),
@@ -249,52 +274,58 @@ pub fn PopoverPlayground() -> Element {
                         }
                         if popover.should_render_content() {
                             div {
-                                id: content.id(),
-                                role: content.role(),
-                                aria_modal: content.aria_modal(),
-                                "data-state": content.data_state().as_str(),
-                                "data-side": content.data_side(),
-                                "data-align": content.data_align(),
-                                "data-positioning": content_positioning_state,
-                                "data-playground-popover-content": "true",
-                                onmounted: popover.mount_content(),
-                                style: content_style,
+                                "data-monoxus-floating-content-wrapper": "",
+                                style: "{wrapper_style}",
+                                "data-reference-hidden": "{ref_hidden_str}",
+
                                 div {
-                                    id: arrow.id(),
-                                    "data-state": arrow.data_state().as_str(),
-                                    "data-side": arrow.data_side(),
-                                    "data-align": arrow.data_align(),
-                                    style: arrow_style,
-                                }
-                                strong { "Runtime-owned positioned content" }
-                                p {
-                                    style: MUTED_STYLE,
-                                    "Geometry vars come from the shared floating backbone: "
-                                    code { "{geometry_summary}" }
-                                }
-                                p {
-                                    style: MUTED_STYLE,
-                                    "The list above shows the configured open/close focus policies; close focus restores the external button in this harness, and close retention now keeps the measured placement stable until the primitive-owned unmount completes."
-                                }
-                                p {
-                                    style: MUTED_STYLE,
-                                    "This harness now mirrors the default non-modal reference lane, so body scroll stays available while the popover is open and outside interactions still collapse it."
-                                }
-                                button {
-                                    id: open_focus_id.clone(),
-                                    r#type: "button",
-                                    onmounted: popover.mount_focus_target(open_focus_id.clone()),
-                                    style: "justify-self: start; padding: 0.55rem 0.8rem; border-radius: 0.6rem; border: 1px solid #c084fc; background-color: #faf5ff; color: #6b21a8; cursor: pointer; font-weight: 700;",
-                                    "Open focus target"
-                                }
-                                button {
-                                    id: close.id(),
-                                    r#type: "button",
-                                    "data-state": close.data_state().as_str(),
-                                    onmounted: popover.mount_close(),
-                                    onclick: popover.close_click(),
-                                    style: "justify-self: end; padding: 0.55rem 0.8rem; border-radius: 0.6rem; border: 1px solid #c084fc; background-color: white; color: #6b21a8; cursor: pointer; font-weight: 600;",
-                                    "Close"
+                                    id: content.id(),
+                                    role: content.role(),
+                                    aria_modal: content.aria_modal(),
+                                    "data-state": content.data_state().as_str(),
+                                    "data-side": content.data_side(),
+                                    "data-align": content.data_align(),
+                                    "data-positioning-state": content_positioning_state,
+                                    "data-playground-popover-content": "true",
+                                    onmounted: popover.mount_content(),
+                                    style: "{content_style}",
+                                    div {
+                                        id: arrow.id(),
+                                        "data-state": arrow.data_state().as_str(),
+                                        "data-side": arrow.data_side(),
+                                        "data-align": arrow.data_align(),
+                                        style: arrow_style,
+                                    }
+                                    strong { "Runtime-owned positioned content" }
+                                    p {
+                                        style: MUTED_STYLE,
+                                        "Geometry vars come from the shared floating backbone: "
+                                        code { "{geometry_summary}" }
+                                    }
+                                    p {
+                                        style: MUTED_STYLE,
+                                        "The list above shows the configured open/close focus policies; close focus restores the external button in this harness, and close retention now keeps the measured placement stable until the primitive-owned unmount completes."
+                                    }
+                                    p {
+                                        style: MUTED_STYLE,
+                                        "This harness now mirrors the default non-modal reference lane, so body scroll stays available while the popover is open and outside interactions still collapse it."
+                                    }
+                                    button {
+                                        id: open_focus_id.clone(),
+                                        r#type: "button",
+                                        onmounted: popover.mount_focus_target(open_focus_id.clone()),
+                                        style: "justify-self: start; padding: 0.55rem 0.8rem; border-radius: 0.6rem; border: 1px solid #c084fc; background-color: #faf5ff; color: #6b21a8; cursor: pointer; font-weight: 700;",
+                                        "Open focus target"
+                                    }
+                                    button {
+                                        id: close.id(),
+                                        r#type: "button",
+                                        "data-state": close.data_state().as_str(),
+                                        onmounted: popover.mount_close(),
+                                        onclick: popover.close_click(),
+                                        style: "justify-self: end; padding: 0.55rem 0.8rem; border-radius: 0.6rem; border: 1px solid #c084fc; background-color: white; color: #6b21a8; cursor: pointer; font-weight: 600;",
+                                        "Close"
+                                    }
                                 }
                             }
                         } else {
@@ -331,52 +362,19 @@ fn outside_behavior_label(dismisses: bool) -> &'static str {
 }
 
 fn popover_content_style(
-    placement: Option<&FloatingPlacement>,
     state: &DataState,
-    positioning_state: &str,
     css_custom_properties: &str,
 ) -> String {
     let mut style = String::from(
-        "position: fixed; width: 250px; max-width: calc(100vw - 2rem); padding: 1rem; border-radius: 0.85rem; border: 1px solid #c084fc; background-color: white; box-shadow: 0 18px 40px rgba(88, 28, 135, 0.18); display: grid; gap: 0.75rem; z-index: 20;",
+        "position: relative; width: 250px; max-width: calc(100vw - 2rem); padding: 1rem; border-radius: 0.85rem; border: 1px solid #c084fc; background-color: white; box-shadow: 0 18px 40px rgba(88, 28, 135, 0.18); display: grid; gap: 0.75rem;",
     );
 
     style.push_str(css_custom_properties);
-
-    if positioning_state == "positioned" {
-        match placement {
-            Some(placement) => {
-                let visibility = if placement.reference_hidden() {
-                    "hidden"
-                } else {
-                    "visible"
-                };
-                style.push_str(&format!(
-                    " left: {}px; top: {}px; visibility: {visibility}; pointer-events: {};",
-                    placement.geometry().x(),
-                    placement.geometry().y(),
-                    if placement.reference_hidden() {
-                        "none"
-                    } else {
-                        "auto"
-                    }
-                ));
-            }
-            None => style.push_str(
-                " left: -9999px; top: -9999px; visibility: hidden; pointer-events: none;",
-            ),
-        }
-    } else {
-        style.push_str(" left: -9999px; top: -9999px; visibility: hidden; pointer-events: none;");
-    }
-
     style.push_str(
         " transform-origin: var(--radix-popover-content-transform-origin, var(--monoxus-popover-transform-origin-x, 0px) var(--monoxus-popover-transform-origin-y, 0px)); will-change: opacity, transform;",
     );
-    match state {
-        DataState::Closed => {
-            style.push_str(" pointer-events: none;");
-        }
-        _ => {}
+    if let DataState::Closed = state {
+        style.push_str(" pointer-events: none;");
     }
 
     style

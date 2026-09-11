@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::{compose::MountedHandle, overlay::PresenceCloseCycleId};
 
+#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum DocumentDismissEventPayload {
@@ -50,6 +51,7 @@ pub enum PresenceEventPayload {
     },
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FormResetEventPayload {
@@ -70,10 +72,10 @@ mod dom_bridge {
         DocumentDismissEventPayload, FloatingAutoUpdatePayload, FormResetEventPayload,
         PresenceEventPayload,
     };
-    dioxus_js_bindgen::bind_js!("src/foundation/browser/dom.ts"::*);
+    dioxus_js_interop::bind_js!("src/foundation/browser/dom.ts"::*);
 }
 
-pub use dioxus_js_bindgen::WatcherGuard;
+pub use dioxus_js_interop::WatcherGuard;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PresenceMonitorEvent {
@@ -138,9 +140,13 @@ pub(crate) fn start_floating_auto_update_monitor(
     content_id: &str,
     mut on_event: impl FnMut(FloatingAutoUpdateEvent) + 'static,
 ) -> WatcherGuard {
-    dom_bridge::watch_floating_auto_update(anchor_ids, content_id, move |payload: FloatingAutoUpdatePayload| {
-        on_event(payload);
-    })
+    dom_bridge::watch_floating_auto_update(
+        anchor_ids,
+        content_id,
+        move |payload: FloatingAutoUpdatePayload| {
+            on_event(payload);
+        },
+    )
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -150,10 +156,18 @@ pub(crate) enum DocumentDismissEvent {
     Escape,
 }
 
+#[allow(dead_code)]
 pub(crate) fn start_document_dismiss_monitor(
+    on_event: impl FnMut(DocumentDismissEvent) + 'static,
+) -> WatcherGuard {
+    start_document_dismiss_monitor_with_boundaries(&[], on_event)
+}
+
+pub(crate) fn start_document_dismiss_monitor_with_boundaries(
+    boundaries: &[&str],
     mut on_event: impl FnMut(DocumentDismissEvent) + 'static,
 ) -> WatcherGuard {
-    dom_bridge::watch_document_dismiss(move |payload: DocumentDismissEventPayload| {
+    dom_bridge::watch_document_dismiss(boundaries, move |payload: DocumentDismissEventPayload| {
         let event = match payload {
             DocumentDismissEventPayload::PointerDown { path_ids } => {
                 DocumentDismissEvent::PointerDown { path_ids }
@@ -181,16 +195,23 @@ pub(crate) fn focus_mounted_handle(handle: Option<MountedHandle>) -> bool {
 }
 
 pub(crate) async fn get_viewport_size() -> Result<[f64; 2], String> {
-    dom_bridge::get_viewport_size().await.map_err(|e| e.to_string())
+    let vp = dioxus_js_interop::runtime::get_viewport()
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok([vp.width, vp.height])
 }
 
 pub(crate) async fn active_element_matches_id(target_id: &str) -> bool {
-    dom_bridge::is_element_active(target_id).await.unwrap_or(false)
+    dom_bridge::is_element_active(target_id)
+        .await
+        .unwrap_or(false)
 }
 
 pub(crate) async fn is_reference_hidden(anchor_ids: &[&str]) -> Result<bool, String> {
-    let res = dom_bridge::is_reference_hidden(anchor_ids).await.map_err(|e| e.to_string())?;
-    Ok(res.unwrap_or(false))
+    let res = dom_bridge::is_reference_hidden(anchor_ids)
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(res)
 }
 
 pub(crate) fn focus_element_by_id(target_id: &str) {
@@ -232,7 +253,7 @@ pub(crate) fn restore_body_user_select() {
 }
 
 pub(crate) fn teleport_element_to_host(element_id: &str, host_id: Option<&str>) {
-    dom_bridge::teleport_element_to_host(element_id, host_id);
+    dom_bridge::teleport_element_to_host(element_id, host_id.unwrap_or(""));
 }
 
 pub(crate) fn remove_element_by_id(element_id: &str) {
@@ -245,10 +266,29 @@ pub(crate) async fn measure_floating_placement(
     custom_anchor_id: Option<&str>,
     boundary_id: Option<&str>,
 ) -> Option<[f64; 10]> {
-    dom_bridge::measure_floating_placement(anchor_id, content_id, custom_anchor_id, boundary_id)
+    let effective_anchor = custom_anchor_id.unwrap_or(anchor_id);
+    let tr = dioxus_js_interop::runtime::measure_rect(effective_anchor)
         .await
         .ok()
-        .flatten()
+        .flatten()?;
+    let cr = dioxus_js_interop::runtime::measure_rect(content_id)
+        .await
+        .ok()
+        .flatten()?;
+    let (b_left, b_top, b_right, b_bottom) = if let Some(bid) = boundary_id {
+        if let Ok(Some(br)) = dioxus_js_interop::runtime::measure_rect(bid).await {
+            (br.left, br.top, br.right, br.bottom)
+        } else {
+            let vp = dioxus_js_interop::runtime::get_viewport().await.ok()?;
+            (0.0, 0.0, vp.width, vp.height)
+        }
+    } else {
+        let vp = dioxus_js_interop::runtime::get_viewport().await.ok()?;
+        (0.0, 0.0, vp.width, vp.height)
+    };
+    Some([
+        tr.left, tr.top, tr.width, tr.height, cr.width, cr.height, b_left, b_top, b_right, b_bottom,
+    ])
 }
 
 pub(crate) fn start_form_reset_monitor(
@@ -257,9 +297,13 @@ pub(crate) fn start_form_reset_monitor(
     on_reset: impl FnMut() + 'static,
 ) -> WatcherGuard {
     let mut on_reset = on_reset;
-    dom_bridge::watch_form_reset(element_id, form_id, move |_sig: FormResetEventPayload| {
-        on_reset();
-    })
+    dom_bridge::watch_form_reset(
+        element_id,
+        form_id.unwrap_or(""),
+        move |_sig: FormResetEventPayload| {
+            on_reset();
+        },
+    )
 }
 
 #[cfg(test)]

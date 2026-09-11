@@ -11,8 +11,9 @@ use crate::foundation::{
         start_form_reset_monitor, start_presence_monitor,
     },
     overlay::{
-        FloatingLayer, PlacementAlign, PlacementSide, Presence, PresenceCloseCycleId,
-        PresenceController, PresenceControllerUpdate, PresenceState, Rect, Size,
+        FloatingLayer, FloatingPlacement, FloatingReadiness, GeometryVars, PlacementAlign,
+        PlacementSide, Presence, PresenceCloseCycleId, PresenceController,
+        PresenceControllerUpdate, PresenceState, Rect, Size,
     },
     state::DataState,
 };
@@ -27,103 +28,16 @@ use super::{
     types::{SelectItemData, SelectMode},
 };
 
-#[derive(Clone, Copy, Debug)]
-struct SyntheticEscapeKey;
-
-impl dioxus::html::ModifiersInteraction for SyntheticEscapeKey {
-    fn modifiers(&self) -> keyboard_types::Modifiers {
-        keyboard_types::Modifiers::empty()
-    }
-}
-
-impl dioxus::events::HasKeyboardData for SyntheticEscapeKey {
-    fn key(&self) -> Key {
-        Key::Escape
-    }
-    fn code(&self) -> keyboard_types::Code {
-        keyboard_types::Code::Escape
-    }
-    fn location(&self) -> keyboard_types::Location {
-        keyboard_types::Location::Standard
-    }
-    fn is_auto_repeating(&self) -> bool {
-        false
-    }
-    fn is_composing(&self) -> bool {
-        false
-    }
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct PointerDownOutsideEvent {
-    prevented: std::rc::Rc<std::cell::Cell<bool>>,
-}
-
-impl PointerDownOutsideEvent {
-    pub fn new() -> Self {
-        Self {
-            prevented: std::rc::Rc::new(std::cell::Cell::new(false)),
-        }
-    }
-
-    pub fn prevent_default(&self) {
-        self.prevented.set(true);
-    }
-
-    pub fn default_action_enabled(&self) -> bool {
-        !self.prevented.get()
-    }
-}
-
-impl Default for PointerDownOutsideEvent {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+pub use super::monitors::PointerDownOutsideEvent;
+pub(crate) use super::presence::{
+    stop_select_presence_monitor, sync_select_presence, RetainedRootPresenceMonitorState,
+    SelectContentPresenceLane,
+};
 
 pub type SelectValueChangeHandler = Rc<dyn Fn(Option<String>)>;
 pub type SelectValuesChangeHandler = Rc<dyn Fn(Vec<String>)>;
 pub type SelectOpenChangeHandler = Rc<dyn Fn(bool)>;
 pub type SelectOpenChangeCompleteHandler = Rc<dyn Fn(bool)>;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct SelectContentPresenceLane {
-    pub(crate) content: PresenceController,
-}
-
-impl SelectContentPresenceLane {
-    pub fn new(presence: &Presence) -> Self {
-        Self {
-            content: PresenceController::new(presence.desired_present())
-                .with_retained_mount(presence.retain_mount()),
-        }
-    }
-
-    pub fn sync(&mut self, desired_present: bool) -> PresenceControllerUpdate {
-        self.content.sync(desired_present)
-    }
-
-    pub const fn should_render_portal(&self) -> bool {
-        self.should_render_content()
-    }
-
-    pub const fn should_render_content(&self) -> bool {
-        self.content.should_render()
-    }
-
-    pub fn complete_close_cycle(&mut self, cycle_id: PresenceCloseCycleId) -> bool {
-        self.content.complete_close_cycle(cycle_id)
-    }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub struct RetainedRootPresenceMonitorState {
-    pub monitor: Signal<Option<WatcherGuard>>,
-    pub cycle_id: Signal<Option<PresenceCloseCycleId>>,
-}
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct SelectRuntimeState {
@@ -164,6 +78,8 @@ pub struct SelectRuntimeState {
     pub form_reset_monitor: Signal<Option<WatcherGuard>>,
     pub presence_lane: Signal<SelectContentPresenceLane>,
     pub presence_monitor: RetainedRootPresenceMonitorState,
+    pub placement: Signal<Option<FloatingPlacement>>,
+    pub content_readiness: Signal<FloatingReadiness>,
 }
 
 #[derive(Clone)]
@@ -269,6 +185,8 @@ where
             monitor: use_signal(|| None),
             cycle_id: use_signal(|| None),
         },
+        placement: use_signal(|| None),
+        content_readiness: use_signal(FloatingReadiness::default),
     };
 
     let cleanup_state = state;
@@ -678,6 +596,11 @@ impl SelectRuntime {
         self.stop_dismiss_monitor();
         self.stop_position_monitor();
 
+        let mut placement_sig = self.state.placement;
+        placement_sig.set(None);
+        let mut readiness_sig = self.state.content_readiness;
+        readiness_sig.set(FloatingReadiness::Measuring);
+
         if restore_focus {
             self.trigger_close_auto_focus();
         } else if let Some(cb) = self.state.on_close_auto_focus.read().clone() {
@@ -788,284 +711,75 @@ impl SelectRuntime {
         }
     }
 
-    pub fn start_dismiss_monitor(&self) {
-        self.stop_dismiss_monitor();
-
-        let runtime = self.clone();
-        let trigger_id = self.relationships().trigger_id().to_owned();
-        let content_id = self.relationships().content_id().to_owned();
-
-        let watcher = start_document_dismiss_monitor(move |event| {
-            match event {
-                DocumentDismissEvent::Escape => {
-                    if let Some(cb) = runtime.state.on_escape_keydown.read().clone() {
-                        let synth = SyntheticEscapeKey;
-                        let kb_data = dioxus::html::KeyboardData::new(synth);
-                        let evt = dioxus::core::Event::new(std::rc::Rc::new(kb_data), true);
-                        cb.call(evt.clone());
-                        if !evt.default_action_enabled() {
-                            return;
-                        }
-                    }
-                    if runtime.is_escape_prevented() {
-                        runtime.set_escape_prevented(false);
-                        return;
-                    }
-                    runtime.close_dropdown();
-                }
-                DocumentDismissEvent::PointerDown { path_ids } => {
-                    let is_inside = path_ids
-                        .iter()
-                        .any(|id| id == &trigger_id || id == &content_id);
-                    if !is_inside {
-                        let should_close = runtime.trigger_pointer_down_outside();
-                        if !should_close {
-                            return;
-                        }
-                        runtime.close_dropdown_without_restore();
-                    }
-                }
-                DocumentDismissEvent::FocusIn { path_ids } => {
-                    let is_inside = path_ids
-                        .iter()
-                        .any(|id| id == &trigger_id || id == &content_id);
-                    if !is_inside {
-                        runtime.close_dropdown_without_restore();
-                    }
-                }
-            }
-        });
-
-        let mut dm_sig = self.state.dismiss_monitor;
-        dm_sig.set(Some(watcher));
+    pub fn placement(&self) -> Option<FloatingPlacement> {
+        self.state.placement.read().clone()
     }
 
-    pub fn stop_dismiss_monitor(&self) {
-        let mut dm_sig = self.state.dismiss_monitor;
-        dm_sig.set(None);
+    pub fn content_readiness(&self) -> FloatingReadiness {
+        *self.state.content_readiness.read()
     }
 
-    pub fn start_position_monitor(&self) {
-        self.stop_position_monitor();
-
-        let trigger_id = self.relationships().trigger_id().to_owned();
-        let content_id = self.relationships().content_id().to_owned();
-
-        let runtime = self.clone();
-        let watcher = start_floating_auto_update_monitor(
-            &[&trigger_id],
-            &content_id,
-            move |_event| {
-                let runtime = runtime.clone();
-                spawn(async move {
-                    runtime.recalculate_floating_position().await;
-                });
-            },
-        );
-
-        let mut monitor_sig = self.state.position_monitor;
-        monitor_sig.set(Some(watcher));
-
-        let runtime = self.clone();
-        spawn(async move {
-            runtime.recalculate_floating_position().await;
-        });
+    pub fn content_positioning_state(&self) -> &'static str {
+        self.content_readiness().positioning_state()
     }
 
-    pub fn stop_position_monitor(&self) {
-        let mut pm_sig = self.state.position_monitor;
-        pm_sig.set(None);
+    pub fn content_css_variables(&self) -> Vec<(String, String)> {
+        self.placement()
+            .map(|placement| select_content_css_variables(placement.geometry()))
+            .unwrap_or_default()
     }
 
-    pub async fn recalculate_floating_position(&self) {
-        let trigger_id = self.relationships().trigger_id();
-        let content_id = self.relationships().content_id();
-        let boundary_id = self.collision_boundary();
-        let custom_anchor_id = self.custom_anchor();
-
-        if let Some(arr) = crate::foundation::browser::measure_floating_placement(
-            trigger_id,
-            content_id,
-            custom_anchor_id.as_deref(),
-            boundary_id.as_deref(),
-        )
-        .await
-        {
-            let t_x = arr[0] as f32;
-            let t_y = arr[1] as f32;
-            let t_w = arr[2] as f32;
-            let t_h = arr[3] as f32;
-            let c_w = arr[4] as f32;
-            let c_h = arr[5] as f32;
-            let padding = self.collision_padding();
-            let b_left = arr[6] as f32 + padding;
-            let b_top = arr[7] as f32 + padding;
-            let b_right = (arr[8] as f32 - padding).max(b_left);
-            let b_bottom = (arr[9] as f32 - padding).max(b_top);
-
-            let anchor_rect = Rect::new(t_x - b_left, t_y - b_top, t_w, t_h);
-            let content_size = Size::new(c_w, c_h);
-            let available_size = Size::new(b_right - b_left, b_bottom - b_top);
-
-            let preferred_side = self.preferred_side();
-            let preferred_align = self.preferred_align();
-            let avoid_collisions = self.avoid_collisions();
-            let hide_when_detached = self.hide_when_detached();
-            let side_offset = self.side_offset();
-            let align_offset = self.align_offset();
-
-            let layer = FloatingLayer::new(preferred_side)
-                .with_align(preferred_align)
-                .with_side_offset(side_offset)
-                .with_align_offset(align_offset)
-                .with_hide_when_detached(hide_when_detached);
-
-            let computed =
-                layer.position_with_available_size(anchor_rect, content_size, available_size);
-
-            if avoid_collisions {
-                let mut side_sig = self.state.side;
-                if *side_sig.peek() != computed.side() {
-                    side_sig.set(computed.side());
-                }
-                let mut align_sig = self.state.align;
-                if *align_sig.peek() != computed.align() {
-                    align_sig.set(computed.align());
-                }
-            } else {
-                let mut side_sig = self.state.side;
-                if *side_sig.peek() != preferred_side {
-                    side_sig.set(preferred_side);
-                }
-                let mut align_sig = self.state.align;
-                if *align_sig.peek() != preferred_align {
-                    align_sig.set(preferred_align);
-                }
-            }
-            let is_sticky_always = self.sticky().as_deref() == Some("always");
-            let ref_hidden = if is_sticky_always {
-                false
-            } else {
-                computed.reference_hidden()
-            };
-            self.set_reference_hidden(ref_hidden);
-        }
-    }
-
-    pub fn start_form_reset_monitor(&self) {
-        self.stop_form_reset_monitor();
-
-        let trigger_id = self.relationships().trigger_id().to_owned();
-        let form_id = self.select.form().map(str::to_owned);
-
-        let runtime = self.clone();
-        let watcher = start_form_reset_monitor(&trigger_id, form_id.as_deref(), move || {
-            runtime.handle_form_reset();
-        });
-        let mut frm_sig = self.state.form_reset_monitor;
-        frm_sig.set(Some(watcher));
-    }
-
-    pub fn stop_form_reset_monitor(&self) {
-        let mut frm_sig = self.state.form_reset_monitor;
-        frm_sig.set(None);
-    }
-
-    pub fn handle_form_reset(&self) {
-        match self.select.mode() {
-            SelectMode::Single { .. } => {
-                let default_val = self.default_value();
-                let mut val_sig = self.state.value;
-                val_sig.set(default_val.clone());
-                if let Some(ref cb) = self.on_value_change {
-                    cb(default_val);
-                }
-            }
-            SelectMode::Multiple => {
-                let default_vals = self.default_values();
-                let mut vals_sig = self.state.values;
-                vals_sig.set(default_vals.clone());
-                if let Some(ref cb) = self.on_values_change {
-                    cb(default_vals);
-                }
-            }
-        }
+    pub fn content_css_custom_properties(&self) -> String {
+        serialize_css_custom_properties(&self.content_css_variables())
     }
 }
 
-fn sync_select_presence(content_id: &str, mut state: SelectRuntimeState, open: bool) {
-    let update = state
-        .presence_lane
-        .with_mut(|lane| lane.sync(open));
+pub const SELECT_RADIX_COMPATIBILITY_PREFIX: &str = "radix-select";
+pub const SELECT_RADIX_ANCHOR_LABEL: &str = "trigger";
 
-    if update.invalidated_close_cycle().is_some() || !update.should_render() {
-        stop_select_presence_monitor(state, content_id);
+pub fn select_content_css_variables(geometry: &GeometryVars) -> Vec<(String, String)> {
+    let mut vars: Vec<(String, String)> = geometry
+        .css_iter()
+        .chain(geometry.compatibility_alias_iter(
+            SELECT_RADIX_COMPATIBILITY_PREFIX,
+            SELECT_RADIX_ANCHOR_LABEL,
+        ))
+        .collect();
+
+    vars.push((
+        "--bits-select-anchor-width".to_string(),
+        format!("{}px", geometry.anchor_width()),
+    ));
+    vars.push((
+        "--bits-select-anchor-height".to_string(),
+        format!("{}px", geometry.anchor_height()),
+    ));
+    vars.push((
+        "--bits-select-content-available-width".to_string(),
+        format!("{}px", geometry.available_width()),
+    ));
+    vars.push((
+        "--bits-select-content-available-height".to_string(),
+        format!("{}px", geometry.available_height()),
+    ));
+    vars.push((
+        "--bits-select-content-transform-origin".to_string(),
+        geometry.transform_origin_css_value(),
+    ));
+
+    vars
+}
+
+pub fn serialize_css_custom_properties(entries: &[(String, String)]) -> String {
+    let mut style = String::new();
+    for (name, value) in entries {
+        style.push(' ');
+        style.push_str(name);
+        style.push_str(": ");
+        style.push_str(value);
+        style.push(';');
     }
-
-    if let Some(cycle_id) = update.started_close_cycle() {
-        start_select_presence_monitor(content_id, state, cycle_id);
-    }
+    style
 }
 
-fn start_select_presence_monitor(
-    content_id: &str,
-    state: SelectRuntimeState,
-    cycle_id: PresenceCloseCycleId,
-) {
-    stop_select_presence_monitor(state, content_id);
 
-    let watcher = start_presence_monitor(content_id, cycle_id, move |event| {
-        match event {
-            PresenceMonitorEvent::Fallback {
-                cycle_id: event_cycle,
-                ..
-            }
-            | PresenceMonitorEvent::AnimationEnd {
-                cycle_id: event_cycle,
-                ..
-            }
-            | PresenceMonitorEvent::AnimationCancel {
-                cycle_id: event_cycle,
-                ..
-            } => {
-                complete_select_presence_close_cycle(state, event_cycle);
-            }
-            PresenceMonitorEvent::Stopped {
-                cycle_id: event_cycle,
-            } => {
-                if state
-                    .presence_monitor
-                    .cycle_id
-                    .with_peek(|current| *current == Some(event_cycle))
-                {
-                    clear_select_presence_monitor_state(state);
-                }
-            }
-        }
-    });
-    let mut active_monitor = state.presence_monitor.monitor;
-    active_monitor.set(Some(watcher));
-    let mut active_cycle_id = state.presence_monitor.cycle_id;
-    active_cycle_id.set(Some(cycle_id));
-}
-
-fn stop_select_presence_monitor(state: SelectRuntimeState, _content_id: &str) {
-    clear_select_presence_monitor_state(state);
-}
-
-fn clear_select_presence_monitor_state(state: SelectRuntimeState) {
-    let mut active_monitor = state.presence_monitor.monitor;
-    active_monitor.set(None);
-    let mut active_cycle_id = state.presence_monitor.cycle_id;
-    active_cycle_id.set(None);
-}
-
-fn complete_select_presence_close_cycle(
-    mut state: SelectRuntimeState,
-    cycle_id: PresenceCloseCycleId,
-) {
-    clear_select_presence_monitor_state(state);
-    let _ = state
-        .presence_lane
-        .with_mut(|lane| lane.complete_close_cycle(cycle_id));
-}

@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use dioxus_js_bindgen::{bind_js, reset_module_registry, use_watcher};
+use dioxus_js_interop::{bind_js, reset_module_registry, use_watcher};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -175,6 +175,14 @@ fn floating_readiness_exposes_measurement_and_positioning_labels() {
         FloatingReadiness::from_is_positioned(false),
         FloatingReadiness::Measuring,
     );
+
+    let unpositioned = FloatingReadiness::unpositioned_style();
+    assert!(unpositioned.contains("left: -9999px"));
+    assert!(unpositioned.contains("visibility: hidden"));
+    assert!(unpositioned.contains("pointer-events: none"));
+
+    assert_eq!(measuring.position_style(None), unpositioned);
+    assert_eq!(ready.position_style(None), unpositioned);
 }
 
 #[test]

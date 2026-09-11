@@ -157,3 +157,80 @@ fn select_content_center_alignment_uses_translate_not_conflicting_transform() {
     assert!(align_placement_style.contains("translate: -50% 0"));
     assert!(!align_placement_style.contains("transform: translateX"));
 }
+
+#[test]
+fn select_content_css_variables_and_bits_parity_contract() {
+    use monoxus::select::runtime::select_content_css_variables;
+
+    let layer = FloatingLayer::new(PlacementSide::Bottom)
+        .with_align(PlacementAlign::Start)
+        .with_side_offset(4.0);
+
+    let anchor = Rect::new(100.0, 200.0, 260.0, 40.0);
+    let content = Size::new(260.0, 150.0);
+    let viewport = Size::new(1024.0, 768.0);
+
+    let placement = layer.position_with_available_size(anchor, content, viewport);
+    let geom = placement.geometry();
+
+    assert_eq!(geom.anchor_width(), 260.0);
+    assert_eq!(geom.anchor_height(), 40.0);
+
+    let vars = select_content_css_variables(geom);
+    let var_map: std::collections::HashMap<String, String> = vars.into_iter().collect();
+
+    // Bits UI measured pixel variables
+    assert_eq!(
+        var_map.get("--bits-select-anchor-width"),
+        Some(&"260px".to_string())
+    );
+    assert_eq!(
+        var_map.get("--bits-select-anchor-height"),
+        Some(&"40px".to_string())
+    );
+    assert!(var_map.contains_key("--bits-select-content-available-width"));
+    assert!(var_map.contains_key("--bits-select-content-available-height"));
+    assert!(var_map.contains_key("--bits-select-content-transform-origin"));
+
+    // Radix compatibility aliases
+    assert_eq!(
+        var_map.get("--radix-select-trigger-width"),
+        Some(&"260px".to_string())
+    );
+    assert_eq!(
+        var_map.get("--radix-select-trigger-height"),
+        Some(&"40px".to_string())
+    );
+}
+
+#[test]
+fn select_floating_readiness_and_measuring_contract() {
+    use monoxus::foundation::overlay::FloatingReadiness;
+
+    let measuring = FloatingReadiness::default();
+    assert_eq!(measuring, FloatingReadiness::Measuring);
+    assert_eq!(measuring.positioning_state(), "unpositioned");
+    assert!(!measuring.is_positioned());
+
+    let ready = FloatingReadiness::Ready;
+    assert_eq!(ready.positioning_state(), "positioned");
+    assert!(ready.is_positioned());
+}
+
+#[test]
+fn select_floating_arrow_coordinates_contract() {
+    let layer = FloatingLayer::new(PlacementSide::Bottom)
+        .with_align(PlacementAlign::Center)
+        .with_side_offset(4.0);
+
+    let anchor = Rect::new(100.0, 200.0, 200.0, 40.0);
+    let content = Size::new(200.0, 150.0);
+    let viewport = Size::new(1024.0, 768.0);
+
+    let placement = layer.position_with_available_size(anchor, content, viewport);
+    let arrow = placement.arrow();
+
+    assert!(!arrow.hidden());
+    assert!(arrow.x().is_some());
+}
+

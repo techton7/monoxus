@@ -97,6 +97,16 @@ pub enum DialogCloseFocusPolicy {
     None,
 }
 
+/// Default restore delay in milliseconds when closing a modal dialog with scroll lock enabled.
+///
+/// This duration (200ms) matches the default modal exit transition
+/// (`monoxus-dialog-fade-out 200ms ease-in forwards`), ensuring the scrollbar
+/// does not reappear during the fade-out animation. Premature scrollbar restoration
+/// causes a visible horizontal layout jerk as the viewport width shrinks by the scrollbar width.
+///
+/// For custom exit animation durations, override via [`DialogScrollLockPolicy::with_restore_delay`].
+pub const DEFAULT_DIALOG_RESTORE_DELAY_MS: u64 = 200;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DialogScrollLockPolicy {
     enabled: bool,
@@ -107,7 +117,11 @@ impl DialogScrollLockPolicy {
     pub const fn new(enabled: bool) -> Self {
         Self {
             enabled,
-            restore_delay: None,
+            restore_delay: if enabled {
+                Some(DEFAULT_DIALOG_RESTORE_DELAY_MS)
+            } else {
+                None
+            },
         }
     }
 
@@ -116,7 +130,10 @@ impl DialogScrollLockPolicy {
     }
 
     pub const fn disabled() -> Self {
-        Self::new(false)
+        Self {
+            enabled: false,
+            restore_delay: None,
+        }
     }
 
     pub const fn with_restore_delay(mut self, restore_delay: Option<u64>) -> Self {

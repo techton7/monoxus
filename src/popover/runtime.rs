@@ -14,7 +14,8 @@ use crate::foundation::{
         WatcherGuard,
         acquire_scroll_lock, focus_element_by_id, focus_first_focusable, focus_mounted_handle,
         release_scroll_lock, restore_focus_element_by_id,
-        start_document_dismiss_monitor, start_floating_auto_update_monitor,
+        start_document_dismiss_monitor_with_boundaries,
+        start_floating_auto_update_monitor,
         start_presence_monitor,
     },
     overlay::{
@@ -561,8 +562,17 @@ fn sync_popover_document_dismissal(
 
     advance_popover_token(state.dismiss_loop_token);
     let popover = popover.clone();
-    let watcher = start_document_dismiss_monitor(move |event| {
-        if should_dismiss_popover_from_document_event(&popover, &event) {
+    let trigger_id = popover.relationships().trigger_id().to_owned();
+    let content_id = popover.relationships().content_id().to_owned();
+    let anchor_id = popover.relationships().anchor_id().to_owned();
+    let boundaries = [
+        trigger_id.as_str(),
+        content_id.as_str(),
+        anchor_id.as_str(),
+    ];
+    let watcher = start_document_dismiss_monitor_with_boundaries(&boundaries, move |event| {
+        let should_dismiss = should_dismiss_popover_from_document_event(&popover, &event);
+        if should_dismiss {
             (on_open_change)(false);
         }
     });

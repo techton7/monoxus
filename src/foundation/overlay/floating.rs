@@ -153,6 +153,32 @@ impl FloatingReadiness {
     pub const fn is_positioned(&self) -> bool {
         matches!(self, Self::Ready)
     }
+
+    /// Standard unpositioned CSS style hiding the element offscreen during initial measurement.
+    pub const fn unpositioned_style() -> &'static str {
+        "position: fixed; left: -9999px; top: -9999px; visibility: hidden; pointer-events: none;"
+    }
+
+    /// Returns standard position style given readiness and placement.
+    pub fn position_style(&self, placement: Option<&FloatingPlacement>) -> String {
+        match (self, placement) {
+            (Self::Ready, Some(p)) => {
+                let geom = p.geometry();
+                format!(
+                    "position: fixed; left: {}px; top: {}px; visibility: visible; pointer-events: auto;",
+                    geom.x(),
+                    geom.y()
+                )
+            }
+            _ => Self::unpositioned_style().to_string(),
+        }
+    }
+
+    /// Canonical outer wrapper style during measurement before coordinates are locked.
+    pub fn wrapper_measuring_style(z_index: Option<&str>) -> String {
+        let z = z_index.map(|v| format!(" z-index: {v};")).unwrap_or_default();
+        format!("{} min-width: max-content;{}", Self::unpositioned_style(), z)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -242,6 +268,18 @@ impl FloatingPlacement {
         self.reference_hidden = true;
         self.arrow = FloatingArrowPosition::new(None, None, true);
         self
+    }
+
+    /// Canonical outer wrapper style combining positioned/measuring style, min-width, z-index, and reference_hidden.
+    pub fn wrapper_style(&self, readiness: FloatingReadiness, z_index: Option<&str>) -> String {
+        let z = z_index.map(|v| format!(" z-index: {v};")).unwrap_or_default();
+        let base = readiness.position_style(Some(self));
+        let ref_hidden = if self.reference_hidden() {
+            " visibility: hidden; pointer-events: none;"
+        } else {
+            ""
+        };
+        format!("{base} min-width: max-content;{z}{ref_hidden}")
     }
 }
 
