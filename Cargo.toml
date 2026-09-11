@@ -9,6 +9,9 @@ repository = "https://github.com/techton7/monoxus"
 
 [dependencies]
 dioxus = { version = "0.7.0", default-features = false, features = ["devtools", "document", "hooks", "html", "mounted", "signals", "macro", "asset"] }
+# Upstream FFI engine.
+# Note: Keep pure crates.io version here. For local development against ../../util/dioxus_js_bindgen,
+# use local .cargo/config.toml ([patch.crates-io]). Do NOT add inline `path = "..."` here as it breaks CI / release-plz packaging.
 dioxus-js-bindgen = "0.1.1"
 serde = { version = "1.0", features = ["derive"] }
 futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
