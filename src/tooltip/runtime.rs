@@ -9,12 +9,13 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard,
-        start_floating_auto_update_monitor, start_presence_monitor,
+        FloatingEventPayload, FloatingTrackerOptionsPayload, PresenceMonitorEvent, WatcherGuard,
+        start_floating_tracker, start_presence_monitor,
     },
     overlay::{
-        FloatingPlacement, FloatingReadiness, GeometryVars, Presence, PresenceCloseCycleId,
-        PresenceController, PresenceControllerUpdate, Rect, Size,
+        FloatingArrowPosition, FloatingPlacement, FloatingReadiness, GeometryVars, PlacementAlign,
+        PlacementSide, Presence, PresenceCloseCycleId, PresenceController, PresenceControllerUpdate,
+        Rect, Size,
     },
     state::DataState,
 };
@@ -27,7 +28,7 @@ use super::{
     browser::start_tooltip_grace_monitor,
     relationships::TooltipRelationships,
     state::{Tooltip, TooltipLifecycle, TooltipProvider},
-    types::TOOLTIP_HOVER_TRANSFER_GRACE_MS,
+    types::{TOOLTIP_GEOMETRY_NAMESPACE, TOOLTIP_HOVER_TRANSFER_GRACE_MS},
 };
 
 const TOOLTIP_RADIX_COMPATIBILITY_PREFIX: &str = "radix-tooltip";
@@ -445,6 +446,13 @@ impl TooltipRuntime {
         serialize_css_custom_properties(&self.content_css_variables())
     }
 
+    pub fn wrapper_style(&self) -> String {
+        match self.placement() {
+            Some(ref placement) => placement.wrapper_style(self.content_readiness(), None),
+            None => FloatingReadiness::wrapper_measuring_style(None),
+        }
+    }
+
     pub fn placement(&self) -> Option<FloatingPlacement> {
         self.state.placement.cloned()
     }
@@ -467,7 +475,6 @@ impl TooltipRuntime {
         move |event| {
             let mut trigger_handle = runtime.state.trigger_handle;
             trigger_handle.set(Some(event.data()));
-            runtime.refresh_live_placement();
             runtime.sync_grace_monitor();
         }
     }
@@ -477,7 +484,6 @@ impl TooltipRuntime {
         move |event| {
             let mut content_handle = runtime.state.content_handle;
             content_handle.set(Some(event.data()));
-            runtime.refresh_live_placement();
             runtime.sync_grace_monitor();
         }
     }
@@ -712,22 +718,6 @@ impl TooltipRuntime {
     fn dismiss_stack(&self) -> Vec<String> {
         vec![self.relationships().content_id().to_owned()]
     }
-
-    fn refresh_live_placement(&self) {
-        if !self.is_open() {
-            return;
-        }
-
-        let runtime = self.clone();
-        spawn(async move {
-            if let Err(error) = measure_tooltip_placement(runtime.tooltip(), runtime.state).await {
-                eprintln!(
-                    "monoxus tooltip runtime could not refresh placement for {}: {error}",
-                    runtime.relationships().root_id(),
-                );
-            }
-        });
-    }
 }
 
 fn sync_tooltip_positioning(
@@ -762,37 +752,98 @@ fn sync_tooltip_positioning(
     let provider_clone = provider_runtime.clone();
     let on_open_change_clone = Rc::clone(&on_open_change);
 
-    let watcher = start_floating_auto_update_monitor(
-        &[tooltip.relationships().trigger_id()],
+    let floating_layer = tooltip.lifecycle().floating();
+    let options = FloatingTrackerOptionsPayload {
+        side: floating_layer.side().as_str().to_string(),
+        align: floating_layer.align().as_str().to_string(),
+        side_offset: floating_layer.side_offset() as f64,
+        align_offset: floating_layer.align_offset() as f64,
+        avoid_collisions: true,
+        arrow_padding: 4.0,
+    };
+
+    let watcher = start_floating_tracker(
+        tooltip.relationships().trigger_id(),
+        tooltip.relationships().wrapper_id(),
         tooltip.relationships().content_id(),
-        move |event| {
-            if event == FloatingAutoUpdateEvent::Scroll {
-                close_tooltip_from_scroll(&tooltip_clone, provider_clone.as_ref(), &on_open_change_clone);
-                return;
-            }
-            let tooltip = tooltip_clone.clone();
-            spawn(async move {
-                if let Err(error) = measure_tooltip_placement(&tooltip, state).await {
-                    eprintln!(
-                        "monoxus tooltip runtime could not measure placement for {}: {error}",
-                        tooltip.relationships().root_id(),
-                    );
+        Some(tooltip.relationships().arrow_id()),
+        options,
+        move |event| match event {
+            FloatingEventPayload::Positioned {
+                side,
+                align,
+                x,
+                y,
+                arrow_x,
+                arrow_y,
+                cannot_center_arrow,
+                reference_hidden,
+            } => {
+                let placement_side = match side.as_str() {
+                    "top" => PlacementSide::Top,
+                    "right" => PlacementSide::Right,
+                    "bottom" => PlacementSide::Bottom,
+                    "left" => PlacementSide::Left,
+                    _ => PlacementSide::Bottom,
+                };
+                let placement_align = match align.as_str() {
+                    "start" => PlacementAlign::Start,
+                    "center" => PlacementAlign::Center,
+                    "end" => PlacementAlign::End,
+                    _ => PlacementAlign::Center,
+                };
+                let arrow = FloatingArrowPosition::new(
+                    arrow_x.map(|v| v as f32),
+                    arrow_y.map(|v| v as f32),
+                    cannot_center_arrow,
+                );
+                let geometry = GeometryVars::new(
+                    TOOLTIP_GEOMETRY_NAMESPACE,
+                    x as f32,
+                    y as f32,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                );
+                let placement = FloatingPlacement::new(
+                    placement_side,
+                    placement_align,
+                    geometry,
+                    arrow,
+                    reference_hidden,
+                );
+
+                let should_update = state
+                    .placement
+                    .with_peek(|current| current.as_ref() != Some(&placement));
+                if should_update {
+                    let mut current = state.placement;
+                    current.set(Some(placement));
                 }
-            });
+                set_tooltip_content_readiness(state, FloatingReadiness::Ready);
+            }
+            FloatingEventPayload::Scroll => {
+                close_tooltip_from_scroll(
+                    &tooltip_clone,
+                    provider_clone.as_ref(),
+                    &on_open_change_clone,
+                );
+            }
+            FloatingEventPayload::Hidden => {
+                if let Some(current) = state.placement.cloned() {
+                    let mut placement_sig = state.placement;
+                    placement_sig.set(Some(current.hide_reference()));
+                }
+            }
         },
     );
     let mut position_monitor = state.position_monitor;
     position_monitor.set(Some(watcher));
-
-    let tooltip = tooltip.clone();
-    spawn(async move {
-        if let Err(error) = measure_tooltip_placement(&tooltip, state).await {
-            eprintln!(
-                "monoxus tooltip runtime could not measure placement for {}: {error}",
-                tooltip.relationships().root_id(),
-            );
-        }
-    });
 }
 
 fn close_tooltip_from_scroll(
@@ -811,58 +862,6 @@ fn close_tooltip_from_scroll(
 fn stop_tooltip_position_monitor(state: TooltipRuntimeState) {
     let mut position_monitor = state.position_monitor;
     position_monitor.set(None);
-}
-
-async fn measure_tooltip_placement(
-    tooltip: &Tooltip,
-    state: TooltipRuntimeState,
-) -> Result<(), String> {
-    let Some(trigger_handle) = state.trigger_handle.with_peek(|handle| handle.clone()) else {
-        return Ok(());
-    };
-    let Some(content_handle) = state.content_handle.with_peek(|handle| handle.clone()) else {
-        return Ok(());
-    };
-
-    let anchor_rect = read_client_rect(trigger_handle, "trigger").await?;
-    let content_rect = read_client_rect(content_handle, "content").await?;
-    let content_size = Size::new(content_rect.width(), content_rect.height());
-    let viewport_size = read_viewport_size().await?;
-    let placement = tooltip.lifecycle().floating().position_with_available_size(
-        anchor_rect,
-        content_size,
-        viewport_size,
-    );
-
-    let should_update = state
-        .placement
-        .with_peek(|current| current.as_ref() != Some(&placement));
-    if should_update {
-        let mut current = state.placement;
-        current.set(Some(placement));
-    }
-    set_tooltip_content_readiness(state, FloatingReadiness::Ready);
-
-    Ok(())
-}
-
-async fn read_client_rect(mounted: Rc<MountedData>, label: &str) -> Result<Rect, String> {
-    let rect = mounted
-        .get_client_rect()
-        .await
-        .map_err(|error| format!("{label} get_client_rect failed: {error}"))?;
-
-    Ok(Rect::new(
-        rect.origin.x as f32,
-        rect.origin.y as f32,
-        rect.width() as f32,
-        rect.height() as f32,
-    ))
-}
-
-async fn read_viewport_size() -> Result<Size, String> {
-    let viewport = crate::foundation::browser::get_viewport_size().await?;
-    Ok(Size::new(viewport[0] as f32, viewport[1] as f32))
 }
 
 fn clear_tooltip_content_handle(state: TooltipRuntimeState) {

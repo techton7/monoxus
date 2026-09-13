@@ -1,7 +1,24 @@
-# monoxus
+<p align="center">
+  <img src="https://raw.githubusercontent.com/techton7/monoxus/main/assets/icon.svg" alt="monoxus logo" width="160" height="160" />
+</p>
+
+<h1 align="center">monoxus</h1>
+
+<p align="center">
+  <strong>Headless Dioxus primitives and shared foundations for accessible, composable component systems.</strong>
+</p>
+
+<p align="center">
+  <a href="https://crates.io/crates/monoxus"><img src="https://img.shields.io/crates/v/monoxus.svg" alt="Crates.io" /></a>
+  <a href="https://docs.rs/monoxus"><img src="https://docs.rs/monoxus/badge.svg" alt="docs.rs" /></a>
+  <a href="LICENSE-MIT"><img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="License" /></a>
+</p>
+
+---
 
 Headless Dioxus primitives and shared foundations for accessible, composable
 component systems.
+
 
 ## Status
 

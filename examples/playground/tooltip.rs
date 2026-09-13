@@ -287,6 +287,7 @@ pub fn TooltipPlayground() -> Element {
                         }
                         if first.should_render_content() {
                             div {
+                                id: first_content.wrapper_id(),
                                 "data-monoxus-floating-content-wrapper": "",
                                 style: "{first_wrapper_style}",
                                 "data-reference-hidden": "{first_ref_hidden_str}",
@@ -321,6 +322,7 @@ pub fn TooltipPlayground() -> Element {
                         }
                         if second.should_render_content() {
                             div {
+                                id: second_content.wrapper_id(),
                                 "data-monoxus-floating-content-wrapper": "",
                                 style: "{second_wrapper_style}",
                                 "data-reference-hidden": "{second_ref_hidden_str}",

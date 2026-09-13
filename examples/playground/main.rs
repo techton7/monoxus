@@ -11,7 +11,7 @@ pub mod tooltip;
 
 use dioxus::prelude::*;
 use pages::{
-    AccordionPage, AlertDialogPage, DialogPage, JsBindgenPage, PopoverPage, SelectPage, TabsPage, ToastPage,
+    AccordionPage, AlertDialogPage, DialogPage, PopoverPage, SelectPage, TabsPage, ToastPage,
     TooltipPage,
 };
 
@@ -22,7 +22,6 @@ fn main() {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ComponentPage {
     Select,
-    JsBindgen,
     Accordion,
     Tabs,
     Dialog,
@@ -36,7 +35,6 @@ impl ComponentPage {
     pub fn title(&self) -> &'static str {
         match self {
             Self::Select => "Select",
-            Self::JsBindgen => "JS Bindgen",
             Self::Accordion => "Accordion",
             Self::Tabs => "Tabs",
             Self::Dialog => "Dialog",
@@ -50,7 +48,6 @@ impl ComponentPage {
     pub fn icon(&self) -> &'static str {
         match self {
             Self::Select => "▾",
-            Self::JsBindgen => "⚡",
             Self::Accordion => "≡",
             Self::Tabs => "◫",
             Self::Dialog => "◻",
@@ -64,7 +61,6 @@ impl ComponentPage {
     pub fn badge(&self) -> &'static str {
         match self {
             Self::Select => "7 Scenarios",
-            Self::JsBindgen => "CQS Live Proof",
             Self::Accordion => "Interactive",
             Self::Tabs => "WAI-ARIA",
             Self::Dialog => "Modal",
@@ -81,7 +77,6 @@ fn app() -> Element {
 
     let pages = [
         ComponentPage::Select,
-        ComponentPage::JsBindgen,
         ComponentPage::Accordion,
         ComponentPage::Tabs,
         ComponentPage::Dialog,
@@ -101,12 +96,16 @@ fn app() -> Element {
 
                 // Header / Branding
                 div {
-                    style: "display: flex; flex-direction: column; gap: 0.25rem;",
+                    style: "display: flex; flex-direction: column; gap: 0.35rem;",
                     div {
                         style: "display: flex; align-items: center; justify-content: space-between;",
-                        h1 {
-                            style: "margin: 0; font-size: 1.25rem; font-weight: 700; color: #581c87; letter-spacing: -0.025em;",
-                            "monoxus"
+                        div {
+                            style: "display: flex; align-items: center; gap: 0.5rem;",
+                            MonoxusIcon {}
+                            h1 {
+                                style: "margin: 0; font-size: 1.25rem; font-weight: 700; color: #581c87; letter-spacing: -0.025em;",
+                                "monoxus"
+                            }
                         }
                         span {
                             style: "font-size: 0.6875rem; font-weight: 600; padding: 0.125rem 0.375rem; border-radius: 9999px; background-color: #f3e8ff; color: #7e22ce;",
@@ -178,7 +177,6 @@ fn app() -> Element {
                 // Active Page Rendered in Complete Isolation
                 match current_page() {
                     ComponentPage::Select => rsx! { SelectPage {} },
-                    ComponentPage::JsBindgen => rsx! { JsBindgenPage {} },
                     ComponentPage::Accordion => rsx! { AccordionPage {} },
                     ComponentPage::Tabs => rsx! { TabsPage {} },
                     ComponentPage::Dialog => rsx! { DialogPage {} },
@@ -191,3 +189,15 @@ fn app() -> Element {
         }
     }
 }
+
+#[component]
+fn MonoxusIcon() -> Element {
+    let svg_content = include_str!("../../assets/icon.svg");
+    rsx! {
+        div {
+            style: "width: 24px; height: 24px; flex-shrink: 0; display: flex; align-items: center; justify-content: center;",
+            dangerous_inner_html: "{svg_content}",
+        }
+    }
+}
+

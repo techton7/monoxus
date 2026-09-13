@@ -67,6 +67,7 @@ impl TooltipPortalAttributes {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TooltipContentAttributes {
     pub(crate) id: String,
+    pub(crate) wrapper_id: String,
     pub(crate) role: &'static str,
     pub(crate) data_state: DataState,
     pub(crate) data_side: &'static str,
@@ -77,6 +78,10 @@ pub struct TooltipContentAttributes {
 impl TooltipContentAttributes {
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    pub fn wrapper_id(&self) -> &str {
+        &self.wrapper_id
     }
 
     pub const fn role(&self) -> &'static str {

@@ -6,6 +6,7 @@ pub struct TooltipRelationships {
     root_id: String,
     trigger_id: String,
     content_id: String,
+    wrapper_id: String,
     arrow_id: String,
 }
 
@@ -15,6 +16,7 @@ impl TooltipRelationships {
             root_id: scope.token(),
             trigger_id: scope.qualify("trigger"),
             content_id: scope.qualify("content"),
+            wrapper_id: scope.qualify("wrapper"),
             arrow_id: scope.qualify("arrow"),
             scope,
         }
@@ -34,6 +36,10 @@ impl TooltipRelationships {
 
     pub fn content_id(&self) -> &str {
         &self.content_id
+    }
+
+    pub fn wrapper_id(&self) -> &str {
+        &self.wrapper_id
     }
 
     pub fn arrow_id(&self) -> &str {

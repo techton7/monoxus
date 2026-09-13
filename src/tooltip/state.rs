@@ -267,6 +267,7 @@ impl Tooltip {
     pub fn content(&self) -> TooltipContentAttributes {
         TooltipContentAttributes {
             id: self.relationships.content_id().to_owned(),
+            wrapper_id: self.relationships.wrapper_id().to_owned(),
             role: "tooltip",
             data_state: self.data_state(),
             data_side: self.lifecycle.floating().data_side(),

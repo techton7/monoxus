@@ -346,6 +346,14 @@ impl FloatingLayer {
         self.align
     }
 
+    pub const fn side_offset(&self) -> f32 {
+        self.side_offset
+    }
+
+    pub const fn align_offset(&self) -> f32 {
+        self.align_offset
+    }
+
     pub const fn direction(&self) -> Direction {
         self.direction
     }

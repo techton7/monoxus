@@ -204,7 +204,7 @@ export function watchDocumentDismiss(
 
 /**
  * Watch floating element and anchor element updates (scroll, resize, mutation)
- * #[watcher]
+ * #[watcher(raf)]
  */
 export function watchFloatingAutoUpdate(
     anchorIds: string[],
@@ -212,8 +212,6 @@ export function watchFloatingAutoUpdate(
     emit: (event: FloatingAutoUpdatePayload) => void
 ): () => void {
     let stopped = false;
-    let scrollTriggered = false;
-    let rafId: number | null = null;
 
     const readElement = (id: string): HTMLElement | null => {
         const el = document.getElementById(id);
@@ -234,20 +232,9 @@ export function watchFloatingAutoUpdate(
         if (stopped) {
             return;
         }
-        scrollTriggered = scrollTriggered || fromScroll;
-        if (rafId === null && typeof window !== "undefined" && window.requestAnimationFrame) {
-            rafId = window.requestAnimationFrame(() => {
-                rafId = null;
-                if (stopped) {
-                    return;
-                }
-                const event: FloatingAutoUpdatePayload = {
-                    kind: scrollTriggered ? "scroll" : "update",
-                };
-                scrollTriggered = false;
-                emit(event);
-            });
-        }
+        emit({
+            kind: fromScroll ? "scroll" : "update",
+        });
     };
 
     const getScrollParents = (element: Element): (Element | Window)[] => {
@@ -355,10 +342,6 @@ export function watchFloatingAutoUpdate(
 
     return () => {
         stopped = true;
-        if (rafId !== null) {
-            window.cancelAnimationFrame(rafId);
-            rafId = null;
-        }
         window.removeEventListener("resize", handleWindowResize);
         if (mutationObserver) {
             mutationObserver.disconnect();

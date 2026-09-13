@@ -72,10 +72,70 @@ mod dom_bridge {
         DocumentDismissEventPayload, FloatingAutoUpdatePayload, FormResetEventPayload,
         PresenceEventPayload,
     };
-    dioxus_js_interop::bind_js!("src/foundation/browser/dom.ts"::*);
+    oxidase::bind_js!("src/foundation/browser/dom.ts"::*);
 }
 
-pub use dioxus_js_interop::WatcherGuard;
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct FloatingTrackerOptionsPayload {
+    pub side: String,
+    pub align: String,
+    #[serde(rename = "sideOffset")]
+    pub side_offset: f64,
+    #[serde(rename = "alignOffset")]
+    pub align_offset: f64,
+    #[serde(rename = "avoidCollisions")]
+    pub avoid_collisions: bool,
+    #[serde(rename = "arrowPadding")]
+    pub arrow_padding: f64,
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FloatingEventPayload {
+    Positioned {
+        side: String,
+        align: String,
+        x: f64,
+        y: f64,
+        #[serde(rename = "arrowX")]
+        arrow_x: Option<f64>,
+        #[serde(rename = "arrowY")]
+        arrow_y: Option<f64>,
+        #[serde(rename = "cannotCenterArrow")]
+        cannot_center_arrow: bool,
+        #[serde(rename = "referenceHidden")]
+        reference_hidden: bool,
+    },
+    Scroll,
+    Hidden,
+}
+
+mod floating_bridge {
+    use super::{FloatingEventPayload, FloatingTrackerOptionsPayload};
+    oxidase::bind_js!("src/foundation/browser/floating.ts"::*);
+}
+
+pub(crate) fn start_floating_tracker(
+    reference_id: &str,
+    wrapper_id: &str,
+    content_id: &str,
+    arrow_id: Option<&str>,
+    options: FloatingTrackerOptionsPayload,
+    mut on_event: impl FnMut(FloatingEventPayload) + 'static,
+) -> WatcherGuard {
+    floating_bridge::start_floating_tracker(
+        reference_id,
+        wrapper_id,
+        content_id,
+        arrow_id,
+        &options,
+        move |payload: FloatingEventPayload| {
+            on_event(payload);
+        },
+    )
+}
+
+pub use oxidase::WatcherGuard;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PresenceMonitorEvent {
@@ -195,7 +255,7 @@ pub(crate) fn focus_mounted_handle(handle: Option<MountedHandle>) -> bool {
 }
 
 pub(crate) async fn get_viewport_size() -> Result<[f64; 2], String> {
-    let vp = dioxus_js_interop::runtime::get_viewport()
+    let vp = oxidase::runtime::get_viewport()
         .await
         .map_err(|e| e.to_string())?;
     Ok([vp.width, vp.height])
@@ -267,23 +327,23 @@ pub(crate) async fn measure_floating_placement(
     boundary_id: Option<&str>,
 ) -> Option<[f64; 10]> {
     let effective_anchor = custom_anchor_id.unwrap_or(anchor_id);
-    let tr = dioxus_js_interop::runtime::measure_rect(effective_anchor)
+    let tr = oxidase::runtime::measure_rect(effective_anchor)
         .await
         .ok()
         .flatten()?;
-    let cr = dioxus_js_interop::runtime::measure_rect(content_id)
+    let cr = oxidase::runtime::measure_rect(content_id)
         .await
         .ok()
         .flatten()?;
     let (b_left, b_top, b_right, b_bottom) = if let Some(bid) = boundary_id {
-        if let Ok(Some(br)) = dioxus_js_interop::runtime::measure_rect(bid).await {
+        if let Ok(Some(br)) = oxidase::runtime::measure_rect(bid).await {
             (br.left, br.top, br.right, br.bottom)
         } else {
-            let vp = dioxus_js_interop::runtime::get_viewport().await.ok()?;
+            let vp = oxidase::runtime::get_viewport().await.ok()?;
             (0.0, 0.0, vp.width, vp.height)
         }
     } else {
-        let vp = dioxus_js_interop::runtime::get_viewport().await.ok()?;
+        let vp = oxidase::runtime::get_viewport().await.ok()?;
         (0.0, 0.0, vp.width, vp.height)
     };
     Some([
