@@ -9,14 +9,21 @@ repository = "https://github.com/techton7/monoxus"
 
 [dependencies]
 dioxus = { version = "0.7.0", default-features = false, features = ["devtools", "document", "hooks", "html", "mounted", "signals", "macro", "asset"] }
-# Upstream FFI engine.
-# Note: Keep pure crates.io version here. For local development against ../../util/dioxus_js_bindgen,
-# use local .cargo/config.toml ([patch.crates-io]). Do NOT add inline `path = "..."` here as it breaks CI / release-plz packaging.
-oxidase = { path = "../../util/oxidase/crates/oxidase" }
+# Upstream FFI / host abstraction engine.
+# Note: Keep tagged GitHub release here matching kinetoxus until crates.io publication.
+# For local development against ../../util/oxidase, use workspace/local patch config.
+# Do NOT reintroduce inline `path = "..."` here as it breaks downstream packaging and CI.
+oxidase = { version = "0.1.8", git = "https://github.com/techton7/oxidase.git", tag = "oxidase-v0.1.8" }
 serde = { version = "1.0", features = ["derive"] }
 futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 js-sys = "0.3"
 
+[features]
+default = []
+native = ["oxidase/native"]
+blitz-host = ["oxidase/blitz-host"]
+
 [dev-dependencies]
 dioxus = { version = "0.7.0", default-features = false, features = ["minimal"] }
 serde_json = "1.0"
+
