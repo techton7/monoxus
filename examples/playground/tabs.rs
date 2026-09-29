@@ -1,7 +1,10 @@
 use dioxus::prelude::*;
 use monoxus::{
     foundation::shared::ScopeHandle,
-    tabs::{Tabs, TabsActivationMode, TabsDirection, TabsOrientation, use_tabs_runtime},
+    tabs::{
+        Tabs, TabsActivationMode, TabsContent, TabsDirection, TabsList, TabsOrientation, TabsRoot,
+        TabsTrigger, use_tabs_runtime,
+    },
 };
 
 const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-radius: 0.75rem; border: 1px solid #93c5fd; background-color: white; box-shadow: 0 10px 30px rgba(30, 58, 138, 0.08);";
@@ -25,6 +28,8 @@ pub fn TabsPlayground() -> Element {
                 style: MUTED_STYLE,
                 "Headless WAI-ARIA Tabs primitives with roving tabindex, direction-aware arrow navigation, manual/automatic activation modes, and zero-mock runtime proof."
             }
+
+            DeclarativeTabsSection {}
 
             HorizontalAutomaticSection {}
             VerticalManualSection {}
@@ -612,3 +617,80 @@ fn DescendantInputRegressionSection() -> Element {
         }
     }
 }
+
+#[component]
+fn DeclarativeTabsSection() -> Element {
+    let mut selected = use_signal(|| "preview".to_string());
+    let current = selected();
+    let preview_bg = if current == "preview" { "#2563eb" } else { "#f1f5f9" };
+    let preview_fg = if current == "preview" { "#ffffff" } else { "#334155" };
+    let code_bg = if current == "code" { "#2563eb" } else { "#f1f5f9" };
+    let code_fg = if current == "code" { "#ffffff" } else { "#334155" };
+    let settings_bg = if current == "settings" { "#2563eb" } else { "#f1f5f9" };
+    let settings_fg = if current == "settings" { "#ffffff" } else { "#334155" };
+
+    rsx! {
+        div {
+            style: "display: grid; gap: 0.85rem; padding: 1.25rem; border: 2px solid #2563eb; border-radius: 0.75rem; background-color: #f8fafc; margin-bottom: 0.5rem;",
+            div {
+                style: "display: flex; align-items: center; justify-content: space-between;",
+                h3 { style: "margin: 0; color: #1d4ed8; font-size: 1.05rem;", "0. Declarative Compound Syntax (Track A)" }
+                span {
+                    style: "font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 9999px; background-color: #dbeafe; color: #1d4ed8;",
+                    "Ergonomic Compound Components"
+                }
+            }
+            p { style: "margin: 0; color: #475569; font-size: 0.85rem;",
+                "Composed using " code { "<TabsRoot>" } ", " code { "<TabsList>" } ", " code { "<TabsTrigger>" } ", and " code { "<TabsContent>" } " with automatic roving focus and active tabpanel coordination."
+            }
+
+            TabsRoot {
+                id: "declarative-tabs".to_string(),
+                value: selected,
+                default_value: "preview".to_string(),
+                on_value_change: move |new_val| selected.set(new_val),
+                TabsList {
+                    id: "declarative-tabs-list",
+                    style: "display: flex; gap: 0.5rem; border-bottom: 2px solid #cbd5e1; padding-bottom: 0.25rem;",
+                    TabsTrigger {
+                        id: "declarative-tab-preview",
+                        value: "preview".to_string(),
+                        style: "padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; font-weight: 600; cursor: pointer; background-color: {preview_bg}; color: {preview_fg}; transition: all 0.15s ease;",
+                        "Preview"
+                    }
+                    TabsTrigger {
+                        id: "declarative-tab-code",
+                        value: "code".to_string(),
+                        style: "padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; font-weight: 600; cursor: pointer; background-color: {code_bg}; color: {code_fg}; transition: all 0.15s ease;",
+                        "Code"
+                    }
+                    TabsTrigger {
+                        id: "declarative-tab-settings",
+                        value: "settings".to_string(),
+                        style: "padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; font-weight: 600; cursor: pointer; background-color: {settings_bg}; color: {settings_fg}; transition: all 0.15s ease;",
+                        "Settings"
+                    }
+                }
+                TabsContent {
+                    value: "preview".to_string(),
+                    style: TAB_PANEL_STYLE,
+                    p { style: "margin: 0; font-weight: 600; color: #0f172a;", "Declarative Preview Panel" }
+                    p { style: "margin: 0.25rem 0 0; color: #64748b; font-size: 0.875rem;", "This panel was automatically coordinated through TabsContext with roving focus." }
+                }
+                TabsContent {
+                    value: "code".to_string(),
+                    style: TAB_PANEL_STYLE,
+                    p { style: "margin: 0; font-weight: 600; color: #0f172a;", "Declarative Code Panel" }
+                    p { style: "margin: 0.25rem 0 0; color: #64748b; font-size: 0.875rem;", "Source code is displayed here with automatic ARIA linkage." }
+                }
+                TabsContent {
+                    value: "settings".to_string(),
+                    style: TAB_PANEL_STYLE,
+                    p { style: "margin: 0; font-weight: 600; color: #0f172a;", "Declarative Settings Panel" }
+                    p { style: "margin: 0.25rem 0 0; color: #64748b; font-size: 0.875rem;", "Configuration settings are rendered here." }
+                }
+            }
+        }
+    }
+}
+

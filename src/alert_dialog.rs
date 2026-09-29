@@ -379,3 +379,52 @@ impl AlertDialogCancelAttributes {
         self.close_request
     }
 }
+
+pub use crate::dialog::{
+    AlertDialogAction, AlertDialogCancel, DialogClose, DialogContent, DialogDescription,
+    DialogOverlay, DialogPortal, DialogTitle, DialogTrigger,
+};
+
+#[component]
+pub fn AlertDialogRoot(
+    #[props(default)] id: Option<String>,
+    #[props(default)] open: Option<Signal<bool>>,
+    #[props(default)] default_open: Option<bool>,
+    #[props(default)] on_open_change: Option<EventHandler<bool>>,
+    #[props(default)] portal_host: Option<PortalHost>,
+    children: Element,
+) -> Element {
+    let open_signal = open.unwrap_or_else(|| use_signal(|| default_open.unwrap_or(false)));
+    let scope_id = id.clone().unwrap_or_else(|| "alert-dialog".to_string());
+    let scope = ScopeHandle::root("alert-dialog").child(scope_id);
+
+    let mut alert = AlertDialog::new(scope, open_signal());
+    if let Some(ph) = portal_host {
+        alert = alert.with_portal_host(ph);
+    }
+
+    let alert_runtime = use_alert_dialog_runtime(alert);
+    let mut runtime_sig = use_signal(|| alert_runtime.dialog_runtime().clone());
+    if runtime_sig.peek().is_open() != alert_runtime.dialog_runtime().is_open() {
+        runtime_sig.set(alert_runtime.dialog_runtime().clone());
+    }
+
+    use_context_provider(|| crate::dialog::DialogContext {
+        runtime: runtime_sig,
+        open: open_signal,
+        on_open_change,
+        is_alert_dialog: true,
+    });
+
+    let attrs = alert_runtime.root();
+
+    rsx! {
+        div {
+            id: "{attrs.id()}",
+            style: "display: contents;",
+            "data-state": attrs.data_state().as_str(),
+            {children}
+        }
+    }
+}
+

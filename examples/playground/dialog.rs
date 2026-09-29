@@ -1,8 +1,9 @@
 use dioxus::prelude::*;
 use monoxus::{
     dialog::{
-        Dialog, DialogCloseFocusPolicy, DialogMode, DialogOpenFocusPolicy,
-        DialogOutsideDismissBehavior, use_dialog_runtime,
+        Dialog, DialogClose, DialogCloseFocusPolicy, DialogContent, DialogDescription, DialogMode,
+        DialogOpenFocusPolicy, DialogOutsideDismissBehavior, DialogOverlay, DialogPortal,
+        DialogRoot, DialogTitle, DialogTrigger, use_dialog_runtime,
     },
     foundation::{overlay::PortalHost, shared::ScopeHandle, state::DataState},
 };
@@ -121,6 +122,9 @@ pub fn DialogPlayground() -> Element {
                 code { "monoxus::dialog" }
                 "."
             }
+
+            DeclarativeDialogSection {}
+
             div {
                 id: root.id(),
                 "data-state": root.data_state().as_str(),
@@ -333,3 +337,64 @@ fn modal_panel_style(state: &DataState) -> String {
     }
     style
 }
+
+#[component]
+fn DeclarativeDialogSection() -> Element {
+    let open = use_signal(|| false);
+    rsx! {
+        div {
+            style: "display: grid; gap: 0.85rem; padding: 1.25rem; border: 2px solid #2563eb; border-radius: 0.75rem; background-color: #f8fafc; margin-bottom: 1.25rem;",
+            div {
+                style: "display: flex; align-items: center; justify-content: space-between;",
+                h3 { style: "margin: 0; color: #1d4ed8; font-size: 1.05rem;", "Declarative Compound Syntax (Track A)" }
+                span {
+                    style: "font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 9999px; background-color: #dbeafe; color: #1d4ed8;",
+                    "Ergonomic Compound Components"
+                }
+            }
+            p { style: "margin: 0; color: #475569; font-size: 0.85rem;",
+                "Composed using " code { "<DialogRoot>" } ", " code { "<DialogTrigger>" } ", " code { "<DialogPortal>" } ", " code { "<DialogOverlay>" } ", " code { "<DialogContent>" } ", " code { "<DialogTitle>" } ", and " code { "<DialogClose>" } "."
+            }
+
+            DialogRoot {
+                open: open,
+                DialogTrigger {
+                    id: "declarative-dialog-trigger",
+                    style: "justify-self: start; padding: 0.65rem 1rem; border-radius: 0.5rem; background-color: #2563eb; color: white; font-weight: 600; border: none; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);",
+                    "Open Declarative Dialog"
+                }
+                DialogPortal {
+                    DialogOverlay {
+                        id: "declarative-dialog-overlay",
+                        style: "position: fixed; inset: 0; background-color: rgba(15, 23, 42, 0.6); backdrop-filter: blur(3px); z-index: 50;",
+                    }
+                    DialogContent {
+                        id: "declarative-dialog-content",
+                        aria_labelledby: "declarative-dialog-title".to_string(),
+                        aria_describedby: "declarative-dialog-description".to_string(),
+                        style: "position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 51; background: white; border-radius: 0.85rem; padding: 1.5rem; width: min(calc(100% - 2rem), 30rem); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: grid; gap: 1rem; border: 1px solid #e2e8f0;",
+                        DialogTitle {
+                            id: "declarative-dialog-title",
+                            style: "margin: 0; font-size: 1.25rem; font-weight: 700; color: #0f172a;",
+                            "Declarative Dialog Modal"
+                        }
+                        DialogDescription {
+                            id: "declarative-dialog-description",
+                            style: "margin: 0; font-size: 0.875rem; color: #64748b;",
+                            "This modal is composed using DialogRoot, DialogTrigger, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription, and DialogClose. ARIA IDs and focus restoration are coordinated automatically."
+                        }
+                        div {
+                            style: "display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;",
+                            DialogClose {
+                                id: "declarative-dialog-close",
+                                style: "padding: 0.55rem 1rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; background: white; font-weight: 600; cursor: pointer; color: #334155;",
+                                "Close Modal"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

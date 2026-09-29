@@ -553,7 +553,9 @@ export function teleportElementToHost(elementId: string, hostId: string): void {
     if (!el) {
         return;
     }
-    const host = hostId ? document.getElementById(hostId) : document.body;
+    const host = hostId
+        ? document.getElementById(hostId)
+        : (document.getElementById("main") || document.body);
     if (host && el.parentNode !== host) {
         host.appendChild(el);
     }

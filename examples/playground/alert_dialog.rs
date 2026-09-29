@@ -1,7 +1,13 @@
 use dioxus::prelude::*;
 use monoxus::{
-    alert_dialog::{AlertDialog, use_alert_dialog_runtime},
-    dialog::{DialogMode, DialogOpenFocusPolicy, DialogOutsideDismissBehavior},
+    alert_dialog::{
+        AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogRoot,
+        use_alert_dialog_runtime,
+    },
+    dialog::{
+        DialogContent, DialogDescription, DialogMode, DialogOpenFocusPolicy,
+        DialogOutsideDismissBehavior, DialogOverlay, DialogPortal, DialogTitle, DialogTrigger,
+    },
     foundation::{overlay::PortalHost, shared::ScopeHandle, state::DataState},
 };
 
@@ -131,6 +137,9 @@ pub fn AlertDialogPlayground() -> Element {
                 code { "monoxus::alert_dialog" }
                 "."
             }
+
+            DeclarativeAlertDialogSection {}
+
             div {
                 id: root.id(),
                 "data-state": root.data_state().as_str(),
@@ -375,3 +384,76 @@ fn alert_panel_style(state: &DataState) -> String {
     }
     style
 }
+
+#[component]
+fn DeclarativeAlertDialogSection() -> Element {
+    let open = use_signal(|| false);
+    let mut decision = use_signal(|| String::from("No decision yet"));
+
+    rsx! {
+        div {
+            style: "display: grid; gap: 0.85rem; padding: 1.25rem; border: 2px solid #dc2626; border-radius: 0.75rem; background-color: #fff1f2; margin-bottom: 1.25rem;",
+            div {
+                style: "display: flex; align-items: center; justify-content: space-between;",
+                h3 { style: "margin: 0; color: #991b1b; font-size: 1.05rem;", "Declarative Compound Syntax (Track A)" }
+                span {
+                    style: "font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 9999px; background-color: #fee2e2; color: #991b1b;",
+                    "Ergonomic Compound Components"
+                }
+            }
+            p { style: "margin: 0; color: #991b1b; font-size: 0.85rem;",
+                "Composed using " code { "<AlertDialogRoot>" } ", " code { "<DialogTrigger>" } ", " code { "<AlertDialogAction>" } ", and " code { "<AlertDialogCancel>" } "."
+            }
+            p { style: "margin: 0; font-size: 0.85rem; color: #7f1d1d;",
+                "Status: " strong { "{decision()}" }
+            }
+
+            AlertDialogRoot {
+                open: open,
+                DialogTrigger {
+                    id: "declarative-alert-trigger",
+                    style: "justify-self: start; padding: 0.65rem 1rem; border-radius: 0.5rem; background-color: #dc2626; color: white; font-weight: 600; border: none; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.2);",
+                    "Open Declarative Alert Dialog"
+                }
+                DialogPortal {
+                    DialogOverlay {
+                        id: "declarative-alert-overlay",
+                        style: "position: fixed; inset: 0; background-color: rgba(127, 29, 29, 0.65); backdrop-filter: blur(3px); z-index: 50;",
+                    }
+                    DialogContent {
+                        id: "declarative-alert-content",
+                        aria_labelledby: "declarative-alert-title".to_string(),
+                        aria_describedby: "declarative-alert-description".to_string(),
+                        style: "position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 51; background: white; border-radius: 0.85rem; padding: 1.5rem; width: min(calc(100% - 2rem), 30rem); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: grid; gap: 1rem; border: 1px solid #fecaca;",
+                        DialogTitle {
+                            id: "declarative-alert-title",
+                            style: "margin: 0; font-size: 1.25rem; font-weight: 700; color: #991b1b;",
+                            "Delete Item Permanently?"
+                        }
+                        DialogDescription {
+                            id: "declarative-alert-description",
+                            style: "margin: 0; font-size: 0.875rem; color: #7f1d1d;",
+                            "This action cannot be undone. This alert dialog uses role='alertdialog' and requires explicit confirmation or cancellation."
+                        }
+                        div {
+                            style: "display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;",
+                            AlertDialogCancel {
+                                id: "declarative-alert-cancel",
+                                on_click: move |_| decision.set("Cancelled".to_string()),
+                                style: "padding: 0.55rem 1rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; background: white; font-weight: 600; cursor: pointer; color: #334155;",
+                                "Cancel"
+                            }
+                            AlertDialogAction {
+                                id: "declarative-alert-confirm",
+                                on_click: move |_| decision.set("Confirmed deletion".to_string()),
+                                style: "padding: 0.55rem 1rem; border-radius: 0.375rem; border: none; background: #dc2626; color: white; font-weight: 600; cursor: pointer;",
+                                "Confirm"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
