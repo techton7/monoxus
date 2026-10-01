@@ -1,696 +1,531 @@
 use dioxus::prelude::*;
-use monoxus::{
-    foundation::shared::ScopeHandle,
-    tabs::{
-        Tabs, TabsActivationMode, TabsContent, TabsDirection, TabsList, TabsOrientation, TabsRoot,
-        TabsTrigger, use_tabs_runtime,
-    },
+use monoxus::tabs::{
+    TabsActivationMode, TabsContent, TabsDirection, TabsList, TabsOrientation, TabsRoot,
+    TabsTrigger,
 };
-
-const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-radius: 0.75rem; border: 1px solid #93c5fd; background-color: white; box-shadow: 0 10px 30px rgba(30, 58, 138, 0.08);";
-const MUTED_STYLE: &str = "margin: 0; color: #1e40af;";
-const TAB_LIST_HORIZONTAL: &str =
-    "display: flex; gap: 0.5rem; border-bottom: 2px solid #e2e8f0; padding-bottom: 0.25rem;";
-const TAB_LIST_VERTICAL: &str = "display: flex; flex-direction: column; gap: 0.5rem; width: 12rem; border-right: 2px solid #e2e8f0; padding-right: 0.75rem;";
-const TAB_PANEL_STYLE: &str = "padding: 1.25rem; background-color: #f8fafc; border-radius: 0.5rem; border: 1px solid #e2e8f0; margin-top: 0.5rem;";
-const BADGE_STYLE: &str = "display: inline-block; padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; background-color: #dbeafe; color: #1e40af;";
 
 #[component]
 pub fn TabsPlayground() -> Element {
     rsx! {
-        section {
-            style: CARD_STYLE,
-            h2 {
-                style: "margin: 0; color: #1e3a8a;",
-                "Tabs and Selection Navigation"
-            }
-            p {
-                style: MUTED_STYLE,
-                "Headless WAI-ARIA Tabs primitives with roving tabindex, direction-aware arrow navigation, manual/automatic activation modes, and zero-mock runtime proof."
+        div {
+            class: "max-w-4xl mx-auto space-y-8",
+
+            // Header Section
+            div {
+                class: "space-y-1.5",
+                h2 {
+                    class: "text-2xl font-bold tracking-tight text-slate-900",
+                    "Tabs"
+                }
+                p {
+                    class: "text-sm text-slate-500",
+                    "A set of layered sections of content—known as tab panels—that are displayed one at a time with declarative roving tabindex and WAI-ARIA compliance."
+                }
             }
 
-            DeclarativeTabsSection {}
-
-            HorizontalAutomaticSection {}
-            VerticalManualSection {}
-            RtlSection {}
-            DisabledTabsSection {}
-            DescendantInputRegressionSection {}
+            // Scenarios
+            Scenario1HorizontalAutomatic {}
+            Scenario2VerticalManual {}
+            Scenario3DisabledSkipping {}
+            Scenario4ControlledState {}
+            Scenario5RtlDirection {}
+            Scenario6DescendantInputIsolation {}
+            Scenario7SegmentedPills {}
         }
     }
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 1: Horizontal Automatic Activation
+// ---------------------------------------------------------------------------
 #[component]
-fn HorizontalAutomaticSection() -> Element {
-    let selected = use_signal(|| "account".to_string());
-    let scope = ScopeHandle::root("playground").child("tabs-horizontal");
-
-    let tabs_def = Tabs::new(scope.clone(), selected())
-        .with_orientation(TabsOrientation::Horizontal)
-        .with_direction(TabsDirection::Ltr)
-        .with_activation_mode(TabsActivationMode::Automatic);
-
-    let runtime = use_tabs_runtime(
-        tabs_def,
-        Some(move |new_val| {
-            let mut selected = selected;
-            selected.set(new_val);
-        }),
-    );
-
-    use_effect(use_reactive((), {
-        let runtime = runtime.clone();
-        move |_| {
-            runtime.register_trigger("account", false);
-            runtime.register_trigger("password", false);
-            runtime.register_trigger("settings", false);
-        }
-    }));
-
-    let list_attrs = runtime.list();
-
+fn Scenario1HorizontalAutomatic() -> Element {
     rsx! {
         div {
-            style: "display: grid; gap: 0.75rem; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 0.5rem;",
-            h3 { style: "margin: 0; font-size: 1rem; color: #1e293b;", "1. Horizontal Tabs (Automatic Activation)" }
-            p { style: "margin: 0; font-size: 0.85rem; color: #64748b;",
-                "Navigate with " code { "ArrowLeft" } "/" code { "ArrowRight" } ", " code { "Home" } ", " code { "End" } ". Selection changes immediately on focus."
-            }
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
             div {
-                span { style: BADGE_STYLE, "Active: {runtime.active_value()}" }
-                " "
-                span { style: BADGE_STYLE, "Tab Stop: {runtime.current_tab_stop()}" }
-            }
-
-            div {
-                id: list_attrs.id(),
-                role: list_attrs.role(),
-                aria_orientation: list_attrs.aria_orientation(),
-                "data-orientation": list_attrs.data_orientation(),
-                style: TAB_LIST_HORIZONTAL,
-                tabindex: "-1",
-                onkeydown: {
-                    let runtime = runtime.clone();
-                    move |evt: KeyboardEvent| {
-                        if Tabs::is_navigation_key(&evt.key().to_string()) {
-                            evt.prevent_default();
-                            runtime.navigate_key(&evt.key().to_string());
-                        }
-                    }
-                },
-
-                for val in ["account", "password", "settings"] {
-                    {
-                        let trig_attrs = runtime.trigger(val, false);
-                        let is_active = trig_attrs.is_selected();
-                        let bg = if is_active { "#2563eb" } else { "#f1f5f9" };
-                        let fg = if is_active { "#ffffff" } else { "#334155" };
-                        let runtime_click = runtime.clone();
-                        let runtime_down = runtime.clone();
-                        let val_str = val.to_string();
-                        let val_down = val.to_string();
-
-                        rsx! {
-                            button {
-                                id: trig_attrs.id(),
-                                role: trig_attrs.role(),
-                                aria_selected: trig_attrs.aria_selected(),
-                                aria_controls: trig_attrs.aria_controls(),
-                                tabindex: "{trig_attrs.tabindex()}",
-                                "data-state": trig_attrs.data_state_str(),
-                                "data-orientation": trig_attrs.data_orientation(),
-                                "data-value": trig_attrs.data_value(),
-                                style: "padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; font-weight: 500; cursor: pointer; background-color: {bg}; color: {fg}; transition: all 0.15s ease;",
-                                onmousedown: move |_| {
-                                    runtime_down.select_tab(&val_down);
-                                },
-                                onclick: move |_| {
-                                    runtime_click.select_tab(&val_str);
-                                },
-                                "{val}"
-                            }
-                        }
-                    }
+                class: "space-y-1",
+                h3 { class: "text-base font-semibold text-slate-900", "1. Horizontal Tabs (Automatic Activation)" }
+                p { class: "text-xs text-slate-500",
+                    "ArrowLeft / ArrowRight roves focus and automatically activates the focused tab. Home / End jumps to boundaries."
                 }
-            }
-
-            for val in ["account", "password", "settings"] {
-                {
-                    let content_attrs = runtime.content(val);
-                    rsx! {
-                        div {
-                            id: content_attrs.id(),
-                            role: content_attrs.role(),
-                            aria_labelledby: content_attrs.aria_labelledby(),
-                            tabindex: "{content_attrs.tabindex()}",
-                            hidden: content_attrs.is_hidden(),
-                            "data-state": content_attrs.data_state_str(),
-                            "data-orientation": content_attrs.data_orientation(),
-                            "data-value": content_attrs.data_value(),
-                            style: TAB_PANEL_STYLE,
-                            p { style: "margin: 0; font-weight: 600;", "Panel content for {val}" }
-                            p { style: "margin: 0.25rem 0 0; color: #64748b;", "Role: tabpanel, tabindex: 0, hidden: {content_attrs.is_hidden()}" }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn VerticalManualSection() -> Element {
-    let selected = use_signal(|| "profile".to_string());
-    let scope = ScopeHandle::root("playground").child("tabs-vertical");
-
-    let tabs_def = Tabs::new(scope.clone(), selected())
-        .with_orientation(TabsOrientation::Vertical)
-        .with_activation_mode(TabsActivationMode::Manual);
-
-    let runtime = use_tabs_runtime(
-        tabs_def,
-        Some(move |new_val| {
-            let mut selected = selected;
-            selected.set(new_val);
-        }),
-    );
-
-    use_effect(use_reactive((), {
-        let runtime = runtime.clone();
-        move |_| {
-            runtime.register_trigger("profile", false);
-            runtime.register_trigger("notifications", false);
-            runtime.register_trigger("billing", false);
-        }
-    }));
-
-    let list_attrs = runtime.list();
-
-    rsx! {
-        div {
-            style: "display: grid; gap: 0.75rem; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 0.5rem;",
-            h3 { style: "margin: 0; font-size: 1rem; color: #1e293b;", "2. Vertical Tabs (Manual Activation)" }
-            p { style: "margin: 0; font-size: 0.85rem; color: #64748b;",
-                "Navigate with " code { "ArrowUp" } "/" code { "ArrowDown" } ". Focus & roving tabindex change, but selection requires " code { "Space" } " or " code { "Enter" } "."
-            }
-            div {
-                span { style: BADGE_STYLE, "Active (Selected): {runtime.active_value()}" }
-                " "
-                span { style: BADGE_STYLE, "Focused Tab Stop: {runtime.current_tab_stop()}" }
-            }
-
-            div {
-                style: "display: flex; gap: 1.5rem;",
-                div {
-                    id: list_attrs.id(),
-                    role: list_attrs.role(),
-                    aria_orientation: list_attrs.aria_orientation(),
-                    "data-orientation": list_attrs.data_orientation(),
-                    style: TAB_LIST_VERTICAL,
-                    tabindex: "-1",
-                    onkeydown: {
-                        let runtime = runtime.clone();
-                        move |evt: KeyboardEvent| {
-                            if Tabs::is_navigation_key(&evt.key().to_string()) {
-                                evt.prevent_default();
-                                runtime.navigate_key(&evt.key().to_string());
-                            }
-                        }
-                    },
-
-                    for val in ["profile", "notifications", "billing"] {
-                        {
-                            let trig_attrs = runtime.trigger(val, false);
-                            let is_active = trig_attrs.is_selected();
-                            let bg = if is_active { "#7c3aed" } else { "#f1f5f9" };
-                            let fg = if is_active { "#ffffff" } else { "#334155" };
-                            let runtime_click = runtime.clone();
-                            let runtime_key = runtime.clone();
-                            let val_str = val.to_string();
-                            let val_key = val.to_string();
-
-                            rsx! {
-                                button {
-                                    id: trig_attrs.id(),
-                                    role: trig_attrs.role(),
-                                    aria_selected: trig_attrs.aria_selected(),
-                                    aria_controls: trig_attrs.aria_controls(),
-                                    tabindex: "{trig_attrs.tabindex()}",
-                                    "data-state": trig_attrs.data_state_str(),
-                                    "data-orientation": trig_attrs.data_orientation(),
-                                    "data-value": trig_attrs.data_value(),
-                                    style: "padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; text-align: left; font-weight: 500; cursor: pointer; background-color: {bg}; color: {fg}; transition: all 0.15s ease;",
-                                    onclick: move |_| {
-                                        runtime_click.select_tab(&val_str);
-                                    },
-                                    onkeydown: move |evt: KeyboardEvent| {
-                                        let key = evt.key().to_string();
-                                        if key == " " || key == "Enter" {
-                                            evt.prevent_default();
-                                            runtime_key.select_tab(&val_key);
-                                        }
-                                    },
-                                    "{val}"
-                                }
-                            }
-                        }
-                    }
-                }
-
-                div {
-                    style: "flex: 1;",
-                    for val in ["profile", "notifications", "billing"] {
-                        {
-                            let content_attrs = runtime.content(val);
-                            rsx! {
-                                div {
-                                    id: content_attrs.id(),
-                                    role: content_attrs.role(),
-                                    aria_labelledby: content_attrs.aria_labelledby(),
-                                    tabindex: "{content_attrs.tabindex()}",
-                                    hidden: content_attrs.is_hidden(),
-                                    "data-state": content_attrs.data_state_str(),
-                                    "data-orientation": content_attrs.data_orientation(),
-                                    "data-value": content_attrs.data_value(),
-                                    style: TAB_PANEL_STYLE,
-                                    p { style: "margin: 0; font-weight: 600;", "Vertical Panel: {val}" }
-                                    p { style: "margin: 0.25rem 0 0; color: #64748b;", "Current active tab is {runtime.active_value()}" }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn RtlSection() -> Element {
-    let selected = use_signal(|| "overview".to_string());
-    let scope = ScopeHandle::root("playground").child("tabs-rtl");
-
-    let tabs_def = Tabs::new(scope.clone(), selected())
-        .with_orientation(TabsOrientation::Horizontal)
-        .with_direction(TabsDirection::Rtl);
-
-    let runtime = use_tabs_runtime(
-        tabs_def,
-        Some(move |new_val| {
-            let mut selected = selected;
-            selected.set(new_val);
-        }),
-    );
-
-    use_effect(use_reactive((), {
-        let runtime = runtime.clone();
-        move |_| {
-            runtime.register_trigger("overview", false);
-            runtime.register_trigger("billing", false);
-            runtime.register_trigger("support", false);
-        }
-    }));
-
-    let list_attrs = runtime.list();
-
-    rsx! {
-        div {
-            dir: "rtl",
-            style: "display: grid; gap: 0.75rem; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 0.5rem;",
-            h3 { style: "margin: 0; font-size: 1rem; color: #1e293b;", "3. RTL Direction Tabs" }
-            p { style: "margin: 0; font-size: 0.85rem; color: #64748b;",
-                "In RTL mode, " code { "ArrowLeft" } " moves forward, and " code { "ArrowRight" } " moves backward."
-            }
-
-            div {
-                id: list_attrs.id(),
-                role: list_attrs.role(),
-                aria_orientation: list_attrs.aria_orientation(),
-                "data-orientation": list_attrs.data_orientation(),
-                style: TAB_LIST_HORIZONTAL,
-                tabindex: "-1",
-                onkeydown: {
-                    let runtime = runtime.clone();
-                    move |evt: KeyboardEvent| {
-                        if Tabs::is_navigation_key(&evt.key().to_string()) {
-                            evt.prevent_default();
-                            runtime.navigate_key(&evt.key().to_string());
-                        }
-                    }
-                },
-
-                for (val, label) in [("overview", "نظرة عامة"), ("billing", "الفواتير"), ("support", "الدعم")] {
-                    {
-                        let trig_attrs = runtime.trigger(val, false);
-                        let is_active = trig_attrs.is_selected();
-                        let bg = if is_active { "#059669" } else { "#f1f5f9" };
-                        let fg = if is_active { "#ffffff" } else { "#334155" };
-                        let runtime_click = runtime.clone();
-                        let val_str = val.to_string();
-
-                        rsx! {
-                            button {
-                                id: trig_attrs.id(),
-                                role: trig_attrs.role(),
-                                aria_selected: trig_attrs.aria_selected(),
-                                aria_controls: trig_attrs.aria_controls(),
-                                tabindex: "{trig_attrs.tabindex()}",
-                                "data-state": trig_attrs.data_state_str(),
-                                "data-orientation": trig_attrs.data_orientation(),
-                                "data-value": trig_attrs.data_value(),
-                                style: "padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; font-weight: 500; cursor: pointer; background-color: {bg}; color: {fg};",
-                                onclick: move |_| {
-                                    runtime_click.select_tab(&val_str);
-                                },
-                                "{label}"
-                            }
-                        }
-                    }
-                }
-            }
-
-            for val in ["overview", "billing", "support"] {
-                {
-                    let content_attrs = runtime.content(val);
-                    rsx! {
-                        div {
-                            id: content_attrs.id(),
-                            role: content_attrs.role(),
-                            aria_labelledby: content_attrs.aria_labelledby(),
-                            tabindex: "{content_attrs.tabindex()}",
-                            hidden: content_attrs.is_hidden(),
-                            "data-state": content_attrs.data_state_str(),
-                            "data-orientation": content_attrs.data_orientation(),
-                            "data-value": content_attrs.data_value(),
-                            style: TAB_PANEL_STYLE,
-                            p { style: "margin: 0; font-weight: 600;", "RTL Panel: {val}" }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn DisabledTabsSection() -> Element {
-    let selected = use_signal(|| "tab1".to_string());
-    let scope = ScopeHandle::root("playground").child("tabs-disabled");
-
-    let tabs_def = Tabs::new(scope.clone(), selected());
-    let runtime = use_tabs_runtime(
-        tabs_def,
-        Some(move |new_val| {
-            let mut selected = selected;
-            selected.set(new_val);
-        }),
-    );
-
-    use_effect(use_reactive((), {
-        let runtime = runtime.clone();
-        move |_| {
-            runtime.register_trigger("tab1", false);
-            runtime.register_trigger("tab2", true); // disabled!
-            runtime.register_trigger("tab3", false);
-        }
-    }));
-
-    let list_attrs = runtime.list();
-
-    rsx! {
-        div {
-            style: "display: grid; gap: 0.75rem; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 0.5rem;",
-            h3 { style: "margin: 0; font-size: 1rem; color: #1e293b;", "4. Disabled Tab Navigation Skipping" }
-            p { style: "margin: 0; font-size: 0.85rem; color: #64748b;",
-                "Tab 2 is disabled. Pressing " code { "ArrowRight" } " on Tab 1 immediately jumps over Tab 2 to Tab 3."
-            }
-
-            div {
-                id: list_attrs.id(),
-                role: list_attrs.role(),
-                aria_orientation: list_attrs.aria_orientation(),
-                "data-orientation": list_attrs.data_orientation(),
-                style: TAB_LIST_HORIZONTAL,
-                tabindex: "-1",
-                onkeydown: {
-                    let runtime = runtime.clone();
-                    move |evt: KeyboardEvent| {
-                        if Tabs::is_navigation_key(&evt.key().to_string()) {
-                            evt.prevent_default();
-                            runtime.navigate_key(&evt.key().to_string());
-                        }
-                    }
-                },
-
-                for (val, is_dis) in [("tab1", false), ("tab2", true), ("tab3", false)] {
-                    {
-                        let trig_attrs = runtime.trigger(val, is_dis);
-                        let is_active = trig_attrs.is_selected();
-                        let bg = if is_dis { "#e2e8f0" } else if is_active { "#2563eb" } else { "#f1f5f9" };
-                        let fg = if is_dis { "#94a3b8" } else if is_active { "#ffffff" } else { "#334155" };
-                        let cursor = if is_dis { "not-allowed" } else { "pointer" };
-                        let runtime_click = runtime.clone();
-                        let val_str = val.to_string();
-
-                        rsx! {
-                            button {
-                                id: trig_attrs.id(),
-                                role: trig_attrs.role(),
-                                aria_selected: trig_attrs.aria_selected(),
-                                aria_controls: trig_attrs.aria_controls(),
-                                tabindex: "{trig_attrs.tabindex()}",
-                                disabled: is_dis,
-                                "data-disabled": is_dis.then_some(""),
-                                "data-state": trig_attrs.data_state_str(),
-                                "data-orientation": trig_attrs.data_orientation(),
-                                "data-value": trig_attrs.data_value(),
-                                style: "padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; font-weight: 500; cursor: {cursor}; background-color: {bg}; color: {fg};",
-                                onclick: move |_| {
-                                    if !is_dis {
-                                        runtime_click.select_tab(&val_str);
-                                    }
-                                },
-                                if is_dis { "{val} (Disabled)" } else { "{val}" }
-                            }
-                        }
-                    }
-                }
-            }
-
-            for val in ["tab1", "tab2", "tab3"] {
-                {
-                    let content_attrs = runtime.content(val);
-                    rsx! {
-                        div {
-                            id: content_attrs.id(),
-                            role: content_attrs.role(),
-                            aria_labelledby: content_attrs.aria_labelledby(),
-                            tabindex: "{content_attrs.tabindex()}",
-                            hidden: content_attrs.is_hidden(),
-                            "data-state": content_attrs.data_state_str(),
-                            style: TAB_PANEL_STYLE,
-                            p { style: "margin: 0; font-weight: 600;", "Panel: {val}" }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn DescendantInputRegressionSection() -> Element {
-    let selected = use_signal(|| "form-tab".to_string());
-    let mut input_text = use_signal(|| "Hello World".to_string());
-    let scope = ScopeHandle::root("playground").child("tabs-regression");
-
-    let tabs_def = Tabs::new(scope.clone(), selected());
-    let runtime = use_tabs_runtime(
-        tabs_def,
-        Some(move |new_val| {
-            let mut selected = selected;
-            selected.set(new_val);
-        }),
-    );
-
-    use_effect(use_reactive((), {
-        let runtime = runtime.clone();
-        move |_| {
-            runtime.register_trigger("form-tab", false);
-            runtime.register_trigger("other-tab", false);
-        }
-    }));
-
-    let list_attrs = runtime.list();
-
-    rsx! {
-        div {
-            style: "display: grid; gap: 0.75rem; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 0.5rem;",
-            h3 { style: "margin: 0; font-size: 1rem; color: #1e293b;", "5. Descendant Input Event Boundary & Blur Safety" }
-            p { style: "margin: 0; font-size: 0.85rem; color: #64748b;",
-                "Typing Space/Enter inside the text input must NOT trigger tab navigation (Bugs #3232, #2915). Departing input blurs before tab unmount (Bug #3600)."
-            }
-
-            div {
-                id: list_attrs.id(),
-                role: list_attrs.role(),
-                aria_orientation: list_attrs.aria_orientation(),
-                style: TAB_LIST_HORIZONTAL,
-                tabindex: "-1",
-                onkeydown: {
-                    let runtime = runtime.clone();
-                    move |evt: KeyboardEvent| {
-                        if Tabs::is_navigation_key(&evt.key().to_string()) {
-                            evt.prevent_default();
-                            runtime.navigate_key(&evt.key().to_string());
-                        }
-                    }
-                },
-
-                for val in ["form-tab", "other-tab"] {
-                    {
-                        let trig_attrs = runtime.trigger(val, false);
-                        let is_active = trig_attrs.is_selected();
-                        let bg = if is_active { "#2563eb" } else { "#f1f5f9" };
-                        let fg = if is_active { "#ffffff" } else { "#334155" };
-                        let runtime_click = runtime.clone();
-                        let runtime_down = runtime.clone();
-                        let val_str = val.to_string();
-                        let val_down = val.to_string();
-
-                        rsx! {
-                            button {
-                                id: trig_attrs.id(),
-                                role: trig_attrs.role(),
-                                aria_selected: trig_attrs.aria_selected(),
-                                aria_controls: trig_attrs.aria_controls(),
-                                tabindex: "{trig_attrs.tabindex()}",
-                                "data-state": trig_attrs.data_state_str(),
-                                style: "padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; font-weight: 500; cursor: pointer; background-color: {bg}; color: {fg};",
-                                onmousedown: move |_| {
-                                    runtime_down.select_tab(&val_down);
-                                },
-                                onclick: move |_| {
-                                    runtime_click.select_tab(&val_str);
-                                },
-                                "{val}"
-                            }
-                        }
-                    }
-                }
-            }
-
-            div {
-                id: runtime.content("form-tab").id(),
-                role: runtime.content("form-tab").role(),
-                aria_labelledby: runtime.content("form-tab").aria_labelledby(),
-                tabindex: "{runtime.content(\"form-tab\").tabindex()}",
-                hidden: runtime.content("form-tab").is_hidden(),
-                style: TAB_PANEL_STYLE,
-                label {
-                    style: "display: block; font-weight: 600; margin-bottom: 0.5rem;",
-                    "Nested Input Field (Press Space/Enter here):"
-                }
-                input {
-                    id: "playground-nested-input",
-                    r#type: "text",
-                    value: "{input_text()}",
-                    oninput: move |evt| input_text.set(evt.value()),
-                    onkeydown: move |evt: KeyboardEvent| {
-                        // Crucial: descendant stops propagation to prevent parent tablist from handling space/enter
-                        evt.stop_propagation();
-                    },
-                    style: "padding: 0.5rem; border: 1px solid #cbd5e1; border-radius: 0.375rem; width: 100%; max-width: 24rem;"
-                }
-                p { style: "margin: 0.5rem 0 0; color: #64748b; font-size: 0.85rem;", "Input value: {input_text()}" }
-            }
-
-            div {
-                id: runtime.content("other-tab").id(),
-                role: runtime.content("other-tab").role(),
-                aria_labelledby: runtime.content("other-tab").aria_labelledby(),
-                tabindex: "{runtime.content(\"other-tab\").tabindex()}",
-                hidden: runtime.content("other-tab").is_hidden(),
-                style: TAB_PANEL_STYLE,
-                p { style: "margin: 0; font-weight: 600;", "Other Tab Panel Content" }
-            }
-        }
-    }
-}
-
-#[component]
-fn DeclarativeTabsSection() -> Element {
-    let mut selected = use_signal(|| "preview".to_string());
-    let current = selected();
-    let preview_bg = if current == "preview" { "#2563eb" } else { "#f1f5f9" };
-    let preview_fg = if current == "preview" { "#ffffff" } else { "#334155" };
-    let code_bg = if current == "code" { "#2563eb" } else { "#f1f5f9" };
-    let code_fg = if current == "code" { "#ffffff" } else { "#334155" };
-    let settings_bg = if current == "settings" { "#2563eb" } else { "#f1f5f9" };
-    let settings_fg = if current == "settings" { "#ffffff" } else { "#334155" };
-
-    rsx! {
-        div {
-            style: "display: grid; gap: 0.85rem; padding: 1.25rem; border: 2px solid #2563eb; border-radius: 0.75rem; background-color: #f8fafc; margin-bottom: 0.5rem;",
-            div {
-                style: "display: flex; align-items: center; justify-content: space-between;",
-                h3 { style: "margin: 0; color: #1d4ed8; font-size: 1.05rem;", "0. Declarative Compound Syntax (Track A)" }
-                span {
-                    style: "font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 9999px; background-color: #dbeafe; color: #1d4ed8;",
-                    "Ergonomic Compound Components"
-                }
-            }
-            p { style: "margin: 0; color: #475569; font-size: 0.85rem;",
-                "Composed using " code { "<TabsRoot>" } ", " code { "<TabsList>" } ", " code { "<TabsTrigger>" } ", and " code { "<TabsContent>" } " with automatic roving focus and active tabpanel coordination."
             }
 
             TabsRoot {
-                id: "declarative-tabs".to_string(),
-                value: selected,
+                id: "tabs-horizontal-auto".to_string(),
                 default_value: "preview".to_string(),
-                on_value_change: move |new_val| selected.set(new_val),
+                orientation: TabsOrientation::Horizontal,
+                activation_mode: TabsActivationMode::Automatic,
                 TabsList {
-                    id: "declarative-tabs-list",
-                    style: "display: flex; gap: 0.5rem; border-bottom: 2px solid #cbd5e1; padding-bottom: 0.25rem;",
+                    id: "tabs-auto-list",
+                    class: "inline-flex h-10 items-center justify-center rounded-lg bg-slate-100 p-1 text-slate-500",
                     TabsTrigger {
-                        id: "declarative-tab-preview",
+                        id: "tabs-auto-preview",
                         value: "preview".to_string(),
-                        style: "padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; font-weight: 600; cursor: pointer; background-color: {preview_bg}; color: {preview_fg}; transition: all 0.15s ease;",
+                        class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
                         "Preview"
                     }
                     TabsTrigger {
-                        id: "declarative-tab-code",
+                        id: "tabs-auto-code",
                         value: "code".to_string(),
-                        style: "padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; font-weight: 600; cursor: pointer; background-color: {code_bg}; color: {code_fg}; transition: all 0.15s ease;",
+                        class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
                         "Code"
                     }
                     TabsTrigger {
-                        id: "declarative-tab-settings",
+                        id: "tabs-auto-settings",
                         value: "settings".to_string(),
-                        style: "padding: 0.5rem 1rem; border-radius: 0.375rem; border: none; font-weight: 600; cursor: pointer; background-color: {settings_bg}; color: {settings_fg}; transition: all 0.15s ease;",
+                        class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
                         "Settings"
                     }
                 }
                 TabsContent {
+                    id: "tabs-auto-content-preview",
                     value: "preview".to_string(),
-                    style: TAB_PANEL_STYLE,
-                    p { style: "margin: 0; font-weight: 600; color: #0f172a;", "Declarative Preview Panel" }
-                    p { style: "margin: 0.25rem 0 0; color: #64748b; font-size: 0.875rem;", "This panel was automatically coordinated through TabsContext with roving focus." }
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700 space-y-1",
+                    p { class: "font-semibold text-slate-900", "Component Preview" }
+                    p { class: "text-xs text-slate-500", "Live rendered component preview with declarative state and styling." }
                 }
                 TabsContent {
+                    id: "tabs-auto-content-code",
                     value: "code".to_string(),
-                    style: TAB_PANEL_STYLE,
-                    p { style: "margin: 0; font-weight: 600; color: #0f172a;", "Declarative Code Panel" }
-                    p { style: "margin: 0.25rem 0 0; color: #64748b; font-size: 0.875rem;", "Source code is displayed here with automatic ARIA linkage." }
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700 space-y-1",
+                    p { class: "font-semibold text-slate-900", "Source Code" }
+                    p { class: "text-xs font-mono text-slate-500", "<TabsRoot default_value=\"preview\">...</TabsRoot>" }
                 }
                 TabsContent {
+                    id: "tabs-auto-content-settings",
                     value: "settings".to_string(),
-                    style: TAB_PANEL_STYLE,
-                    p { style: "margin: 0; font-weight: 600; color: #0f172a;", "Declarative Settings Panel" }
-                    p { style: "margin: 0.25rem 0 0; color: #64748b; font-size: 0.875rem;", "Configuration settings are rendered here." }
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700 space-y-1",
+                    p { class: "font-semibold text-slate-900", "Configuration" }
+                    p { class: "text-xs text-slate-500", "Component and runtime preferences configured here." }
                 }
             }
         }
     }
 }
 
+// ---------------------------------------------------------------------------
+// Scenario 2: Vertical Manual Activation
+// ---------------------------------------------------------------------------
+#[component]
+fn Scenario2VerticalManual() -> Element {
+    rsx! {
+        div {
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
+            div {
+                class: "space-y-1",
+                h3 { class: "text-base font-semibold text-slate-900", "2. Vertical Tabs (Manual Activation)" }
+                p { class: "text-xs text-slate-500",
+                    "ArrowUp / ArrowDown roves keyboard focus, but selection requires explicit Space or Enter keypress."
+                }
+            }
+
+            TabsRoot {
+                id: "tabs-vertical-manual".to_string(),
+                default_value: "profile".to_string(),
+                orientation: TabsOrientation::Vertical,
+                activation_mode: TabsActivationMode::Manual,
+                class: "flex gap-6 items-start",
+                TabsList {
+                    id: "tabs-vert-list",
+                    class: "flex flex-col w-48 rounded-lg bg-slate-100 p-1 text-slate-500 gap-1",
+                    TabsTrigger {
+                        id: "tabs-vert-profile",
+                        value: "profile".to_string(),
+                        class: "flex items-center w-full rounded-md px-3 py-2 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                        "Profile"
+                    }
+                    TabsTrigger {
+                        id: "tabs-vert-notifications",
+                        value: "notifications".to_string(),
+                        class: "flex items-center w-full rounded-md px-3 py-2 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                        "Notifications"
+                    }
+                    TabsTrigger {
+                        id: "tabs-vert-billing",
+                        value: "billing".to_string(),
+                        class: "flex items-center w-full rounded-md px-3 py-2 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                        "Billing"
+                    }
+                }
+                div {
+                    class: "flex-1 min-w-0",
+                    TabsContent {
+                        id: "tabs-vert-content-profile",
+                        value: "profile".to_string(),
+                        class: "rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700 space-y-1",
+                        p { class: "font-semibold text-slate-900", "Profile Settings" }
+                        p { class: "text-xs text-slate-500", "Manage your personal profile and email addresses." }
+                    }
+                    TabsContent {
+                        id: "tabs-vert-content-notifications",
+                        value: "notifications".to_string(),
+                        class: "rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700 space-y-1",
+                        p { class: "font-semibold text-slate-900", "Notification Preferences" }
+                        p { class: "text-xs text-slate-500", "Choose how and when you receive security alerts." }
+                    }
+                    TabsContent {
+                        id: "tabs-vert-content-billing",
+                        value: "billing".to_string(),
+                        class: "rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700 space-y-1",
+                        p { class: "font-semibold text-slate-900", "Billing & Invoices" }
+                        p { class: "text-xs text-slate-500", "View invoices and manage payment methods." }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 3: Disabled Tab Skipping
+// ---------------------------------------------------------------------------
+#[component]
+fn Scenario3DisabledSkipping() -> Element {
+    rsx! {
+        div {
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
+            div {
+                class: "space-y-1",
+                h3 { class: "text-base font-semibold text-slate-900", "3. Disabled Tab Navigation Skipping" }
+                p { class: "text-xs text-slate-500",
+                    "Tab 2 is disabled. Pressing ArrowRight from Tab 1 immediately leaps over Tab 2 to Tab 3."
+                }
+            }
+
+            TabsRoot {
+                id: "tabs-disabled-skipping".to_string(),
+                default_value: "tab1".to_string(),
+                TabsList {
+                    id: "tabs-dis-list",
+                    class: "inline-flex h-10 items-center justify-center rounded-lg bg-slate-100 p-1 text-slate-500",
+                    TabsTrigger {
+                        id: "tabs-dis-tab1",
+                        value: "tab1".to_string(),
+                        class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                        "Tab 1 (Active)"
+                    }
+                    TabsTrigger {
+                        id: "tabs-dis-tab2",
+                        value: "tab2".to_string(),
+                        disabled: true,
+                        class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all text-slate-400 cursor-not-allowed opacity-50 data-[state=active]:bg-white",
+                        "Tab 2 (Disabled)"
+                    }
+                    TabsTrigger {
+                        id: "tabs-dis-tab3",
+                        value: "tab3".to_string(),
+                        class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                        "Tab 3 (Available)"
+                    }
+                }
+                TabsContent {
+                    id: "tabs-dis-content-tab1",
+                    value: "tab1".to_string(),
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700",
+                    p { "Tab 1 content is visible." }
+                }
+                TabsContent {
+                    id: "tabs-dis-content-tab3",
+                    value: "tab3".to_string(),
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700",
+                    p { "Tab 3 content is visible after skipping disabled Tab 2." }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 4: Controlled State
+// ---------------------------------------------------------------------------
+#[component]
+fn Scenario4ControlledState() -> Element {
+    let mut current_tab = use_signal(|| "analytics".to_string());
+
+    rsx! {
+        div {
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
+            div {
+                class: "space-y-1",
+                h3 { class: "text-base font-semibold text-slate-900", "4. Controlled State Synchronization" }
+                p { class: "text-xs text-slate-500",
+                    "The active tab is driven by an external Signal and can be changed programmatically."
+                }
+            }
+
+            div {
+                class: "flex items-center gap-2",
+                span { class: "text-xs font-semibold text-slate-500 uppercase tracking-wider", "External Controls:" }
+                button {
+                    id: "btn-select-overview",
+                    r#type: "button",
+                    onclick: move |_| current_tab.set("overview".to_string()),
+                    class: "rounded bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 cursor-pointer transition",
+                    "Select Overview"
+                }
+                button {
+                    id: "btn-select-analytics",
+                    r#type: "button",
+                    onclick: move |_| current_tab.set("analytics".to_string()),
+                    class: "rounded bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 cursor-pointer transition",
+                    "Select Analytics"
+                }
+                button {
+                    id: "btn-select-reports",
+                    r#type: "button",
+                    onclick: move |_| current_tab.set("reports".to_string()),
+                    class: "rounded bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 cursor-pointer transition",
+                    "Select Reports"
+                }
+            }
+
+            TabsRoot {
+                id: "tabs-controlled".to_string(),
+                value: current_tab,
+                on_value_change: move |val| current_tab.set(val),
+                TabsList {
+                    id: "tabs-ctrl-list",
+                    class: "inline-flex h-10 items-center justify-center rounded-lg bg-slate-100 p-1 text-slate-500",
+                    TabsTrigger {
+                        id: "tabs-ctrl-overview",
+                        value: "overview".to_string(),
+                        class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                        "Overview"
+                    }
+                    TabsTrigger {
+                        id: "tabs-ctrl-analytics",
+                        value: "analytics".to_string(),
+                        class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                        "Analytics"
+                    }
+                    TabsTrigger {
+                        id: "tabs-ctrl-reports",
+                        value: "reports".to_string(),
+                        class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                        "Reports"
+                    }
+                }
+                TabsContent {
+                    id: "tabs-ctrl-content-overview",
+                    value: "overview".to_string(),
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700",
+                    p { "Overview metrics and executive summary." }
+                }
+                TabsContent {
+                    id: "tabs-ctrl-content-analytics",
+                    value: "analytics".to_string(),
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700",
+                    p { "Detailed traffic and conversion analytics." }
+                }
+                TabsContent {
+                    id: "tabs-ctrl-content-reports",
+                    value: "reports".to_string(),
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700",
+                    p { "Scheduled performance and compliance reports." }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 5: RTL Direction Tabs
+// ---------------------------------------------------------------------------
+#[component]
+fn Scenario5RtlDirection() -> Element {
+    rsx! {
+        div {
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
+            div {
+                class: "space-y-1",
+                h3 { class: "text-base font-semibold text-slate-900", "5. Right-to-Left (RTL) Navigation" }
+                p { class: "text-xs text-slate-500",
+                    "Under dir=RTL, ArrowLeft navigates forward and ArrowRight navigates backward."
+                }
+            }
+
+            div {
+                dir: "rtl",
+                TabsRoot {
+                    id: "tabs-rtl".to_string(),
+                    default_value: "summary".to_string(),
+                    dir: TabsDirection::Rtl,
+                    TabsList {
+                        id: "tabs-rtl-list",
+                        class: "inline-flex h-10 items-center justify-center rounded-lg bg-slate-100 p-1 text-slate-500",
+                        TabsTrigger {
+                            id: "tabs-rtl-first",
+                            value: "summary".to_string(),
+                            class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                            "ملخص (Summary)"
+                        }
+                        TabsTrigger {
+                            id: "tabs-rtl-second",
+                            value: "details".to_string(),
+                            class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                            "تفاصيل (Details)"
+                        }
+                        TabsTrigger {
+                            id: "tabs-rtl-third",
+                            value: "support".to_string(),
+                            class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                            "دعم (Support)"
+                        }
+                    }
+                    TabsContent {
+                        id: "tabs-rtl-content-summary",
+                        value: "summary".to_string(),
+                        class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700",
+                        p { "لوحة الملخص باللغة العربية (Summary panel in Arabic)." }
+                    }
+                    TabsContent {
+                        id: "tabs-rtl-content-details",
+                        value: "details".to_string(),
+                        class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700",
+                        p { "لوحة التفاصيل (Details panel)." }
+                    }
+                    TabsContent {
+                        id: "tabs-rtl-content-support",
+                        value: "support".to_string(),
+                        class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700",
+                        p { "لوحة الدعم الفني (Support panel)." }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 6: Descendant Form Input Isolation
+// ---------------------------------------------------------------------------
+#[component]
+fn Scenario6DescendantInputIsolation() -> Element {
+    let mut text_value = use_signal(|| "Type spaces here".to_string());
+
+    rsx! {
+        div {
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
+            div {
+                class: "space-y-1",
+                h3 { class: "text-base font-semibold text-slate-900", "6. Descendant Form Input Boundary Safety" }
+                p { class: "text-xs text-slate-500",
+                    "Typing Space / Enter inside descendant form controls must NOT trigger tab activation or navigation."
+                }
+            }
+
+            TabsRoot {
+                id: "tabs-input-isolation".to_string(),
+                default_value: "form-tab".to_string(),
+                TabsList {
+                    id: "tabs-form-list",
+                    class: "inline-flex h-10 items-center justify-center rounded-lg bg-slate-100 p-1 text-slate-500",
+                    TabsTrigger {
+                        id: "tabs-form-tab",
+                        value: "form-tab".to_string(),
+                        class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                        "Form Tab"
+                    }
+                    TabsTrigger {
+                        id: "tabs-other-tab",
+                        value: "other-tab".to_string(),
+                        class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
+                        "Other Tab"
+                    }
+                }
+                TabsContent {
+                    id: "tabs-form-content",
+                    value: "form-tab".to_string(),
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700 space-y-3",
+                    label {
+                        r#for: "playground-nested-input",
+                        class: "block text-xs font-semibold text-slate-700",
+                        "Nested Input Field (Press Space or Arrow keys here):"
+                    }
+                    input {
+                        id: "playground-nested-input",
+                        r#type: "text",
+                        value: "{text_value()}",
+                        oninput: move |evt| text_value.set(evt.value()),
+                        onkeydown: move |evt: KeyboardEvent| {
+                            evt.stop_propagation();
+                        },
+                        class: "w-full max-w-sm rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500",
+                    }
+                    p { class: "text-xs text-slate-500", "Value: {text_value()}" }
+                }
+                TabsContent {
+                    id: "tabs-other-content",
+                    value: "other-tab".to_string(),
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700",
+                    p { "Other tab panel content." }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 7: Segmented Control / Pills Variant
+// ---------------------------------------------------------------------------
+#[component]
+fn Scenario7SegmentedPills() -> Element {
+    rsx! {
+        div {
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
+            div {
+                class: "space-y-1",
+                h3 { class: "text-base font-semibold text-slate-900", "7. Segmented Control / Pills Styling" }
+                p { class: "text-xs text-slate-500",
+                    "Fully unstyled headless primitives styled with Tailwind rounded-full pill variants."
+                }
+            }
+
+            TabsRoot {
+                id: "tabs-pills".to_string(),
+                default_value: "weekly".to_string(),
+                TabsList {
+                    id: "tabs-pills-list",
+                    class: "inline-flex rounded-full bg-slate-100 p-1.5 gap-1",
+                    TabsTrigger {
+                        id: "tabs-pills-daily",
+                        value: "daily".to_string(),
+                        class: "inline-flex items-center rounded-full px-4 py-1.5 text-xs font-semibold cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-sm transition-all",
+                        "Daily"
+                    }
+                    TabsTrigger {
+                        id: "tabs-pills-weekly",
+                        value: "weekly".to_string(),
+                        class: "inline-flex items-center rounded-full px-4 py-1.5 text-xs font-semibold cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-sm transition-all",
+                        "Weekly"
+                    }
+                    TabsTrigger {
+                        id: "tabs-pills-monthly",
+                        value: "monthly".to_string(),
+                        class: "inline-flex items-center rounded-full px-4 py-1.5 text-xs font-semibold cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-blue-600 data-[state=active]:text-white data-[state=active]:shadow-sm transition-all",
+                        "Monthly"
+                    }
+                }
+                TabsContent {
+                    id: "tabs-pills-content-daily",
+                    value: "daily".to_string(),
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700",
+                    p { "Daily activity metrics aggregation." }
+                }
+                TabsContent {
+                    id: "tabs-pills-content-weekly",
+                    value: "weekly".to_string(),
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700",
+                    p { "Weekly rollups and trends." }
+                }
+                TabsContent {
+                    id: "tabs-pills-content-monthly",
+                    value: "monthly".to_string(),
+                    class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700",
+                    p { "Monthly statements and financial summaries." }
+                }
+            }
+        }
+    }
+}

@@ -87,6 +87,7 @@ fn app() -> Element {
     ];
 
     rsx! {
+        document::Link { rel: "stylesheet", href: asset!("/assets/tailwind.css") }
         div {
             style: "min-height: 100vh; background-color: #f8fafc; display: flex; flex-direction: row; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;",
 

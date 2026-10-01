@@ -1,467 +1,154 @@
 use dioxus::prelude::*;
-use monoxus::{
-    alert_dialog::{
-        AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogRoot,
-        use_alert_dialog_runtime,
-    },
-    dialog::{
-        DialogContent, DialogDescription, DialogMode, DialogOpenFocusPolicy,
-        DialogOutsideDismissBehavior, DialogOverlay, DialogPortal, DialogTitle, DialogTrigger,
-    },
-    foundation::{overlay::PortalHost, shared::ScopeHandle, state::DataState},
+use monoxus::alert_dialog::{
+    AlertDialogAction, AlertDialogCancel, AlertDialogRoot, DialogContent, DialogDescription,
+    DialogOverlay, DialogPortal, DialogTitle, DialogTrigger,
 };
-
-const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-radius: 0.75rem; border: 1px solid #fecaca; background-color: white; box-shadow: 0 10px 30px rgba(127, 29, 29, 0.08);";
-const MUTED_STYLE: &str = "margin: 0; color: #7f1d1d;";
-const MODAL_ROOT_STYLE: &str = "position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; padding: 1.5rem;";
-const MODAL_OVERLAY_STYLE: &str = "position: absolute; inset: 0; background-color: rgba(127, 29, 29, 0.72); backdrop-filter: blur(3px); cursor: not-allowed;";
-const MODAL_FRAME_STYLE: &str = "position: relative; z-index: 1; width: min(100%, 34rem); max-height: calc(100vh - 3rem); overflow: auto;";
-const MODAL_PANEL_STYLE: &str = "display: grid; gap: 1rem; padding: 1.35rem; border-radius: 1rem; border: 1px solid #fecaca; background-color: white; box-shadow: 0 32px 80px rgba(127, 29, 29, 0.32);";
-const MODAL_WARNING_STYLE: &str = "display: grid; gap: 0.35rem; padding: 0.9rem 1rem; border-radius: 0.75rem; background-color: #fef2f2; color: #991b1b;";
-const ALERT_DIALOG_PLAYGROUND_CSS: &str = r#"
-@keyframes monoxus-alert-dialog-fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-@keyframes monoxus-alert-dialog-fade-out {
-    from { opacity: 1; }
-    to { opacity: 0; }
-}
-
-@keyframes monoxus-alert-dialog-scale-in {
-    from {
-        transform: scale(0.95);
-        opacity: 0;
-    }
-    to {
-        transform: scale(1);
-        opacity: 1;
-    }
-}
-
-@keyframes monoxus-alert-dialog-scale-out {
-    from {
-        transform: scale(1);
-        opacity: 1;
-    }
-    to {
-        transform: scale(0.95);
-        opacity: 0;
-    }
-}
-
-[data-playground-alert-dialog-overlay='true'][data-state='open'],
-[data-overlay='true'][data-state='open'] {
-    animation: monoxus-alert-dialog-fade-in 200ms ease-out forwards;
-}
-
-[data-playground-alert-dialog-overlay='true'][data-state='closed'],
-[data-overlay='true'][data-state='closed'] {
-    animation: monoxus-alert-dialog-fade-out 200ms ease-in forwards;
-}
-
-[data-playground-alert-dialog-panel='true'][data-state='open'],
-[role='alertdialog'][data-state='open'] {
-    animation: monoxus-alert-dialog-scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-[data-playground-alert-dialog-panel='true'][data-state='closed'],
-[role='alertdialog'][data-state='closed'] {
-    animation: monoxus-alert-dialog-scale-out 200ms ease-in forwards;
-}
-
-"#;
 
 #[component]
 pub fn AlertDialogPlayground() -> Element {
     let open = use_signal(|| false);
-    let outcome = use_signal(|| String::from("Waiting for a choice."));
-    let alert = use_alert_dialog_runtime(
-        AlertDialog::new(
-            ScopeHandle::root("playground").child("alert-dialog"),
-            open(),
-        )
-        .with_portal_host(PortalHost::inline()),
-    );
-
-    let root = alert.root();
-    let trigger = alert.trigger();
-    let portal = alert.portal();
-    let overlay = alert.overlay();
-    let content = alert.content();
-    let title = alert.title();
-    let description = alert.description();
-    let close = alert.close();
-    let action = alert.action();
-    let cancel = alert.cancel();
-    let lifecycle = alert.lifecycle();
-
-    let portal_host = if portal.host().is_inline() {
-        "inline"
-    } else {
-        portal.host().id().unwrap_or("document.body")
-    };
-    let mode = dialog_mode_label(lifecycle.mode());
-    let open_focus = open_focus_policy_label(lifecycle.open_focus_policy());
-    let pointer_outside = outside_behavior_label(
-        lifecycle
-            .outside_interaction_policy()
-            .pointer_down_outside(),
-    );
-    let focus_outside =
-        outside_behavior_label(lifecycle.outside_interaction_policy().focus_outside());
-    let trigger_request = trigger.open_request().next_open();
-    let close_request = close.close_request().next_open();
-    let action_request = action.close_request().next_open();
-    let cancel_request = cancel.close_request().next_open();
-    let mut open_from_trigger = open;
-    let mut open_from_close = open;
-    let mut open_from_action = open;
-    let mut open_from_cancel = open;
-    let mut outcome_from_overlay = outcome;
-    let mut outcome_from_close = outcome;
-    let mut outcome_from_action = outcome;
-    let mut outcome_from_cancel = outcome;
-
-    rsx! {
-        section {
-            style: CARD_STYLE,
-            style { "{ALERT_DIALOG_PLAYGROUND_CSS}" }
-            h2 {
-                style: "margin: 0;",
-                "Alert dialog"
-            }
-            p {
-                style: MUTED_STYLE,
-                "This variant reuses the same dialog lane and adds explicit "
-                code { "action" }
-                " / "
-                code { "cancel" }
-                " semantics from "
-                code { "monoxus::alert_dialog" }
-                "."
-            }
-
-            DeclarativeAlertDialogSection {}
-
-            div {
-                id: root.id(),
-                "data-state": root.data_state().as_str(),
-                style: "display: grid; gap: 1rem;",
-                button {
-                    id: trigger.id(),
-                    r#type: "button",
-                    aria_controls: trigger.aria_controls(),
-                    aria_expanded: trigger.aria_expanded(),
-                    "data-state": trigger.data_state().as_str(),
-                    onmounted: alert.mount_trigger(),
-                    onclick: move |_| open_from_trigger.set(trigger_request),
-                    style: "justify-self: start; padding: 0.65rem 0.9rem; border: 0; border-radius: 0.5rem; background-color: #dc2626; color: white; font-weight: 600; cursor: pointer;",
-                    "Open alert dialog"
-                }
-                p {
-                    style: MUTED_STYLE,
-                    "Last outcome: "
-                    strong { "{outcome()}" }
-                }
-                ul {
-                    style: "margin: 0; padding-left: 1.25rem; color: #7f1d1d;",
-                    li {
-                        "content role: "
-                        code { "{content.role()}" }
-                    }
-                    li {
-                        "portal host: "
-                        code { "{portal_host}" }
-                    }
-                    li {
-                        "action id: "
-                        code { "{action.id()}" }
-                    }
-                    li {
-                        "cancel id: "
-                        code { "{cancel.id()}" }
-                    }
-                    li {
-                        "mode: "
-                        code { "{mode}" }
-                    }
-                    li {
-                        "open focus: "
-                        code { "{open_focus}" }
-                    }
-                    li {
-                        "outside pointer: "
-                        code { "{pointer_outside}" }
-                        " / focus outside: "
-                        code { "{focus_outside}" }
-                    }
-                }
-                if alert.should_render_portal() {
-                    div {
-                        style: MODAL_ROOT_STYLE,
-                        if alert.should_render_overlay() {
-                            div {
-                                id: overlay.id(),
-                                "data-state": overlay.data_state().as_str(),
-                                "data-playground-alert-dialog-overlay": "true",
-                                onclick: move |_| {
-                                    outcome_from_overlay
-                                        .set(String::from("Outside interaction ignored by alert policy"));
-                                },
-                                style: alert_overlay_style(overlay.data_state()),
-                                aria_label: "Alert dialog backdrop",
-                            }
-                        }
-                        if alert.should_render_content() {
-                            div {
-                                style: MODAL_FRAME_STYLE,
-                                div {
-                                    id: content.id(),
-                                    role: content.role(),
-                                    aria_modal: content.aria_modal(),
-                                    aria_labelledby: content.aria_labelledby(),
-                                    aria_describedby: content.aria_describedby(),
-                                    "data-state": content.data_state().as_str(),
-                                    "data-playground-alert-dialog-panel": "true",
-                                    onmounted: alert.mount_content(),
-                                    style: alert_panel_style(content.data_state()),
-                                    div {
-                                        style: "display: grid; gap: 0.5rem;",
-                                        p {
-                                            style: "margin: 0; color: #b91c1c; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;",
-                                            "Confirm / cancel modal"
-                                        }
-                                        h3 {
-                                            id: title.id(),
-                                            style: "margin: 0;",
-                                            "Delete the demo file?"
-                                        }
-                                        p {
-                                            id: description.id(),
-                                            style: MUTED_STYLE,
-                                            "The example keeps renderer details local while consuming the public "
-                                            code { "monoxus::alert_dialog" }
-                                            " data APIs."
-                                        }
-                                    }
-                                    div {
-                                        style: MODAL_WARNING_STYLE,
-                                        strong { "This is the primary modal experience." }
-                                        p {
-                                            style: "margin: 0;",
-                                            "Focus the decision on the centered panel, with confirm and cancel actions grouped together above the dimmed page, and keep the closing lane mounted long enough for Step 5 animate-out proof."
-                                        }
-                                    }
-                                    div {
-                                        style: "display: grid; gap: 0.45rem;",
-                                        p {
-                                            style: "margin: 0; font-weight: 600; color: #7f1d1d;",
-                                            "Proof surface"
-                                        }
-                                        ul {
-                                            style: "margin: 0; padding-left: 1.25rem; color: #7f1d1d;",
-                                            li {
-                                                "content role: "
-                                                code { "{content.role()}" }
-                                            }
-                                            li {
-                                                "portal host: "
-                                                code { "{portal_host}" }
-                                            }
-                                            li {
-                                                "action id: "
-                                                code { "{action.id()}" }
-                                            }
-                                            li {
-                                                "cancel id: "
-                                                code { "{cancel.id()}" }
-                                            }
-                                            li {
-                                                "open focus: "
-                                                code { "{open_focus}" }
-                                            }
-                                            li {
-                                                "outside pointer: "
-                                                code { "{pointer_outside}" }
-                                                " / focus outside: "
-                                                code { "{focus_outside}" }
-                                            }
-                                        }
-                                    }
-                                    div {
-                                        style: "display: flex; gap: 0.75rem; flex-wrap: wrap; justify-content: flex-end;",
-                                        button {
-                                            id: cancel.id(),
-                                            r#type: "button",
-                                            "data-state": cancel.data_state().as_str(),
-                                            onmounted: alert.mount_cancel(),
-                                            onclick: move |_| {
-                                                outcome_from_cancel.set(String::from("Canceled"));
-                                                open_from_cancel.set(cancel_request);
-                                            },
-                                            style: "padding: 0.65rem 0.95rem; border-radius: 0.65rem; border: 1px solid #fca5a5; background-color: white; cursor: pointer; font-weight: 600;",
-                                            "Cancel"
-                                        }
-                                        button {
-                                            id: action.id(),
-                                            r#type: "button",
-                                            "data-state": action.data_state().as_str(),
-                                            onmounted: alert.mount_action(),
-                                            onclick: move |_| {
-                                                outcome_from_action.set(String::from("Confirmed"));
-                                                open_from_action.set(action_request);
-                                            },
-                                            style: "padding: 0.65rem 0.95rem; border-radius: 0.65rem; border: 0; background-color: #dc2626; color: white; cursor: pointer; font-weight: 700;",
-                                            "Confirm action"
-                                        }
-                                    }
-                                    button {
-                                        id: close.id(),
-                                        r#type: "button",
-                                        "data-state": close.data_state().as_str(),
-                                        onmounted: alert.mount_close(),
-                                        onclick: move |_| {
-                                            outcome_from_close.set(String::from("Closed without choosing"));
-                                            open_from_close.set(close_request);
-                                        },
-                                        style: "justify-self: end; padding: 0.5rem 0.75rem; border-radius: 999px; border: 1px solid #fca5a5; background-color: white; cursor: pointer; color: #991b1b;",
-                                        "Dismiss"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    p {
-                        style: MUTED_STYLE,
-                        "Closed. Open it to inspect the alert role plus action/cancel IDs in a centered confirm/cancel modal."
-                    }
-                }
-            }
-        }
-    }
-}
-
-fn dialog_mode_label(mode: DialogMode) -> &'static str {
-    match mode {
-        DialogMode::Modal => "modal",
-        DialogMode::NonModal => "non-modal",
-    }
-}
-
-fn open_focus_policy_label(policy: &DialogOpenFocusPolicy) -> String {
-    match policy {
-        DialogOpenFocusPolicy::FirstFocusable => String::from("first focusable"),
-        DialogOpenFocusPolicy::Target(target) => format!("target:{target}"),
-        DialogOpenFocusPolicy::Suppress => String::from("suppressed"),
-    }
-}
-
-fn outside_behavior_label(behavior: DialogOutsideDismissBehavior) -> &'static str {
-    match behavior {
-        DialogOutsideDismissBehavior::Dismiss => "dismisses",
-        DialogOutsideDismissBehavior::Ignore => "ignored",
-    }
-}
-
-fn alert_overlay_style(state: &DataState) -> String {
-    let mut style = String::from(MODAL_OVERLAY_STYLE);
-    style.push_str(" will-change: opacity;");
-    match state {
-        DataState::Closed => {
-            style.push_str(" pointer-events: none;");
-        }
-        _ => {}
-    }
-    style
-}
-
-fn alert_panel_style(state: &DataState) -> String {
-    let mut style = String::from(MODAL_PANEL_STYLE);
-    style.push_str(" transform-origin: center center; will-change: opacity, transform;");
-    match state {
-        DataState::Closed => {
-            style.push_str(" pointer-events: none;");
-        }
-        _ => {}
-    }
-    style
-}
-
-#[component]
-fn DeclarativeAlertDialogSection() -> Element {
-    let open = use_signal(|| false);
-    let mut decision = use_signal(|| String::from("No decision yet"));
+    let mut outcome = use_signal(|| String::from("Waiting for a choice."));
 
     rsx! {
         div {
-            style: "display: grid; gap: 0.85rem; padding: 1.25rem; border: 2px solid #dc2626; border-radius: 0.75rem; background-color: #fff1f2; margin-bottom: 1.25rem;",
+            class: "max-w-2xl mx-auto space-y-6",
+
+            // Header Section
             div {
-                style: "display: flex; align-items: center; justify-content: space-between;",
-                h3 { style: "margin: 0; color: #991b1b; font-size: 1.05rem;", "Declarative Compound Syntax (Track A)" }
-                span {
-                    style: "font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 9999px; background-color: #fee2e2; color: #991b1b;",
-                    "Ergonomic Compound Components"
+                class: "space-y-1.5",
+                h2 {
+                    class: "text-2xl font-bold tracking-tight text-slate-900",
+                    "Alert Dialog"
                 }
-            }
-            p { style: "margin: 0; color: #991b1b; font-size: 0.85rem;",
-                "Composed using " code { "<AlertDialogRoot>" } ", " code { "<DialogTrigger>" } ", " code { "<AlertDialogAction>" } ", and " code { "<AlertDialogCancel>" } "."
-            }
-            p { style: "margin: 0; font-size: 0.85rem; color: #7f1d1d;",
-                "Status: " strong { "{decision()}" }
+                p {
+                    class: "text-sm text-slate-500",
+                    "A modal dialog that interrupts the user with important content and expects an active confirmation or cancellation response."
+                }
             }
 
-            AlertDialogRoot {
-                open: open,
-                DialogTrigger {
-                    id: "declarative-alert-trigger",
-                    style: "justify-self: start; padding: 0.65rem 1rem; border-radius: 0.5rem; background-color: #dc2626; color: white; font-weight: 600; border: none; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(220, 38, 38, 0.2);",
-                    "Open Declarative Alert Dialog"
-                }
-                DialogPortal {
-                    DialogOverlay {
-                        id: "declarative-alert-overlay",
-                        style: "position: fixed; inset: 0; background-color: rgba(127, 29, 29, 0.65); backdrop-filter: blur(3px); z-index: 50;",
+            // Interactive Showcase Card
+            div {
+                class: "rounded-2xl border border-slate-200 bg-white p-8 shadow-sm space-y-6",
+
+                div {
+                    class: "space-y-2",
+                    h3 {
+                        class: "text-base font-semibold text-slate-900",
+                        "Declarative Destructive Confirmation Modal"
                     }
-                    div {
-                        style: "position: fixed; inset: 0; z-index: 51; display: flex; align-items: center; justify-content: center; padding: 1.5rem; pointer-events: none;",
-                        DialogContent {
-                            id: "declarative-alert-content",
-                            aria_labelledby: "declarative-alert-title".to_string(),
-                            aria_describedby: "declarative-alert-description".to_string(),
-                            style: "pointer-events: auto; background: white; border-radius: 0.85rem; padding: 1.5rem; width: min(calc(100% - 2rem), 30rem); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: grid; gap: 1rem; border: 1px solid #fecaca; transform-origin: center center; will-change: opacity, transform;",
-                            DialogTitle {
-                                id: "declarative-alert-title",
-                                style: "margin: 0; font-size: 1.25rem; font-weight: 700; color: #991b1b;",
-                                "Delete Item Permanently?"
-                            }
-                            DialogDescription {
-                                id: "declarative-alert-description",
-                                style: "margin: 0; font-size: 0.875rem; color: #7f1d1d;",
-                                "This action cannot be undone. This alert dialog uses role='alertdialog' and requires explicit confirmation or cancellation."
+                    p {
+                        class: "text-sm text-slate-600",
+                        "Composed using "
+                        code { class: "rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono text-red-600", "<AlertDialogRoot>" }
+                        ", "
+                        code { class: "rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono text-red-600", "<AlertDialogAction>" }
+                        ", and "
+                        code { class: "rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono text-red-600", "<AlertDialogCancel>" }
+                        ". Backdrop dismissal is strictly disabled."
+                    }
+                }
+
+                div {
+                    class: "flex items-center gap-4",
+                    AlertDialogRoot {
+                        open: open,
+                        DialogTrigger {
+                            id: "alert-dialog-trigger",
+                            class: "inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 transition-colors cursor-pointer",
+                            "Delete Account"
+                        }
+                        DialogPortal {
+                            DialogOverlay {
+                                id: "alert-dialog-overlay",
+                                class: "fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm cursor-not-allowed",
                             }
                             div {
-                                style: "display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;",
-                                AlertDialogCancel {
-                                    id: "declarative-alert-cancel",
-                                    on_click: move |_| decision.set("Cancelled".to_string()),
-                                    style: "padding: 0.55rem 1rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; background: white; font-weight: 600; cursor: pointer; color: #334155;",
-                                    "Cancel"
-                                }
-                                AlertDialogAction {
-                                    id: "declarative-alert-confirm",
-                                    on_click: move |_| decision.set("Confirmed deletion".to_string()),
-                                    style: "padding: 0.55rem 1rem; border-radius: 0.375rem; border: none; background: #dc2626; color: white; font-weight: 600; cursor: pointer;",
-                                    "Confirm"
+                                class: "fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none",
+                                DialogContent {
+                                    id: "alert-dialog-content",
+                                    aria_labelledby: "alert-dialog-title".to_string(),
+                                    aria_describedby: "alert-dialog-description".to_string(),
+                                    class: "pointer-events-auto w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-red-100 space-y-5 will-change-[opacity,transform]",
+                                    div {
+                                        class: "space-y-1.5",
+                                        DialogTitle {
+                                            id: "alert-dialog-title",
+                                            class: "text-lg font-semibold text-slate-900 tracking-tight",
+                                            "Are you absolutely sure?"
+                                        }
+                                        DialogDescription {
+                                            id: "alert-dialog-description",
+                                            class: "text-sm text-slate-500 leading-relaxed",
+                                            "This action cannot be undone. This will permanently delete your account, wipe all workspace projects, and cancel all active team subscriptions."
+                                        }
+                                    }
+
+                                    div {
+                                        class: "rounded-lg bg-red-50 border border-red-200/60 p-3 text-xs text-red-800 leading-relaxed",
+                                        strong { class: "font-semibold", "Warning: " }
+                                        "Backdrop clicking is disabled by alert dialog policy to prevent accidental dismissal."
+                                    }
+
+                                    div {
+                                        class: "flex justify-end gap-3 pt-2",
+                                        AlertDialogCancel {
+                                            id: "alert-dialog-cancel",
+                                            on_click: move |_| outcome.set(String::from("Canceled deletion")),
+                                            class: "inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors cursor-pointer",
+                                            "Cancel"
+                                        }
+                                        AlertDialogAction {
+                                            id: "alert-dialog-confirm",
+                                            on_click: move |_| outcome.set(String::from("Confirmed permanent deletion")),
+                                            class: "inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-red-700 transition-colors cursor-pointer",
+                                            "Yes, delete account"
+                                        }
+                                    }
                                 }
                             }
                         }
+                    }
+                }
+
+                div {
+                    class: "flex items-center gap-2 pt-2 text-sm text-slate-600",
+                    span { class: "text-xs font-semibold uppercase tracking-wider text-slate-400", "State:" }
+                    span {
+                        id: "alert-dialog-outcome",
+                        class: "inline-flex items-center rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-800",
+                        "{outcome()}"
+                    }
+                }
+            }
+
+            // Architecture & Invariants Card
+            div {
+                class: "rounded-xl border border-slate-200 bg-slate-50/50 p-5 space-y-3",
+                h4 {
+                    class: "text-xs font-semibold uppercase tracking-wider text-slate-500",
+                    "WAI-ARIA & Behavioral Guarantees"
+                }
+                ul {
+                    class: "space-y-1.5 text-xs text-slate-600",
+                    li {
+                        class: "flex items-center gap-2",
+                        span { class: "h-1.5 w-1.5 rounded-full bg-red-500" }
+                        "Role "
+                        code { class: "font-mono text-slate-800", "alertdialog" }
+                        " requiring explicit confirmation or cancel choice"
+                    }
+                    li {
+                        class: "flex items-center gap-2",
+                        span { class: "h-1.5 w-1.5 rounded-full bg-red-500" }
+                        "Outside backdrop clicks are ignored by default policy"
+                    }
+                    li {
+                        class: "flex items-center gap-2",
+                        span { class: "h-1.5 w-1.5 rounded-full bg-red-500" }
+                        "Auto-managed ARIA relationships and focus restoration on dismiss"
                     }
                 }
             }
         }
     }
 }
-

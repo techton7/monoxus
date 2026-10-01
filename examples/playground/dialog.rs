@@ -1,408 +1,173 @@
 use dioxus::prelude::*;
-use monoxus::{
-    dialog::{
-        Dialog, DialogClose, DialogCloseFocusPolicy, DialogContent, DialogDescription, DialogMode,
-        DialogOpenFocusPolicy, DialogOutsideDismissBehavior, DialogOverlay, DialogPortal,
-        DialogRoot, DialogTitle, DialogTrigger, use_dialog_runtime,
-    },
-    foundation::{overlay::PortalHost, shared::ScopeHandle, state::DataState},
+use monoxus::dialog::{
+    DialogClose, DialogContent, DialogDescription, DialogOverlay, DialogPortal, DialogRoot,
+    DialogTitle, DialogTrigger,
 };
-
-const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-radius: 0.75rem; border: 1px solid #cbd5e1; background-color: white; box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);";
-const MUTED_STYLE: &str = "margin: 0; color: #475569;";
-const MODAL_ROOT_STYLE: &str = "position: fixed; inset: 0; z-index: 40; display: flex; align-items: center; justify-content: center; padding: 1.5rem;";
-const MODAL_OVERLAY_STYLE: &str = "position: absolute; inset: 0; background-color: rgba(15, 23, 42, 0.72); backdrop-filter: blur(3px); cursor: pointer;";
-const MODAL_FRAME_STYLE: &str = "position: relative; z-index: 1; width: min(100%, 44rem); max-height: calc(100vh - 3rem); overflow: auto;";
-const MODAL_PANEL_STYLE: &str = "display: grid; gap: 1rem; padding: 1.35rem; border-radius: 1rem; border: 1px solid #bfdbfe; background-color: white; box-shadow: 0 32px 80px rgba(15, 23, 42, 0.35);";
-const MODAL_NOTE_STYLE: &str = "display: grid; gap: 0.35rem; padding: 0.85rem 1rem; border-radius: 0.75rem; background-color: #eff6ff; color: #1d4ed8;";
-const DIALOG_PLAYGROUND_CSS: &str = r#"
-@keyframes monoxus-dialog-fade-in {
-    from { opacity: 0; }
-    to { opacity: 1; }
-}
-
-@keyframes monoxus-dialog-fade-out {
-    from { opacity: 1; }
-    to { opacity: 0; }
-}
-
-@keyframes monoxus-dialog-scale-in {
-    from {
-        transform: scale(0.95);
-        opacity: 0;
-    }
-    to {
-        transform: scale(1);
-        opacity: 1;
-    }
-}
-
-@keyframes monoxus-dialog-scale-out {
-    from {
-        transform: scale(1);
-        opacity: 1;
-    }
-    to {
-        transform: scale(0.95);
-        opacity: 0;
-    }
-}
-
-[data-playground-dialog-overlay='true'][data-state='open'],
-[data-overlay='true'][data-state='open'] {
-    animation: monoxus-dialog-fade-in 200ms ease-out forwards;
-}
-
-[data-playground-dialog-overlay='true'][data-state='closed'],
-[data-overlay='true'][data-state='closed'] {
-    animation: monoxus-dialog-fade-out 200ms ease-in forwards;
-}
-
-[data-playground-dialog-panel='true'][data-state='open'],
-[role='dialog'][data-state='open'] {
-    animation: monoxus-dialog-scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
-}
-
-[data-playground-dialog-panel='true'][data-state='closed'],
-[role='dialog'][data-state='closed'] {
-    animation: monoxus-dialog-scale-out 200ms ease-in forwards;
-}
-
-"#;
 
 #[component]
 pub fn DialogPlayground() -> Element {
     let open = use_signal(|| false);
-    let dialog = use_dialog_runtime(
-        Dialog::new(ScopeHandle::root("playground").child("dialog"), open())
-            .with_portal_host(PortalHost::named("playground-layer")),
-    );
 
-    let root = dialog.root();
-    let trigger = dialog.trigger();
-    let portal = dialog.portal();
-    let overlay = dialog.overlay();
-    let content = dialog.content();
-    let title = dialog.title();
-    let description = dialog.description();
-    let close = dialog.close();
-    let lifecycle = dialog.lifecycle();
-
-    let portal_host = portal.host().id().unwrap_or("document.body");
-    let trigger_request = trigger.open_request().next_open();
-    let close_request = close.close_request().next_open();
-    let mode = dialog_mode_label(lifecycle.mode());
-    let open_focus = open_focus_policy_label(lifecycle.open_focus_policy());
-    let close_focus = close_focus_policy_label(lifecycle.close_focus_policy());
-    let scroll_lock = if lifecycle.scroll_lock_policy().is_enabled() {
-        match lifecycle.scroll_lock_policy().restore_delay() {
-            Some(delay) => format!("enabled (restore delay: {delay}ms)"),
-            None => String::from("enabled (restore delay: none)"),
-        }
-    } else {
-        String::from("disabled")
-    };
-    let pointer_outside = outside_behavior_label(
-        lifecycle
-            .outside_interaction_policy()
-            .pointer_down_outside(),
-    );
-    let focus_outside =
-        outside_behavior_label(lifecycle.outside_interaction_policy().focus_outside());
-    let mut open_from_trigger = open;
-    let mut open_from_overlay = open;
-    let mut open_from_close = open;
-
-    rsx! {
-        section {
-            style: CARD_STYLE,
-            style { "{DIALOG_PLAYGROUND_CSS}" }
-            h2 {
-                style: "margin: 0;",
-                "Dialog"
-            }
-            p {
-                style: MUTED_STYLE,
-                "The renderer markup lives in this example module, while IDs, roles, requests, and data-state values come from "
-                code { "monoxus::dialog" }
-                "."
-            }
-
-            DeclarativeDialogSection {}
-
-            div {
-                id: root.id(),
-                "data-state": root.data_state().as_str(),
-                style: "display: grid; gap: 1rem;",
-                button {
-                    id: trigger.id(),
-                    r#type: "button",
-                    aria_controls: trigger.aria_controls(),
-                    aria_expanded: trigger.aria_expanded(),
-                    "data-state": trigger.data_state().as_str(),
-                    onmounted: dialog.mount_trigger(),
-                    onclick: move |_| open_from_trigger.set(trigger_request),
-                    style: "justify-self: start; padding: 0.65rem 0.9rem; border: 0; border-radius: 0.5rem; background-color: #2563eb; color: white; font-weight: 600; cursor: pointer;",
-                    "Open dialog"
-                }
-                ul {
-                    style: "margin: 0; padding-left: 1.25rem; color: #334155;",
-                    li {
-                        "root id: "
-                        code { "{root.id()}" }
-                    }
-                    li {
-                        "content role: "
-                        code { "{content.role()}" }
-                    }
-                    li {
-                        "portal host: "
-                        code { "{portal_host}" }
-                    }
-                    li {
-                        "data-state: "
-                        code { "{dialog.data_state()}" }
-                    }
-                    li {
-                        "mode: "
-                        code { "{mode}" }
-                    }
-                    li {
-                        "open focus: "
-                        code { "{open_focus}" }
-                    }
-                    li {
-                        "close focus restore: "
-                        code { "{close_focus}" }
-                    }
-                    li {
-                        "scroll lock: "
-                        code { "{scroll_lock}" }
-                    }
-                    li {
-                        "outside pointer: "
-                        code { "{pointer_outside}" }
-                        " / focus outside: "
-                        code { "{focus_outside}" }
-                    }
-                }
-                if dialog.should_render_portal() {
-                    div {
-                        style: MODAL_ROOT_STYLE,
-                        if dialog.should_render_overlay() {
-                            div {
-                                id: overlay.id(),
-                                "data-state": overlay.data_state().as_str(),
-                                "data-playground-dialog-overlay": "true",
-                                onclick: move |_| open_from_overlay.set(close_request),
-                                style: modal_overlay_style(overlay.data_state()),
-                                aria_label: "Dismiss dialog",
-                            }
-                        }
-                        if dialog.should_render_content() {
-                            div {
-                                style: MODAL_FRAME_STYLE,
-                                div {
-                                    id: content.id(),
-                                    role: content.role(),
-                                    aria_modal: content.aria_modal(),
-                                    aria_labelledby: content.aria_labelledby(),
-                                    aria_describedby: content.aria_describedby(),
-                                    "data-state": content.data_state().as_str(),
-                                    "data-playground-dialog-panel": "true",
-                                    onmounted: dialog.mount_content(),
-                                    style: modal_panel_style(content.data_state()),
-                                    div {
-                                        style: "display: grid; gap: 0.5rem;",
-                                        p {
-                                            style: "margin: 0; color: #1d4ed8; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;",
-                                            "Centered modal sample"
-                                        }
-                                        h3 {
-                                            id: title.id(),
-                                            style: "margin: 0;",
-                                            "Headless dialog content"
-                                        }
-                                        p {
-                                            id: description.id(),
-                                            style: MUTED_STYLE,
-                                            "This example keeps renderer markup local while turning the public dialog data surface into an actual floating modal."
-                                        }
-                                    }
-                                    div {
-                                        style: MODAL_NOTE_STYLE,
-                                        strong { "Try it like a dialog." }
-                                        p {
-                                            style: "margin: 0;",
-                                            "Click the backdrop to dismiss, or use the close button below. The page stays visible behind a full-screen overlay, and the panel now stays mounted long enough for animate-out proof in Step 5."
-                                        }
-                                    }
-                                    div {
-                                        style: "display: grid; gap: 0.45rem;",
-                                        p {
-                                            style: "margin: 0; font-weight: 600; color: #0f172a;",
-                                            "Proof that the modal still comes from "
-                                            code { "monoxus::dialog" }
-                                        }
-                                        ul {
-                                            style: "margin: 0; padding-left: 1.25rem; color: #334155;",
-                                            li {
-                                                "content role: "
-                                                code { "{content.role()}" }
-                                            }
-                                            li {
-                                                "portal host: "
-                                                code { "{portal_host}" }
-                                            }
-                                            li {
-                                                "data-state: "
-                                                code { "{dialog.data_state()}" }
-                                            }
-                                            li {
-                                                "close focus restore: "
-                                                code { "{close_focus}" }
-                                            }
-                                            li {
-                                                "outside pointer: "
-                                                code { "{pointer_outside}" }
-                                                " / focus outside: "
-                                                code { "{focus_outside}" }
-                                            }
-                                        }
-                                    }
-                                    button {
-                                        id: close.id(),
-                                        r#type: "button",
-                                        "data-state": close.data_state().as_str(),
-                                        onmounted: dialog.mount_close(),
-                                        onclick: move |_| open_from_close.set(close_request),
-                                        style: "justify-self: end; padding: 0.65rem 0.95rem; border-radius: 0.65rem; border: 1px solid #94a3b8; background-color: white; cursor: pointer; font-weight: 600;",
-                                        "Close dialog"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    p {
-                        style: MUTED_STYLE,
-                        "Closed. Use the trigger button to mount the floating modal surface."
-                    }
-                }
-
-            }
-        }
-    }
-}
-
-fn dialog_mode_label(mode: DialogMode) -> &'static str {
-    match mode {
-        DialogMode::Modal => "modal",
-        DialogMode::NonModal => "non-modal",
-    }
-}
-
-fn open_focus_policy_label(policy: &DialogOpenFocusPolicy) -> String {
-    match policy {
-        DialogOpenFocusPolicy::FirstFocusable => String::from("first focusable"),
-        DialogOpenFocusPolicy::Target(target) => format!("target:{target}"),
-        DialogOpenFocusPolicy::Suppress => String::from("suppressed"),
-    }
-}
-
-fn close_focus_policy_label(policy: &DialogCloseFocusPolicy) -> String {
-    match policy {
-        DialogCloseFocusPolicy::Trigger => String::from("trigger"),
-        DialogCloseFocusPolicy::Target(target) => format!("target:{target}"),
-        DialogCloseFocusPolicy::None => String::from("none"),
-    }
-}
-
-fn outside_behavior_label(behavior: DialogOutsideDismissBehavior) -> &'static str {
-    match behavior {
-        DialogOutsideDismissBehavior::Dismiss => "dismisses",
-        DialogOutsideDismissBehavior::Ignore => "ignored",
-    }
-}
-
-fn modal_overlay_style(state: &DataState) -> String {
-    let mut style = String::from(MODAL_OVERLAY_STYLE);
-    style.push_str(" will-change: opacity;");
-    if matches!(state, DataState::Closed) {
-        style.push_str(" pointer-events: none;");
-    }
-    style
-}
-
-fn modal_panel_style(state: &DataState) -> String {
-    let mut style = String::from(MODAL_PANEL_STYLE);
-    style.push_str(" transform-origin: center center; will-change: opacity, transform;");
-    if matches!(state, DataState::Closed) {
-        style.push_str(" pointer-events: none;");
-    }
-    style
-}
-
-#[component]
-fn DeclarativeDialogSection() -> Element {
-    let open = use_signal(|| false);
     rsx! {
         div {
-            style: "display: grid; gap: 0.85rem; padding: 1.25rem; border: 2px solid #2563eb; border-radius: 0.75rem; background-color: #f8fafc; margin-bottom: 1.25rem;",
+            class: "max-w-2xl mx-auto space-y-6",
+
+            // Header Section
             div {
-                style: "display: flex; align-items: center; justify-content: space-between;",
-                h3 { style: "margin: 0; color: #1d4ed8; font-size: 1.05rem;", "Declarative Compound Syntax (Track A)" }
-                span {
-                    style: "font-size: 0.75rem; font-weight: 700; padding: 0.2rem 0.6rem; border-radius: 9999px; background-color: #dbeafe; color: #1d4ed8;",
-                    "Ergonomic Compound Components"
+                class: "space-y-1.5",
+                h2 {
+                    class: "text-2xl font-bold tracking-tight text-slate-900",
+                    "Dialog"
                 }
-            }
-            p { style: "margin: 0; color: #475569; font-size: 0.85rem;",
-                "Composed using " code { "<DialogRoot>" } ", " code { "<DialogTrigger>" } ", " code { "<DialogPortal>" } ", " code { "<DialogOverlay>" } ", " code { "<DialogContent>" } ", " code { "<DialogTitle>" } ", and " code { "<DialogClose>" } "."
+                p {
+                    class: "text-sm text-slate-500",
+                    "A window overlaid on either the primary window or another dialog window, rendering the content underneath inert with full WAI-ARIA compliance."
+                }
             }
 
-            DialogRoot {
-                open: open,
-                DialogTrigger {
-                    id: "declarative-dialog-trigger",
-                    style: "justify-self: start; padding: 0.65rem 1rem; border-radius: 0.5rem; background-color: #2563eb; color: white; font-weight: 600; border: none; cursor: pointer; box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);",
-                    "Open Declarative Dialog"
-                }
-                DialogPortal {
-                    DialogOverlay {
-                        id: "declarative-dialog-overlay",
-                        style: "position: fixed; inset: 0; background-color: rgba(15, 23, 42, 0.6); backdrop-filter: blur(3px); z-index: 50;",
+            // Interactive Showcase Card
+            div {
+                class: "rounded-2xl border border-slate-200 bg-white p-8 shadow-sm space-y-6",
+
+                div {
+                    class: "space-y-2",
+                    h3 {
+                        class: "text-base font-semibold text-slate-900",
+                        "Declarative Compound Modal"
                     }
-                    div {
-                        style: "position: fixed; inset: 0; z-index: 51; display: flex; align-items: center; justify-content: center; padding: 1.5rem; pointer-events: none;",
-                        DialogContent {
-                            id: "declarative-dialog-content",
-                            aria_labelledby: "declarative-dialog-title".to_string(),
-                            aria_describedby: "declarative-dialog-description".to_string(),
-                            style: "pointer-events: auto; background: white; border-radius: 0.85rem; padding: 1.5rem; width: min(calc(100% - 2rem), 30rem); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: grid; gap: 1rem; border: 1px solid #e2e8f0; transform-origin: center center; will-change: opacity, transform;",
-                            DialogTitle {
-                                id: "declarative-dialog-title",
-                                style: "margin: 0; font-size: 1.25rem; font-weight: 700; color: #0f172a;",
-                                "Declarative Dialog Modal"
-                            }
-                            DialogDescription {
-                                id: "declarative-dialog-description",
-                                style: "margin: 0; font-size: 0.875rem; color: #64748b;",
-                                "This modal is composed using DialogRoot, DialogTrigger, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription, and DialogClose. ARIA IDs and focus restoration are coordinated automatically."
-                            }
-                            div {
-                                style: "display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;",
-                                DialogClose {
-                                    id: "declarative-dialog-close",
-                                    style: "padding: 0.55rem 1rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; background: white; font-weight: 600; cursor: pointer; color: #334155;",
-                                    "Close Modal"
+                    p {
+                        class: "text-sm text-slate-600",
+                        "Composed using "
+                        code { class: "rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono text-blue-600", "<DialogRoot>" }
+                        ", "
+                        code { class: "rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono text-blue-600", "<DialogTrigger>" }
+                        ", "
+                        code { class: "rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono text-blue-600", "<DialogPortal>" }
+                        ", "
+                        code { class: "rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono text-blue-600", "<DialogOverlay>" }
+                        ", and "
+                        code { class: "rounded bg-slate-100 px-1.5 py-0.5 text-xs font-mono text-blue-600", "<DialogContent>" }
+                        "."
+                    }
+                }
+
+                DialogRoot {
+                    open: open,
+                    DialogTrigger {
+                        id: "dialog-trigger",
+                        class: "inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition-colors cursor-pointer",
+                        "Edit Profile"
+                    }
+                    DialogPortal {
+                        DialogOverlay {
+                            id: "dialog-overlay",
+                            class: "fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm",
+                        }
+                        div {
+                            class: "fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none",
+                            DialogContent {
+                                id: "dialog-content",
+                                aria_labelledby: "dialog-title".to_string(),
+                                aria_describedby: "dialog-description".to_string(),
+                                class: "pointer-events-auto w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 space-y-5 will-change-[opacity,transform]",
+                                div {
+                                    class: "space-y-1.5",
+                                    DialogTitle {
+                                        id: "dialog-title",
+                                        class: "text-lg font-semibold text-slate-900 tracking-tight",
+                                        "Edit Profile"
+                                    }
+                                    DialogDescription {
+                                        id: "dialog-description",
+                                        class: "text-sm text-slate-500",
+                                        "Make changes to your profile here. Click save when you're done."
+                                    }
+                                }
+
+                                div {
+                                    class: "grid gap-3 py-1",
+                                    div {
+                                        class: "grid grid-cols-4 items-center gap-4",
+                                        label {
+                                            r#for: "name",
+                                            class: "text-right text-sm font-medium text-slate-700",
+                                            "Name"
+                                        }
+                                        input {
+                                            id: "name",
+                                            class: "col-span-3 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500",
+                                            value: "Pedro Duarte",
+                                        }
+                                    }
+                                    div {
+                                        class: "grid grid-cols-4 items-center gap-4",
+                                        label {
+                                            r#for: "username",
+                                            class: "text-right text-sm font-medium text-slate-700",
+                                            "Username"
+                                        }
+                                        input {
+                                            id: "username",
+                                            class: "col-span-3 rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500",
+                                            value: "@peduarte",
+                                        }
+                                    }
+                                }
+
+                                div {
+                                    class: "flex justify-end gap-3 pt-2",
+                                    DialogClose {
+                                        id: "dialog-close",
+                                        class: "inline-flex items-center justify-center rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors cursor-pointer",
+                                        "Cancel"
+                                    }
+                                    DialogClose {
+                                        id: "dialog-save",
+                                        class: "inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors cursor-pointer",
+                                        "Save changes"
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
+
+            // Architecture & Invariants Card
+            div {
+                class: "rounded-xl border border-slate-200 bg-slate-50/50 p-5 space-y-3",
+                h4 {
+                    class: "text-xs font-semibold uppercase tracking-wider text-slate-500",
+                    "WAI-ARIA & Behavioral Guarantees"
+                }
+                ul {
+                    class: "space-y-1.5 text-xs text-slate-600",
+                    li {
+                        class: "flex items-center gap-2",
+                        span { class: "h-1.5 w-1.5 rounded-full bg-blue-500" }
+                        "Role "
+                        code { class: "font-mono text-slate-800", "dialog" }
+                        " with "
+                        code { class: "font-mono text-slate-800", "aria-modal=\"true\"" }
+                        " and auto-linked labelledby / describedby IDs"
+                    }
+                    li {
+                        class: "flex items-center gap-2",
+                        span { class: "h-1.5 w-1.5 rounded-full bg-blue-500" }
+                        "Initial focus moves to first focusable control; focus restored to trigger upon dismissal"
+                    }
+                    li {
+                        class: "flex items-center gap-2",
+                        span { class: "h-1.5 w-1.5 rounded-full bg-blue-500" }
+                        "Dismissible via Escape keypress or clicking the dimmed backdrop overlay"
+                    }
+                    li {
+                        class: "flex items-center gap-2",
+                        span { class: "h-1.5 w-1.5 rounded-full bg-blue-500" }
+                        "Outer flexbox centering ensures 200ms scale-in/out transitions never displace modal coordinates"
+                    }
+                }
+            }
         }
     }
 }
-
