@@ -51,21 +51,26 @@ const ALERT_DIALOG_PLAYGROUND_CSS: &str = r#"
     }
 }
 
-[data-playground-alert-dialog-overlay='true'][data-state='open'] {
+[data-playground-alert-dialog-overlay='true'][data-state='open'],
+[data-overlay='true'][data-state='open'] {
     animation: monoxus-alert-dialog-fade-in 200ms ease-out forwards;
 }
 
-[data-playground-alert-dialog-overlay='true'][data-state='closed'] {
+[data-playground-alert-dialog-overlay='true'][data-state='closed'],
+[data-overlay='true'][data-state='closed'] {
     animation: monoxus-alert-dialog-fade-out 200ms ease-in forwards;
 }
 
-[data-playground-alert-dialog-panel='true'][data-state='open'] {
+[data-playground-alert-dialog-panel='true'][data-state='open'],
+[role='alertdialog'][data-state='open'] {
     animation: monoxus-alert-dialog-scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-[data-playground-alert-dialog-panel='true'][data-state='closed'] {
+[data-playground-alert-dialog-panel='true'][data-state='closed'],
+[role='alertdialog'][data-state='closed'] {
     animation: monoxus-alert-dialog-scale-out 200ms ease-in forwards;
 }
+
 "#;
 
 #[component]
@@ -420,34 +425,37 @@ fn DeclarativeAlertDialogSection() -> Element {
                         id: "declarative-alert-overlay",
                         style: "position: fixed; inset: 0; background-color: rgba(127, 29, 29, 0.65); backdrop-filter: blur(3px); z-index: 50;",
                     }
-                    DialogContent {
-                        id: "declarative-alert-content",
-                        aria_labelledby: "declarative-alert-title".to_string(),
-                        aria_describedby: "declarative-alert-description".to_string(),
-                        style: "position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 51; background: white; border-radius: 0.85rem; padding: 1.5rem; width: min(calc(100% - 2rem), 30rem); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: grid; gap: 1rem; border: 1px solid #fecaca;",
-                        DialogTitle {
-                            id: "declarative-alert-title",
-                            style: "margin: 0; font-size: 1.25rem; font-weight: 700; color: #991b1b;",
-                            "Delete Item Permanently?"
-                        }
-                        DialogDescription {
-                            id: "declarative-alert-description",
-                            style: "margin: 0; font-size: 0.875rem; color: #7f1d1d;",
-                            "This action cannot be undone. This alert dialog uses role='alertdialog' and requires explicit confirmation or cancellation."
-                        }
-                        div {
-                            style: "display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;",
-                            AlertDialogCancel {
-                                id: "declarative-alert-cancel",
-                                on_click: move |_| decision.set("Cancelled".to_string()),
-                                style: "padding: 0.55rem 1rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; background: white; font-weight: 600; cursor: pointer; color: #334155;",
-                                "Cancel"
+                    div {
+                        style: "position: fixed; inset: 0; z-index: 51; display: flex; align-items: center; justify-content: center; padding: 1.5rem; pointer-events: none;",
+                        DialogContent {
+                            id: "declarative-alert-content",
+                            aria_labelledby: "declarative-alert-title".to_string(),
+                            aria_describedby: "declarative-alert-description".to_string(),
+                            style: "pointer-events: auto; background: white; border-radius: 0.85rem; padding: 1.5rem; width: min(calc(100% - 2rem), 30rem); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: grid; gap: 1rem; border: 1px solid #fecaca; transform-origin: center center; will-change: opacity, transform;",
+                            DialogTitle {
+                                id: "declarative-alert-title",
+                                style: "margin: 0; font-size: 1.25rem; font-weight: 700; color: #991b1b;",
+                                "Delete Item Permanently?"
                             }
-                            AlertDialogAction {
-                                id: "declarative-alert-confirm",
-                                on_click: move |_| decision.set("Confirmed deletion".to_string()),
-                                style: "padding: 0.55rem 1rem; border-radius: 0.375rem; border: none; background: #dc2626; color: white; font-weight: 600; cursor: pointer;",
-                                "Confirm"
+                            DialogDescription {
+                                id: "declarative-alert-description",
+                                style: "margin: 0; font-size: 0.875rem; color: #7f1d1d;",
+                                "This action cannot be undone. This alert dialog uses role='alertdialog' and requires explicit confirmation or cancellation."
+                            }
+                            div {
+                                style: "display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;",
+                                AlertDialogCancel {
+                                    id: "declarative-alert-cancel",
+                                    on_click: move |_| decision.set("Cancelled".to_string()),
+                                    style: "padding: 0.55rem 1rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; background: white; font-weight: 600; cursor: pointer; color: #334155;",
+                                    "Cancel"
+                                }
+                                AlertDialogAction {
+                                    id: "declarative-alert-confirm",
+                                    on_click: move |_| decision.set("Confirmed deletion".to_string()),
+                                    style: "padding: 0.55rem 1rem; border-radius: 0.375rem; border: none; background: #dc2626; color: white; font-weight: 600; cursor: pointer;",
+                                    "Confirm"
+                                }
                             }
                         }
                     }

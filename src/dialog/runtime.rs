@@ -43,6 +43,9 @@ struct DialogRuntimeState {
     last_open: Signal<bool>,
     pending_open_focus: Signal<bool>,
     scroll_lock_held: Signal<bool>,
+    overlay_id: Signal<Option<String>>,
+    content_id: Signal<Option<String>>,
+    trigger_id: Signal<Option<String>>,
 }
 
 #[derive(Clone, Copy)]
@@ -125,6 +128,9 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         last_open: use_signal(|| dialog.is_open()),
         pending_open_focus: use_signal(|| dialog.is_open()),
         scroll_lock_held: use_signal(|| false),
+        overlay_id: use_signal(|| None),
+        content_id: use_signal(|| None),
+        trigger_id: use_signal(|| None),
     };
     let effect_state = state;
     let cleanup_state = state;
@@ -137,15 +143,25 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
     }));
 
     dioxus::core::use_drop(move || {
+        let overlay_id = cleanup_state
+            .overlay_id
+            .peek()
+            .clone()
+            .unwrap_or(cleanup_overlay_id);
+        let content_id = cleanup_state
+            .content_id
+            .peek()
+            .clone()
+            .unwrap_or(cleanup_content_id);
         stop_dialog_presence_monitor(
             cleanup_state.overlay_presence_monitor,
             "overlay",
-            cleanup_overlay_id.as_str(),
+            overlay_id.as_str(),
         );
         stop_dialog_presence_monitor(
             cleanup_state.content_presence_monitor,
             "content",
-            cleanup_content_id.as_str(),
+            content_id.as_str(),
         );
         if *cleanup_state.scroll_lock_held.peek() {
             release_scroll_lock(&cleanup_key, None);
@@ -258,9 +274,64 @@ impl DialogRuntime {
         });
     }
 
+    pub fn register_overlay_id(&self, id: impl Into<String>) {
+        let mut overlay_id = self.state.overlay_id;
+        let id = id.into();
+        if overlay_id.peek().as_deref() != Some(id.as_str()) {
+            overlay_id.set(Some(id));
+        }
+    }
+
+    pub fn register_content_id(&self, id: impl Into<String>) {
+        let mut content_id = self.state.content_id;
+        let id = id.into();
+        if content_id.peek().as_deref() != Some(id.as_str()) {
+            content_id.set(Some(id));
+        }
+    }
+
+    pub fn register_trigger_id(&self, id: impl Into<String>) {
+        let mut trigger_id = self.state.trigger_id;
+        let id = id.into();
+        if trigger_id.peek().as_deref() != Some(id.as_str()) {
+            trigger_id.set(Some(id));
+        }
+    }
+
+    pub fn overlay_element_id(&self) -> String {
+        self.state
+            .overlay_id
+            .peek()
+            .clone()
+            .unwrap_or_else(|| self.dialog.relationships().overlay_id().to_string())
+    }
+
+    pub fn content_element_id(&self) -> String {
+        self.state
+            .content_id
+            .peek()
+            .clone()
+            .unwrap_or_else(|| self.dialog.relationships().content_id().to_string())
+    }
+
+    pub fn trigger_element_id(&self) -> String {
+        self.state
+            .trigger_id
+            .peek()
+            .clone()
+            .unwrap_or_else(|| self.dialog.relationships().trigger_id().to_string())
+    }
+
     pub fn mount_trigger(&self) -> impl FnMut(MountedEvent) + 'static {
         let runtime = self.clone();
         move |event| runtime.capture_trigger(event.data())
+    }
+
+    pub fn mount_overlay(&self) -> impl FnMut(MountedEvent) + 'static {
+        let runtime = self.clone();
+        move |event| {
+            runtime.capture_focus_target(runtime.overlay_element_id(), event.data());
+        }
     }
 
     pub fn mount_content(&self) -> impl FnMut(MountedEvent) + 'static {
@@ -284,8 +355,19 @@ fn sync_dialog_runtime(dialog: &Dialog, mut state: DialogRuntimeState) {
     let presence_update = state
         .presence_lane
         .with_mut(|lane| lane.sync(dialog.is_open()));
+    let overlay_id = state
+        .overlay_id
+        .peek()
+        .clone()
+        .unwrap_or_else(|| dialog.relationships().overlay_id().to_string());
+    let content_id = state
+        .content_id
+        .peek()
+        .clone()
+        .unwrap_or_else(|| dialog.relationships().content_id().to_string());
+
     sync_dialog_presence_root(
-        dialog.relationships().overlay_id(),
+        &overlay_id,
         state.presence_lane,
         state.overlay_presence_monitor,
         presence_update.overlay,
@@ -293,7 +375,7 @@ fn sync_dialog_runtime(dialog: &Dialog, mut state: DialogRuntimeState) {
         "overlay",
     );
     sync_dialog_presence_root(
-        dialog.relationships().content_id(),
+        &content_id,
         state.presence_lane,
         state.content_presence_monitor,
         presence_update.content,
@@ -329,7 +411,7 @@ fn sync_dialog_runtime(dialog: &Dialog, mut state: DialogRuntimeState) {
     }
 
     if is_open {
-        if *state.pending_open_focus.peek() && apply_open_focus(dialog) {
+        if *state.pending_open_focus.peek() && apply_open_focus(dialog, state) {
             let mut pending_open_focus = state.pending_open_focus;
             pending_open_focus.set(false);
         }
@@ -350,14 +432,19 @@ fn sync_dialog_runtime(dialog: &Dialog, mut state: DialogRuntimeState) {
     }
 }
 
-fn apply_open_focus(dialog: &Dialog) -> bool {
+fn apply_open_focus(dialog: &Dialog, state: DialogRuntimeState) -> bool {
     if !dialog.lifecycle().focus_scope().autofocus_enabled() {
         return true;
     }
 
     match dialog.lifecycle().open_focus_policy() {
         DialogOpenFocusPolicy::FirstFocusable => {
-            focus_first_focusable(dialog.relationships().content_id());
+            let content_id = state
+                .content_id
+                .peek()
+                .clone()
+                .unwrap_or_else(|| dialog.relationships().content_id().to_string());
+            focus_first_focusable(&content_id);
             true
         }
         DialogOpenFocusPolicy::Target(target) => {
@@ -368,10 +455,15 @@ fn apply_open_focus(dialog: &Dialog) -> bool {
     }
 }
 
-fn restore_close_focus(dialog: &Dialog, _state: DialogRuntimeState) {
+fn restore_close_focus(dialog: &Dialog, state: DialogRuntimeState) {
+    let trigger_id = state
+        .trigger_id
+        .peek()
+        .clone()
+        .unwrap_or_else(|| dialog.relationships().trigger_id().to_string());
     match dialog.lifecycle().close_focus_policy() {
         DialogCloseFocusPolicy::Trigger => {
-            restore_focus_element_by_id(dialog.relationships().trigger_id());
+            restore_focus_element_by_id(&trigger_id);
         }
         DialogCloseFocusPolicy::Target(target) => {
             restore_focus_element_by_id(target);

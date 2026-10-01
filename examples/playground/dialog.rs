@@ -48,21 +48,26 @@ const DIALOG_PLAYGROUND_CSS: &str = r#"
     }
 }
 
-[data-playground-dialog-overlay='true'][data-state='open'] {
+[data-playground-dialog-overlay='true'][data-state='open'],
+[data-overlay='true'][data-state='open'] {
     animation: monoxus-dialog-fade-in 200ms ease-out forwards;
 }
 
-[data-playground-dialog-overlay='true'][data-state='closed'] {
+[data-playground-dialog-overlay='true'][data-state='closed'],
+[data-overlay='true'][data-state='closed'] {
     animation: monoxus-dialog-fade-out 200ms ease-in forwards;
 }
 
-[data-playground-dialog-panel='true'][data-state='open'] {
+[data-playground-dialog-panel='true'][data-state='open'],
+[role='dialog'][data-state='open'] {
     animation: monoxus-dialog-scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-[data-playground-dialog-panel='true'][data-state='closed'] {
+[data-playground-dialog-panel='true'][data-state='closed'],
+[role='dialog'][data-state='closed'] {
     animation: monoxus-dialog-scale-out 200ms ease-in forwards;
 }
+
 "#;
 
 #[component]
@@ -368,27 +373,30 @@ fn DeclarativeDialogSection() -> Element {
                         id: "declarative-dialog-overlay",
                         style: "position: fixed; inset: 0; background-color: rgba(15, 23, 42, 0.6); backdrop-filter: blur(3px); z-index: 50;",
                     }
-                    DialogContent {
-                        id: "declarative-dialog-content",
-                        aria_labelledby: "declarative-dialog-title".to_string(),
-                        aria_describedby: "declarative-dialog-description".to_string(),
-                        style: "position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 51; background: white; border-radius: 0.85rem; padding: 1.5rem; width: min(calc(100% - 2rem), 30rem); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: grid; gap: 1rem; border: 1px solid #e2e8f0;",
-                        DialogTitle {
-                            id: "declarative-dialog-title",
-                            style: "margin: 0; font-size: 1.25rem; font-weight: 700; color: #0f172a;",
-                            "Declarative Dialog Modal"
-                        }
-                        DialogDescription {
-                            id: "declarative-dialog-description",
-                            style: "margin: 0; font-size: 0.875rem; color: #64748b;",
-                            "This modal is composed using DialogRoot, DialogTrigger, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription, and DialogClose. ARIA IDs and focus restoration are coordinated automatically."
-                        }
-                        div {
-                            style: "display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;",
-                            DialogClose {
-                                id: "declarative-dialog-close",
-                                style: "padding: 0.55rem 1rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; background: white; font-weight: 600; cursor: pointer; color: #334155;",
-                                "Close Modal"
+                    div {
+                        style: "position: fixed; inset: 0; z-index: 51; display: flex; align-items: center; justify-content: center; padding: 1.5rem; pointer-events: none;",
+                        DialogContent {
+                            id: "declarative-dialog-content",
+                            aria_labelledby: "declarative-dialog-title".to_string(),
+                            aria_describedby: "declarative-dialog-description".to_string(),
+                            style: "pointer-events: auto; background: white; border-radius: 0.85rem; padding: 1.5rem; width: min(calc(100% - 2rem), 30rem); box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); display: grid; gap: 1rem; border: 1px solid #e2e8f0; transform-origin: center center; will-change: opacity, transform;",
+                            DialogTitle {
+                                id: "declarative-dialog-title",
+                                style: "margin: 0; font-size: 1.25rem; font-weight: 700; color: #0f172a;",
+                                "Declarative Dialog Modal"
+                            }
+                            DialogDescription {
+                                id: "declarative-dialog-description",
+                                style: "margin: 0; font-size: 0.875rem; color: #64748b;",
+                                "This modal is composed using DialogRoot, DialogTrigger, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription, and DialogClose. ARIA IDs and focus restoration are coordinated automatically."
+                            }
+                            div {
+                                style: "display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem;",
+                                DialogClose {
+                                    id: "declarative-dialog-close",
+                                    style: "padding: 0.55rem 1rem; border-radius: 0.375rem; border: 1px solid #cbd5e1; background: white; font-weight: 600; cursor: pointer; color: #334155;",
+                                    "Close Modal"
+                                }
                             }
                         }
                     }

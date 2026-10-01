@@ -57,3 +57,67 @@ fn test_alert_dialog_compound_components_render() {
     let mut dom = VirtualDom::new(AlertDialogCompoundSample);
     dom.rebuild_in_place();
 }
+
+#[component]
+fn DeclarativeDialogClosedSample() -> Element {
+    let open = use_signal(|| false);
+    rsx! {
+        DialogRoot {
+            open: open,
+            DialogTrigger {
+                id: "test-trigger",
+                "Trigger"
+            }
+            DialogPortal {
+                DialogOverlay {
+                    id: "test-overlay"
+                }
+                DialogContent {
+                    id: "test-content",
+                    DialogTitle { "Title" }
+                    DialogClose {
+                        id: "test-close",
+                        "Close"
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn DeclarativeDialogOpenSample() -> Element {
+    let open = use_signal(|| true);
+    rsx! {
+        DialogRoot {
+            open: open,
+            DialogTrigger {
+                id: "test-trigger",
+                "Trigger"
+            }
+            DialogPortal {
+                DialogOverlay {
+                    id: "test-overlay"
+                }
+                DialogContent {
+                    id: "test-content",
+                    DialogTitle { "Title" }
+                    DialogClose {
+                        id: "test-close",
+                        "Close"
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_declarative_dialog_render_toggle() {
+    let mut dom = VirtualDom::new(DeclarativeDialogClosedSample);
+    dom.rebuild_in_place();
+
+    let mut dom_open = VirtualDom::new(DeclarativeDialogOpenSample);
+    dom_open.rebuild_in_place();
+}
+

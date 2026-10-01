@@ -3622,8 +3622,8 @@ dependencies = [
 
 [[package]]
 name = "oxidase"
-version = "0.1.8"
-source = "git+https://github.com/techton7/oxidase.git?tag=oxidase-v0.1.8#25ff266ca4a4f0cc3060b78ac47b4995abcdeed3"
+version = "0.1.9"
+source = "git+https://github.com/techton7/oxidase.git?tag=oxidase-v0.1.9#066702ee0771c54086aa0eeecaa2c1a04627fdb9"
 dependencies = [
  "anyrender_vello",
  "blitz-dom",
@@ -3641,8 +3641,8 @@ dependencies = [
 
 [[package]]
 name = "oxidase-macro"
-version = "0.1.8"
-source = "git+https://github.com/techton7/oxidase.git?tag=oxidase-v0.1.8#25ff266ca4a4f0cc3060b78ac47b4995abcdeed3"
+version = "0.1.9"
+source = "git+https://github.com/techton7/oxidase.git?tag=oxidase-v0.1.9#066702ee0771c54086aa0eeecaa2c1a04627fdb9"
 dependencies = [
  "heck",
  "proc-macro2",

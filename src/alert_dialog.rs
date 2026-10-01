@@ -409,11 +409,30 @@ pub fn AlertDialogRoot(
         runtime_sig.set(alert_runtime.dialog_runtime().clone());
     }
 
+    let trigger_id = use_signal(|| None);
+
     use_context_provider(|| crate::dialog::DialogContext {
         runtime: runtime_sig,
         open: open_signal,
         on_open_change,
         is_alert_dialog: true,
+        trigger_id,
+    });
+
+    let mut was_open_sig = use_signal(|| open_signal());
+    use_effect(move || {
+        let is_curr = open_signal();
+        let was_open = *was_open_sig.peek();
+        if was_open && !is_curr {
+            let trig = trigger_id
+                .peek()
+                .clone()
+                .unwrap_or_else(|| runtime_sig.peek().relationships().trigger_id().to_string());
+            crate::foundation::browser::restore_focus_element_by_id(&trig);
+        }
+        if was_open != is_curr {
+            was_open_sig.set(is_curr);
+        }
     });
 
     let attrs = alert_runtime.root();

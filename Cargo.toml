@@ -13,7 +13,7 @@ dioxus = { version = "0.7.0", default-features = false, features = ["devtools", 
 # Note: Keep tagged GitHub release here matching kinetoxus until crates.io publication.
 # For local development against ../../util/oxidase, use workspace/local patch config.
 # Do NOT reintroduce inline `path = "..."` here as it breaks downstream packaging and CI.
-oxidase = { version = "0.1.8", git = "https://github.com/techton7/oxidase.git", tag = "oxidase-v0.1.8" }
+oxidase = { version = "0.1.9", git = "https://github.com/techton7/oxidase.git", tag = "oxidase-v0.1.9" }
 serde = { version = "1.0", features = ["derive"] }
 futures-timer = { version = "3.0", features = ["wasm-bindgen"] }
 js-sys = "0.3"

@@ -247,23 +247,26 @@ pub(crate) fn focus_mounted_handle(handle: Option<MountedHandle>) -> bool {
     let Some(handle) = handle else {
         return false;
     };
-
+    let el = oxidase::Element::from(handle);
     spawn(async move {
-        let _ = handle.set_focus(true).await;
+        let _ = el.focus().await;
     });
     true
 }
 
 pub(crate) async fn get_viewport_size() -> Result<[f64; 2], String> {
-    let vp = oxidase::runtime::get_viewport()
+    let (width, height) = oxidase::window()
+        .inner_size()
         .await
         .map_err(|e| e.to_string())?;
-    Ok([vp.width, vp.height])
+    Ok([width, height])
 }
 
 pub(crate) async fn active_element_matches_id(target_id: &str) -> bool {
-    dom_bridge::is_element_active(target_id)
-        .await
+    oxidase::document()
+        .active_element()
+        .and_then(|el| el.id())
+        .map(|id| id == target_id)
         .unwrap_or(false)
 }
 
@@ -275,15 +278,35 @@ pub(crate) async fn is_reference_hidden(anchor_ids: &[&str]) -> Result<bool, Str
 }
 
 pub(crate) fn focus_element_by_id(target_id: &str) {
-    focus_element_by_id_with_options(target_id, false);
+    if let Some(el) = oxidase::document().element_by_id(target_id) {
+        spawn(async move {
+            let _ = el.focus().await;
+        });
+    }
+    let tid = target_id.to_string();
+    spawn(async move {
+        let _ = oxidase::frame::next_frame().await;
+        if let Some(el) = oxidase::document().element_by_id(&tid) {
+            let _ = el.focus().await;
+        }
+    });
 }
 
 pub(crate) fn restore_focus_element_by_id(target_id: &str) {
-    focus_element_by_id_with_options(target_id, true);
-}
-
-fn focus_element_by_id_with_options(target_id: &str, prevent_scroll: bool) {
-    dom_bridge::focus_element_by_id_with_options(target_id, prevent_scroll);
+    if let Some(el) = oxidase::document().element_by_id(target_id) {
+        let options = oxidase::dom::FocusOptions::new(true);
+        spawn(async move {
+            let _ = el.focus_with_options(options).await;
+        });
+    }
+    let tid = target_id.to_string();
+    spawn(async move {
+        let _ = oxidase::frame::next_frame().await;
+        if let Some(el) = oxidase::document().element_by_id(&tid) {
+            let options = oxidase::dom::FocusOptions::new(true);
+            let _ = el.focus_with_options(options).await;
+        }
+    });
 }
 
 pub(crate) fn focus_first_focusable(content_id: &str, focusable_selector: Option<&str>) {

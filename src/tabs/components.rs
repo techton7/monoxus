@@ -124,16 +124,17 @@ pub fn TabsTrigger(
 ) -> Element {
     let ctx = use_context::<TabsContext>();
     let item_value = value.clone();
-
-    use_effect(use_reactive((&item_value, &disabled), {
-        let runtime = ctx.runtime.clone();
-        move |(val, dis)| {
-            runtime.register_trigger(&val, dis);
-        }
-    }));
-
     let trig_attrs = ctx.runtime.trigger(&value, disabled);
     let trig_id = id.unwrap_or_else(|| trig_attrs.id().to_string());
+
+    let trig_id_for_effect = trig_id.clone();
+    use_effect(use_reactive((&item_value, &disabled, &trig_id_for_effect), {
+        let runtime = ctx.runtime.clone();
+        move |(val, dis, el_id)| {
+            runtime.register_trigger(&val, dis);
+            runtime.register_trigger_id(&val, &el_id);
+        }
+    }));
 
     let runtime_click = ctx.runtime.clone();
     let val_click = value.clone();
@@ -151,6 +152,8 @@ pub fn TabsTrigger(
         }
     };
 
+    let aria_controls = ctx.runtime.content_element_id(&value);
+
     rsx! {
         button {
             id: "{trig_id}",
@@ -160,7 +163,7 @@ pub fn TabsTrigger(
             role: "{trig_attrs.role()}",
             tabindex: "{trig_attrs.tabindex()}",
             aria_selected: "{trig_attrs.aria_selected()}",
-            aria_controls: "{trig_attrs.aria_controls()}",
+            aria_controls: "{aria_controls}",
             "data-state": trig_attrs.data_state().as_str(),
             "data-orientation": "{trig_attrs.data_orientation()}",
             "data-disabled": if disabled { "true" } else { "false" },
@@ -183,12 +186,22 @@ pub fn TabsContent(
     let ctx = use_context::<TabsContext>();
     let is_active = ctx.runtime.active_value() == value;
 
+    let content_attrs = ctx.runtime.content(&value);
+    let content_id = id.unwrap_or_else(|| content_attrs.id().to_string());
+    let labelledby = ctx.runtime.trigger_element_id(&value);
+
+    let content_id_for_effect = content_id.clone();
+    let item_val_for_effect = value.clone();
+    use_effect(use_reactive((&item_val_for_effect, &content_id_for_effect), {
+        let runtime = ctx.runtime.clone();
+        move |(val, el_id)| {
+            runtime.register_content_id(&val, &el_id);
+        }
+    }));
+
     if !is_active && !force_mount {
         return rsx! {};
     }
-
-    let content_attrs = ctx.runtime.content(&value);
-    let content_id = id.unwrap_or_else(|| content_attrs.id().to_string());
 
     rsx! {
         div {
@@ -196,7 +209,7 @@ pub fn TabsContent(
             class: class.as_deref().unwrap_or_default(),
             style: style.as_deref().unwrap_or_default(),
             role: "{content_attrs.role()}",
-            aria_labelledby: "{content_attrs.aria_labelledby()}",
+            aria_labelledby: "{labelledby}",
             "data-state": if is_active { "active" } else { "inactive" },
             "data-orientation": "{content_attrs.data_orientation()}",
             tabindex: "0",

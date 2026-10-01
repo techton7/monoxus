@@ -15,6 +15,7 @@ use super::{
 pub struct DialogContext {
     pub runtime: Signal<DialogRuntime>,
     pub open: Signal<bool>,
+    pub trigger_id: Signal<Option<String>>,
     pub on_open_change: Option<EventHandler<bool>>,
     pub is_alert_dialog: bool,
 }
@@ -63,11 +64,29 @@ pub fn DialogRoot(
         runtime_sig.set(runtime.clone());
     }
 
+    let trigger_id = use_signal(|| None);
     use_context_provider(|| DialogContext {
         runtime: runtime_sig,
         open: open_signal,
+        trigger_id,
         on_open_change,
         is_alert_dialog: false,
+    });
+
+    let mut was_open_sig = use_signal(|| open_signal());
+    use_effect(move || {
+        let is_curr = open_signal();
+        let was_open = *was_open_sig.peek();
+        if was_open && !is_curr {
+            let trig = trigger_id
+                .peek()
+                .clone()
+                .unwrap_or_else(|| runtime_sig.peek().relationships().trigger_id().to_string());
+            crate::foundation::browser::restore_focus_element_by_id(&trig);
+        }
+        if was_open != is_curr {
+            was_open_sig.set(is_curr);
+        }
     });
 
     let attrs = runtime.root();
@@ -89,12 +108,17 @@ pub fn DialogTrigger(
     #[props(default)] style: Option<String>,
     children: Element,
 ) -> Element {
-    let ctx = use_context::<DialogContext>();
+    let mut ctx = use_context::<DialogContext>();
     let runtime = ctx.runtime.read();
     let trigger = runtime.trigger();
     let trig_id = id.unwrap_or_else(|| trigger.id().to_string());
+    runtime.register_trigger_id(&trig_id);
     let mut open = ctx.open;
     let on_change = ctx.on_open_change;
+
+    if ctx.trigger_id.peek().as_deref() != Some(trig_id.as_str()) {
+        ctx.trigger_id.set(Some(trig_id.clone()));
+    }
 
     let on_click = move |_| {
         open.set(true);
@@ -147,17 +171,17 @@ pub fn DialogPortal(
         if !render && !force_mount {
             return;
         }
-        let host_id = match &target_host {
-            PortalHost::Inline => None,
-            PortalHost::Named(name) => Some(name.as_ref()),
-            PortalHost::Default => None,
-        };
-        crate::foundation::browser::teleport_element_to_host(&pid_effect, host_id);
+        if let PortalHost::Named(name) = &target_host {
+            crate::foundation::browser::teleport_element_to_host(&pid_effect, Some(name.as_ref()));
+        }
     }));
 
     let pid_cleanup = pid.clone();
+    let is_named_host = matches!(resolved_host, PortalHost::Named(_));
     dioxus::core::use_drop(move || {
-        crate::foundation::browser::remove_element_by_id(&pid_cleanup);
+        if is_named_host {
+            crate::foundation::browser::remove_element_by_id(&pid_cleanup);
+        }
     });
 
     rsx! {
@@ -187,21 +211,31 @@ pub fn DialogOverlay(
 
     let overlay = runtime.overlay();
     let overlay_id = id.unwrap_or_else(|| overlay.id().to_string());
+    runtime.register_overlay_id(&overlay_id);
+    let is_open = (ctx.open)();
     let mut open = ctx.open;
     let on_change = ctx.on_open_change;
     let outside_policy = *runtime.lifecycle().outside_interaction_policy();
 
+    let trigger_sig = ctx.trigger_id;
+    let fallback_trigger_id = runtime.relationships().trigger_id().to_string();
+
     let on_click = move |_| {
-        if outside_policy.pointer_down_outside().dismisses() {
+        if !ctx.is_alert_dialog && outside_policy.pointer_down_outside().dismisses() {
             open.set(false);
             if let Some(h) = on_change {
                 h.call(false);
             }
+            let trig = trigger_sig
+                .peek()
+                .clone()
+                .unwrap_or_else(|| fallback_trigger_id.clone());
+            crate::foundation::browser::restore_focus_element_by_id(&trig);
         }
     };
 
     let mut resolved_style = style.clone().unwrap_or_default();
-    if *overlay.data_state() == crate::foundation::state::DataState::Closed {
+    if !is_open || *overlay.data_state() == crate::foundation::state::DataState::Closed {
         if !resolved_style.is_empty() && !resolved_style.ends_with(';') {
             resolved_style.push(';');
         }
@@ -216,6 +250,7 @@ pub fn DialogOverlay(
             "data-state": overlay.data_state().as_str(),
             "data-overlay": "true",
             aria_hidden: "true",
+            onmounted: runtime.mount_overlay(),
             onclick: on_click,
             {children}
         }
@@ -245,11 +280,16 @@ pub fn DialogContent(
         runtime.content()
     };
     let content_id = id.unwrap_or_else(|| content.id().to_string());
+    runtime.register_content_id(&content_id);
     let labelledby = aria_labelledby.unwrap_or_else(|| content.aria_labelledby().to_string());
     let describedby = aria_describedby.unwrap_or_else(|| content.aria_describedby().to_string());
 
+    let is_open = (ctx.open)();
     let mut open = ctx.open;
     let on_change = ctx.on_open_change;
+
+    let trigger_sig = ctx.trigger_id;
+    let fallback_trigger_id = runtime.relationships().trigger_id().to_string();
 
     let on_keydown = move |evt: KeyboardEvent| {
         if evt.key() == Key::Escape {
@@ -257,14 +297,37 @@ pub fn DialogContent(
             if let Some(h) = on_change {
                 h.call(false);
             }
+            let trig = trigger_sig
+                .peek()
+                .clone()
+                .unwrap_or_else(|| fallback_trigger_id.clone());
+            crate::foundation::browser::restore_focus_element_by_id(&trig);
         }
     };
+
+    let effect_content_id = content_id.clone();
+    use_effect(use_reactive((&is_open,), move |(open_val,)| {
+        if open_val {
+            let cid = effect_content_id.clone();
+            spawn(async move {
+                crate::foundation::browser::focus_first_focusable(&cid, None);
+            });
+        }
+    }));
+
+    let mut resolved_style = style.clone().unwrap_or_default();
+    if !is_open || *content.data_state() == crate::foundation::state::DataState::Closed {
+        if !resolved_style.is_empty() && !resolved_style.ends_with(';') {
+            resolved_style.push(';');
+        }
+        resolved_style.push_str(" pointer-events: none;");
+    }
 
     rsx! {
         div {
             id: "{content_id}",
             class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            style: "{resolved_style}",
             role: content.role(),
             aria_modal: content.aria_modal(),
             aria_labelledby: "{labelledby}",
@@ -331,11 +394,19 @@ pub fn DialogClose(
     let mut open = ctx.open;
     let on_change = ctx.on_open_change;
 
+    let trigger_sig = ctx.trigger_id;
+    let fallback_trigger_id = runtime.relationships().trigger_id().to_string();
+
     let on_click = move |_| {
         open.set(false);
         if let Some(h) = on_change {
             h.call(false);
         }
+        let trig = trigger_sig
+            .peek()
+            .clone()
+            .unwrap_or_else(|| fallback_trigger_id.clone());
+        crate::foundation::browser::restore_focus_element_by_id(&trig);
     };
 
     rsx! {
@@ -367,11 +438,19 @@ pub fn AlertDialogAction(
     let mut open = ctx.open;
     let on_change = ctx.on_open_change;
 
+    let trigger_sig = ctx.trigger_id;
+    let fallback_trigger_id = runtime.relationships().trigger_id().to_string();
+
     let click_handler = move |evt: MouseEvent| {
         open.set(false);
         if let Some(h) = on_change {
             h.call(false);
         }
+        let trig = trigger_sig
+            .peek()
+            .clone()
+            .unwrap_or_else(|| fallback_trigger_id.clone());
+        crate::foundation::browser::restore_focus_element_by_id(&trig);
         if let Some(cb) = on_click {
             cb.call(evt);
         }
@@ -406,11 +485,19 @@ pub fn AlertDialogCancel(
     let mut open = ctx.open;
     let on_change = ctx.on_open_change;
 
+    let trigger_sig = ctx.trigger_id;
+    let fallback_trigger_id = runtime.relationships().trigger_id().to_string();
+
     let click_handler = move |evt: MouseEvent| {
         open.set(false);
         if let Some(h) = on_change {
             h.call(false);
         }
+        let trig = trigger_sig
+            .peek()
+            .clone()
+            .unwrap_or_else(|| fallback_trigger_id.clone());
+        crate::foundation::browser::restore_focus_element_by_id(&trig);
         if let Some(cb) = on_click {
             cb.call(evt);
         }
