@@ -2,138 +2,15 @@ use dioxus::prelude::*;
 
 use crate::foundation::{compose::MountedHandle, overlay::PresenceCloseCycleId};
 
-#[allow(dead_code)]
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum DocumentDismissEventPayload {
-    PointerDown {
-        #[serde(rename = "pathIds")]
-        path_ids: Vec<String>,
-    },
-    FocusIn {
-        #[serde(rename = "pathIds")]
-        path_ids: Vec<String>,
-    },
-    Escape,
-}
+#[allow(unused_imports)]
+pub use oxidase::watcher::{
+    DismissEvent, DocumentDismissEvent as DocumentDismissEventPayload, FloatingAutoUpdateEvent,
+    FloatingAutoUpdatePayload, FormResetEvent, FormResetEventPayload, PresenceEvent,
+    PresenceEventPayload, PresenceFallbackReason, PresenceMonitorFallback,
+};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PresenceMonitorFallback {
-    Missing,
-    Hidden,
-    NoAnimation,
-}
 
-#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum PresenceEventPayload {
-    Fallback {
-        #[serde(rename = "cycleId")]
-        cycle_id: u64,
-        reason: PresenceMonitorFallback,
-    },
-    AnimationEnd {
-        #[serde(rename = "cycleId")]
-        cycle_id: u64,
-        #[serde(rename = "animationName")]
-        animation_name: String,
-    },
-    AnimationCancel {
-        #[serde(rename = "cycleId")]
-        cycle_id: u64,
-        #[serde(rename = "animationName")]
-        animation_name: String,
-    },
-    Stopped {
-        #[serde(rename = "cycleId")]
-        cycle_id: u64,
-    },
-}
 
-#[allow(dead_code)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum FormResetEventPayload {
-    Reset,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum FloatingAutoUpdatePayload {
-    Scroll,
-    Update,
-}
-
-pub type FloatingAutoUpdateEvent = FloatingAutoUpdatePayload;
-
-mod dom_bridge {
-    use super::{
-        DocumentDismissEventPayload, FloatingAutoUpdatePayload, FormResetEventPayload,
-        PresenceEventPayload,
-    };
-    oxidase::bind_js!("src/foundation/browser/dom.ts"::*);
-}
-
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FloatingTrackerOptionsPayload {
-    pub side: String,
-    pub align: String,
-    #[serde(rename = "sideOffset")]
-    pub side_offset: f64,
-    #[serde(rename = "alignOffset")]
-    pub align_offset: f64,
-    #[serde(rename = "avoidCollisions")]
-    pub avoid_collisions: bool,
-    #[serde(rename = "arrowPadding")]
-    pub arrow_padding: f64,
-}
-
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum FloatingEventPayload {
-    Positioned {
-        side: String,
-        align: String,
-        x: f64,
-        y: f64,
-        #[serde(rename = "arrowX")]
-        arrow_x: Option<f64>,
-        #[serde(rename = "arrowY")]
-        arrow_y: Option<f64>,
-        #[serde(rename = "cannotCenterArrow")]
-        cannot_center_arrow: bool,
-        #[serde(rename = "referenceHidden")]
-        reference_hidden: bool,
-    },
-    Scroll,
-    Hidden,
-}
-
-mod floating_bridge {
-    use super::{FloatingEventPayload, FloatingTrackerOptionsPayload};
-    oxidase::bind_js!("src/foundation/browser/floating.ts"::*);
-}
-
-pub(crate) fn start_floating_tracker(
-    reference_id: &str,
-    wrapper_id: &str,
-    content_id: &str,
-    arrow_id: Option<&str>,
-    options: FloatingTrackerOptionsPayload,
-    mut on_event: impl FnMut(FloatingEventPayload) + 'static,
-) -> WatcherGuard {
-    floating_bridge::start_floating_tracker(
-        reference_id,
-        wrapper_id,
-        content_id,
-        arrow_id,
-        &options,
-        move |payload: FloatingEventPayload| {
-            on_event(payload);
-        },
-    )
-}
 
 pub use oxidase::WatcherGuard;
 
@@ -161,38 +38,41 @@ pub(crate) fn start_presence_monitor(
     cycle_id: PresenceCloseCycleId,
     mut on_event: impl FnMut(PresenceMonitorEvent) + 'static,
 ) -> WatcherGuard {
-    dom_bridge::watch_presence(
+    oxidase::watcher::watch_presence(
         root_id,
-        cycle_id.get() as f64,
-        move |payload: PresenceEventPayload| {
+        cycle_id.get(),
+        move |payload: oxidase::watcher::PresenceEvent| {
             let event = match payload {
-                PresenceEventPayload::Fallback { cycle_id, reason } => {
+                oxidase::watcher::PresenceEvent::Fallback { cycle_id, reason } => {
                     PresenceMonitorEvent::Fallback {
                         cycle_id: PresenceCloseCycleId::from_raw(cycle_id),
                         reason,
                     }
                 }
-                PresenceEventPayload::AnimationEnd {
+                oxidase::watcher::PresenceEvent::AnimationEnd {
                     cycle_id,
                     animation_name,
                 } => PresenceMonitorEvent::AnimationEnd {
                     cycle_id: PresenceCloseCycleId::from_raw(cycle_id),
                     animation_name,
                 },
-                PresenceEventPayload::AnimationCancel {
+                oxidase::watcher::PresenceEvent::AnimationCancel {
                     cycle_id,
                     animation_name,
                 } => PresenceMonitorEvent::AnimationCancel {
                     cycle_id: PresenceCloseCycleId::from_raw(cycle_id),
                     animation_name,
                 },
-                PresenceEventPayload::Stopped { cycle_id } => PresenceMonitorEvent::Stopped {
-                    cycle_id: PresenceCloseCycleId::from_raw(cycle_id),
-                },
+                oxidase::watcher::PresenceEvent::Stopped { cycle_id } => {
+                    PresenceMonitorEvent::Stopped {
+                        cycle_id: PresenceCloseCycleId::from_raw(cycle_id),
+                    }
+                }
             };
             on_event(event);
         },
     )
+    .unwrap_or_else(|_| WatcherGuard::noop())
 }
 
 pub(crate) fn start_floating_auto_update_monitor(
@@ -200,13 +80,22 @@ pub(crate) fn start_floating_auto_update_monitor(
     content_id: &str,
     mut on_event: impl FnMut(FloatingAutoUpdateEvent) + 'static,
 ) -> WatcherGuard {
-    dom_bridge::watch_floating_auto_update(
+    oxidase::watcher::watch_floating_auto_update(
         anchor_ids,
         content_id,
-        move |payload: FloatingAutoUpdatePayload| {
-            on_event(payload);
+        move |payload: oxidase::watcher::FloatingAutoUpdateEvent| {
+            let event = match payload {
+                oxidase::watcher::FloatingAutoUpdateEvent::Scroll => {
+                    FloatingAutoUpdateEvent::Scroll
+                }
+                oxidase::watcher::FloatingAutoUpdateEvent::Update => {
+                    FloatingAutoUpdateEvent::Update
+                }
+            };
+            on_event(event);
         },
     )
+    .unwrap_or_else(|_| WatcherGuard::noop())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -227,20 +116,25 @@ pub(crate) fn start_document_dismiss_monitor_with_boundaries(
     boundaries: &[&str],
     mut on_event: impl FnMut(DocumentDismissEvent) + 'static,
 ) -> WatcherGuard {
-    dom_bridge::watch_document_dismiss(boundaries, move |payload: DocumentDismissEventPayload| {
-        let event = match payload {
-            DocumentDismissEventPayload::PointerDown { path_ids } => {
-                DocumentDismissEvent::PointerDown { path_ids }
-            }
-            DocumentDismissEventPayload::FocusIn { path_ids } => {
-                DocumentDismissEvent::FocusIn { path_ids }
-            }
-            DocumentDismissEventPayload::Escape => DocumentDismissEvent::Escape,
-        };
-        on_event(event);
-    })
+    oxidase::watcher::watch_document_dismiss(
+        boundaries,
+        move |payload: oxidase::watcher::DismissEvent| {
+            let event = match payload {
+                oxidase::watcher::DismissEvent::PointerDown { path_ids } => {
+                    DocumentDismissEvent::PointerDown { path_ids }
+                }
+                oxidase::watcher::DismissEvent::FocusIn { path_ids } => {
+                    DocumentDismissEvent::FocusIn { path_ids }
+                }
+                oxidase::watcher::DismissEvent::Escape => DocumentDismissEvent::Escape,
+            };
+            on_event(event);
+        },
+    )
+    .unwrap_or_else(|_| WatcherGuard::noop())
 }
 
+#[allow(dead_code)]
 pub(crate) const DEFAULT_FOCUSABLE_SELECTOR: &str = "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])";
 
 pub(crate) fn focus_mounted_handle(handle: Option<MountedHandle>) -> bool {
@@ -271,10 +165,9 @@ pub(crate) async fn active_element_matches_id(target_id: &str) -> bool {
 }
 
 pub(crate) async fn is_reference_hidden(anchor_ids: &[&str]) -> Result<bool, String> {
-    let res = dom_bridge::is_reference_hidden(anchor_ids)
+    oxidase::runtime::is_reference_hidden(anchor_ids)
         .await
-        .map_err(|e| e.to_string())?;
-    Ok(res)
+        .map_err(|e| e.to_string())
 }
 
 pub(crate) fn focus_element_by_id(target_id: &str) {
@@ -309,70 +202,304 @@ pub(crate) fn restore_focus_element_by_id(target_id: &str) {
     });
 }
 
+#[cfg(target_arch = "wasm32")]
+mod scroll_lock {
+    use std::{
+        cell::RefCell,
+        collections::HashSet,
+        time::Duration,
+    };
+
+    struct ScrollLockState {
+        locks: HashSet<String>,
+        original_overflow: String,
+        original_padding_right: String,
+        cleanup_generation: u64,
+    }
+
+    thread_local! {
+        static STATE: RefCell<ScrollLockState> = RefCell::new(ScrollLockState {
+            locks: HashSet::new(),
+            original_overflow: String::new(),
+            original_padding_right: String::new(),
+            cleanup_generation: 0,
+        });
+    }
+
+    pub(crate) fn acquire(lock_id: &str) {
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let Some(document) = window.document() else {
+            return;
+        };
+        let Some(body) = document.body() else {
+            return;
+        };
+
+        STATE.with(|state| {
+            let mut state = state.borrow_mut();
+            state.cleanup_generation = state.cleanup_generation.wrapping_add(1);
+
+            if state.locks.is_empty() {
+                let body_style = body.style();
+                state.original_overflow = body_style
+                    .get_property_value("overflow")
+                    .unwrap_or_default();
+                state.original_padding_right = body_style
+                    .get_property_value("padding-right")
+                    .unwrap_or_default();
+
+                let doc_elem = document.document_element();
+                let html_style = doc_elem
+                    .as_ref()
+                    .and_then(|el| window.get_computed_style(el).ok().flatten());
+                let computed_body_style = window.get_computed_style(&body).ok().flatten();
+
+                let has_stable_gutter = html_style
+                    .and_then(|s| s.get_property_value("scrollbar-gutter").ok())
+                    .unwrap_or_default()
+                    .contains("stable")
+                    || computed_body_style
+                        .and_then(|s| s.get_property_value("scrollbar-gutter").ok())
+                        .unwrap_or_default()
+                        .contains("stable");
+
+                let window_inner_width = window
+                    .inner_width()
+                    .ok()
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0) as i32;
+                let doc_client_width = doc_elem.map(|el| el.client_width()).unwrap_or(0);
+                let scrollbar_width = window_inner_width - doc_client_width;
+
+                if scrollbar_width > 0 && !has_stable_gutter {
+                    let px_val = format!("{scrollbar_width}px");
+                    let _ = body_style.set_property("padding-right", &px_val);
+                    let _ = body_style.set_property("--scrollbar-width", &px_val);
+                }
+                let _ = body_style.set_property("overflow", "hidden");
+            }
+
+            state.locks.insert(lock_id.to_string());
+        });
+    }
+
+    pub(crate) fn release(lock_id: &str, restore_delay: Option<u64>) {
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let Some(document) = window.document() else {
+            return;
+        };
+        let Some(body) = document.body() else {
+            return;
+        };
+
+        let (should_restore, token) = STATE.with(|state| {
+            let mut state = state.borrow_mut();
+            state.locks.remove(lock_id);
+            if !state.locks.is_empty() {
+                return (false, 0);
+            }
+            state.cleanup_generation = state.cleanup_generation.wrapping_add(1);
+            (true, state.cleanup_generation)
+        });
+
+        if !should_restore {
+            return;
+        }
+
+        let do_restore = move || {
+            STATE.with(|state| {
+                let state = state.borrow();
+                if state.cleanup_generation != token || !state.locks.is_empty() {
+                    return;
+                }
+                let body_style = body.style();
+                let _ = body_style.set_property("overflow", &state.original_overflow);
+                let _ = body_style.set_property("padding-right", &state.original_padding_right);
+                let _ = body_style.remove_property("--scrollbar-width");
+            });
+        };
+
+        let delay_ms = restore_delay.unwrap_or(0);
+        if delay_ms > 0 {
+            dioxus::prelude::spawn(async move {
+                futures_timer::Delay::new(Duration::from_millis(delay_ms)).await;
+                do_restore();
+            });
+        } else {
+            do_restore();
+        }
+    }
+}
+
 pub(crate) fn focus_first_focusable(content_id: &str, focusable_selector: Option<&str>) {
-    let selector = focusable_selector.unwrap_or(DEFAULT_FOCUSABLE_SELECTOR);
-    dom_bridge::focus_first_focusable(content_id, selector);
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::JsCast;
+
+        let selector = focusable_selector.unwrap_or(DEFAULT_FOCUSABLE_SELECTOR);
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let Some(document) = window.document() else {
+            return;
+        };
+        let Some(root) = document.get_element_by_id(content_id) else {
+            return;
+        };
+        let Ok(root_html) = root.clone().dyn_into::<web_sys::HtmlElement>() else {
+            return;
+        };
+
+        let candidate = if root.matches(selector).unwrap_or(false) {
+            Some(root_html.clone())
+        } else {
+            root.query_selector(selector)
+                .ok()
+                .flatten()
+                .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
+        };
+
+        if let Some(target) = candidate {
+            if target.id() == root.id() && !root.has_attribute("tabindex") {
+                let _ = root.set_attribute("tabindex", "-1");
+            }
+            let _ = target.focus();
+            return;
+        }
+
+        if !root.has_attribute("tabindex") {
+            let _ = root.set_attribute("tabindex", "-1");
+        }
+        let _ = root_html.focus();
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = content_id;
+        let _ = focusable_selector;
+    }
 }
 
 pub(crate) fn acquire_scroll_lock(lock_id: &str) {
-    dom_bridge::acquire_scroll_lock(lock_id);
+    #[cfg(target_arch = "wasm32")]
+    scroll_lock::acquire(lock_id);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = lock_id;
+    }
 }
 
 pub(crate) fn release_scroll_lock(lock_id: &str, restore_delay: Option<u64>) {
-    let delay_ms = restore_delay.unwrap_or_default() as f64;
-    dom_bridge::release_scroll_lock(lock_id, delay_ms);
+    #[cfg(target_arch = "wasm32")]
+    scroll_lock::release(lock_id, restore_delay);
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = lock_id;
+        let _ = restore_delay;
+    }
 }
 
 pub(crate) fn scroll_element_into_view_nearest(element_id: &str) {
-    dom_bridge::scroll_element_into_view_nearest(element_id);
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Some(document) = window.document() {
+                if let Some(el) = document.get_element_by_id(element_id) {
+                    el.scroll_into_view();
+                }
+            }
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = element_id;
+    }
 }
 
 pub(crate) fn set_body_user_select_none() {
-    dom_bridge::set_body_user_select(true);
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Some(document) = window.document() {
+                if let Some(body) = document.body() {
+                    let style = body.style();
+                    let _ = style.set_property("user-select", "none");
+                    let _ = style.set_property("-webkit-user-select", "none");
+                }
+            }
+        }
+    }
 }
 
 pub(crate) fn restore_body_user_select() {
-    dom_bridge::set_body_user_select(false);
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Some(document) = window.document() {
+                if let Some(body) = document.body() {
+                    let style = body.style();
+                    let _ = style.remove_property("user-select");
+                    let _ = style.remove_property("-webkit-user-select");
+                }
+            }
+        }
+    }
 }
 
 pub(crate) fn teleport_element_to_host(element_id: &str, host_id: Option<&str>) {
-    dom_bridge::teleport_element_to_host(element_id, host_id.unwrap_or(""));
+    #[cfg(target_arch = "wasm32")]
+    {
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let Some(document) = window.document() else {
+            return;
+        };
+        let Some(el) = document.get_element_by_id(element_id) else {
+            return;
+        };
+
+        let host: Option<web_sys::Node> = match host_id.filter(|id| !id.is_empty()) {
+            Some(id) => document.get_element_by_id(id).map(|el| el.into()),
+            None => document
+                .get_element_by_id("main")
+                .map(|el| el.into())
+                .or_else(|| document.body().map(|b| b.into())),
+        };
+
+        if let Some(host) = host {
+            if el.parent_node() != Some(host.clone()) {
+                let _ = host.append_child(&el);
+            }
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = element_id;
+        let _ = host_id;
+    }
 }
 
 pub(crate) fn remove_element_by_id(element_id: &str) {
-    dom_bridge::remove_element_by_id(element_id);
+    #[cfg(target_arch = "wasm32")]
+    {
+        if let Some(window) = web_sys::window() {
+            if let Some(document) = window.document() {
+                if let Some(el) = document.get_element_by_id(element_id) {
+                    el.remove();
+                }
+            }
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = element_id;
+    }
 }
 
-pub(crate) async fn measure_floating_placement(
-    anchor_id: &str,
-    content_id: &str,
-    custom_anchor_id: Option<&str>,
-    boundary_id: Option<&str>,
-) -> Option<[f64; 10]> {
-    let effective_anchor = custom_anchor_id.unwrap_or(anchor_id);
-    let tr = oxidase::runtime::measure_rect(effective_anchor)
-        .await
-        .ok()
-        .flatten()?;
-    let cr = oxidase::runtime::measure_rect(content_id)
-        .await
-        .ok()
-        .flatten()?;
-    let (b_left, b_top, b_right, b_bottom) = if let Some(bid) = boundary_id {
-        if let Ok(Some(br)) = oxidase::runtime::measure_rect(bid).await {
-            (br.left, br.top, br.right, br.bottom)
-        } else {
-            let vp = oxidase::runtime::get_viewport().await.ok()?;
-            (0.0, 0.0, vp.width, vp.height)
-        }
-    } else {
-        let vp = oxidase::runtime::get_viewport().await.ok()?;
-        (0.0, 0.0, vp.width, vp.height)
-    };
-    Some([
-        tr.left, tr.top, tr.width, tr.height, cr.width, cr.height, b_left, b_top, b_right, b_bottom,
-    ])
-}
 
 pub(crate) fn start_form_reset_monitor(
     element_id: &str,
@@ -380,13 +507,14 @@ pub(crate) fn start_form_reset_monitor(
     on_reset: impl FnMut() + 'static,
 ) -> WatcherGuard {
     let mut on_reset = on_reset;
-    dom_bridge::watch_form_reset(
+    oxidase::watcher::watch_form_reset(
         element_id,
-        form_id.unwrap_or(""),
-        move |_sig: FormResetEventPayload| {
+        form_id,
+        move |_sig: oxidase::watcher::FormResetEvent| {
             on_reset();
         },
     )
+    .unwrap_or_else(|_| WatcherGuard::noop())
 }
 
 #[cfg(test)]

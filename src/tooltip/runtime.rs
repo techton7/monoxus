@@ -9,13 +9,13 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        FloatingEventPayload, FloatingTrackerOptionsPayload, PresenceMonitorEvent, WatcherGuard,
-        start_floating_tracker, start_presence_monitor,
+        FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard,
+        start_floating_auto_update_monitor, start_presence_monitor,
     },
     overlay::{
-        FloatingArrowPosition, FloatingPlacement, FloatingReadiness, GeometryVars, PlacementAlign,
-        PlacementSide, Presence, PresenceCloseCycleId, PresenceController, PresenceControllerUpdate,
-        Rect, Size,
+        compute_overlay_position, FloatingPlacement, FloatingReadiness, GeometryVars,
+        OverlayPositionConfig, Presence, PresenceCloseCycleId, PresenceController,
+        PresenceControllerUpdate, Rect, Size,
     },
     state::DataState,
 };
@@ -720,6 +720,27 @@ impl TooltipRuntime {
     }
 }
 
+fn compute_tooltip_position(tooltip: &Tooltip) -> Option<FloatingPlacement> {
+    let floating_layer = tooltip.lifecycle().floating();
+    let config = OverlayPositionConfig {
+        anchor_id: tooltip.relationships().trigger_id(),
+        content_id: tooltip.relationships().content_id(),
+        arrow_id: Some(tooltip.relationships().arrow_id()),
+        boundary_id: None,
+        side: floating_layer.side(),
+        align: floating_layer.align(),
+        side_offset: floating_layer.side_offset(),
+        align_offset: floating_layer.align_offset(),
+        avoid_collisions: true,
+        collision_padding: 0.0,
+        arrow_padding: 4.0,
+        hide_when_detached: floating_layer.hide_when_detached(),
+        sticky: false,
+        namespace: Some(TOOLTIP_GEOMETRY_NAMESPACE),
+    };
+    compute_overlay_position(&config)
+}
+
 fn sync_tooltip_positioning(
     tooltip: &Tooltip,
     provider_runtime: Option<TooltipProviderRuntime>,
@@ -748,100 +769,42 @@ fn sync_tooltip_positioning(
     }
 
     let _position_loop_token = advance_tooltip_token(state.position_loop_token);
+
+    if let Some(placement) = compute_tooltip_position(tooltip) {
+        let should_update = state
+            .placement
+            .with_peek(|current| current.as_ref() != Some(&placement));
+        if should_update {
+            let mut current = state.placement;
+            current.set(Some(placement));
+        }
+        set_tooltip_content_readiness(state, FloatingReadiness::Ready);
+    }
+
+    let trigger_id = tooltip.relationships().trigger_id();
+    let content_id = tooltip.relationships().content_id();
     let tooltip_clone = tooltip.clone();
     let provider_clone = provider_runtime.clone();
     let on_open_change_clone = Rc::clone(&on_open_change);
 
-    let floating_layer = tooltip.lifecycle().floating();
-    let options = FloatingTrackerOptionsPayload {
-        side: floating_layer.side().as_str().to_string(),
-        align: floating_layer.align().as_str().to_string(),
-        side_offset: floating_layer.side_offset() as f64,
-        align_offset: floating_layer.align_offset() as f64,
-        avoid_collisions: true,
-        arrow_padding: 4.0,
-    };
-
-    let watcher = start_floating_tracker(
-        tooltip.relationships().trigger_id(),
-        tooltip.relationships().wrapper_id(),
-        tooltip.relationships().content_id(),
-        Some(tooltip.relationships().arrow_id()),
-        options,
-        move |event| match event {
-            FloatingEventPayload::Positioned {
-                side,
-                align,
-                x,
-                y,
-                arrow_x,
-                arrow_y,
-                cannot_center_arrow,
-                reference_hidden,
-            } => {
-                let placement_side = match side.as_str() {
-                    "top" => PlacementSide::Top,
-                    "right" => PlacementSide::Right,
-                    "bottom" => PlacementSide::Bottom,
-                    "left" => PlacementSide::Left,
-                    _ => PlacementSide::Bottom,
-                };
-                let placement_align = match align.as_str() {
-                    "start" => PlacementAlign::Start,
-                    "center" => PlacementAlign::Center,
-                    "end" => PlacementAlign::End,
-                    _ => PlacementAlign::Center,
-                };
-                let arrow = FloatingArrowPosition::new(
-                    arrow_x.map(|v| v as f32),
-                    arrow_y.map(|v| v as f32),
-                    cannot_center_arrow,
-                );
-                let geometry = GeometryVars::new(
-                    TOOLTIP_GEOMETRY_NAMESPACE,
-                    x as f32,
-                    y as f32,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                    0.0,
-                );
-                let placement = FloatingPlacement::new(
-                    placement_side,
-                    placement_align,
-                    geometry,
-                    arrow,
-                    reference_hidden,
-                );
-
-                let should_update = state
-                    .placement
-                    .with_peek(|current| current.as_ref() != Some(&placement));
-                if should_update {
-                    let mut current = state.placement;
-                    current.set(Some(placement));
-                }
-                set_tooltip_content_readiness(state, FloatingReadiness::Ready);
-            }
-            FloatingEventPayload::Scroll => {
+    let watcher = start_floating_auto_update_monitor(&[trigger_id], content_id, move |event| {
+        match event {
+            FloatingAutoUpdateEvent::Scroll => {
                 close_tooltip_from_scroll(
                     &tooltip_clone,
                     provider_clone.as_ref(),
                     &on_open_change_clone,
                 );
             }
-            FloatingEventPayload::Hidden => {
-                if let Some(current) = state.placement.cloned() {
-                    let mut placement_sig = state.placement;
-                    placement_sig.set(Some(current.hide_reference()));
+            FloatingAutoUpdateEvent::Update => {
+                if let Some(placement) = compute_tooltip_position(&tooltip_clone) {
+                    let mut current = state.placement;
+                    current.set(Some(placement));
+                    set_tooltip_content_readiness(state, FloatingReadiness::Ready);
                 }
             }
-        },
-    );
+        }
+    });
     let mut position_monitor = state.position_monitor;
     position_monitor.set(Some(watcher));
 }

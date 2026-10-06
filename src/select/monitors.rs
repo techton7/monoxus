@@ -5,7 +5,7 @@ use crate::foundation::{
         start_document_dismiss_monitor_with_boundaries,
         start_floating_auto_update_monitor, start_form_reset_monitor, DocumentDismissEvent,
     },
-    overlay::{FloatingLayer, FloatingReadiness, Rect, Size},
+    overlay::{compute_overlay_position, FloatingReadiness, OverlayPositionConfig},
 };
 
 use super::{runtime::SelectRuntime, types::SelectMode};
@@ -169,73 +169,35 @@ impl SelectRuntime {
         let content_id = self.relationships().content_id();
         let boundary_id = self.collision_boundary();
         let custom_anchor_id = self.custom_anchor();
+        let anchor_id = custom_anchor_id.as_deref().unwrap_or(trigger_id);
 
-        if let Some(arr) = crate::foundation::browser::measure_floating_placement(
-            trigger_id,
+        let config = OverlayPositionConfig {
+            anchor_id,
             content_id,
-            custom_anchor_id.as_deref(),
-            boundary_id.as_deref(),
-        )
-        .await
-        {
-            let t_x = arr[0] as f32;
-            let t_y = arr[1] as f32;
-            let t_w = arr[2] as f32;
-            let t_h = arr[3] as f32;
-            let c_w = arr[4] as f32;
-            let c_h = arr[5] as f32;
-            let padding = self.collision_padding();
-            let b_left = arr[6] as f32 + padding;
-            let b_top = arr[7] as f32 + padding;
-            let b_right = (arr[8] as f32 - padding).max(b_left);
-            let b_bottom = (arr[9] as f32 - padding).max(b_top);
+            arrow_id: None,
+            boundary_id: boundary_id.as_deref(),
+            side: self.preferred_side(),
+            align: self.preferred_align(),
+            side_offset: self.side_offset(),
+            align_offset: self.align_offset(),
+            avoid_collisions: self.avoid_collisions(),
+            collision_padding: self.collision_padding(),
+            arrow_padding: self.arrow_padding(),
+            hide_when_detached: self.hide_when_detached(),
+            sticky: self.sticky().as_deref() == Some("always"),
+            namespace: Some("select"),
+        };
 
-            let anchor_rect = Rect::new(t_x - b_left, t_y - b_top, t_w, t_h);
-            let content_size = Size::new(c_w, c_h);
-            let available_size = Size::new(b_right - b_left, b_bottom - b_top);
-
-            let preferred_side = self.preferred_side();
-            let preferred_align = self.preferred_align();
-            let avoid_collisions = self.avoid_collisions();
-            let hide_when_detached = self.hide_when_detached();
-            let side_offset = self.side_offset();
-            let align_offset = self.align_offset();
-
-            let layer = FloatingLayer::new(preferred_side)
-                .with_align(preferred_align)
-                .with_side_offset(side_offset)
-                .with_align_offset(align_offset)
-                .with_hide_when_detached(hide_when_detached);
-
-            let computed =
-                layer.position_with_available_size(anchor_rect, content_size, available_size);
-
-            if avoid_collisions {
-                let mut side_sig = self.state.side;
-                if *side_sig.peek() != computed.side() {
-                    side_sig.set(computed.side());
-                }
-                let mut align_sig = self.state.align;
-                if *align_sig.peek() != computed.align() {
-                    align_sig.set(computed.align());
-                }
-            } else {
-                let mut side_sig = self.state.side;
-                if *side_sig.peek() != preferred_side {
-                    side_sig.set(preferred_side);
-                }
-                let mut align_sig = self.state.align;
-                if *align_sig.peek() != preferred_align {
-                    align_sig.set(preferred_align);
-                }
+        if let Some(computed) = compute_overlay_position(&config) {
+            let mut side_sig = self.state.side;
+            if *side_sig.peek() != computed.side() {
+                side_sig.set(computed.side());
             }
-            let is_sticky_always = self.sticky().as_deref() == Some("always");
-            let ref_hidden = if is_sticky_always {
-                false
-            } else {
-                computed.reference_hidden()
-            };
-            self.set_reference_hidden(ref_hidden);
+            let mut align_sig = self.state.align;
+            if *align_sig.peek() != computed.align() {
+                align_sig.set(computed.align());
+            }
+            self.set_reference_hidden(computed.reference_hidden());
 
             let mut placement_sig = self.state.placement;
             placement_sig.set(Some(computed));
