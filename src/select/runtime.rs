@@ -255,6 +255,70 @@ where
 }
 
 impl SelectRuntime {
+    pub fn new(select: Select) -> Self {
+        let initial_val = select.value().map(str::to_owned);
+        let initial_def_val = select.default_value().map(str::to_owned);
+        let initial_vals = select.values().to_vec();
+        let initial_def_vals = select.default_values().to_vec();
+        let initial_open = select.is_open();
+        let initial_registry = select.registry();
+
+        let state = SelectRuntimeState {
+            value: Signal::new(initial_val),
+            default_value: Signal::new(initial_def_val),
+            values: Signal::new(initial_vals),
+            default_values: Signal::new(initial_def_vals),
+            open: Signal::new(initial_open),
+            highlighted_value: Signal::new(None),
+            items: Signal::new(select.items().to_vec()),
+            registry: Signal::new(initial_registry),
+            typeahead_buffer: Signal::new(String::new()),
+            last_key_timestamp_ms: Signal::new(0.0),
+            preferred_side: Signal::new(PlacementSide::Bottom),
+            preferred_align: Signal::new(PlacementAlign::Start),
+            side: Signal::new(PlacementSide::Bottom),
+            align: Signal::new(PlacementAlign::Start),
+            side_offset: Signal::new(4.0),
+            align_offset: Signal::new(0.0),
+            avoid_collisions: Signal::new(true),
+            hide_when_detached: Signal::new(false),
+            custom_anchor: Signal::new(None),
+            prevent_scroll: Signal::new(false),
+            prevent_overflow_text_selection: Signal::new(false),
+            force_mount: Signal::new(false),
+            collision_boundary: Signal::new(None),
+            collision_padding: Signal::new(0.0),
+            arrow_padding: Signal::new(0.0),
+            sticky: Signal::new(None),
+            reference_hidden: Signal::new(false),
+            escape_prevented: Signal::new(false),
+            on_escape_keydown: Signal::new(None),
+            on_pointer_down_outside: Signal::new(None),
+            on_close_auto_focus: Signal::new(None),
+            dismiss_monitor: Signal::new(None),
+            dismiss_loop_token: Signal::new(0),
+            position_monitor: Signal::new(None),
+            position_loop_token: Signal::new(0),
+            form_reset_monitor: Signal::new(None),
+            presence_lane: Signal::new(SelectContentPresenceLane::new(select.presence())),
+            presence_monitor: RetainedRootPresenceMonitorState {
+                monitor: Signal::new(None),
+                cycle_id: Signal::new(None),
+            },
+            placement: Signal::new(None),
+            content_readiness: Signal::new(FloatingReadiness::default()),
+        };
+
+        Self {
+            select,
+            on_value_change: None,
+            on_values_change: None,
+            on_open_change: None,
+            on_open_change_complete: None,
+            state,
+        }
+    }
+
     pub fn select(&self) -> Select {
         self.select.clone()
     }
@@ -679,6 +743,27 @@ impl SelectRuntime {
             .collect();
         let mut items_sig = self.state.items;
         items_sig.set(active);
+    }
+
+    pub fn sync_dom_order(&self, content_id: &str) {
+        let candidate_keys: Vec<String> = self
+            .state
+            .registry
+            .read()
+            .items_by_id
+            .keys()
+            .cloned()
+            .collect();
+        let candidate_refs: Vec<&str> = candidate_keys.iter().map(|s| s.as_str()).collect();
+
+        if let Ok(new_order) =
+            crate::foundation::browser::query_descendant_order(content_id, &candidate_refs)
+        {
+            let current_order = self.state.registry.read().ordered_item_ids.clone();
+            if new_order != current_order {
+                self.set_ordered_items(new_order);
+            }
+        }
     }
 
     pub fn close_dropdown(&self) {

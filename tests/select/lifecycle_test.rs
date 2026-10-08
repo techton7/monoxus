@@ -1,6 +1,7 @@
+use dioxus::prelude::*;
 use monoxus::{
     foundation::shared::ScopeHandle,
-    select::{Select, SelectItemData, apply_document_order},
+    select::{apply_document_order, Select, SelectItemData, SelectItemRegistration, SelectRuntime},
 };
 
 #[test]
@@ -101,105 +102,240 @@ fn select_presence_lifecycle_and_retained_mount_contract() {
 }
 
 #[test]
-fn select_mounted_option_registry_pure_rust_document_order_contract() {
-    use monoxus::select::{MountedOptionRegistry, SelectItemRegistration};
-
-    let mut registry = MountedOptionRegistry::new();
-    registry.register(SelectItemRegistration::new("item-pro", "pro", "Pro", false));
-    registry.register(SelectItemRegistration::new("item-starter", "starter", "Starter", false));
-    registry.register(SelectItemRegistration::new("item-enterprise", "enterprise", "Enterprise", false));
-
-    let initial_values: Vec<_> = registry.active_items().map(|i| i.value.as_str()).collect();
-    assert_eq!(initial_values, vec!["pro", "starter", "enterprise"]);
-
-    // Pure Rust document order reordering
-    registry.set_tree_order(vec![
-        "item-starter".to_string(),
-        "item-pro".to_string(),
-        "item-enterprise".to_string(),
-    ]);
-
-    let reordered_values: Vec<_> = registry.active_items().map(|i| i.value.as_str()).collect();
-    assert_eq!(reordered_values, vec!["starter", "pro", "enterprise"]);
-
-    // Dynamic unmount removal
-    registry.unregister("item-pro");
-    let after_unmount: Vec<_> = registry.active_items().map(|i| i.value.as_str()).collect();
-    assert_eq!(after_unmount, vec!["starter", "enterprise"]);
-    assert_eq!(registry.len(), 2);
-}
-
-#[test]
 fn select_grouped_items_depth_first_document_order_contract() {
-    use monoxus::select::{MountedOptionRegistry, SelectItemRegistration};
+    let mut dom = VirtualDom::new(|| rsx! {});
+    dom.rebuild_in_place();
+    dom.in_scope(ScopeId::APP, || {
+        let scope = ScopeHandle::root("select-test").child("grouped-items");
+        let select = Select::new(scope).with_open(true);
+        let runtime = SelectRuntime::new(select);
 
-    let mut registry = MountedOptionRegistry::new();
-    // Group 1 items
-    registry.register(SelectItemRegistration::new("g1-item-1", "apple", "Apple", false));
-    registry.register(SelectItemRegistration::new("g1-item-2", "banana", "Banana", false));
-    // Group 2 items
-    registry.register(SelectItemRegistration::new("g2-item-1", "carrot", "Carrot", false));
-    registry.register(SelectItemRegistration::new("g2-item-2", "daikon", "Daikon", false));
+        // Register items belonging to Group 1 and Group 2 in arbitrary order
+        runtime.register_item(SelectItemRegistration::new("g2-c", "G2-C", "Item C", false));
+        runtime.register_item(SelectItemRegistration::new("g1-a", "G1-A", "Item A", false));
+        runtime.register_item(SelectItemRegistration::new("g2-d", "G2-D", "Item D", false));
+        runtime.register_item(SelectItemRegistration::new("g1-b", "G1-B", "Item B", false));
 
-    // Depth-first document tree order
-    registry.set_tree_order(vec![
-        "g1-item-1".to_string(),
-        "g1-item-2".to_string(),
-        "g2-item-1".to_string(),
-        "g2-item-2".to_string(),
-    ]);
+        // Apply depth-first document tree order: [G1-A, G1-B, G2-C, G2-D]
+        runtime.set_ordered_items(vec![
+            "g1-a".to_string(),
+            "g1-b".to_string(),
+            "g2-c".to_string(),
+            "g2-d".to_string(),
+        ]);
 
-    let active_values: Vec<_> = registry.active_items().map(|i| i.value.as_str()).collect();
-    assert_eq!(active_values, vec!["apple", "banana", "carrot", "daikon"]);
+        let rels = runtime.relationships();
+
+        // 1. Initial Home navigation -> G1-A
+        runtime.highlight_first();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("G1-A"));
+        let attrs = runtime.content_attributes(runtime.highlighted_value().map(|v| rels.item_id(&v)));
+        assert_eq!(attrs.aria_activedescendant(), Some(rels.item_id("G1-A").as_str()));
+
+        // 2. highlight_next -> G1-B
+        runtime.highlight_next();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("G1-B"));
+        let attrs = runtime.content_attributes(runtime.highlighted_value().map(|v| rels.item_id(&v)));
+        assert_eq!(attrs.aria_activedescendant(), Some(rels.item_id("G1-B").as_str()));
+
+        // 3. highlight_next -> G2-C
+        runtime.highlight_next();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("G2-C"));
+        let attrs = runtime.content_attributes(runtime.highlighted_value().map(|v| rels.item_id(&v)));
+        assert_eq!(attrs.aria_activedescendant(), Some(rels.item_id("G2-C").as_str()));
+
+        // 4. highlight_next -> G2-D
+        runtime.highlight_next();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("G2-D"));
+        let attrs = runtime.content_attributes(runtime.highlighted_value().map(|v| rels.item_id(&v)));
+        assert_eq!(attrs.aria_activedescendant(), Some(rels.item_id("G2-D").as_str()));
+
+        // 5. highlight_prev -> G2-C
+        runtime.highlight_prev();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("G2-C"));
+
+        // 6. End navigation -> G2-D
+        runtime.highlight_last();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("G2-D"));
+
+        // 7. Home navigation -> G1-A
+        runtime.highlight_first();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("G1-A"));
+    });
 }
 
 #[test]
 fn select_dynamic_item_reordering_updates_order_contract() {
-    use monoxus::select::{MountedOptionRegistry, SelectItemRegistration};
+    let mut dom = VirtualDom::new(|| rsx! {});
+    dom.rebuild_in_place();
+    dom.in_scope(ScopeId::APP, || {
+        let scope = ScopeHandle::root("select-test").child("dynamic-reorder");
+        let select = Select::new(scope).with_open(true);
+        let runtime = SelectRuntime::new(select);
 
-    let mut registry = MountedOptionRegistry::new();
-    registry.register(SelectItemRegistration::new("item-a", "a", "A", false));
-    registry.register(SelectItemRegistration::new("item-b", "b", "B", false));
-    registry.register(SelectItemRegistration::new("item-c", "c", "C", false));
+        runtime.register_item(SelectItemRegistration::new("item-a", "A", "Apple", false));
+        runtime.register_item(SelectItemRegistration::new("item-b", "B", "Berry", false));
+        runtime.register_item(SelectItemRegistration::new("item-c", "C", "Cherry", false));
 
-    // Dynamic reordering (reverse sort: c, b, a)
-    registry.set_tree_order(vec![
-        "item-c".to_string(),
-        "item-b".to_string(),
-        "item-a".to_string(),
-    ]);
+        // Initial document order: [A, B, C]
+        runtime.set_ordered_items(vec![
+            "item-a".to_string(),
+            "item-b".to_string(),
+            "item-c".to_string(),
+        ]);
 
-    let reversed_values: Vec<_> = registry.active_items().map(|i| i.value.as_str()).collect();
-    assert_eq!(reversed_values, vec!["c", "b", "a"]);
+        runtime.highlight_first();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("A"));
+
+        // Dynamic reordering (reverse order): [C, B, A]
+        runtime.set_ordered_items(vec![
+            "item-c".to_string(),
+            "item-b".to_string(),
+            "item-a".to_string(),
+        ]);
+
+        // Verify roving focus follows the new order [C, B, A]
+        runtime.highlight_first();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("C"));
+
+        runtime.highlight_next();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("B"));
+
+        runtime.highlight_next();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("A"));
+
+        // Verify typeahead navigates the new order:
+        // Type 'b' -> highlights B (Berry)
+        runtime.handle_typeahead('b', 100.0);
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("B"));
+
+        // After timeout (> 500ms), type 'c' -> highlights C (Cherry)
+        runtime.handle_typeahead('c', 700.0);
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("C"));
+
+        // Next item after C in new order is B
+        runtime.highlight_next();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("B"));
+    });
 }
 
 #[test]
 fn select_conditional_item_insertion_and_removal_preserves_clean_document_order_contract() {
-    use monoxus::select::{MountedOptionRegistry, SelectItemRegistration};
+    let mut dom = VirtualDom::new(|| rsx! {});
+    dom.rebuild_in_place();
+    dom.in_scope(ScopeId::APP, || {
+        let scope = ScopeHandle::root("select-test").child("conditional-order");
+        let select = Select::new(scope).with_open(true);
+        let runtime = SelectRuntime::new(select);
 
-    let mut registry = MountedOptionRegistry::new();
-    registry.register(SelectItemRegistration::new("item-a", "a", "A", false));
-    registry.register(SelectItemRegistration::new("item-b", "b", "B", false));
+        // Group 1: [G1-A], Group 2: [G2-C]
+        runtime.register_item(SelectItemRegistration::new("g1-a", "G1-A", "Item A", false));
+        runtime.register_item(SelectItemRegistration::new("g2-c", "G2-C", "Item C", false));
 
-    // Initial order: [a, b]
-    registry.set_tree_order(vec!["item-a".to_string(), "item-b".to_string()]);
-    let initial: Vec<_> = registry.active_items().map(|i| i.value.as_str()).collect();
-    assert_eq!(initial, vec!["a", "b"]);
+        runtime.set_ordered_items(vec!["g1-a".to_string(), "g2-c".to_string()]);
 
-    // Conditionally insert item-mid between a and b: [a, mid, b]
-    registry.register(SelectItemRegistration::new("item-mid", "mid", "Middle", false));
-    registry.set_tree_order(vec![
-        "item-a".to_string(),
-        "item-mid".to_string(),
-        "item-b".to_string(),
-    ]);
-    let with_mid: Vec<_> = registry.active_items().map(|i| i.value.as_str()).collect();
-    assert_eq!(with_mid, vec!["a", "mid", "b"]);
+        let initial_vals: Vec<_> = runtime
+            .registry()
+            .active_items()
+            .map(|i| i.value.clone())
+            .collect();
+        assert_eq!(initial_vals, vec!["G1-A", "G2-C"]);
 
-    // Remove conditional item-mid: [a, b]
-    registry.unregister("item-mid");
-    let after_removal: Vec<_> = registry.active_items().map(|i| i.value.as_str()).collect();
-    assert_eq!(after_removal, vec!["a", "b"]);
-    assert_eq!(registry.len(), 2);
+        // Conditionally insert G1-B into Group 1 and G2-D into Group 2
+        runtime.register_item(SelectItemRegistration::new("g1-b", "G1-B", "Item B", false));
+        runtime.register_item(SelectItemRegistration::new("g2-d", "G2-D", "Item D", false));
+
+        // Host query order returns pre-order: [G1-A, G1-B, G2-C, G2-D]
+        runtime.set_ordered_items(vec![
+            "g1-a".to_string(),
+            "g1-b".to_string(),
+            "g2-c".to_string(),
+            "g2-d".to_string(),
+        ]);
+
+        let with_inserted: Vec<_> = runtime
+            .registry()
+            .active_items()
+            .map(|i| i.value.clone())
+            .collect();
+        assert_eq!(with_inserted, vec!["G1-A", "G1-B", "G2-C", "G2-D"]);
+
+        // Conditionally remove G1-B from Group 1
+        runtime.unregister_item("g1-b");
+
+        let after_removal: Vec<_> = runtime
+            .registry()
+            .active_items()
+            .map(|i| i.value.clone())
+            .collect();
+        assert_eq!(after_removal, vec!["G1-A", "G2-C", "G2-D"]);
+
+        // Verify keyboard navigation reflects removal cleanly without duplicate or stale items
+        runtime.highlight_first();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("G1-A"));
+        runtime.highlight_next();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("G2-C"));
+        runtime.highlight_next();
+        assert_eq!(runtime.highlighted_value().as_deref(), Some("G2-D"));
+    });
+}
+
+#[test]
+fn select_native_blitz_document_order_query_contract() {
+    use blitz_dom::{BaseDocument, DocumentConfig};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    let base_doc = Rc::new(RefCell::new(BaseDocument::new(DocumentConfig::default())));
+    let native_doc = oxidase::dom::Document::from_base(base_doc.clone());
+
+    let qual_name = |name: &'static str| blitz_dom::QualName {
+        prefix: None,
+        ns: blitz_dom::ns!(html),
+        local: blitz_dom::LocalName::from(name),
+    };
+    let attr = |name: &'static str, value: &str| blitz_dom::Attribute {
+        name: qual_name(name),
+        value: value.to_string(),
+    };
+
+    // Construct nested DOM hierarchy:
+    // root -> select_content
+    //   -> group_1
+    //     -> opt_1_a
+    //     -> opt_1_b
+    //   -> group_2
+    //     -> opt_2_c
+    //     -> opt_2_d
+    {
+        let mut base = base_doc.borrow_mut();
+        let root_id = base.root_node().id;
+        let mut mutator = base.mutate();
+        let select_content =
+            mutator.create_element(qual_name("div"), vec![attr("id", "select-content")]);
+        let group_1 = mutator.create_element(qual_name("div"), vec![attr("id", "group-1")]);
+        let opt_1_a = mutator.create_element(qual_name("div"), vec![attr("id", "opt-1-a")]);
+        let opt_1_b = mutator.create_element(qual_name("div"), vec![attr("id", "opt-1-b")]);
+        let group_2 = mutator.create_element(qual_name("div"), vec![attr("id", "group-2")]);
+        let opt_2_c = mutator.create_element(qual_name("div"), vec![attr("id", "opt-2-c")]);
+        let opt_2_d = mutator.create_element(qual_name("div"), vec![attr("id", "opt-2-d")]);
+
+        mutator.append_children(group_1, &[opt_1_a, opt_1_b]);
+        mutator.append_children(group_2, &[opt_2_c, opt_2_d]);
+        mutator.append_children(select_content, &[group_1, group_2]);
+        mutator.append_children(root_id, &[select_content]);
+    }
+
+    // Candidate IDs supplied in arbitrary/reverse order
+    let candidates = ["opt-2-d", "opt-1-b", "opt-2-c", "opt-1-a"];
+    let ordered = native_doc
+        .query_descendant_order("select-content", &candidates)
+        .expect("native document query_descendant_order must succeed");
+
+    // Proves exact pre-order depth-first traversal [opt-1-a, opt-1-b, opt-2-c, opt-2-d]
+    assert_eq!(
+        ordered,
+        vec!["opt-1-a", "opt-1-b", "opt-2-c", "opt-2-d"]
+    );
 }
 

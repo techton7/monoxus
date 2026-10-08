@@ -632,6 +632,13 @@ pub fn get_element_client_rect(id: &str) -> Option<Rect2D> {
     }
 }
 
+pub fn query_descendant_order(
+    root_id: &str,
+    candidate_ids: &[&str],
+) -> Result<Vec<String>, oxidase::error::HostError> {
+    oxidase::dom::document().query_descendant_order(root_id, candidate_ids)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

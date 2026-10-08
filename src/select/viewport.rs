@@ -27,24 +27,6 @@ impl SelectRuntime {
             .map(|i| i.text.clone())
     }
 
-    pub fn sync_dom_order(&self) {
-        let active: Vec<SelectItemData> = self
-            .state
-            .registry
-            .read()
-            .active_items()
-            .map(|reg_item| SelectItemData {
-                value: reg_item.value.clone(),
-                text: reg_item.label.clone(),
-                disabled: reg_item.disabled,
-            })
-            .collect();
-        if !active.is_empty() {
-            let mut items_sig = self.state.items;
-            items_sig.set(active);
-        }
-    }
-
     pub fn highlight_next(&self) {
         let reg = self.state.registry.read();
         let enabled: Vec<String> = if !reg.is_empty() {

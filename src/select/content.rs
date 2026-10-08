@@ -109,6 +109,15 @@ pub fn SelectContent(
         },
     ));
 
+    let order_cid = content_id.clone();
+    let order_runtime = ctx.runtime.clone();
+    let reg_sig = ctx.runtime.state.registry;
+    use_effect(use_reactive((&is_open, &reg_sig), move |(open, _)| {
+        if open {
+            order_runtime.sync_dom_order(&order_cid);
+        }
+    }));
+
     let drop_cid = content_id.clone();
     use_drop(move || {
         let lock_id = format!("select-scroll-lock-{}", drop_cid);

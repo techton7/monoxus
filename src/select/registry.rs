@@ -39,11 +39,6 @@ impl MountedOptionRegistry {
     }
 
     pub fn register(&mut self, item: SelectItemRegistration) {
-        if !self.items_by_id.contains_key(&item.id)
-            && !self.ordered_item_ids.iter().any(|id| id == &item.id)
-        {
-            self.ordered_item_ids.push(item.id.clone());
-        }
         self.items_by_id.insert(item.id.clone(), item);
     }
 
@@ -53,16 +48,11 @@ impl MountedOptionRegistry {
     }
 
     pub fn set_tree_order(&mut self, ordered_ids: Vec<String>) {
-        let mut new_order = Vec::with_capacity(ordered_ids.len().max(self.ordered_item_ids.len()));
+        let mut new_order = Vec::with_capacity(ordered_ids.len());
         let mut seen = HashSet::new();
         for id in ordered_ids {
-            if seen.insert(id.clone()) {
+            if self.items_by_id.contains_key(&id) && seen.insert(id.clone()) {
                 new_order.push(id);
-            }
-        }
-        for id in &self.ordered_item_ids {
-            if seen.insert(id.clone()) {
-                new_order.push(id.clone());
             }
         }
         self.ordered_item_ids = new_order;
@@ -102,10 +92,18 @@ mod tests {
         registry.register(SelectItemRegistration::new("opt-2", "2", "Two", false));
         registry.register(SelectItemRegistration::new("opt-3", "3", "Three", true));
 
-        let active: Vec<_> = registry.active_items().map(|i| i.id.as_str()).collect();
-        assert_eq!(active, vec!["opt-1", "opt-2", "opt-3"]);
+        // Prior to set_tree_order, active_items is empty (strict non-append on register)
+        assert_eq!(registry.active_items().count(), 0);
         assert_eq!(registry.len(), 3);
         assert!(!registry.is_empty());
+
+        registry.set_tree_order(vec![
+            "opt-1".to_string(),
+            "opt-2".to_string(),
+            "opt-3".to_string(),
+        ]);
+        let active: Vec<_> = registry.active_items().map(|i| i.id.as_str()).collect();
+        assert_eq!(active, vec!["opt-1", "opt-2", "opt-3"]);
     }
 
     #[test]
@@ -113,6 +111,7 @@ mod tests {
         let mut registry = MountedOptionRegistry::new();
         registry.register(SelectItemRegistration::new("opt-1", "1", "One", false));
         registry.register(SelectItemRegistration::new("opt-2", "2", "Two", false));
+        registry.set_tree_order(vec!["opt-1".to_string(), "opt-2".to_string()]);
 
         registry.unregister("opt-1");
         let active: Vec<_> = registry.active_items().map(|i| i.id.as_str()).collect();
@@ -127,6 +126,7 @@ mod tests {
         let mut registry = MountedOptionRegistry::new();
         registry.register(SelectItemRegistration::new("opt-1", "1", "One", false));
         registry.register(SelectItemRegistration::new("opt-2", "2", "Two", false));
+        registry.set_tree_order(vec!["opt-1".to_string(), "opt-2".to_string()]);
 
         // Update opt-1 label and disabled
         registry.register(SelectItemRegistration::new(
@@ -145,15 +145,16 @@ mod tests {
     }
 
     #[test]
-    fn test_registry_set_tree_order() {
+    fn test_registry_set_tree_order_filters_unknown() {
         let mut registry = MountedOptionRegistry::new();
         registry.register(SelectItemRegistration::new("opt-a", "a", "A", false));
         registry.register(SelectItemRegistration::new("opt-b", "b", "B", false));
         registry.register(SelectItemRegistration::new("opt-c", "c", "C", false));
 
-        // Reorder: B, C, A
+        // Reorder: B, unknown, C, A
         registry.set_tree_order(vec![
             "opt-b".to_string(),
+            "opt-unknown".to_string(),
             "opt-c".to_string(),
             "opt-a".to_string(),
         ]);
