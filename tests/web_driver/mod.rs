@@ -97,6 +97,61 @@ impl ScriptBuilder {
             }}"
         ))
     }
+
+    /// Compact JS actions for Collapsible web verification:
+    /// Navigates #nav-link-collapsible, clicks #collapsible-trigger, verifies data-state="open", and checks focus.
+    pub fn verify_collapsible_actions() -> String {
+        format!(
+            "{}\n{}\n{}\n{}\n{}",
+            Self::navigate_nav_link("collapsible"),
+            Self::wait_call(0.3),
+            Self::click_element("#collapsible-trigger"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const el = document.querySelector('#collapsible-trigger'); \
+                 const state = el ? el.getAttribute('data-state') : null; \
+                 const activeId = document.activeElement ? document.activeElement.id : ''; \
+                 console.log(JSON.stringify({ component: 'collapsible', dataState: state, activeId }));"
+            )
+        )
+    }
+
+    /// Compact JS actions for Accordion web verification:
+    /// Navigates #nav-link-accordion, clicks #accordion-trigger-1, and verifies data-state="open".
+    pub fn verify_accordion_actions() -> String {
+        format!(
+            "{}\n{}\n{}\n{}\n{}",
+            Self::navigate_nav_link("accordion"),
+            Self::wait_call(0.3),
+            Self::click_element("#accordion-trigger-1"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const el = document.querySelector('#accordion-trigger-1'); \
+                 const state = el ? el.getAttribute('data-state') : null; \
+                 console.log(JSON.stringify({ component: 'accordion', dataState: state }));"
+            )
+        )
+    }
+
+    /// Compact JS actions for Tabs web verification:
+    /// Navigates #nav-link-tabs, clicks #tabs-trigger-2, verifies data-state="active", verifies active element and content.
+    pub fn verify_tabs_actions() -> String {
+        format!(
+            "{}\n{}\n{}\n{}\n{}",
+            Self::navigate_nav_link("tabs"),
+            Self::wait_call(0.3),
+            Self::click_element("#tabs-trigger-2"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const el = document.querySelector('#tabs-trigger-2'); \
+                 const state = el ? el.getAttribute('data-state') : null; \
+                 const activeId = document.activeElement ? document.activeElement.id : ''; \
+                 const content2 = document.querySelector('#tabs-content-2'); \
+                 const contentState = content2 ? content2.getAttribute('data-state') : null; \
+                 console.log(JSON.stringify({ component: 'tabs', dataState: state, activeId, contentState }));"
+            )
+        )
+    }
 }
 
 /// Headless browser execution driver using `ego-browser`.
@@ -136,6 +191,27 @@ await wait({default_wait:.2});
 await task.finish({{ keep: [] }});
 "#
         )
+    }
+
+    /// Generates runner script for Collapsible web verification.
+    pub fn generate_collapsible_verification_script(&self) -> String {
+        self.generate_runner_script(
+            "verify-monoxus-collapsible",
+            &ScriptBuilder::verify_collapsible_actions(),
+        )
+    }
+
+    /// Generates runner script for Accordion web verification.
+    pub fn generate_accordion_verification_script(&self) -> String {
+        self.generate_runner_script(
+            "verify-monoxus-accordion",
+            &ScriptBuilder::verify_accordion_actions(),
+        )
+    }
+
+    /// Generates runner script for Tabs web verification.
+    pub fn generate_tabs_verification_script(&self) -> String {
+        self.generate_runner_script("verify-monoxus-tabs", &ScriptBuilder::verify_tabs_actions())
     }
 
     /// Executes a generated script through `ego-browser nodejs`.
@@ -233,5 +309,34 @@ mod tests {
 
         // Points to expected URL
         assert!(script.contains("http://127.0.0.1:8080"));
+    }
+
+    #[test]
+    fn test_non_floating_verification_script_generators() {
+        let driver = EgoWebDriver::default_local();
+
+        // 1. Collapsible script invariants
+        let col_script = driver.generate_collapsible_verification_script();
+        assert!(col_script.contains("#nav-link-collapsible"));
+        assert!(col_script.contains("#collapsible-trigger"));
+        assert!(col_script.contains("dataState"));
+        assert!(col_script.contains("activeId"));
+        assert!(!col_script.contains("500"));
+
+        // 2. Accordion script invariants
+        let acc_script = driver.generate_accordion_verification_script();
+        assert!(acc_script.contains("#nav-link-accordion"));
+        assert!(acc_script.contains("#accordion-trigger-1"));
+        assert!(acc_script.contains("dataState"));
+        assert!(!acc_script.contains("500"));
+
+        // 3. Tabs script invariants
+        let tabs_script = driver.generate_tabs_verification_script();
+        assert!(tabs_script.contains("#nav-link-tabs"));
+        assert!(tabs_script.contains("#tabs-trigger-2"));
+        assert!(tabs_script.contains("#tabs-content-2"));
+        assert!(tabs_script.contains("dataState"));
+        assert!(tabs_script.contains("contentState"));
+        assert!(!tabs_script.contains("500"));
     }
 }

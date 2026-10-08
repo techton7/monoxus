@@ -172,11 +172,6 @@ pub(crate) async fn is_reference_hidden(anchor_ids: &[&str]) -> Result<bool, Str
 }
 
 pub(crate) fn focus_element_by_id(target_id: &str) {
-    if let Some(el) = oxidase::document().element_by_id(target_id) {
-        spawn(async move {
-            let _ = el.focus().await;
-        });
-    }
     let tid = target_id.to_string();
     spawn(async move {
         let _ = oxidase::frame::next_frame().await;
@@ -187,12 +182,6 @@ pub(crate) fn focus_element_by_id(target_id: &str) {
 }
 
 pub(crate) fn restore_focus_element_by_id(target_id: &str) {
-    if let Some(el) = oxidase::document().element_by_id(target_id) {
-        let options = oxidase::dom::FocusOptions::new(true);
-        spawn(async move {
-            let _ = el.focus_with_options(options).await;
-        });
-    }
     let tid = target_id.to_string();
     spawn(async move {
         let _ = oxidase::frame::next_frame().await;

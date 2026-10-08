@@ -128,6 +128,10 @@ pub fn TabsTrigger(
     let trig_id = id.unwrap_or_else(|| trig_attrs.id().to_string());
 
     let trig_id_for_effect = trig_id.clone();
+    use_hook(|| {
+        ctx.runtime.register_trigger(&item_value, disabled);
+        ctx.runtime.register_trigger_id(&item_value, &trig_id_for_effect);
+    });
     use_effect(use_reactive((&item_value, &disabled, &trig_id_for_effect), {
         let runtime = ctx.runtime.clone();
         move |(val, dis, el_id)| {
@@ -152,6 +156,16 @@ pub fn TabsTrigger(
         }
     };
 
+    let runtime_key = ctx.runtime.clone();
+    let on_keydown = move |evt: KeyboardEvent| {
+        let key = evt.key().to_string();
+        if Tabs::is_navigation_key(&key) {
+            evt.prevent_default();
+            evt.stop_propagation();
+            runtime_key.navigate_key(&key);
+        }
+    };
+
     let aria_controls = ctx.runtime.content_element_id(&value);
 
     rsx! {
@@ -169,6 +183,7 @@ pub fn TabsTrigger(
             "data-disabled": if disabled { "true" } else { "false" },
             onclick: on_click,
             onfocus: on_focus,
+            onkeydown: on_keydown,
             {children}
         }
     }

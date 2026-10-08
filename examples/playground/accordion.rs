@@ -7,9 +7,13 @@ use monoxus::{
     foundation::shared::ScopeHandle,
 };
 
+#[allow(dead_code)]
 const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-radius: 0.75rem; border: 1px solid #93c5fd; background-color: white; box-shadow: 0 10px 30px rgba(30, 58, 138, 0.08);";
+#[allow(dead_code)]
 const MUTED_STYLE: &str = "margin: 0; color: #1e40af;";
+#[allow(dead_code)]
 const BADGE_STYLE: &str = "display: inline-block; padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; background-color: #dbeafe; color: #1e40af;";
+#[allow(dead_code)]
 const ITEM_CARD_STYLE: &str = "border: 1px solid #e2e8f0; border-radius: 0.5rem; overflow: hidden; margin-bottom: 0.5rem; background-color: #ffffff;";
 
 #[component]
@@ -103,9 +107,9 @@ fn StandaloneCollapsibleSection() -> Element {
 // -------------------------------------------------------------------------
 
 #[component]
-fn SingleCollapsibleSection() -> Element {
+pub fn SingleCollapsibleSection() -> Element {
     let scope = ScopeHandle::root("playground").child("accordion-single-collapsible");
-    let active_sig = use_signal(|| vec!["item-1".to_string()]);
+    let active_sig = use_signal(Vec::new);
 
     let def = Accordion::new(scope.clone(), AccordionMode::Single { collapsible: true })
         .with_values(active_sig());
@@ -223,7 +227,7 @@ fn SingleCollapsibleSection() -> Element {
                                     id: "{content_id}",
                                     role: content_attrs.role(),
                                     aria_labelledby: "{trig_id}",
-                                    hidden: content_attrs.is_hidden(),
+                                    hidden: (!is_open).then_some(true),
                                     "data-state": content_attrs.data_state_str(),
                                     style: "padding: 0.75rem 1rem; border-top: 1px solid #e2e8f0; font-size: 0.875rem; color: #475569; background-color: #ffffff;",
                                     p { style: "margin: 0;", "{body}" }
@@ -386,9 +390,9 @@ fn SingleNonCollapsibleSection() -> Element {
 // -------------------------------------------------------------------------
 
 #[component]
-fn MultipleAccordionSection() -> Element {
+pub fn MultipleAccordionSection() -> Element {
     let scope = ScopeHandle::root("playground").child("accordion-multiple");
-    let active_sig = use_signal(|| vec!["notif-email".to_string(), "notif-sms".to_string()]);
+    let active_sig = use_signal(Vec::new);
 
     let def = Accordion::new(scope.clone(), AccordionMode::Multiple).with_values(active_sig());
 
@@ -403,25 +407,25 @@ fn MultipleAccordionSection() -> Element {
     use_effect(use_reactive((), {
         let runtime = runtime.clone();
         move |_| {
-            runtime.register_item("notif-email", false);
-            runtime.register_item("notif-sms", false);
-            runtime.register_item("notif-push", false);
+            runtime.register_item("item-1", false);
+            runtime.register_item("item-2", false);
+            runtime.register_item("item-3", false);
         }
     }));
 
     let items = [
         (
-            "notif-email",
+            "item-1",
             "Email Notifications",
             "Receive security alerts, system digests, and invoices via your primary inbox.",
         ),
         (
-            "notif-sms",
+            "item-2",
             "SMS Critical Alerts",
             "Get real-time SMS broadcasts for urgent system incidents and 2FA logins.",
         ),
         (
-            "notif-push",
+            "item-3",
             "Push Notifications",
             "In-app notifications in your browser tab when critical events occur.",
         ),
@@ -457,6 +461,9 @@ fn MultipleAccordionSection() -> Element {
                         let runtime_click = runtime.clone();
                         let runtime_key = runtime.clone();
                         let val_str = val.to_string();
+                        let trig_id = format!("accordion-trigger-{}", &val_str[5..]);
+                        let content_id = format!("accordion-content-{}", &val_str[5..]);
+                        runtime.register_trigger_id(&val_str, &trig_id);
 
                         rsx! {
                             div {
@@ -475,10 +482,10 @@ fn MultipleAccordionSection() -> Element {
                                     style: "margin: 0; padding: 0;",
 
                                     button {
-                                        id: trig_attrs.id(),
+                                        id: "{trig_id}",
                                         r#type: "button",
                                         aria_expanded: trig_attrs.aria_expanded(),
-                                        aria_controls: trig_attrs.aria_controls(),
+                                        aria_controls: "{content_id}",
                                         tabindex: trig_attrs.tabindex(),
                                         "data-state": trig_attrs.data_state_str(),
                                         "data-value": trig_attrs.data_value(),
@@ -499,10 +506,10 @@ fn MultipleAccordionSection() -> Element {
                                 }
 
                                 div {
-                                    id: content_attrs.id(),
+                                    id: "{content_id}",
                                     role: content_attrs.role(),
-                                    "aria-labelledby": content_attrs.aria_labelledby(),
-                                    hidden: content_attrs.is_hidden(),
+                                    aria_labelledby: "{trig_id}",
+                                    hidden: (!is_open).then_some(true),
                                     "data-state": content_attrs.data_state_str(),
                                     style: "padding: 0.75rem 1rem; border-top: 1px solid #e2e8f0; font-size: 0.875rem; color: #475569; background-color: #ffffff;",
                                     p { style: "margin: 0;", "{body}" }

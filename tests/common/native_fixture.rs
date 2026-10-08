@@ -16,6 +16,8 @@ use keyboard_types::{Code, Key, Location, Modifiers};
 /// Constructs `Harness::from_component(app)` and performs initial layout/style pump.
 pub fn mount_native_scenario(app: fn() -> Element) -> Harness<DioxusDocument> {
     let mut harness = Harness::from_component(app);
+    let native_doc = oxidase::dom::Document::from_base(harness.doc.inner.clone());
+    oxidase::dom::Document::set_current(Some(native_doc));
     harness.pump();
     harness
 }
@@ -23,6 +25,8 @@ pub fn mount_native_scenario(app: fn() -> Element) -> Harness<DioxusDocument> {
 /// Interaction Helper: Clicks the node matching `selector`, then runs `pump()` and `tick(0.01)`.
 pub fn click_and_pump<D: Document>(harness: &mut Harness<D>, selector: &str) {
     harness.click(selector);
+    harness.pump();
+    oxidase::frame::tick(std::time::Duration::from_millis(16));
     harness.pump();
     harness.tick(0.01);
 }
@@ -69,6 +73,8 @@ pub fn send_key_and_pump_with<D: Document>(
     harness.dispatch(UiEvent::KeyDown(down_event));
     harness.dispatch(UiEvent::KeyUp(up_event));
     harness.pump();
+    oxidase::frame::tick(std::time::Duration::from_millis(16));
+    harness.pump();
     harness.tick(0.01);
 }
 
@@ -108,7 +114,7 @@ pub fn assert_native_focus_id<D: Document>(harness: &Harness<D>, expected_id: &s
         .expect("Active focus node not found in document");
     let node_id_attr = node.attr(blitz_dom::local_name!("id"));
     assert_eq!(
-        node_id_attr.as_deref(),
+        node_id_attr,
         Some(raw_id),
         "Active focused element has id attribute {node_id_attr:?}, expected '{raw_id}'"
     );
@@ -137,6 +143,7 @@ pub fn assert_relative_below<D: Document>(
 
 /// Relational Geometry Helper: Asserts that `content_sel` is horizontally aligned with
 /// `trigger_sel` within the given tolerance (checking left-edge or center-point alignment).
+#[allow(dead_code)]
 pub fn assert_relative_aligned<D: Document>(
     harness: &Harness<D>,
     trigger_sel: &str,
