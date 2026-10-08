@@ -36,6 +36,9 @@ web-sys = { version = "0.3", features = [
     "HtmlElement",
     "Node",
     "CssStyleDeclaration",
+    "DomRect",
+    "PointerEvent",
+    "EventTarget",
 ] }
 wasm-bindgen = "0.2"
 

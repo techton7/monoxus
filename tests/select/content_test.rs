@@ -234,3 +234,27 @@ fn select_floating_arrow_coordinates_contract() {
     assert!(arrow.x().is_some());
 }
 
+#[test]
+fn select_scroll_buttons_compound_surface_contract() {
+    use dioxus::prelude::*;
+    use monoxus::select::{SelectScrollDownButton, SelectScrollUpButton, SelectViewport};
+
+    let mut dom = VirtualDom::new(|| {
+        rsx! {
+            SelectScrollUpButton {
+                class: "scroll-up",
+                "▲"
+            }
+            SelectViewport {
+                class: "viewport",
+                "content"
+            }
+            SelectScrollDownButton {
+                class: "scroll-down",
+                "▼"
+            }
+        }
+    });
+    dom.rebuild_in_place();
+}
+

@@ -15,14 +15,11 @@ pub fn SelectContentStatic(
     let should_render = ctx.runtime.should_render_content();
     let rels = ctx.runtime.relationships();
     let content_id = rels.content_id().to_owned();
-    let runtime = ctx.runtime.clone();
     use_effect(use_reactive((&is_open,), {
         let cid = content_id.clone();
-        let rt = runtime.clone();
         move |(open,)| {
             if open {
                 restore_focus_element_by_id(&cid);
-                rt.sync_dom_order();
             }
         }
     }));

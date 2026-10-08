@@ -10,8 +10,8 @@ use crate::foundation::{
 use super::{
     attrs::{
         PopoverAnchorAttributes, PopoverArrowAttributes, PopoverCloseAttributes,
-        PopoverContentAttributes, PopoverPortalAttributes, PopoverRootAttributes,
-        PopoverTriggerAttributes,
+        PopoverContentAttributes, PopoverDescriptionAttributes, PopoverPortalAttributes,
+        PopoverRootAttributes, PopoverTitleAttributes, PopoverTriggerAttributes,
     },
     relationships::PopoverRelationships,
     types::{
@@ -416,6 +416,18 @@ impl Popover {
             id: self.relationships.close_id().to_owned(),
             data_state: self.data_state(),
             close_request: PopoverStateRequest::Close,
+        }
+    }
+
+    pub fn title(&self) -> PopoverTitleAttributes {
+        PopoverTitleAttributes {
+            id: self.relationships.title_id().to_owned(),
+        }
+    }
+
+    pub fn description(&self) -> PopoverDescriptionAttributes {
+        PopoverDescriptionAttributes {
+            id: self.relationships.description_id().to_owned(),
         }
     }
 }

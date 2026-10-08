@@ -9,6 +9,8 @@ pub struct PopoverRelationships {
     content_id: String,
     arrow_id: String,
     close_id: String,
+    title_id: String,
+    description_id: String,
 }
 
 impl PopoverRelationships {
@@ -20,6 +22,8 @@ impl PopoverRelationships {
             content_id: scope.qualify("content"),
             arrow_id: scope.qualify("arrow"),
             close_id: scope.qualify("close"),
+            title_id: scope.qualify("title"),
+            description_id: scope.qualify("description"),
             scope,
         }
     }
@@ -50,5 +54,13 @@ impl PopoverRelationships {
 
     pub fn close_id(&self) -> &str {
         &self.close_id
+    }
+
+    pub fn title_id(&self) -> &str {
+        &self.title_id
+    }
+
+    pub fn description_id(&self) -> &str {
+        &self.description_id
     }
 }

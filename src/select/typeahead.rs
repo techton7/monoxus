@@ -19,10 +19,19 @@ impl SelectRuntime {
         time_sig.set(now_ms);
 
         let prefix = buf.to_lowercase();
+        let reg = self.state.registry.read();
+        if let Some(matched) = reg
+            .active_items()
+            .find(|i| !i.disabled && (i.label.to_lowercase().starts_with(&prefix) || i.value.to_lowercase().starts_with(&prefix)))
+        {
+            self.set_highlighted(Some(matched.value.clone()));
+            return;
+        }
+
         let items = self.state.items.read();
         if let Some(matched) = items
             .iter()
-            .find(|i| !i.disabled && i.text.to_lowercase().starts_with(&prefix))
+            .find(|i| !i.disabled && (i.text.to_lowercase().starts_with(&prefix) || i.value.to_lowercase().starts_with(&prefix)))
         {
             self.set_highlighted(Some(matched.value.clone()));
         }
@@ -42,15 +51,26 @@ impl SelectRuntime {
         time_sig.set(now_ms);
 
         let prefix = buf.to_lowercase();
-        let items = self.state.items.read();
-        let matched = items
-            .iter()
+        let reg = self.state.registry.read();
+        let matched = reg
+            .active_items()
             .find(|i| {
                 !i.disabled
-                    && (i.text.to_lowercase().starts_with(&prefix)
+                    && (i.label.to_lowercase().starts_with(&prefix)
                         || i.value.to_lowercase().starts_with(&prefix))
             })
             .map(|i| i.value.clone())
+            .or_else(|| {
+                let items = self.state.items.read();
+                items
+                    .iter()
+                    .find(|i| {
+                        !i.disabled
+                            && (i.text.to_lowercase().starts_with(&prefix)
+                                || i.value.to_lowercase().starts_with(&prefix))
+                    })
+                    .map(|i| i.value.clone())
+            })
             .or_else(|| {
                 self.select
                     .items()

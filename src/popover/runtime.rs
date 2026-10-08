@@ -29,8 +29,8 @@ use crate::foundation::{
 use super::{
     attrs::{
         PopoverAnchorAttributes, PopoverArrowAttributes, PopoverCloseAttributes,
-        PopoverContentAttributes, PopoverPortalAttributes, PopoverRootAttributes,
-        PopoverTriggerAttributes,
+        PopoverContentAttributes, PopoverDescriptionAttributes, PopoverPortalAttributes,
+        PopoverRootAttributes, PopoverTitleAttributes, PopoverTriggerAttributes,
     },
     relationships::PopoverRelationships,
     state::{Popover, PopoverLifecycle},
@@ -233,6 +233,14 @@ impl PopoverRuntime {
         self.popover.close()
     }
 
+    pub fn title(&self) -> PopoverTitleAttributes {
+        self.popover.title()
+    }
+
+    pub fn description(&self) -> PopoverDescriptionAttributes {
+        self.popover.description()
+    }
+
     pub fn geometry_vars(&self, anchor: Rect, content: Size) -> GeometryVars {
         self.popover.geometry_vars(anchor, content)
     }
@@ -253,6 +261,13 @@ impl PopoverRuntime {
 
     pub fn content_css_custom_properties(&self) -> String {
         serialize_css_custom_properties(&self.content_css_variables())
+    }
+
+    pub fn wrapper_style(&self) -> String {
+        match self.placement() {
+            Some(ref placement) => placement.wrapper_style(self.content_readiness(), None),
+            None => FloatingReadiness::wrapper_measuring_style(None),
+        }
     }
 
     pub fn trigger_handle(&self) -> Option<PopoverMountedHandle> {

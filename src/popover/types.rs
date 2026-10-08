@@ -104,7 +104,7 @@ impl PopoverScrollLockPolicy {
     }
 }
 
-pub const POPOVER_PARTS: [PopoverPart; 7] = [
+pub const POPOVER_PARTS: [PopoverPart; 9] = [
     PopoverPart::Root,
     PopoverPart::Trigger,
     PopoverPart::Portal,
@@ -112,6 +112,8 @@ pub const POPOVER_PARTS: [PopoverPart; 7] = [
     PopoverPart::Arrow,
     PopoverPart::Anchor,
     PopoverPart::Close,
+    PopoverPart::Title,
+    PopoverPart::Description,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -123,6 +125,8 @@ pub enum PopoverPart {
     Arrow,
     Anchor,
     Close,
+    Title,
+    Description,
 }
 
 impl PopoverPart {
@@ -135,6 +139,8 @@ impl PopoverPart {
             Self::Arrow => "arrow",
             Self::Anchor => "anchor",
             Self::Close => "close",
+            Self::Title => "title",
+            Self::Description => "description",
         }
     }
 }

@@ -9,13 +9,14 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard,
+        DocumentPointerStreamGuard, FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard,
+        get_element_client_rect, start_document_pointer_stream,
         start_floating_auto_update_monitor, start_presence_monitor,
     },
     overlay::{
-        compute_overlay_position, FloatingPlacement, FloatingReadiness, GeometryVars,
-        OverlayPositionConfig, Presence, PresenceCloseCycleId, PresenceController,
-        PresenceControllerUpdate, Rect, Size,
+        compute_overlay_position, create_grace_area, is_point_in_polygon, FloatingPlacement,
+        FloatingReadiness, GeometryVars, OverlayPositionConfig, Point2D, Presence,
+        PresenceCloseCycleId, PresenceController, PresenceControllerUpdate, Rect, Rect2D, Size,
     },
     state::DataState,
 };
@@ -25,7 +26,6 @@ use super::{
         TooltipArrowAttributes, TooltipContentAttributes, TooltipPortalAttributes,
         TooltipRootAttributes, TooltipTriggerAttributes,
     },
-    browser::start_tooltip_grace_monitor,
     relationships::TooltipRelationships,
     state::{Tooltip, TooltipLifecycle, TooltipProvider},
     types::{TOOLTIP_GEOMETRY_NAMESPACE, TOOLTIP_HOVER_TRANSFER_GRACE_MS},
@@ -236,6 +236,48 @@ impl TooltipProviderRuntime {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct TooltipGraceTransit {
+    pub exit_point: Point2D,
+    pub trigger_rect: Rect2D,
+    pub content_rect: Rect2D,
+    pub corridor: Vec<Point2D>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GraceTransitStatus {
+    InTransit,
+    ReachedTarget,
+    ExitedCorridor,
+}
+
+impl TooltipGraceTransit {
+    pub fn new(
+        exit_point: Point2D,
+        trigger_rect: Rect2D,
+        content_rect: Rect2D,
+        padding: Option<f64>,
+    ) -> Self {
+        let corridor = create_grace_area(exit_point, &trigger_rect, &content_rect, padding);
+        Self {
+            exit_point,
+            trigger_rect,
+            content_rect,
+            corridor,
+        }
+    }
+
+    pub fn inspect_point(&self, point: Point2D) -> GraceTransitStatus {
+        if self.trigger_rect.contains_point(point) || self.content_rect.contains_point(point) {
+            GraceTransitStatus::ReachedTarget
+        } else if is_point_in_polygon(point, &self.corridor) {
+            GraceTransitStatus::InTransit
+        } else {
+            GraceTransitStatus::ExitedCorridor
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct TooltipRuntimeState {
     trigger_handle: Signal<Option<Rc<MountedData>>>,
@@ -251,7 +293,7 @@ struct TooltipRuntimeState {
     open_request_token: Signal<u64>,
     position_loop_token: Signal<u64>,
     position_monitor: Signal<Option<WatcherGuard>>,
-    grace_monitor: Signal<Option<WatcherGuard>>,
+    grace_monitor: Signal<Option<DocumentPointerStreamGuard>>,
 }
 
 #[derive(Clone)]
@@ -461,6 +503,57 @@ impl TooltipRuntime {
         self.state.grace_monitor.with_peek(|monitor| monitor.is_some())
     }
 
+    pub fn stop_grace_monitor(&self) {
+        stop_tooltip_grace_monitor_state(self.state);
+    }
+
+    pub(crate) fn start_hover_grace_corridor(
+        &self,
+        exit_point: Point2D,
+        from_trigger: bool,
+    ) -> bool {
+        if self.disable_hoverable_content() || !self.is_open() {
+            return false;
+        }
+
+        let trigger_id = self.relationships().trigger_id();
+        let content_id = self.relationships().content_id();
+
+        let (Some(trigger_rect), Some(content_rect)) = (
+            get_element_client_rect(trigger_id),
+            get_element_client_rect(content_id),
+        ) else {
+            return false;
+        };
+
+        let (from_rect, to_rect) = if from_trigger {
+            (trigger_rect, content_rect)
+        } else {
+            (content_rect, trigger_rect)
+        };
+
+        let transit = TooltipGraceTransit::new(exit_point, from_rect, to_rect, Some(5.0));
+        let state = self.state;
+        let runtime = self.clone();
+
+        let guard = start_document_pointer_stream(move |point| {
+            match transit.inspect_point(point) {
+                GraceTransitStatus::InTransit => {}
+                GraceTransitStatus::ReachedTarget => {
+                    stop_tooltip_grace_monitor_state(state);
+                }
+                GraceTransitStatus::ExitedCorridor => {
+                    stop_tooltip_grace_monitor_state(state);
+                    runtime.request_close();
+                }
+            }
+        });
+
+        let mut grace_monitor = self.state.grace_monitor;
+        grace_monitor.set(Some(guard));
+        true
+    }
+
     fn sync_grace_monitor(&self) {
         sync_tooltip_grace_monitor(
             &self.tooltip,
@@ -557,20 +650,27 @@ impl TooltipRuntime {
             let mut trigger_hovered = runtime.state.trigger_hovered;
             trigger_hovered.set(true);
             runtime.cancel_hover_transfer();
+            runtime.stop_grace_monitor();
             runtime.request_open(false);
         }
     }
 
     pub fn trigger_pointer_leave(&self) -> impl FnMut(Event<MouseData>) + 'static {
         let runtime = self.clone();
-        move |_| {
+        move |event| {
             let mut trigger_hovered = runtime.state.trigger_hovered;
             trigger_hovered.set(false);
 
             if runtime.disable_hoverable_content() {
                 runtime.request_close();
-            } else if !runtime.has_active_grace_monitor() {
-                runtime.schedule_hover_transfer_close();
+            } else {
+                let coords = event.client_coordinates();
+                let exit_point = Point2D::new(coords.x, coords.y);
+                if !runtime.start_hover_grace_corridor(exit_point, true) {
+                    if !runtime.has_active_grace_monitor() {
+                        runtime.schedule_hover_transfer_close();
+                    }
+                }
             }
         }
     }
@@ -621,18 +721,27 @@ impl TooltipRuntime {
             let mut content_hovered = runtime.state.content_hovered;
             content_hovered.set(true);
             runtime.cancel_hover_transfer();
+            runtime.stop_grace_monitor();
             runtime.request_open(true);
         }
     }
 
     pub fn content_pointer_leave(&self) -> impl FnMut(Event<MouseData>) + 'static {
         let runtime = self.clone();
-        move |_| {
+        move |event| {
             let mut content_hovered = runtime.state.content_hovered;
             content_hovered.set(false);
 
-            if !runtime.has_active_grace_monitor() && !*runtime.state.trigger_hovered.peek() {
+            if runtime.disable_hoverable_content() {
                 runtime.request_close();
+            } else {
+                let coords = event.client_coordinates();
+                let exit_point = Point2D::new(coords.x, coords.y);
+                if !runtime.start_hover_grace_corridor(exit_point, false) {
+                    if !runtime.has_active_grace_monitor() && !*runtime.state.trigger_hovered.peek() {
+                        runtime.schedule_hover_transfer_close();
+                    }
+                }
             }
         }
     }
@@ -660,6 +769,7 @@ impl TooltipRuntime {
 
     fn request_close(&self) {
         self.cancel_hover_transfer();
+        self.stop_grace_monitor();
         if let Some(provider_runtime) = &self.provider_runtime {
             provider_runtime.request_close(self.relationships().root_id());
             return;
@@ -868,52 +978,18 @@ fn stop_tooltip_grace_monitor_state(mut state: TooltipRuntimeState) {
 
 fn sync_tooltip_grace_monitor(
     tooltip: &Tooltip,
-    provider_runtime: Option<TooltipProviderRuntime>,
-    on_open_change: TooltipOpenChangeHandler,
-    mut state: TooltipRuntimeState,
+    _provider_runtime: Option<TooltipProviderRuntime>,
+    _on_open_change: TooltipOpenChangeHandler,
+    state: TooltipRuntimeState,
 ) {
-    if !tooltip.is_open() {
-        stop_tooltip_grace_monitor_state(state);
-        return;
-    }
-
-    if tooltip
-        .provider()
-        .map(TooltipProvider::disable_hoverable_content)
-        .unwrap_or(false)
+    if !tooltip.is_open()
+        || tooltip
+            .provider()
+            .map(TooltipProvider::disable_hoverable_content)
+            .unwrap_or(false)
     {
         stop_tooltip_grace_monitor_state(state);
-        return;
     }
-
-    let has_handles = state.trigger_handle.with_peek(|handle| handle.is_some())
-        && state.content_handle.with_peek(|handle| handle.is_some());
-    if !has_handles {
-        return;
-    }
-
-    if state.grace_monitor.with_peek(|monitor| monitor.is_some()) {
-        return;
-    }
-
-    let tooltip_root_id = tooltip.relationships().root_id().to_owned();
-    let on_leave = move || {
-        if let Some(provider_runtime) = &provider_runtime {
-            provider_runtime.request_close(&tooltip_root_id);
-        } else {
-            on_open_change(false);
-        }
-    };
-
-    let Some(monitor) = start_tooltip_grace_monitor(
-        tooltip.relationships().trigger_id(),
-        tooltip.relationships().content_id(),
-        on_leave,
-    ) else {
-        return;
-    };
-
-    state.grace_monitor.set(Some(monitor));
 }
 
 fn tooltip_content_css_variables(geometry: &GeometryVars) -> Vec<(String, String)> {
@@ -1142,5 +1218,106 @@ mod tests {
 
         let ready = FloatingReadiness::Ready;
         assert_eq!(ready.positioning_state(), "positioned");
+    }
+
+    #[test]
+    fn test_tooltip_grace_transit_vertical_corridor() {
+        use super::{GraceTransitStatus, TooltipGraceTransit};
+        use crate::foundation::overlay::{Point2D, Rect2D};
+
+        let trigger = Rect2D::new(100.0, 50.0, 50.0, 20.0);
+        let content = Rect2D::new(80.0, 100.0, 90.0, 40.0);
+        let exit_point = Point2D::new(125.0, 70.0);
+
+        let transit = TooltipGraceTransit::new(exit_point, trigger, content, Some(5.0));
+        assert!(transit.corridor.len() >= 3);
+
+        // In transit midway between trigger and content
+        let mid_point = Point2D::new(125.0, 85.0);
+        assert_eq!(
+            transit.inspect_point(mid_point),
+            GraceTransitStatus::InTransit
+        );
+
+        // Reached content
+        let content_point = Point2D::new(125.0, 115.0);
+        assert_eq!(
+            transit.inspect_point(content_point),
+            GraceTransitStatus::ReachedTarget
+        );
+
+        // Re-entered trigger
+        let trigger_point = Point2D::new(125.0, 60.0);
+        assert_eq!(
+            transit.inspect_point(trigger_point),
+            GraceTransitStatus::ReachedTarget
+        );
+
+        // Stray points outside corridor
+        assert_eq!(
+            transit.inspect_point(Point2D::new(0.0, 85.0)),
+            GraceTransitStatus::ExitedCorridor
+        );
+        assert_eq!(
+            transit.inspect_point(Point2D::new(300.0, 85.0)),
+            GraceTransitStatus::ExitedCorridor
+        );
+        assert_eq!(
+            transit.inspect_point(Point2D::new(125.0, 10.0)),
+            GraceTransitStatus::ExitedCorridor
+        );
+    }
+
+    #[test]
+    fn test_tooltip_grace_transit_reverse_and_lateral() {
+        use super::{GraceTransitStatus, TooltipGraceTransit};
+        use crate::foundation::overlay::{Point2D, Rect2D};
+
+        // Reverse: content to trigger
+        let trigger = Rect2D::new(100.0, 50.0, 50.0, 20.0);
+        let content = Rect2D::new(80.0, 100.0, 90.0, 40.0);
+        let exit_point = Point2D::new(125.0, 100.0);
+
+        let transit = TooltipGraceTransit::new(exit_point, content, trigger, Some(5.0));
+        assert_eq!(
+            transit.inspect_point(Point2D::new(125.0, 85.0)),
+            GraceTransitStatus::InTransit
+        );
+        assert_eq!(
+            transit.inspect_point(Point2D::new(125.0, 60.0)),
+            GraceTransitStatus::ReachedTarget
+        );
+        assert_eq!(
+            transit.inspect_point(Point2D::new(10.0, 85.0)),
+            GraceTransitStatus::ExitedCorridor
+        );
+
+        // Lateral: trigger on left, content on right
+        let trigger_lat = Rect2D::new(50.0, 100.0, 30.0, 30.0);
+        let content_lat = Rect2D::new(120.0, 90.0, 60.0, 50.0);
+        let exit_lat = Point2D::new(80.0, 115.0);
+
+        let transit_lat = TooltipGraceTransit::new(exit_lat, trigger_lat, content_lat, Some(5.0));
+        assert_eq!(
+            transit_lat.inspect_point(Point2D::new(100.0, 115.0)),
+            GraceTransitStatus::InTransit
+        );
+        assert_eq!(
+            transit_lat.inspect_point(Point2D::new(140.0, 115.0)),
+            GraceTransitStatus::ReachedTarget
+        );
+        assert_eq!(
+            transit_lat.inspect_point(Point2D::new(100.0, 0.0)),
+            GraceTransitStatus::ExitedCorridor
+        );
+    }
+
+    #[test]
+    fn test_tooltip_grace_guard_lifecycle() {
+        use crate::foundation::browser::DocumentPointerStreamGuard;
+
+        let mut guard = DocumentPointerStreamGuard::noop();
+        guard.stop();
+        drop(guard);
     }
 }

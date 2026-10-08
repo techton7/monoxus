@@ -68,7 +68,6 @@ pub fn SelectContent(
         let rt = runtime.clone();
         move |(open,)| {
             if open {
-                rt.sync_dom_order();
                 rt.start_position_monitor();
             } else {
                 rt.stop_position_monitor();

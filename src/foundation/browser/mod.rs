@@ -13,6 +13,7 @@ pub use oxidase::watcher::{
 
 
 pub use oxidase::WatcherGuard;
+pub use crate::foundation::overlay::{Point2D, Rect2D};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PresenceMonitorEvent {
@@ -517,6 +518,120 @@ pub(crate) fn start_form_reset_monitor(
     .unwrap_or_else(|_| WatcherGuard::noop())
 }
 
+#[cfg(target_arch = "wasm32")]
+struct DocumentPointerStreamInner {
+    closure: wasm_bindgen::closure::Closure<dyn FnMut(web_sys::PointerEvent)>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for DocumentPointerStreamInner {
+    fn drop(&mut self) {
+        if let Some(window) = web_sys::window() {
+            if let Some(document) = window.document() {
+                use wasm_bindgen::JsCast;
+                let _ = document.remove_event_listener_with_callback(
+                    "pointermove",
+                    self.closure.as_ref().unchecked_ref(),
+                );
+            }
+        }
+    }
+}
+
+pub struct DocumentPointerStreamGuard {
+    #[cfg(target_arch = "wasm32")]
+    _inner: Option<DocumentPointerStreamInner>,
+}
+
+impl DocumentPointerStreamGuard {
+    pub const fn noop() -> Self {
+        Self {
+            #[cfg(target_arch = "wasm32")]
+            _inner: None,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn stop(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            self._inner = None;
+        }
+    }
+}
+
+impl Default for DocumentPointerStreamGuard {
+    fn default() -> Self {
+        Self::noop()
+    }
+}
+
+impl std::fmt::Debug for DocumentPointerStreamGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DocumentPointerStreamGuard").finish()
+    }
+}
+
+pub fn start_document_pointer_stream(
+    #[allow(unused_mut)] mut on_pointer_move: impl FnMut(Point2D) + 'static,
+) -> DocumentPointerStreamGuard {
+    #[cfg(target_arch = "wasm32")]
+    {
+        use wasm_bindgen::JsCast;
+
+        let Some(window) = web_sys::window() else {
+            return DocumentPointerStreamGuard::noop();
+        };
+        let Some(document) = window.document() else {
+            return DocumentPointerStreamGuard::noop();
+        };
+
+        let closure = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::PointerEvent)>::new(
+            move |event: web_sys::PointerEvent| {
+                let point = Point2D::new(event.client_x() as f64, event.client_y() as f64);
+                on_pointer_move(point);
+            },
+        );
+
+        if document
+            .add_event_listener_with_callback("pointermove", closure.as_ref().unchecked_ref())
+            .is_ok()
+        {
+            DocumentPointerStreamGuard {
+                _inner: Some(DocumentPointerStreamInner { closure }),
+            }
+        } else {
+            DocumentPointerStreamGuard::noop()
+        }
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = on_pointer_move;
+        DocumentPointerStreamGuard::noop()
+    }
+}
+
+pub fn get_element_client_rect(id: &str) -> Option<Rect2D> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let window = web_sys::window()?;
+        let document = window.document()?;
+        let element = document.get_element_by_id(id)?;
+        let rect = element.get_bounding_client_rect();
+        Some(Rect2D::new(
+            rect.left(),
+            rect.top(),
+            rect.width(),
+            rect.height(),
+        ))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = id;
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -592,5 +707,18 @@ mod tests {
         let json = r#"{"kind":"reset"}"#;
         let payload: FormResetEventPayload = serde_json::from_str(json).unwrap();
         assert_eq!(payload, FormResetEventPayload::Reset);
+    }
+
+    #[test]
+    fn test_document_pointer_stream_and_client_rect_noop() {
+        use super::{DocumentPointerStreamGuard, get_element_client_rect, start_document_pointer_stream};
+
+        let mut guard = DocumentPointerStreamGuard::noop();
+        guard.stop();
+
+        let mut stream_guard = start_document_pointer_stream(|_pt| {});
+        stream_guard.stop();
+
+        assert_eq!(get_element_client_rect("nonexistent"), None);
     }
 }

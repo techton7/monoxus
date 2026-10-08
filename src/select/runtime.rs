@@ -24,6 +24,7 @@ use super::{
         SelectTriggerAttributes,
     },
     relationships::SelectRelationships,
+    registry::{MountedOptionRegistry, SelectItemRegistration},
     state::Select,
     types::{SelectItemData, SelectMode},
 };
@@ -48,6 +49,7 @@ pub struct SelectRuntimeState {
     pub open: Signal<bool>,
     pub highlighted_value: Signal<Option<String>>,
     pub items: Signal<Vec<SelectItemData>>,
+    pub registry: Signal<MountedOptionRegistry>,
     pub typeahead_buffer: Signal<String>,
     pub last_key_timestamp_ms: Signal<f64>,
     pub preferred_side: Signal<PlacementSide>,
@@ -143,6 +145,7 @@ where
     let initial_vals = select.values().to_vec();
     let initial_def_vals = select.default_values().to_vec();
     let initial_open = select.is_open();
+    let initial_registry = select.registry();
 
     let state = SelectRuntimeState {
         value: use_signal(|| initial_val),
@@ -152,6 +155,7 @@ where
         open: use_signal(|| initial_open),
         highlighted_value: use_signal(|| None),
         items: use_signal(|| select.items().to_vec()),
+        registry: use_signal(|| initial_registry),
         typeahead_buffer: use_signal(String::new),
         last_key_timestamp_ms: use_signal(|| 0.0),
         preferred_side: use_signal(|| PlacementSide::Bottom),
@@ -222,6 +226,11 @@ where
         let mut open_sig = effect_state.open;
         if *open_sig.peek() != select.is_open() {
             open_sig.set(select.is_open());
+        }
+        let current_items = select.items();
+        if !current_items.is_empty() && effect_state.registry.peek().is_empty() {
+            let mut reg_sig = effect_state.registry;
+            reg_sig.set(select.registry());
         }
     }));
 
@@ -549,7 +558,7 @@ impl SelectRuntime {
             cb(true);
         }
 
-        let items = self.state.items.read();
+        let reg = self.state.registry.read();
         let current_val = match self.select.mode() {
             SelectMode::Single { .. } => self.value(),
             SelectMode::Multiple => self.values().first().cloned(),
@@ -557,16 +566,119 @@ impl SelectRuntime {
         let init_highlight = current_val
             .as_ref()
             .and_then(|v| {
-                items
-                    .iter()
+                reg.active_items()
                     .find(|i| &i.value == v && !i.disabled)
                     .map(|i| i.value.clone())
             })
-            .or_else(|| items.iter().find(|i| !i.disabled).map(|i| i.value.clone()));
+            .or_else(|| reg.active_items().find(|i| !i.disabled).map(|i| i.value.clone()))
+            .or_else(|| {
+                let items = self.state.items.read();
+                current_val
+                    .as_ref()
+                    .and_then(|v| {
+                        items
+                            .iter()
+                            .find(|i| &i.value == v && !i.disabled)
+                            .map(|i| i.value.clone())
+                    })
+                    .or_else(|| items.iter().find(|i| !i.disabled).map(|i| i.value.clone()))
+            });
 
         self.set_highlighted(init_highlight);
 
         self.start_dismiss_monitor();
+    }
+
+    pub fn registry(&self) -> MountedOptionRegistry {
+        self.state.registry.read().clone()
+    }
+
+    pub fn register_item(&self, item: SelectItemRegistration) {
+        let val = item.value.clone();
+        let disabled = item.disabled;
+
+        let mut reg_sig = self.state.registry;
+        reg_sig.write().register(item);
+
+        // Keep items synchronized in pure Rust
+        let active: Vec<SelectItemData> = reg_sig
+            .read()
+            .active_items()
+            .map(|i| SelectItemData {
+                value: i.value.clone(),
+                text: i.label.clone(),
+                disabled: i.disabled,
+            })
+            .collect();
+        let mut items_sig = self.state.items;
+        items_sig.set(active);
+
+        if self.is_open() && !disabled {
+            let current_val = match self.select.mode() {
+                SelectMode::Single { .. } => self.value(),
+                SelectMode::Multiple => self.values().first().cloned(),
+            };
+            if current_val.as_deref() == Some(&val) {
+                self.set_highlighted(Some(val));
+            } else if self.highlighted_value().is_none() {
+                self.set_highlighted(Some(val));
+            }
+        }
+    }
+
+    pub fn register_item_data(&self, val: &str, text: &str, disabled: bool) {
+        let id = self.relationships().item_id(val);
+        self.register_item(SelectItemRegistration::new(id, val, text, disabled));
+    }
+
+    pub fn unregister_item(&self, id: &str) {
+        let mut reg_sig = self.state.registry;
+        let removed = {
+            let mut r = reg_sig.write();
+            let item = r.items_by_id.get(id).cloned();
+            r.unregister(id);
+            item
+        };
+
+        if let Some(item) = removed {
+            // Keep items synchronized in pure Rust
+            let active: Vec<SelectItemData> = reg_sig
+                .read()
+                .active_items()
+                .map(|i| SelectItemData {
+                    value: i.value.clone(),
+                    text: i.label.clone(),
+                    disabled: i.disabled,
+                })
+                .collect();
+            let mut items_sig = self.state.items;
+            items_sig.set(active);
+
+            if self.highlighted_value().as_deref() == Some(&item.value) {
+                let next_cand = reg_sig
+                    .read()
+                    .active_items()
+                    .find(|i| !i.disabled)
+                    .map(|i| i.value.clone());
+                self.set_highlighted(next_cand);
+            }
+        }
+    }
+
+    pub fn set_ordered_items(&self, ordered_ids: Vec<String>) {
+        let mut reg_sig = self.state.registry;
+        reg_sig.write().set_tree_order(ordered_ids);
+        let active: Vec<SelectItemData> = reg_sig
+            .read()
+            .active_items()
+            .map(|i| SelectItemData {
+                value: i.value.clone(),
+                text: i.label.clone(),
+                disabled: i.disabled,
+            })
+            .collect();
+        let mut items_sig = self.state.items;
+        items_sig.set(active);
     }
 
     pub fn close_dropdown(&self) {

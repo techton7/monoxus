@@ -10,6 +10,7 @@ use super::{
         SelectRootAttributes, SelectTriggerAttributes,
     },
     relationships::SelectRelationships,
+    registry::{MountedOptionRegistry, SelectItemRegistration},
     types::{SELECT_PARTS, SelectItemData, SelectMode, SelectPart},
 };
 
@@ -224,6 +225,19 @@ impl Select {
 
     pub fn items(&self) -> &[SelectItemData] {
         &self.items
+    }
+
+    pub fn registry(&self) -> MountedOptionRegistry {
+        let mut reg = MountedOptionRegistry::new();
+        for item in &self.items {
+            reg.register(SelectItemRegistration::new(
+                self.relationships.item_id(&item.value),
+                item.value.clone(),
+                item.text.clone(),
+                item.disabled,
+            ));
+        }
+        reg
     }
 
     pub fn loop_selection(&self) -> bool {

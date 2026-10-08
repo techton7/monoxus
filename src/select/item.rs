@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use super::types::SelectContext;
+use super::{registry::SelectItemRegistration, types::SelectContext};
 
 #[component]
 pub fn SelectGroup(
@@ -60,14 +60,30 @@ pub fn SelectItem(
 ) -> Element {
     let ctx = use_context::<SelectContext>();
     let text_val = text.clone().unwrap_or_else(|| value.clone());
+    let item_id = ctx.runtime.relationships().item_id(&value);
 
     // Register item
     {
         let rt = ctx.runtime.clone();
-        let val_c = value.clone();
-        let txt_c = text_val.clone();
-        use_effect(move || {
-            rt.register_item(&val_c, &txt_c, disabled);
+        let registration = SelectItemRegistration::new(
+            item_id.clone(),
+            value.clone(),
+            text_val.clone(),
+            disabled,
+        );
+        use_effect(use_reactive((&registration,), {
+            let rt = rt.clone();
+            move |(reg,)| {
+                rt.register_item(reg);
+            }
+        }));
+    }
+
+    {
+        let rt = ctx.runtime.clone();
+        let unregister_id = item_id.clone();
+        dioxus::core::use_drop(move || {
+            rt.unregister_item(&unregister_id);
         });
     }
 

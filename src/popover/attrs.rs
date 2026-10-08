@@ -152,3 +152,26 @@ impl PopoverCloseAttributes {
         self.close_request
     }
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PopoverTitleAttributes {
+    pub(crate) id: String,
+}
+
+impl PopoverTitleAttributes {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PopoverDescriptionAttributes {
+    pub(crate) id: String,
+}
+
+impl PopoverDescriptionAttributes {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+}
+

@@ -1,5 +1,6 @@
 use crate::toast::attrs::ToastViewportAttrs;
 use crate::toast::components::{ToastAction, ToastClose, ToastDescription, ToastRoot, ToastTitle};
+use crate::toast::layout::ToastStackLayout;
 use crate::toast::runtime::TOAST_STORE;
 use crate::toast::types::ToastPosition;
 use dioxus::prelude::*;
@@ -39,6 +40,14 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
     let attrs =
         ToastViewportAttrs::with_position(&store.config, is_expanded, dir, effective_position);
 
+    let visible_items = store.visible_items();
+    let heights: Vec<f64> = visible_items.iter().map(|_| 0.0).collect();
+    let computed_styles = ToastStackLayout::compute(
+        &heights,
+        store.config.gap,
+        is_expanded,
+    );
+
     let combined_style = match (&props.style, attrs.style.is_empty()) {
         (Some(s), false) => format!("{} {}", attrs.style, s),
         (Some(s), true) => s.clone(),
@@ -50,7 +59,7 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
         children
     } else {
         rsx! {
-            for (idx, (item, _visible)) in store.visible_items().into_iter().enumerate() {
+            for (idx, (item, _visible)) in visible_items.into_iter().enumerate() {
                 ToastRoot {
                     key: "{item.id.0}",
                     id: item.id,
@@ -61,6 +70,7 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
                     expanded: is_expanded,
                     position: item.options.position.unwrap_or(effective_position),
                     test_id: item.options.test_id.clone(),
+                    computed_style: computed_styles.get(idx).copied(),
                     if let Some(ref custom_render) = item.options.custom_renderer {
                         {custom_render(item.id)}
                     } else {

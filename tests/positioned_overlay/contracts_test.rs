@@ -11,7 +11,7 @@ fn positioned_overlay_family_boundary_matches_the_phase_3_2_inventory() {
     assert_eq!(
         popover_parts,
         vec![
-            "root", "trigger", "portal", "content", "arrow", "anchor", "close"
+            "root", "trigger", "portal", "content", "arrow", "anchor", "close", "title", "description"
         ],
     );
     assert_eq!(
@@ -21,8 +21,6 @@ fn positioned_overlay_family_boundary_matches_the_phase_3_2_inventory() {
 
     for omitted in [
         "overlay",
-        "title",
-        "description",
         "header",
         "footer",
         "hover-card",

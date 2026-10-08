@@ -1,14 +1,6 @@
 use dioxus::prelude::*;
 
-use super::{
-    runtime::SelectRuntime,
-    types::{SelectItemData, SelectMode},
-};
-
-pub async fn sync_items_with_document_order(content_id: &str, items: &mut Vec<SelectItemData>) {
-    let order = crate::select::browser::get_document_option_order(content_id).await;
-    apply_document_order(items, &order);
-}
+use super::{runtime::SelectRuntime, types::SelectItemData};
 
 pub fn apply_document_order(items: &mut Vec<SelectItemData>, order: &[String]) {
     if !order.is_empty() {
@@ -22,36 +14,11 @@ pub fn apply_document_order(items: &mut Vec<SelectItemData>, order: &[String]) {
 }
 
 impl SelectRuntime {
-    pub fn register_item(&self, val: &str, text: &str, disabled: bool) {
-        let mut items = self.state.items;
-        {
-            let mut list = items.write();
-            if let Some(existing) = list.iter_mut().find(|i| i.value == val) {
-                existing.text = text.to_owned();
-                existing.disabled = disabled;
-            } else {
-                list.push(SelectItemData {
-                    value: val.to_owned(),
-                    text: text.to_owned(),
-                    disabled,
-                });
-            }
-        }
-
-        if self.is_open() && !disabled {
-            let current_val = match self.select.mode() {
-                SelectMode::Single { .. } => self.value(),
-                SelectMode::Multiple => self.values().first().cloned(),
-            };
-            if current_val.as_deref() == Some(val) {
-                self.set_highlighted(Some(val.to_owned()));
-            } else if self.highlighted_value().is_none() {
-                self.set_highlighted(Some(val.to_owned()));
-            }
-        }
-    }
-
     pub fn item_label(&self, val: &str) -> Option<String> {
+        let reg = self.state.registry.read();
+        if let Some(item) = reg.active_items().find(|i| i.value == val) {
+            return Some(item.label.clone());
+        }
         self.state
             .items
             .read()
@@ -61,21 +28,39 @@ impl SelectRuntime {
     }
 
     pub fn sync_dom_order(&self) {
-        let content_id = self.relationships().content_id().to_owned();
-        let runtime = self.clone();
-        spawn(async move {
-            let order = crate::select::browser::get_document_option_order(&content_id).await;
-            if !order.is_empty() {
-                let mut items_sig = runtime.state.items;
-                let mut list = items_sig.write();
-                apply_document_order(&mut list, &order);
-            }
-        });
+        let active: Vec<SelectItemData> = self
+            .state
+            .registry
+            .read()
+            .active_items()
+            .map(|reg_item| SelectItemData {
+                value: reg_item.value.clone(),
+                text: reg_item.label.clone(),
+                disabled: reg_item.disabled,
+            })
+            .collect();
+        if !active.is_empty() {
+            let mut items_sig = self.state.items;
+            items_sig.set(active);
+        }
     }
 
     pub fn highlight_next(&self) {
-        let items = self.state.items.read();
-        let enabled: Vec<_> = items.iter().filter(|i| !i.disabled).collect();
+        let reg = self.state.registry.read();
+        let enabled: Vec<String> = if !reg.is_empty() {
+            reg.active_items()
+                .filter(|i| !i.disabled)
+                .map(|i| i.value.clone())
+                .collect()
+        } else {
+            self.state
+                .items
+                .read()
+                .iter()
+                .filter(|i| !i.disabled)
+                .map(|i| i.value.clone())
+                .collect()
+        };
         if enabled.is_empty() {
             return;
         }
@@ -84,7 +69,7 @@ impl SelectRuntime {
         let current = self.highlighted_value();
         let curr_idx = current
             .as_ref()
-            .and_then(|v| enabled.iter().position(|i| &i.value == v));
+            .and_then(|v| enabled.iter().position(|i| i == v));
 
         let next_idx = match curr_idx {
             Some(idx) => {
@@ -99,12 +84,25 @@ impl SelectRuntime {
             None => 0,
         };
 
-        self.set_highlighted(Some(enabled[next_idx].value.clone()));
+        self.set_highlighted(Some(enabled[next_idx].clone()));
     }
 
     pub fn highlight_prev(&self) {
-        let items = self.state.items.read();
-        let enabled: Vec<_> = items.iter().filter(|i| !i.disabled).collect();
+        let reg = self.state.registry.read();
+        let enabled: Vec<String> = if !reg.is_empty() {
+            reg.active_items()
+                .filter(|i| !i.disabled)
+                .map(|i| i.value.clone())
+                .collect()
+        } else {
+            self.state
+                .items
+                .read()
+                .iter()
+                .filter(|i| !i.disabled)
+                .map(|i| i.value.clone())
+                .collect()
+        };
         if enabled.is_empty() {
             return;
         }
@@ -113,7 +111,7 @@ impl SelectRuntime {
         let current = self.highlighted_value();
         let curr_idx = current
             .as_ref()
-            .and_then(|v| enabled.iter().position(|i| &i.value == v));
+            .and_then(|v| enabled.iter().position(|i| i == v));
 
         let prev_idx = match curr_idx {
             Some(0) => {
@@ -127,10 +125,15 @@ impl SelectRuntime {
             None => enabled.len() - 1,
         };
 
-        self.set_highlighted(Some(enabled[prev_idx].value.clone()));
+        self.set_highlighted(Some(enabled[prev_idx].clone()));
     }
 
     pub fn highlight_first(&self) {
+        let reg = self.state.registry.read();
+        if let Some(first) = reg.active_items().find(|i| !i.disabled) {
+            self.set_highlighted(Some(first.value.clone()));
+            return;
+        }
         let items = self.state.items.read();
         if let Some(first) = items.iter().find(|i| !i.disabled) {
             self.set_highlighted(Some(first.value.clone()));
@@ -138,6 +141,12 @@ impl SelectRuntime {
     }
 
     pub fn highlight_last(&self) {
+        let reg = self.state.registry.read();
+        let active: Vec<_> = reg.active_items().filter(|i| !i.disabled).collect();
+        if let Some(last) = active.last() {
+            self.set_highlighted(Some(last.value.clone()));
+            return;
+        }
         let items = self.state.items.read();
         if let Some(last) = items.iter().rev().find(|i| !i.disabled) {
             self.set_highlighted(Some(last.value.clone()));
@@ -148,7 +157,6 @@ impl SelectRuntime {
         if !self.is_open() {
             return;
         }
-        self.sync_dom_order();
         let key = event.key().to_string();
         match key.as_str() {
             "ArrowDown" => {
@@ -203,6 +211,38 @@ pub fn SelectViewport(
         div {
             class: class.as_deref().unwrap_or_default(),
             style: style.as_deref().unwrap_or("overflow-y: auto;"),
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn SelectScrollUpButton(
+    #[props(default)] class: Option<String>,
+    #[props(default)] style: Option<String>,
+    children: Element,
+) -> Element {
+    rsx! {
+        div {
+            class: class.as_deref().unwrap_or_default(),
+            style: style.as_deref().unwrap_or_default(),
+            "aria-hidden": "true",
+            {children}
+        }
+    }
+}
+
+#[component]
+pub fn SelectScrollDownButton(
+    #[props(default)] class: Option<String>,
+    #[props(default)] style: Option<String>,
+    children: Element,
+) -> Element {
+    rsx! {
+        div {
+            class: class.as_deref().unwrap_or_default(),
+            style: style.as_deref().unwrap_or_default(),
+            "aria-hidden": "true",
             {children}
         }
     }
