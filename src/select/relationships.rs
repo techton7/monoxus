@@ -18,6 +18,16 @@ impl SelectRelationships {
         }
     }
 
+    pub fn with_trigger_id(mut self, trigger_id: impl Into<String>) -> Self {
+        self.trigger_id = trigger_id.into();
+        self
+    }
+
+    pub fn with_content_id(mut self, content_id: impl Into<String>) -> Self {
+        self.content_id = content_id.into();
+        self
+    }
+
     pub fn scope(&self) -> &ScopeHandle {
         &self.scope
     }

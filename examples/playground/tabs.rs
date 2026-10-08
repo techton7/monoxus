@@ -60,40 +60,40 @@ fn Scenario1HorizontalAutomatic() -> Element {
                     id: "tabs-auto-list",
                     class: "inline-flex h-10 items-center justify-center rounded-lg bg-slate-100 p-1 text-slate-500",
                     TabsTrigger {
-                        id: "tabs-auto-preview",
+                        id: "tabs-trigger-1",
                         value: "preview".to_string(),
                         class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
                         "Preview"
                     }
                     TabsTrigger {
-                        id: "tabs-auto-code",
+                        id: "tabs-trigger-2",
                         value: "code".to_string(),
                         class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
                         "Code"
                     }
                     TabsTrigger {
-                        id: "tabs-auto-settings",
+                        id: "tabs-trigger-3",
                         value: "settings".to_string(),
                         class: "inline-flex items-center justify-center whitespace-nowrap rounded-md px-3 py-1.5 text-sm font-medium transition-all cursor-pointer text-slate-600 hover:text-slate-900 data-[state=active]:bg-white data-[state=active]:text-slate-900 data-[state=active]:shadow-sm",
                         "Settings"
                     }
                 }
                 TabsContent {
-                    id: "tabs-auto-content-preview",
+                    id: "tabs-content-1",
                     value: "preview".to_string(),
                     class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700 space-y-1",
                     p { class: "font-semibold text-slate-900", "Component Preview" }
                     p { class: "text-xs text-slate-500", "Live rendered component preview with declarative state and styling." }
                 }
                 TabsContent {
-                    id: "tabs-auto-content-code",
+                    id: "tabs-content-2",
                     value: "code".to_string(),
                     class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700 space-y-1",
                     p { class: "font-semibold text-slate-900", "Source Code" }
                     p { class: "text-xs font-mono text-slate-500", "<TabsRoot default_value=\"preview\">...</TabsRoot>" }
                 }
                 TabsContent {
-                    id: "tabs-auto-content-settings",
+                    id: "tabs-content-3",
                     value: "settings".to_string(),
                     class: "mt-3 rounded-xl border border-slate-200 bg-slate-50/50 p-5 text-sm text-slate-700 space-y-1",
                     p { class: "font-semibold text-slate-900", "Configuration" }

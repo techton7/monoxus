@@ -84,6 +84,8 @@ pub fn PopoverPlayground() -> Element {
     let open_focus_id = scope.qualify("primary-action");
     let popover = use_popover_runtime(
         Popover::new(scope.clone(), open())
+            .with_trigger_id("popover-trigger")
+            .with_content_id("popover-content")
             .with_modal(scroll_lock_enabled())
             .with_portal_host(PortalHost::inline())
             .with_floating(

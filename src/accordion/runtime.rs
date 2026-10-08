@@ -23,6 +23,7 @@ pub struct AccordionRuntimeState {
     pub active_values: Signal<Vec<String>>,
     pub current_tab_stop: Signal<String>,
     pub registered_items: Signal<Vec<AccordionItemRegistration>>,
+    pub trigger_ids: Signal<Vec<(String, String)>>,
 }
 
 #[derive(Clone)]
@@ -48,6 +49,7 @@ where
         active_values: use_signal(|| initial_active),
         current_tab_stop: use_signal(|| initial_tab_stop),
         registered_items: use_signal(Vec::new),
+        trigger_ids: use_signal(Vec::new),
     };
 
     let effect_state = state.clone();
@@ -129,11 +131,30 @@ impl AccordionRuntime {
         }
     }
 
+    pub fn trigger_element_id(&self, value: &str) -> String {
+        let map = self.state.trigger_ids.read();
+        map.iter()
+            .find(|(val, _)| val == value)
+            .map(|(_, id)| id.clone())
+            .unwrap_or_else(|| self.accordion.relationships().trigger_id(value))
+    }
+
+    pub fn register_trigger_id(&self, value: &str, id: &str) {
+        let mut list = self.state.trigger_ids;
+        list.with_mut(|ids| {
+            if let Some(existing) = ids.iter_mut().find(|(val, _)| val == value) {
+                existing.1 = id.to_string();
+            } else {
+                ids.push((value.to_string(), id.to_string()));
+            }
+        });
+    }
+
     pub fn move_tab_stop(&self, value: &str) {
         let mut tab_stop = self.state.current_tab_stop;
         tab_stop.set(value.to_string());
 
-        let target_id = self.accordion.relationships().trigger_id(value);
+        let target_id = self.trigger_element_id(value);
         focus_element_by_id(&target_id);
     }
 

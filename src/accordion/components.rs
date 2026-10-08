@@ -138,6 +138,7 @@ pub fn AccordionHeader(
 
 #[component]
 pub fn AccordionTrigger(
+    #[props(default)] id: Option<String>,
     #[props(default)] class: Option<String>,
     #[props(default)] style: Option<String>,
     children: Element,
@@ -145,6 +146,16 @@ pub fn AccordionTrigger(
     let ctx = use_context::<AccordionContext>();
     let item_ctx = use_context::<AccordionItemContext>();
     let attrs = ctx.runtime.trigger(&item_ctx.value, item_ctx.disabled);
+    let trig_id = id.unwrap_or_else(|| attrs.id().to_string());
+
+    let val = item_ctx.value.clone();
+    let trig_id_for_effect = trig_id.clone();
+    use_effect(use_reactive((&val, &trig_id_for_effect), {
+        let runtime = ctx.runtime.clone();
+        move |(v, el_id)| {
+            runtime.register_trigger_id(&v, &el_id);
+        }
+    }));
 
     let click_runtime = ctx.runtime.clone();
     let click_val = item_ctx.value.clone();
@@ -154,7 +165,7 @@ pub fn AccordionTrigger(
     rsx! {
         button {
             r#type: "button",
-            id: "{attrs.id()}",
+            id: "{trig_id}",
             class: class.as_deref().unwrap_or_default(),
             style: style.as_deref().unwrap_or_default(),
             "aria-expanded": "{attrs.aria_expanded()}",

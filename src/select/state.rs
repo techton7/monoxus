@@ -62,6 +62,16 @@ impl Select {
         }
     }
 
+    pub fn with_trigger_id(mut self, trigger_id: impl Into<String>) -> Self {
+        self.relationships = self.relationships.with_trigger_id(trigger_id);
+        self
+    }
+
+    pub fn with_content_id(mut self, content_id: impl Into<String>) -> Self {
+        self.relationships = self.relationships.with_content_id(content_id);
+        self
+    }
+
     pub fn with_mode(mut self, mode: SelectMode) -> Self {
         self.mode = mode;
         self

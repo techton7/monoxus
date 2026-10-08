@@ -3143,6 +3143,7 @@ version = "0.1.0"
 dependencies = [
  "blitz-dom",
  "dioxus",
+ "dioxus-native",
  "futures-timer",
  "js-sys",
  "oxidase",

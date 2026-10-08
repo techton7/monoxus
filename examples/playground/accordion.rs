@@ -175,6 +175,9 @@ fn SingleCollapsibleSection() -> Element {
                         let runtime_click = runtime.clone();
                         let runtime_key = runtime.clone();
                         let val_str = val.to_string();
+                        let trig_id = format!("accordion-trigger-{}", &val_str[5..]);
+                        let content_id = format!("accordion-content-{}", &val_str[5..]);
+                        runtime.register_trigger_id(&val_str, &trig_id);
 
                         rsx! {
                             div {
@@ -193,10 +196,10 @@ fn SingleCollapsibleSection() -> Element {
                                     style: "margin: 0; padding: 0;",
 
                                     button {
-                                        id: trig_attrs.id(),
+                                        id: "{trig_id}",
                                         r#type: "button",
                                         aria_expanded: trig_attrs.aria_expanded(),
-                                        aria_controls: trig_attrs.aria_controls(),
+                                        aria_controls: "{content_id}",
                                         tabindex: trig_attrs.tabindex(),
                                         "data-state": trig_attrs.data_state_str(),
                                         "data-value": trig_attrs.data_value(),
@@ -217,9 +220,9 @@ fn SingleCollapsibleSection() -> Element {
                                 }
 
                                 div {
-                                    id: content_attrs.id(),
+                                    id: "{content_id}",
                                     role: content_attrs.role(),
-                                    "aria-labelledby": content_attrs.aria_labelledby(),
+                                    aria_labelledby: "{trig_id}",
                                     hidden: content_attrs.is_hidden(),
                                     "data-state": content_attrs.data_state_str(),
                                     style: "padding: 0.75rem 1rem; border-top: 1px solid #e2e8f0; font-size: 0.875rem; color: #475569; background-color: #ffffff;",

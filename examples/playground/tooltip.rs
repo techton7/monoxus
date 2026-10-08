@@ -87,6 +87,8 @@ pub fn TooltipPlayground() -> Element {
             ScopeHandle::root("playground").child("tooltip-first"),
             first_open(),
         )
+        .with_trigger_id("tooltip-trigger")
+        .with_content_id("tooltip-content")
         .with_provider(provider.clone())
         .with_portal_host(PortalHost::inline())
         .with_floating(
@@ -105,6 +107,8 @@ pub fn TooltipPlayground() -> Element {
             ScopeHandle::root("playground").child("tooltip-second"),
             second_open(),
         )
+        .with_trigger_id("tooltip-trigger-2")
+        .with_content_id("tooltip-content-2")
         .with_provider(provider.clone())
         .with_portal_host(PortalHost::inline())
         .with_floating(

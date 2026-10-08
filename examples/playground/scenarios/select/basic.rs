@@ -24,6 +24,8 @@ pub fn BasicFruitSelectSection() -> Element {
     ];
 
     let def = Select::new(scope.clone())
+        .with_trigger_id("select-trigger")
+        .with_content_id("select-content")
         .with_items(items)
         .with_value(selected_val())
         .with_open(is_open());

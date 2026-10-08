@@ -2,6 +2,7 @@
 
 pub mod accordion;
 pub mod alert_dialog;
+pub mod collapsible;
 pub mod dialog;
 pub mod pages;
 pub mod popover;
@@ -11,17 +12,19 @@ pub mod tooltip;
 
 use dioxus::prelude::*;
 use pages::{
-    AccordionPage, AlertDialogPage, DialogPage, PopoverPage, SelectPage, TabsPage, ToastPage,
-    TooltipPage,
+    AccordionPage, AlertDialogPage, CollapsiblePage, DialogPage, PopoverPage, SelectPage,
+    TabsPage, ToastPage, TooltipPage,
 };
 
+#[oxidase::main]
 fn main() {
-    dioxus::launch(app);
+    dioxus::launch(App);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ComponentPage {
     Select,
+    Collapsible,
     Accordion,
     Tabs,
     Dialog,
@@ -35,6 +38,7 @@ impl ComponentPage {
     pub fn title(&self) -> &'static str {
         match self {
             Self::Select => "Select",
+            Self::Collapsible => "Collapsible",
             Self::Accordion => "Accordion",
             Self::Tabs => "Tabs",
             Self::Dialog => "Dialog",
@@ -48,6 +52,7 @@ impl ComponentPage {
     pub fn icon(&self) -> &'static str {
         match self {
             Self::Select => "▾",
+            Self::Collapsible => "◰",
             Self::Accordion => "≡",
             Self::Tabs => "◫",
             Self::Dialog => "◻",
@@ -61,6 +66,7 @@ impl ComponentPage {
     pub fn badge(&self) -> &'static str {
         match self {
             Self::Select => "7 Scenarios",
+            Self::Collapsible => "Disclosure",
             Self::Accordion => "Interactive",
             Self::Tabs => "WAI-ARIA",
             Self::Dialog => "Modal",
@@ -72,11 +78,13 @@ impl ComponentPage {
     }
 }
 
-fn app() -> Element {
+#[component]
+pub fn App() -> Element {
     let mut current_page = use_signal(|| ComponentPage::Select);
 
     let pages = [
         ComponentPage::Select,
+        ComponentPage::Collapsible,
         ComponentPage::Accordion,
         ComponentPage::Tabs,
         ComponentPage::Dialog,
@@ -178,6 +186,7 @@ fn app() -> Element {
                 // Active Page Rendered in Complete Isolation
                 match current_page() {
                     ComponentPage::Select => rsx! { SelectPage {} },
+                    ComponentPage::Collapsible => rsx! { CollapsiblePage {} },
                     ComponentPage::Accordion => rsx! { AccordionPage {} },
                     ComponentPage::Tabs => rsx! { TabsPage {} },
                     ComponentPage::Dialog => rsx! { DialogPage {} },
