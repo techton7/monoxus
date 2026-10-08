@@ -44,7 +44,7 @@ pub fn CollapsibleContent(props: CollapsibleContentProps) -> Element {
             id: "{content_id}",
             class: props.class.as_deref().unwrap_or_default(),
             style: props.style.as_deref().unwrap_or_default(),
-            hidden: !is_open,
+            hidden: (!is_open).then_some(true),
             "data-state": content.data_state_str(),
             "data-disabled": if content.is_disabled() { "true" } else { "false" },
             {props.children}

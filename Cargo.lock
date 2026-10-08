@@ -613,6 +613,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "blitz-test-harness"
+version = "0.3.0-beta.2"
+dependencies = [
+ "blitz-dom",
+ "blitz-html",
+ "blitz-traits",
+ "dioxus-core",
+ "dioxus-native-dom",
+ "keyboard-types 0.7.0",
+ "smol_str",
+]
+
+[[package]]
 name = "blitz-traits"
 version = "0.3.0-beta.2"
 dependencies = [
@@ -3142,10 +3155,14 @@ name = "monoxus"
 version = "0.1.0"
 dependencies = [
  "blitz-dom",
+ "blitz-test-harness",
+ "blitz-traits",
  "dioxus",
  "dioxus-native",
+ "dioxus-native-dom",
  "futures-timer",
  "js-sys",
+ "keyboard-types 0.7.0",
  "oxidase",
  "oxidase-floating-ui",
  "serde",

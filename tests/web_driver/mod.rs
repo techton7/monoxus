@@ -1,0 +1,237 @@
+//! Web Verification Automation Runner for Monoxus Playground.
+//!
+//! Provides automation and driver helpers for verifying Web target (`wasm32`)
+//! primitives using `ego-browser` against `dx serve --example playground --web --open false --port 8080`.
+//!
+//! # Invariants:
+//! 1. All wait/timeout durations are strictly in **seconds** (e.g. 0.3s, 0.5s), NEVER milliseconds.
+//! 2. All browser interactions execute via compact IIFEs without auxiliary `.js` files.
+//! 3. Single `taskSpace` session per verification run, with proper cleanup.
+
+use std::process::Command;
+
+/// Configuration for the Web Driver runner.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct WebDriverConfig {
+    pub host: String,
+    pub port: u16,
+    pub default_wait_sec: f32,
+}
+
+impl Default for WebDriverConfig {
+    fn default() -> Self {
+        Self {
+            host: "http://127.0.0.1".to_string(),
+            port: 8080,
+            default_wait_sec: 0.3,
+        }
+    }
+}
+
+impl WebDriverConfig {
+    pub fn new(port: u16) -> Self {
+        Self {
+            port,
+            ..Default::default()
+        }
+    }
+
+    pub fn base_url(&self) -> String {
+        format!("{}:{}", self.host, self.port)
+    }
+
+    pub fn nav_link_id(component: &str) -> String {
+        let slug = component.to_lowercase().replace(' ', "-");
+        format!("nav-link-{slug}")
+    }
+}
+
+/// Script Generator: Formats compact IIFEs for in-browser execution via `page.evaluate(...)`.
+pub struct ScriptBuilder;
+
+impl ScriptBuilder {
+    /// Formats a compact JS IIFE string.
+    pub fn iife(body: &str) -> String {
+        format!("(() => {{ {body} }})()")
+    }
+
+    /// Formats a sub-second wait helper call (e.g. `await wait(0.3);`).
+    pub fn wait_call(seconds: f32) -> String {
+        format!("await wait({seconds:.2});")
+    }
+
+    /// JS snippet to click a navigation link by component slug.
+    pub fn navigate_nav_link(component: &str) -> String {
+        let nav_id = WebDriverConfig::nav_link_id(component);
+        Self::iife(&format!(
+            "const btn = document.querySelector('#{nav_id}'); if (btn) btn.click();"
+        ))
+    }
+
+    /// JS snippet to query the currently active element ID (`document.activeElement.id`).
+    pub fn eval_active_element_id() -> String {
+        Self::iife("return document.activeElement ? document.activeElement.id : '';")
+    }
+
+    /// JS snippet to query an element's `data-state` attribute.
+    pub fn get_data_state(selector: &str) -> String {
+        Self::iife(&format!(
+            "const el = document.querySelector('{selector}'); return el ? el.getAttribute('data-state') : null;"
+        ))
+    }
+
+    /// JS snippet to focus and click an element matching `selector`.
+    pub fn click_element(selector: &str) -> String {
+        Self::iife(&format!(
+            "const el = document.querySelector('{selector}'); if (el) {{ el.focus(); el.click(); }}"
+        ))
+    }
+
+    /// JS snippet to dispatch KeyDown and KeyUp events with explicit key and code.
+    pub fn dispatch_key(selector: &str, key: &str, code: &str) -> String {
+        Self::iife(&format!(
+            "const el = document.querySelector('{selector}'); if (el) {{ \
+                el.dispatchEvent(new KeyboardEvent('keydown', {{ key: '{key}', code: '{code}', bubbles: true }})); \
+                el.dispatchEvent(new KeyboardEvent('keyup', {{ key: '{key}', code: '{code}', bubbles: true }})); \
+            }}"
+        ))
+    }
+}
+
+/// Headless browser execution driver using `ego-browser`.
+#[allow(dead_code)]
+pub struct EgoWebDriver {
+    config: WebDriverConfig,
+}
+
+#[allow(dead_code)]
+impl EgoWebDriver {
+    pub fn new(config: WebDriverConfig) -> Self {
+        Self { config }
+    }
+
+    pub fn default_local() -> Self {
+        Self::new(WebDriverConfig::default())
+    }
+
+    pub fn config(&self) -> &WebDriverConfig {
+        &self.config
+    }
+
+    /// Generates a complete standalone Node.js script for `ego-browser` adhering to strict invariants.
+    pub fn generate_runner_script(&self, task_name: &str, scenario_actions_js: &str) -> String {
+        let base_url = self.config.base_url();
+        let default_wait = self.config.default_wait_sec;
+
+        format!(
+            r#"const wait = (s) => new Promise((r) => setTimeout(r, s * 1000));
+const task = await taskSpace("{task_name}");
+const page = task.page("p1");
+await page.goto("{base_url}");
+await wait({default_wait:.2});
+
+{scenario_actions_js}
+
+await task.finish({{ keep: [] }});
+"#
+        )
+    }
+
+    /// Executes a generated script through `ego-browser nodejs`.
+    pub fn run_script(&self, script: &str) -> Result<String, String> {
+        let mut child = Command::new("ego-browser")
+            .arg("nodejs")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .map_err(|e| format!("Failed to spawn ego-browser: {e}"))?;
+
+        if let Some(mut stdin) = child.stdin.take() {
+            use std::io::Write;
+            stdin
+                .write_all(script.as_bytes())
+                .map_err(|e| format!("Failed to write script to ego-browser stdin: {e}"))?;
+        }
+
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("ego-browser failed to execute: {e}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(format!("ego-browser exited with error: {stderr}"));
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_web_driver_config_new() {
+        let cfg = WebDriverConfig::new(3000);
+        assert_eq!(cfg.port, 3000);
+        assert_eq!(cfg.base_url(), "http://127.0.0.1:3000");
+    }
+
+    #[test]
+    fn test_script_builder_nav_link_id() {
+        assert_eq!(WebDriverConfig::nav_link_id("collapsible"), "nav-link-collapsible");
+        assert_eq!(WebDriverConfig::nav_link_id("alert dialog"), "nav-link-alert-dialog");
+        assert_eq!(WebDriverConfig::nav_link_id("Accordion"), "nav-link-accordion");
+    }
+
+    #[test]
+    fn test_script_builder_compact_iifes() {
+        let nav_script = ScriptBuilder::navigate_nav_link("collapsible");
+        assert!(nav_script.starts_with("(() => {"));
+        assert!(nav_script.ends_with("})()"));
+        assert!(nav_script.contains("#nav-link-collapsible"));
+
+        let active_id_script = ScriptBuilder::eval_active_element_id();
+        assert!(active_id_script.contains("document.activeElement.id"));
+
+        let state_script = ScriptBuilder::get_data_state("#collapsible-trigger");
+        assert!(state_script.contains("getAttribute('data-state')"));
+        assert!(state_script.contains("#collapsible-trigger"));
+
+        let click_script = ScriptBuilder::click_element("#collapsible-trigger");
+        assert!(click_script.contains(".click()"));
+        assert!(click_script.contains("#collapsible-trigger"));
+
+        let key_script = ScriptBuilder::dispatch_key("#collapsible-trigger", "Enter", "Enter");
+        assert!(key_script.contains("KeyboardEvent"));
+        assert!(key_script.contains("'Enter'"));
+    }
+
+    #[test]
+    fn test_wait_durations_are_strictly_seconds() {
+        let wait_call = ScriptBuilder::wait_call(0.5);
+        assert_eq!(wait_call, "await wait(0.50);");
+        // Verify no millisecond integer literals (e.g. 500) are generated
+        assert!(!wait_call.contains("500"));
+    }
+
+    #[test]
+    fn test_runner_script_generation_invariants() {
+        let driver = EgoWebDriver::default_local();
+        let script = driver.generate_runner_script("test-task", "// actions here");
+
+        // Strict invariant 1: wait function converts seconds to ms (s * 1000)
+        assert!(script.contains("const wait = (s) => new Promise((r) => setTimeout(r, s * 1000));"));
+
+        // Strict invariant 2: sub-second wait
+        assert!(script.contains("await wait(0.30);"));
+
+        // Strict invariant 3: clean session finish
+        assert!(script.contains("await task.finish({ keep: [] });"));
+
+        // Points to expected URL
+        assert!(script.contains("http://127.0.0.1:8080"));
+    }
+}
