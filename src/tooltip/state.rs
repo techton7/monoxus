@@ -227,6 +227,11 @@ impl Tooltip {
         self
     }
 
+    pub fn with_arrow_id(mut self, arrow_id: impl Into<String>) -> Self {
+        self.relationships = self.relationships.with_arrow_id(arrow_id);
+        self
+    }
+
     pub fn with_portal_host(mut self, portal_host: PortalHost) -> Self {
         self.lifecycle = self.lifecycle.with_portal_host(portal_host);
         self

@@ -920,12 +920,24 @@ pub fn compute_overlay_position(config: &OverlayPositionConfig) -> Option<Floati
 
     #[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
     let (result, element_rects, available_size) = {
-        let doc = oxidase::dom::Document::current()?;
+        let doc = match oxidase::dom::Document::current() {
+            Some(d) => d,
+            None => {
+                eprintln!("compute_overlay_position: Document::current() is None");
+                return None;
+            }
+        };
         let platform = oxidase_floating_ui::platform::NativeFloatingPlatform::new(doc.base().clone());
         let anchor_str = config.anchor_id.to_string();
         let content_str = config.content_id.to_string();
 
-        let element_rects = platform.get_element_rects(&anchor_str, &content_str).ok()?;
+        let element_rects = match platform.get_element_rects(&anchor_str, &content_str) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("compute_overlay_position: get_element_rects error: {e:?}, anchor={anchor_str}, content={content_str}");
+                return None;
+            }
+        };
         let boundary = if let Some(bid) = config.boundary_id {
             oxidase_floating_ui::types::Boundary::Element(bid.to_string())
         } else {

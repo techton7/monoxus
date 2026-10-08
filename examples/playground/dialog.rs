@@ -62,14 +62,17 @@ pub fn DialogPlayground() -> Element {
                         DialogOverlay {
                             id: "dialog-overlay",
                             class: "fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm",
+                            style: "position: fixed; inset: 0; width: 100%; height: 100%;",
                         }
                         div {
                             class: "fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none",
+                            style: "position: fixed; inset: 0; pointer-events: none;",
                             DialogContent {
                                 id: "dialog-content",
                                 aria_labelledby: "dialog-title".to_string(),
                                 aria_describedby: "dialog-description".to_string(),
                                 class: "pointer-events-auto w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl border border-slate-200 space-y-5 will-change-[opacity,transform]",
+                                style: "pointer-events: auto;",
                                 div {
                                     class: "space-y-1.5",
                                     DialogTitle {

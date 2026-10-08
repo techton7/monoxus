@@ -156,6 +156,209 @@ EOF
             echo -e "${GREEN}[PASS]${NC} Tabs verified (data-state=active, focused, content mounted)."
             ;;
 
+        popover)
+            ego-browser nodejs <<EOF
+const wait = (s) => new Promise((r) => setTimeout(r, s * 1000));
+const task = await taskSpace("verify-monoxus-popover");
+const page = task.page("p1");
+
+await page.goto("${BASE_URL}");
+await wait(0.5);
+
+// Navigate to Popover
+await page.evaluate("(() => { const btn = document.querySelector('#nav-link-popover'); if (btn) btn.click(); })()");
+await wait(0.3);
+
+// Click trigger
+await page.evaluate("(() => { const btn = document.querySelector('#popover-trigger'); if (btn) { btn.focus(); btn.click(); } })()");
+await wait(0.3);
+
+// Verify content mounted
+const openRes = await page.evaluate("(() => { \
+    const trigger = document.querySelector('#popover-trigger'); \
+    const content = document.querySelector('#popover-content'); \
+    return { \
+        triggerState: trigger ? trigger.getAttribute('data-state') : null, \
+        contentMounted: !!content \
+    }; \
+})()");
+console.log(JSON.stringify(openRes));
+
+if (!openRes.contentMounted || openRes.triggerState !== "open") {
+    throw new Error(\`Popover open assertion failed: contentMounted=\${openRes.contentMounted}, triggerState=\${openRes.triggerState}\`);
+}
+
+// Click close button
+await page.evaluate("(() => { const btn = document.querySelector('#popover-close'); if (btn) { btn.focus(); btn.click(); } })()");
+await wait(0.3);
+
+// Verify content dismissed
+const closedRes = await page.evaluate("(() => { \
+    const content = document.querySelector('#popover-content'); \
+    return { contentMounted: !!content }; \
+})()");
+console.log(JSON.stringify(closedRes));
+
+if (closedRes.contentMounted) {
+    throw new Error("Popover dismissal failed: content still mounted");
+}
+
+await task.finish({ keep: [] });
+EOF
+            echo -e "${GREEN}[PASS]${NC} Popover verified (open, floating content mounted, dismissed)."
+            ;;
+
+        tooltip)
+            ego-browser nodejs <<EOF
+const wait = (s) => new Promise((r) => setTimeout(r, s * 1000));
+const task = await taskSpace("verify-monoxus-tooltip");
+const page = task.page("p1");
+
+await page.goto("${BASE_URL}");
+await wait(0.5);
+
+// Navigate to Tooltip
+await page.evaluate("(() => { const btn = document.querySelector('#nav-link-tooltip'); if (btn) btn.click(); })()");
+await wait(0.3);
+
+// Focus and hover trigger to start delay timer
+await page.evaluate("(() => { \
+    const trigger = document.querySelector('#tooltip-trigger'); \
+    if (trigger) { \
+        trigger.focus(); \
+        trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true })); \
+    } \
+})()");
+await wait(0.5);
+
+// Verify tooltip content and arrow mounted
+const res = await page.evaluate("(() => { \
+    const trigger = document.querySelector('#tooltip-trigger'); \
+    const content = document.querySelector('#tooltip-content'); \
+    const arrow = document.querySelector('#tooltip-arrow'); \
+    return { \
+        triggerState: trigger ? trigger.getAttribute('data-state') : null, \
+        contentMounted: !!content, \
+        arrowMounted: !!arrow \
+    }; \
+})()");
+console.log(JSON.stringify(res));
+
+if (!res.contentMounted || !res.arrowMounted || res.triggerState !== "open") {
+    throw new Error(\`Tooltip open assertion failed: contentMounted=\${res.contentMounted}, arrowMounted=\${res.arrowMounted}, triggerState=\${res.triggerState}\`);
+}
+
+await task.finish({ keep: [] });
+EOF
+            echo -e "${GREEN}[PASS]${NC} Tooltip verified (hover/focus trigger, content and arrow mounted)."
+            ;;
+
+        dialog)
+            ego-browser nodejs <<EOF
+const wait = (s) => new Promise((r) => setTimeout(r, s * 1000));
+const task = await taskSpace("verify-monoxus-dialog");
+const page = task.page("p1");
+
+await page.goto("${BASE_URL}");
+await wait(0.5);
+
+// Navigate to Dialog
+await page.evaluate("(() => { const btn = document.querySelector('#nav-link-dialog'); if (btn) btn.click(); })()");
+await wait(0.3);
+
+// Click trigger
+await page.evaluate("(() => { const btn = document.querySelector('#dialog-trigger'); if (btn) { btn.focus(); btn.click(); } })()");
+await wait(0.3);
+
+// Verify overlay and content mounted
+const openRes = await page.evaluate("(() => { \
+    const overlay = document.querySelector('#dialog-overlay'); \
+    const content = document.querySelector('#dialog-content'); \
+    return { \
+        overlayMounted: !!overlay, \
+        contentMounted: !!content, \
+        contentState: content ? content.getAttribute('data-state') : null \
+    }; \
+})()");
+console.log(JSON.stringify(openRes));
+
+if (!openRes.overlayMounted || !openRes.contentMounted || openRes.contentState !== "open") {
+    throw new Error(\`Dialog open assertion failed: overlayMounted=\${openRes.overlayMounted}, contentMounted=\${openRes.contentMounted}\`);
+}
+
+// Click close button
+await page.evaluate("(() => { const btn = document.querySelector('#dialog-close'); if (btn) { btn.focus(); btn.click(); } })()");
+await wait(0.3);
+
+// Verify content dismissed
+const closedRes = await page.evaluate("(() => { \
+    const content = document.querySelector('#dialog-content'); \
+    return { contentMounted: !!content }; \
+})()");
+console.log(JSON.stringify(closedRes));
+
+if (closedRes.contentMounted) {
+    throw new Error("Dialog dismissal failed: content still mounted");
+}
+
+await task.finish({ keep: [] });
+EOF
+            echo -e "${GREEN}[PASS]${NC} Dialog verified (overlay, modal content mounted, dismissed)."
+            ;;
+
+        alert_dialog|alert-dialog)
+            ego-browser nodejs <<EOF
+const wait = (s) => new Promise((r) => setTimeout(r, s * 1000));
+const task = await taskSpace("verify-monoxus-alert-dialog");
+const page = task.page("p1");
+
+await page.goto("${BASE_URL}");
+await wait(0.5);
+
+// Navigate to Alert Dialog
+await page.evaluate("(() => { const btn = document.querySelector('#nav-link-alert-dialog'); if (btn) btn.click(); })()");
+await wait(0.3);
+
+// Click trigger
+await page.evaluate("(() => { const btn = document.querySelector('#alert-dialog-trigger'); if (btn) { btn.focus(); btn.click(); } })()");
+await wait(0.3);
+
+// Verify content mounted
+const openRes = await page.evaluate("(() => { \
+    const content = document.querySelector('#alert-dialog-content'); \
+    const cancel = document.querySelector('#alert-dialog-cancel'); \
+    return { \
+        contentMounted: !!content, \
+        cancelMounted: !!cancel, \
+        contentState: content ? content.getAttribute('data-state') : null \
+    }; \
+})()");
+console.log(JSON.stringify(openRes));
+
+if (!openRes.contentMounted || !openRes.cancelMounted || openRes.contentState !== "open") {
+    throw new Error(\`AlertDialog open assertion failed: contentMounted=\${openRes.contentMounted}, cancelMounted=\${openRes.cancelMounted}\`);
+}
+
+// Click cancel button
+await page.evaluate("(() => { const btn = document.querySelector('#alert-dialog-cancel'); if (btn) { btn.focus(); btn.click(); } })()");
+await wait(0.3);
+
+// Verify content dismissed
+const closedRes = await page.evaluate("(() => { \
+    const content = document.querySelector('#alert-dialog-content'); \
+    return { contentMounted: !!content }; \
+})()");
+console.log(JSON.stringify(closedRes));
+
+if (closedRes.contentMounted) {
+    throw new Error("AlertDialog dismissal failed: content still mounted");
+}
+
+await task.finish({ keep: [] });
+EOF
+            echo -e "${GREEN}[PASS]${NC} AlertDialog verified (destructive content mounted, cancel dismissed)."
+            ;;
+
         *)
             echo -e "${RED}[ERROR]${NC} Unknown component: ${comp}"
             exit 1
@@ -167,6 +370,10 @@ if [ "${TARGET}" = "all" ]; then
     verify_component collapsible
     verify_component accordion
     verify_component tabs
+    verify_component popover
+    verify_component tooltip
+    verify_component dialog
+    verify_component alert_dialog
 else
     verify_component "${TARGET}"
 fi

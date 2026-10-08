@@ -3,6 +3,8 @@
 //! Provides thin, ergonomic harness orchestration and assertions around
 //! `blitz-test-harness` for testing headless Dioxus components without window or GPU overhead.
 
+#![allow(dead_code)]
+
 use blitz_dom::Document;
 use blitz_test_harness::Harness;
 use blitz_traits::events::{BlitzKeyEvent, KeyState, UiEvent};

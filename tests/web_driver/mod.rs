@@ -152,6 +152,131 @@ impl ScriptBuilder {
             )
         )
     }
+
+    /// Compact JS actions for Popover web verification:
+    /// Navigates #nav-link-popover, clicks #popover-trigger, verifies open state & content, clicks #popover-close, verifies dismissal.
+    pub fn verify_popover_actions() -> String {
+        format!(
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            Self::navigate_nav_link("popover"),
+            Self::wait_call(0.3),
+            Self::click_element("#popover-trigger"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const trigger = document.querySelector('#popover-trigger'); \
+                 const content = document.querySelector('#popover-content'); \
+                 const triggerState = trigger ? trigger.getAttribute('data-state') : null; \
+                 const contentState = content ? content.getAttribute('data-state') : null; \
+                 console.log(JSON.stringify({ component: 'popover', step: 'open', triggerState, contentState, contentMounted: !!content }));"
+            ),
+            Self::click_element("#popover-close"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const content = document.querySelector('#popover-content'); \
+                 console.log(JSON.stringify({ component: 'popover', step: 'closed', contentMounted: !!content }));"
+            ),
+        )
+    }
+
+    /// Compact JS actions for Tooltip web verification:
+    /// Navigates #nav-link-tooltip, triggers hover/focus on #tooltip-trigger, waits for delay, verifies #tooltip-content & #tooltip-arrow.
+    pub fn verify_tooltip_actions() -> String {
+        format!(
+            "{}\n{}\n{}\n{}\n{}",
+            Self::navigate_nav_link("tooltip"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const trigger = document.querySelector('#tooltip-trigger'); \
+                 if (trigger) { \
+                     trigger.focus(); \
+                     trigger.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true })); \
+                 }"
+            ),
+            Self::wait_call(0.5),
+            Self::iife(
+                "const trigger = document.querySelector('#tooltip-trigger'); \
+                 const content = document.querySelector('#tooltip-content'); \
+                 const arrow = document.querySelector('#tooltip-arrow'); \
+                 const triggerState = trigger ? trigger.getAttribute('data-state') : null; \
+                 const contentState = content ? content.getAttribute('data-state') : null; \
+                 console.log(JSON.stringify({ \
+                     component: 'tooltip', \
+                     triggerState, \
+                     contentState, \
+                     contentMounted: !!content, \
+                     arrowMounted: !!arrow \
+                 }));"
+            ),
+        )
+    }
+
+    /// Compact JS actions for Dialog web verification:
+    /// Navigates #nav-link-dialog, clicks #dialog-trigger, verifies overlay and content, clicks #dialog-close, verifies dismissal.
+    pub fn verify_dialog_actions() -> String {
+        format!(
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            Self::navigate_nav_link("dialog"),
+            Self::wait_call(0.3),
+            Self::click_element("#dialog-trigger"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const overlay = document.querySelector('#dialog-overlay'); \
+                 const content = document.querySelector('#dialog-content'); \
+                 const state = content ? content.getAttribute('data-state') : null; \
+                 console.log(JSON.stringify({ \
+                     component: 'dialog', \
+                     step: 'open', \
+                     overlayMounted: !!overlay, \
+                     contentMounted: !!content, \
+                     state \
+                 }));"
+            ),
+            Self::click_element("#dialog-close"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const content = document.querySelector('#dialog-content'); \
+                 console.log(JSON.stringify({ \
+                     component: 'dialog', \
+                     step: 'closed', \
+                     contentMounted: !!content \
+                 }));"
+            ),
+        )
+    }
+
+    /// Compact JS actions for AlertDialog web verification:
+    /// Navigates #nav-link-alert-dialog, clicks #alert-dialog-trigger, verifies content and cancel, clicks #alert-dialog-cancel, verifies dismissal.
+    pub fn verify_alert_dialog_actions() -> String {
+        format!(
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            Self::navigate_nav_link("alert-dialog"),
+            Self::wait_call(0.3),
+            Self::click_element("#alert-dialog-trigger"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const content = document.querySelector('#alert-dialog-content'); \
+                 const cancel = document.querySelector('#alert-dialog-cancel'); \
+                 const state = content ? content.getAttribute('data-state') : null; \
+                 console.log(JSON.stringify({ \
+                     component: 'alert-dialog', \
+                     step: 'open', \
+                     contentMounted: !!content, \
+                     cancelMounted: !!cancel, \
+                     state \
+                 }));"
+            ),
+            Self::click_element("#alert-dialog-cancel"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const content = document.querySelector('#alert-dialog-content'); \
+                 console.log(JSON.stringify({ \
+                     component: 'alert-dialog', \
+                     step: 'closed', \
+                     contentMounted: !!content \
+                 }));"
+            ),
+        )
+    }
 }
 
 /// Headless browser execution driver using `ego-browser`.
@@ -212,6 +337,38 @@ await task.finish({{ keep: [] }});
     /// Generates runner script for Tabs web verification.
     pub fn generate_tabs_verification_script(&self) -> String {
         self.generate_runner_script("verify-monoxus-tabs", &ScriptBuilder::verify_tabs_actions())
+    }
+
+    /// Generates runner script for Popover web verification.
+    pub fn generate_popover_verification_script(&self) -> String {
+        self.generate_runner_script(
+            "verify-monoxus-popover",
+            &ScriptBuilder::verify_popover_actions(),
+        )
+    }
+
+    /// Generates runner script for Tooltip web verification.
+    pub fn generate_tooltip_verification_script(&self) -> String {
+        self.generate_runner_script(
+            "verify-monoxus-tooltip",
+            &ScriptBuilder::verify_tooltip_actions(),
+        )
+    }
+
+    /// Generates runner script for Dialog web verification.
+    pub fn generate_dialog_verification_script(&self) -> String {
+        self.generate_runner_script(
+            "verify-monoxus-dialog",
+            &ScriptBuilder::verify_dialog_actions(),
+        )
+    }
+
+    /// Generates runner script for AlertDialog web verification.
+    pub fn generate_alert_dialog_verification_script(&self) -> String {
+        self.generate_runner_script(
+            "verify-monoxus-alert-dialog",
+            &ScriptBuilder::verify_alert_dialog_actions(),
+        )
     }
 
     /// Executes a generated script through `ego-browser nodejs`.
@@ -338,5 +495,53 @@ mod tests {
         assert!(tabs_script.contains("dataState"));
         assert!(tabs_script.contains("contentState"));
         assert!(!tabs_script.contains("500"));
+    }
+
+    #[test]
+    fn test_overlay_and_floating_verification_script_generators() {
+        let driver = EgoWebDriver::default_local();
+
+        // 1. Popover script invariants: strictly sub-second wait, IIFE, correct IDs
+        let pop_script = driver.generate_popover_verification_script();
+        assert!(pop_script.contains("#nav-link-popover"));
+        assert!(pop_script.contains("#popover-trigger"));
+        assert!(pop_script.contains("#popover-content"));
+        assert!(pop_script.contains("#popover-close"));
+        assert!(pop_script.contains("(() => {"));
+        assert!(pop_script.contains("await wait(0.30);"));
+        assert!(!pop_script.contains("300"));
+        assert!(!pop_script.contains("500"));
+
+        // 2. Tooltip script invariants: strictly sub-second wait (0.50 for delay), IIFE, correct IDs
+        let tt_script = driver.generate_tooltip_verification_script();
+        assert!(tt_script.contains("#nav-link-tooltip"));
+        assert!(tt_script.contains("#tooltip-trigger"));
+        assert!(tt_script.contains("#tooltip-content"));
+        assert!(tt_script.contains("#tooltip-arrow"));
+        assert!(tt_script.contains("(() => {"));
+        assert!(tt_script.contains("await wait(0.50);"));
+        assert!(!tt_script.contains("450"));
+        assert!(!tt_script.contains("500"));
+
+        // 3. Dialog script invariants: strictly sub-second wait, IIFE, correct IDs
+        let dlg_script = driver.generate_dialog_verification_script();
+        assert!(dlg_script.contains("#nav-link-dialog"));
+        assert!(dlg_script.contains("#dialog-trigger"));
+        assert!(dlg_script.contains("#dialog-overlay"));
+        assert!(dlg_script.contains("#dialog-content"));
+        assert!(dlg_script.contains("#dialog-close"));
+        assert!(dlg_script.contains("(() => {"));
+        assert!(dlg_script.contains("await wait(0.30);"));
+        assert!(!dlg_script.contains("300"));
+
+        // 4. AlertDialog script invariants: strictly sub-second wait, IIFE, correct IDs
+        let alert_script = driver.generate_alert_dialog_verification_script();
+        assert!(alert_script.contains("#nav-link-alert-dialog"));
+        assert!(alert_script.contains("#alert-dialog-trigger"));
+        assert!(alert_script.contains("#alert-dialog-content"));
+        assert!(alert_script.contains("#alert-dialog-cancel"));
+        assert!(alert_script.contains("(() => {"));
+        assert!(alert_script.contains("await wait(0.30);"));
+        assert!(!alert_script.contains("300"));
     }
 }

@@ -302,6 +302,21 @@ impl Popover {
         self
     }
 
+    pub fn with_anchor_id(mut self, anchor_id: impl Into<String>) -> Self {
+        self.relationships = self.relationships.with_anchor_id(anchor_id);
+        self
+    }
+
+    pub fn with_arrow_id(mut self, arrow_id: impl Into<String>) -> Self {
+        self.relationships = self.relationships.with_arrow_id(arrow_id);
+        self
+    }
+
+    pub fn with_close_id(mut self, close_id: impl Into<String>) -> Self {
+        self.relationships = self.relationships.with_close_id(close_id);
+        self
+    }
+
     pub const fn parts() -> &'static [PopoverPart] {
         &POPOVER_PARTS
     }

@@ -24,6 +24,10 @@ default = []
 native = ["oxidase/native"]
 blitz-host = ["oxidase/blitz-host"]
 
+[[test]]
+name = "native_overlay_test"
+required-features = ["native"]
+
 [dev-dependencies]
 dioxus = { version = "0.7.0", default-features = false, features = ["minimal"] }
 serde_json = "1.0"

@@ -577,7 +577,18 @@ impl TooltipRuntime {
         move |event| {
             let mut content_handle = runtime.state.content_handle;
             content_handle.set(Some(event.data()));
-            runtime.sync_grace_monitor();
+            let pos = compute_tooltip_position(&runtime.tooltip);
+            if let Some(placement) = pos {
+                let should_update = runtime
+                    .state
+                    .placement
+                    .with_peek(|current| current.as_ref() != Some(&placement));
+                if should_update {
+                    let mut current = runtime.state.placement;
+                    current.set(Some(placement));
+                }
+                set_tooltip_content_readiness(runtime.state, FloatingReadiness::Ready);
+            }
         }
     }
 

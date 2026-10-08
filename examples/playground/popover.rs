@@ -85,7 +85,10 @@ pub fn PopoverPlayground() -> Element {
     let popover = use_popover_runtime(
         Popover::new(scope.clone(), open())
             .with_trigger_id("popover-trigger")
+            .with_anchor_id("popover-anchor")
             .with_content_id("popover-content")
+            .with_close_id("popover-close")
+            .with_arrow_id("popover-arrow")
             .with_modal(scroll_lock_enabled())
             .with_portal_host(PortalHost::inline())
             .with_floating(
@@ -290,6 +293,7 @@ pub fn PopoverPlayground() -> Element {
                                     "data-positioning-state": content_positioning_state,
                                     "data-playground-popover-content": "true",
                                     onmounted: popover.mount_content(),
+                                    onkeydown: popover.escape_keydown(),
                                     style: "{content_style}",
                                     div {
                                         id: arrow.id(),

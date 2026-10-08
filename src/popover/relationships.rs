@@ -38,6 +38,21 @@ impl PopoverRelationships {
         self
     }
 
+    pub fn with_anchor_id(mut self, anchor_id: impl Into<String>) -> Self {
+        self.anchor_id = anchor_id.into();
+        self
+    }
+
+    pub fn with_arrow_id(mut self, arrow_id: impl Into<String>) -> Self {
+        self.arrow_id = arrow_id.into();
+        self
+    }
+
+    pub fn with_close_id(mut self, close_id: impl Into<String>) -> Self {
+        self.close_id = close_id.into();
+        self
+    }
+
     pub fn scope(&self) -> &ScopeHandle {
         &self.scope
     }

@@ -32,6 +32,11 @@ impl TooltipRelationships {
         self
     }
 
+    pub fn with_arrow_id(mut self, arrow_id: impl Into<String>) -> Self {
+        self.arrow_id = arrow_id.into();
+        self
+    }
+
     pub fn scope(&self) -> &ScopeHandle {
         &self.scope
     }

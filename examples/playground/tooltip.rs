@@ -89,6 +89,7 @@ pub fn TooltipPlayground() -> Element {
         )
         .with_trigger_id("tooltip-trigger")
         .with_content_id("tooltip-content")
+        .with_arrow_id("tooltip-arrow")
         .with_provider(provider.clone())
         .with_portal_host(PortalHost::inline())
         .with_floating(
