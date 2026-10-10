@@ -34,6 +34,10 @@ where
         &self.id
     }
 
+    pub fn set_id(&mut self, id: T) {
+        self.id = id;
+    }
+
     pub fn branches(&self) -> &[T] {
         &self.branches
     }

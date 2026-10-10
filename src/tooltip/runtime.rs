@@ -339,24 +339,21 @@ where
     let effect_open_change = Rc::clone(&synced_open_change);
     let reset_state = state;
     let position_state = state;
-    let effect_tooltip = tooltip.clone();
     let cleanup_tooltip = tooltip.clone();
-    let is_open = tooltip.is_open();
     let tooltip_root_id = tooltip.relationships().root_id().to_owned();
     let provider_active_tooltip_id = synced_provider_runtime
         .as_ref()
-        .map(|runtime| runtime.active_tooltip_id())
-        .flatten();
+        .and_then(|runtime| runtime.active_tooltip_id());
 
-    use_effect(use_reactive!(|is_open, provider_active_tooltip_id| {
+    use_effect(use_reactive((&tooltip, &provider_active_tooltip_id), move |(tooltip, active_id)| {
         if synced_provider_runtime.is_some() {
-            let next_open = provider_active_tooltip_id.as_deref() == Some(tooltip_root_id.as_str());
-            if next_open != is_open {
+            let next_open = active_id.as_deref() == Some(tooltip_root_id.as_str());
+            if next_open != tooltip.is_open() {
                 effect_open_change(next_open);
             }
         }
 
-        if !is_open {
+        if !tooltip.is_open() {
             if *reset_state.content_hovered.peek() {
                 let mut content_hovered = reset_state.content_hovered;
                 content_hovered.set(false);
@@ -369,13 +366,13 @@ where
         }
 
         sync_tooltip_positioning(
-            &effect_tooltip,
+            &tooltip,
             synced_provider_runtime.clone(),
             Rc::clone(&effect_open_change),
             position_state,
         );
         sync_tooltip_grace_monitor(
-            &effect_tooltip,
+            &tooltip,
             synced_provider_runtime.clone(),
             Rc::clone(&effect_open_change),
             position_state,
@@ -579,16 +576,35 @@ impl TooltipRuntime {
             content_handle.set(Some(event.data()));
             let pos = compute_tooltip_position(&runtime.tooltip);
             if let Some(placement) = pos {
-                let should_update = runtime
-                    .state
-                    .placement
-                    .with_peek(|current| current.as_ref() != Some(&placement));
-                if should_update {
-                    let mut current = runtime.state.placement;
-                    current.set(Some(placement));
+                if placement.geometry().content_height() > 0.0 {
+                    let should_update = runtime
+                        .state
+                        .placement
+                        .with_peek(|current| current.as_ref() != Some(&placement));
+                    if should_update {
+                        let mut current = runtime.state.placement;
+                        current.set(Some(placement));
+                    }
+                    set_tooltip_content_readiness(runtime.state, FloatingReadiness::Ready);
+                    return;
                 }
-                set_tooltip_content_readiness(runtime.state, FloatingReadiness::Ready);
             }
+
+            let runtime_clone = runtime.clone();
+            spawn(async move {
+                oxidase::frame::next_frame().await;
+                if let Some(placement) = compute_tooltip_position(&runtime_clone.tooltip) {
+                    let should_update = runtime_clone
+                        .state
+                        .placement
+                        .with_peek(|current| current.as_ref() != Some(&placement));
+                    if should_update {
+                        let mut current = runtime_clone.state.placement;
+                        current.set(Some(placement));
+                    }
+                    set_tooltip_content_readiness(runtime_clone.state, FloatingReadiness::Ready);
+                }
+            });
         }
     }
 
@@ -901,6 +917,21 @@ fn sync_tooltip_positioning(
         }
         set_tooltip_content_readiness(state, FloatingReadiness::Ready);
     }
+
+    let tooltip_clone_for_placement = tooltip.clone();
+    spawn(async move {
+        oxidase::frame::next_frame().await;
+        if let Some(placement) = compute_tooltip_position(&tooltip_clone_for_placement) {
+            let should_update = state
+                .placement
+                .with_peek(|current| current.as_ref() != Some(&placement));
+            if should_update {
+                let mut current = state.placement;
+                current.set(Some(placement));
+            }
+            set_tooltip_content_readiness(state, FloatingReadiness::Ready);
+        }
+    });
 
     let trigger_id = tooltip.relationships().trigger_id();
     let content_id = tooltip.relationships().content_id();

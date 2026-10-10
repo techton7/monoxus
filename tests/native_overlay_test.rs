@@ -5,6 +5,7 @@
 
 mod common;
 use common::native_fixture::*;
+use keyboard_types::{Code, Key};
 
 #[path = "../examples/playground/popover.rs"]
 mod playground_popover;
@@ -22,8 +23,8 @@ static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Test 1: Popover floating and dismissal lifecycle
 ///
-/// Verifies initial closed state, opening via trigger click, non-empty content
-/// layout positioned relative to the trigger, and dismissal via close click.
+/// Verifies initial closed state, opening via trigger click, relative floating
+/// placement below anchor, and multiple dismissal paths (close button, Escape key, and outside click).
 #[test]
 fn test_native_popover_floating_and_dismiss() {
     let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -36,32 +37,80 @@ fn test_native_popover_floating_and_dismiss() {
         "Popover content should not be mounted initially"
     );
 
-    // Interaction 1: Click trigger to open popover
+    // -------------------------------------------------------------------------
+    // Phase 1: Open and verify relative floating placement
+    // -------------------------------------------------------------------------
     click_and_pump(&mut harness, "#popover-trigger");
 
-    // Open state assertions
     assert!(
         harness.query("#popover-content").is_some(),
         "Popover content should be mounted after click"
     );
     assert_rect_non_empty(&harness, "#popover-content");
 
-    // Interaction 2: Click close button to dismiss popover
+    // Geometric proof: Popover content is positioned relative to anchor
+    assert_relative_below(&harness, "#popover-anchor", "#popover-content", 30.0);
+    assert_relative_aligned(&harness, "#popover-anchor", "#popover-content", 30.0);
+
+    // Dismissal path 1: Click close button
     click_and_pump(&mut harness, "#popover-close");
     std::thread::sleep(std::time::Duration::from_millis(550));
     harness.pump();
 
-    // Closed state assertions
     assert!(
         harness.query("#popover-content").is_none(),
         "Popover content should be unmounted after close click"
+    );
+
+    // -------------------------------------------------------------------------
+    // Phase 2: Open and verify Escape key dismissal
+    // -------------------------------------------------------------------------
+    click_and_pump(&mut harness, "#popover-trigger");
+    assert!(
+        harness.query("#popover-content").is_some(),
+        "Popover content should be mounted after second click"
+    );
+
+    focus_node(&mut harness, "#popover-content");
+    assert_native_focus_id(&harness, "#popover-content");
+    send_key_and_pump(&mut harness, Key::Escape, Code::Escape);
+    std::thread::sleep(std::time::Duration::from_millis(550));
+    oxidase::frame::tick(std::time::Duration::from_millis(16));
+    harness.pump();
+    harness.tick(0.01);
+    harness.pump();
+
+    assert!(
+        harness.query("#popover-content").is_none(),
+        "Popover content should be unmounted after Escape key"
+    );
+
+    // -------------------------------------------------------------------------
+    // Phase 3: Open and verify outside click dismissal
+    // -------------------------------------------------------------------------
+    click_and_pump(&mut harness, "#popover-trigger");
+    assert!(
+        harness.query("#popover-content").is_some(),
+        "Popover content should be mounted after third click"
+    );
+
+    // Click outside popover content and anchor/trigger (at page coordinates 5.0, 5.0)
+    click_at_and_pump(&mut harness, 5.0, 5.0);
+    std::thread::sleep(std::time::Duration::from_millis(550));
+    oxidase::frame::tick(std::time::Duration::from_millis(16));
+    harness.pump();
+    harness.tick(0.01);
+
+    assert!(
+        harness.query("#popover-content").is_none(),
+        "Popover content should be unmounted after outside click"
     );
 }
 
 /// Test 2: Tooltip trigger and arrow mounting
 ///
-/// Verifies trigger mounting, pointer/focus interaction to show tooltip,
-/// and that content and arrow mount with valid non-empty bounds.
+/// Verifies trigger mounting, pointer hover/focus interaction, provider delay,
+/// arrow mounting, relative vertical/horizontal alignment, and unmount on pointer leave.
 #[test]
 fn test_native_tooltip_trigger_and_arrow() {
     let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -80,8 +129,10 @@ fn test_native_tooltip_trigger_and_arrow() {
     std::thread::sleep(std::time::Duration::from_millis(600));
     harness.pump();
     harness.pump();
+    oxidase::frame::tick(std::time::Duration::from_millis(16));
     harness.pump();
-    harness.pump();
+    harness.tick(0.01);
+    oxidase::frame::tick(std::time::Duration::from_millis(16));
     harness.pump();
 
     // Assert #tooltip-content and #tooltip-arrow mount with valid bounds
@@ -95,12 +146,52 @@ fn test_native_tooltip_trigger_and_arrow() {
         "Tooltip arrow should mount"
     );
     assert_rect_non_empty(&harness, "#tooltip-arrow");
+
+    // Geometric alignment assertions:
+    // 1. Tooltip is positioned above trigger (configured with PlacementSide::Top)
+    assert_relative_above(&harness, "#tooltip-trigger", "#tooltip-content", 30.0);
+
+    // 2. Tooltip arrow is contained within the horizontal bounds of the tooltip content
+    let content_rect = harness.layout_rect("#tooltip-content");
+    let arrow_rect = harness.layout_rect("#tooltip-arrow");
+    assert!(
+        arrow_rect.x >= content_rect.x - 5.0
+            && arrow_rect.x + arrow_rect.width <= content_rect.x + content_rect.width + 5.0,
+        "Tooltip arrow (x={}, w={}) must be horizontally within content bounds (x={}, w={})",
+        arrow_rect.x,
+        arrow_rect.width,
+        content_rect.x,
+        content_rect.width
+    );
+
+    // Interaction 2: Pointer leave dismisses tooltip
+    harness.move_mouse_to(0.0, 0.0);
+    // 1. Advance past the 40ms hover transfer grace period so request_close is invoked and effects settle
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    harness.pump();
+    harness.pump();
+    harness.pump();
+    harness.pump();
+
+    // 2. Advance past the 500ms exit presence animation fallback
+    std::thread::sleep(std::time::Duration::from_millis(600));
+    oxidase::frame::tick(std::time::Duration::from_millis(16));
+    harness.pump();
+    harness.pump();
+    harness.pump();
+    harness.pump();
+
+    assert!(
+        harness.query("#tooltip-content").is_none(),
+        "Tooltip content should be unmounted after pointer leave"
+    );
 }
 
 /// Test 3: Dialog and AlertDialog lifecycle
 ///
-/// Verifies opening, overlay, and content layout, followed by clean dismissal
-/// for both Modal Dialog and Destructive AlertDialog.
+/// Verifies opening, overlay, focus trapping, focus restoration to trigger,
+/// backdrop click dismiss (for Dialog) vs non-dismiss (for AlertDialog),
+/// and Escape key handling.
 #[test]
 fn test_native_dialog_and_alert_dialog_lifecycle() {
     let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -117,10 +208,9 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
         "Dialog content should not be mounted initially"
     );
 
-    // Interaction 1: Click trigger to open dialog
+    // Phase 1: Open dialog and verify Escape key dismiss + focus restore
     click_and_pump(&mut dialog_harness, "#dialog-trigger");
 
-    // Assert overlay and content are mounted with non-empty rects
     assert!(
         dialog_harness.query("#dialog-overlay").is_some(),
         "Dialog overlay should mount when open"
@@ -132,16 +222,58 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
     );
     assert_rect_non_empty(&dialog_harness, "#dialog-content");
 
-    // Interaction 2: Click close button to dismiss dialog
+    // Escape key dismissal
+    send_key_and_pump(&mut dialog_harness, Key::Escape, Code::Escape);
+    std::thread::sleep(std::time::Duration::from_millis(550));
+    oxidase::frame::tick(std::time::Duration::from_millis(16));
+    dialog_harness.pump();
+    dialog_harness.tick(0.01);
+
+    assert!(
+        dialog_harness.query("#dialog-content").is_none(),
+        "Dialog content should be unmounted after Escape key"
+    );
+    assert_native_focus_id(&dialog_harness, "#dialog-trigger");
+
+    // Phase 2: Open dialog and verify backdrop click dismiss + focus restore
+    click_and_pump(&mut dialog_harness, "#dialog-trigger");
+    assert!(
+        dialog_harness.query("#dialog-content").is_some(),
+        "Dialog content should be mounted after second click"
+    );
+
+    // Click backdrop (at (5.0, 5.0) on overlay outside centered content)
+    let overlay_rect = dialog_harness.layout_rect("#dialog-overlay");
+    click_at_and_pump(&mut dialog_harness, overlay_rect.x + 5.0, overlay_rect.y + 5.0);
+    std::thread::sleep(std::time::Duration::from_millis(550));
+    oxidase::frame::tick(std::time::Duration::from_millis(16));
+    dialog_harness.pump();
+    dialog_harness.tick(0.01);
+
+    assert!(
+        dialog_harness.query("#dialog-content").is_none(),
+        "Dialog content should be unmounted after clicking backdrop overlay"
+    );
+    assert_native_focus_id(&dialog_harness, "#dialog-trigger");
+
+    // Phase 3: Open dialog and verify close button dismiss + focus restore
+    click_and_pump(&mut dialog_harness, "#dialog-trigger");
+    assert!(
+        dialog_harness.query("#dialog-content").is_some(),
+        "Dialog content should be mounted after third click"
+    );
+
     click_and_pump(&mut dialog_harness, "#dialog-close");
     std::thread::sleep(std::time::Duration::from_millis(550));
+    oxidase::frame::tick(std::time::Duration::from_millis(16));
     dialog_harness.pump();
+    dialog_harness.tick(0.01);
 
-    // Assert dialog content closes
     assert!(
         dialog_harness.query("#dialog-content").is_none(),
         "Dialog content should be unmounted after clicking close"
     );
+    assert_native_focus_id(&dialog_harness, "#dialog-trigger");
 
     // -------------------------------------------------------------------------
     // 2. AlertDialog Playground Lifecycle
@@ -158,21 +290,33 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
     // Interaction 1: Click trigger to open alert dialog
     click_and_pump(&mut alert_harness, "#alert-dialog-trigger");
 
-    // Assert content is mounted with non-empty rect
     assert!(
         alert_harness.query("#alert-dialog-content").is_some(),
         "Alert dialog content should mount when open"
     );
     assert_rect_non_empty(&alert_harness, "#alert-dialog-content");
 
+    // Verify modal backdrop: clicking overlay does NOT dismiss AlertDialog
+    let overlay_rect = alert_harness.layout_rect("#alert-dialog-overlay");
+    click_at_and_pump(&mut alert_harness, overlay_rect.x + 5.0, overlay_rect.y + 5.0);
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    alert_harness.pump();
+
+    assert!(
+        alert_harness.query("#alert-dialog-content").is_some(),
+        "Alert dialog content must remain mounted when clicking backdrop"
+    );
+
     // Interaction 2: Click cancel button to dismiss alert dialog
     click_and_pump(&mut alert_harness, "#alert-dialog-cancel");
     std::thread::sleep(std::time::Duration::from_millis(550));
+    oxidase::frame::tick(std::time::Duration::from_millis(16));
     alert_harness.pump();
+    alert_harness.tick(0.01);
 
-    // Assert dialog closes
     assert!(
         alert_harness.query("#alert-dialog-content").is_none(),
         "Alert dialog content should be unmounted after cancel click"
     );
+    assert_native_focus_id(&alert_harness, "#alert-dialog-trigger");
 }

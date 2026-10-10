@@ -35,6 +35,10 @@ where
         &self.root
     }
 
+    pub fn set_root(&mut self, root: T) {
+        self.root = root;
+    }
+
     pub fn branches(&self) -> &[T] {
         &self.branches
     }

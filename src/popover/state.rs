@@ -170,6 +170,20 @@ impl PopoverLifecycle {
         }
     }
 
+    pub fn set_content_id(&mut self, content_id: impl Into<String>) {
+        let id = content_id.into();
+        self.focus_scope.set_root(id.clone());
+        self.dismiss_layer.set_id(id);
+    }
+
+    pub fn set_trigger_id(&mut self, trigger_id: impl Into<String>) {
+        let id = trigger_id.into();
+        self.default_restore_focus_target = id.clone();
+        if self.close_focus_policy == PopoverCloseFocusPolicy::Trigger {
+            self.focus_scope.capture_restore_target(Some(id));
+        }
+    }
+
     pub fn register_branch(&mut self, branch: impl Into<String>) -> bool {
         let branch = branch.into();
         let focus_registered = self.focus_scope.register_branch(branch.clone());
@@ -293,11 +307,15 @@ impl Popover {
     }
 
     pub fn with_trigger_id(mut self, trigger_id: impl Into<String>) -> Self {
+        let trigger_id = trigger_id.into();
+        self.lifecycle.set_trigger_id(trigger_id.clone());
         self.relationships = self.relationships.with_trigger_id(trigger_id);
         self
     }
 
     pub fn with_content_id(mut self, content_id: impl Into<String>) -> Self {
+        let content_id = content_id.into();
+        self.lifecycle.set_content_id(content_id.clone());
         self.relationships = self.relationships.with_content_id(content_id);
         self
     }

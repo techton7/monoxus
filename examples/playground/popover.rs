@@ -292,6 +292,7 @@ pub fn PopoverPlayground() -> Element {
                                     "data-align": content.data_align(),
                                     "data-positioning-state": content_positioning_state,
                                     "data-playground-popover-content": "true",
+                                    tabindex: "-1",
                                     onmounted: popover.mount_content(),
                                     onkeydown: popover.escape_keydown(),
                                     style: "{content_style}",

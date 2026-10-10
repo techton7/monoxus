@@ -368,8 +368,13 @@ pub(crate) fn focus_first_focusable(content_id: &str, focusable_selector: Option
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = content_id;
         let _ = focusable_selector;
+        let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::dom::document);
+        if let Some(target) = doc.element_by_id(content_id) {
+            spawn(async move {
+                let _ = target.focus().await;
+            });
+        }
     }
 }
 
