@@ -400,6 +400,26 @@ await page.evaluate("(() => { \
 })()");
 await wait(0.3);
 
+// Typeahead 'b' on open content
+await page.evaluate("(() => { \
+    const content = document.querySelector('#select-content'); \
+    if (content) { \
+        content.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', bubbles: true })); \
+        content.dispatchEvent(new KeyboardEvent('keyup', { key: 'b', code: 'KeyB', bubbles: true })); \
+    } \
+})()");
+await wait(0.3);
+
+const bRes = await page.evaluate("(() => { \
+    const content = document.querySelector('#select-content'); \
+    const activeDesc = content ? content.getAttribute('aria-activedescendant') : null; \
+    return { activeDesc }; \
+})()");
+console.log(JSON.stringify(bRes));
+if (!bRes.activeDesc || !bRes.activeDesc.includes("banana")) {
+    throw new Error(\`Select typeahead 'b' failed: activeDesc=\${bRes.activeDesc}\`);
+}
+
 // Commit selection with Enter
 await page.evaluate("(() => { \
     const content = document.querySelector('#select-content'); \
@@ -422,9 +442,30 @@ if (closedRes.openState !== "false") {
     throw new Error(\`Select close assertion failed: openState=\${closedRes.openState}\`);
 }
 
+// Closed typeahead: focus trigger and dispatch 'p'
+await page.evaluate("(() => { \
+    const trigger = document.querySelector('#select-trigger'); \
+    if (trigger) { \
+        trigger.focus(); \
+        trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', code: 'KeyP', bubbles: true })); \
+        trigger.dispatchEvent(new KeyboardEvent('keyup', { key: 'p', code: 'KeyP', bubbles: true })); \
+    } \
+})()");
+await wait(0.3);
+
+const pRes = await page.evaluate("(() => { \
+    const trigger = document.querySelector('#select-trigger'); \
+    const text = trigger ? trigger.textContent.trim() : ''; \
+    return { text }; \
+})()");
+console.log(JSON.stringify(pRes));
+if (!pRes.text.toLowerCase().includes("pineapple")) {
+    throw new Error(\`Select closed typeahead 'p' failed: text=\${pRes.text}\`);
+}
+
 await task.finish({ keep: [] });
 EOF
-            echo -e "${GREEN}[PASS]${NC} Select verified (dropdown open, roving focus, selection commit, close)."
+            echo -e "${GREEN}[PASS]${NC} Select verified (dropdown open, roving focus, typeahead open 'b', commit, closed typeahead 'p')."
             ;;
 
         toast)
@@ -440,20 +481,83 @@ await wait(0.5);
 await page.evaluate("(() => { const btn = document.querySelector('#nav-link-toast'); if (btn) btn.click(); })()");
 await wait(0.3);
 
+// Click #dispatch-info to dispatch single toast
+await page.evaluate("(() => { const btn = document.querySelector('#dispatch-info'); if (btn) { btn.focus(); btn.click(); } })()");
+await wait(0.3);
+
+// Verify toast mounted
+const mountedRes = await page.evaluate("(() => { \
+    const toast = document.querySelector('#monoxus-toast-viewport li'); \
+    return { mounted: !!toast, state: toast ? toast.getAttribute('data-state') : null }; \
+})()");
+console.log(JSON.stringify(mountedRes));
+if (!mountedRes.mounted) {
+    throw new Error("Toast mount failed after dispatch-info");
+}
+
+// Synthesize pointer swipe gesture: pointerdown at (100, 100) -> pointermove at (200, 100)
+await page.evaluate("(() => { \
+    const toast = document.querySelector('#monoxus-toast-viewport li'); \
+    if (toast) { \
+        toast.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true })); \
+        toast.dispatchEvent(new PointerEvent('pointermove', { clientX: 200, clientY: 100, bubbles: true })); \
+    } \
+})()");
+
+// Assert data-swiping="true"
+const swipingRes = await page.evaluate("(() => { \
+    const toast = document.querySelector('#monoxus-toast-viewport li'); \
+    return { swiping: toast ? toast.getAttribute('data-swiping') : null }; \
+})()");
+console.log(JSON.stringify(swipingRes));
+if (swipingRes.swiping !== "true") {
+    throw new Error(\`Toast data-swiping assertion failed: swiping=\${swipingRes.swiping}\`);
+}
+
+// Dispatch pointerup to finish swipe dismissal
+await page.evaluate("(() => { \
+    const toast = document.querySelector('#monoxus-toast-viewport li'); \
+    if (toast) { \
+        toast.dispatchEvent(new PointerEvent('pointerup', { clientX: 200, clientY: 100, bubbles: true })); \
+    } \
+})()");
+
+// Assert data-swipe-out="true"
+const swipeOutRes = await page.evaluate("(() => { \
+    const toast = document.querySelector('#monoxus-toast-viewport li'); \
+    return { swipeOut: toast ? toast.getAttribute('data-swipe-out') : null }; \
+})()");
+console.log(JSON.stringify(swipeOutRes));
+if (swipeOutRes.swipeOut !== "true") {
+    throw new Error(\`Toast data-swipe-out assertion failed: swipeOut=\${swipeOutRes.swipeOut}\`);
+}
+
+// Wait for unmount delay
+await wait(0.3);
+
+const evictedRes = await page.evaluate("(() => { \
+    const toasts = document.querySelectorAll('#monoxus-toast-viewport li'); \
+    return { count: toasts.length }; \
+})()");
+console.log(JSON.stringify(evictedRes));
+if (evictedRes.count !== 0) {
+    throw new Error(\`Toast swipe dismissal eviction failed: count=\${evictedRes.count}\`);
+}
+
 // Click #dispatch-stack-3 to dispatch toasts
 await page.evaluate("(() => { const btn = document.querySelector('#dispatch-stack-3'); if (btn) { btn.focus(); btn.click(); } })()");
 await wait(0.3);
 
 // Verify toasts mounted in viewport
-const mountedRes = await page.evaluate("(() => { \
+const stackedRes = await page.evaluate("(() => { \
     const viewport = document.querySelector('#monoxus-toast-viewport'); \
     const toasts = viewport ? viewport.querySelectorAll('li') : []; \
     return { viewportMounted: !!viewport, toastCount: toasts.length }; \
 })()");
-console.log(JSON.stringify(mountedRes));
+console.log(JSON.stringify(stackedRes));
 
-if (!mountedRes.viewportMounted || mountedRes.toastCount < 1) {
-    throw new Error(\`Toast dispatch failed: viewport=\${mountedRes.viewportMounted}, count=\${mountedRes.toastCount}\`);
+if (!stackedRes.viewportMounted || stackedRes.toastCount < 1) {
+    throw new Error(\`Toast dispatch failed: viewport=\${stackedRes.viewportMounted}, count=\${stackedRes.toastCount}\`);
 }
 
 // Click #clear-all to dismiss
@@ -469,7 +573,7 @@ console.log(JSON.stringify(clearedRes));
 
 await task.finish({ keep: [] });
 EOF
-            echo -e "${GREEN}[PASS]${NC} Toast verified (viewport mounted, stacked dispatch, clear dismissal)."
+            echo -e "${GREEN}[PASS]${NC} Toast verified (pointer swipe gesture dismissal, stack dispatch, clear dismissal)."
             ;;
 
         *)

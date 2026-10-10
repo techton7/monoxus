@@ -280,10 +280,11 @@ impl ScriptBuilder {
 
     /// Compact JS actions for Select web verification:
     /// Navigates #nav-link-select, clicks #select-trigger, verifies dropdown opens,
-    /// sends ArrowDown to advance roving focus, sends Enter to commit selection, verifies closure.
+    /// sends ArrowDown to advance roving focus, tests open typeahead 'b',
+    /// sends Enter to commit selection, verifies closure,
+    /// and tests closed typeahead 'p' committing to trigger text.
     pub fn verify_select_actions() -> String {
-        format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        vec![
             Self::navigate_nav_link("select"),
             Self::wait_call(0.3),
             Self::click_element("#select-trigger"),
@@ -297,10 +298,12 @@ impl ScriptBuilder {
             ),
             Self::dispatch_key("#select-content", "ArrowDown", "ArrowDown"),
             Self::wait_call(0.3),
+            Self::dispatch_key("#select-content", "b", "KeyB"),
+            Self::wait_call(0.3),
             Self::iife(
                 "const content = document.querySelector('#select-content'); \
                  const activeDesc = content ? content.getAttribute('aria-activedescendant') : null; \
-                 console.log(JSON.stringify({ component: 'select', step: 'roving-focus', activeDesc }));"
+                 console.log(JSON.stringify({ component: 'select', step: 'typeahead-b', activeDesc }));"
             ),
             Self::dispatch_key("#select-content", "Enter", "Enter"),
             Self::wait_call(0.5),
@@ -310,23 +313,64 @@ impl ScriptBuilder {
                  const openState = trigger ? trigger.getAttribute('aria-expanded') : null; \
                  console.log(JSON.stringify({ component: 'select', step: 'closed', contentMounted: !!content, openState }));"
             ),
-        )
+            Self::dispatch_key("#select-trigger", "p", "KeyP"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const trigger = document.querySelector('#select-trigger'); \
+                 const triggerText = trigger ? trigger.textContent.trim() : ''; \
+                 console.log(JSON.stringify({ component: 'select', step: 'closed-typeahead-p', triggerText }));"
+            ),
+        ].join("\n")
     }
 
     /// Compact JS actions for Toast web verification:
-    /// Navigates #nav-link-toast, clicks #dispatch-stack-3, verifies toasts mount in viewport,
-    /// clicks #clear-all, verifies toasts dismiss.
+    /// Navigates #nav-link-toast, clicks #dispatch-info, synthesizes PointerEvents swipe gesture
+    /// (pointerdown, pointermove, data-swiping check, pointerup, data-swipe-out check, wait 0.3s, eviction check),
+    /// clicks #dispatch-stack-3, verifies toasts mount in viewport, clicks #clear-all, verifies dismissal.
     pub fn verify_toast_actions() -> String {
-        format!(
-            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+        vec![
             Self::navigate_nav_link("toast"),
             Self::wait_call(0.3),
+            Self::click_element("#dispatch-info"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const toast = document.querySelector('#monoxus-toast-viewport li'); \
+                 console.log(JSON.stringify({ component: 'toast', step: 'dispatched-info', mounted: !!toast }));"
+            ),
+            Self::iife(
+                "const toast = document.querySelector('#monoxus-toast-viewport li'); \
+                 if (toast) { \
+                     toast.dispatchEvent(new PointerEvent('pointerdown', { clientX: 100, clientY: 100, bubbles: true })); \
+                     toast.dispatchEvent(new PointerEvent('pointermove', { clientX: 200, clientY: 100, bubbles: true })); \
+                 }"
+            ),
+            Self::iife(
+                "const toast = document.querySelector('#monoxus-toast-viewport li'); \
+                 const swiping = toast ? toast.getAttribute('data-swiping') : null; \
+                 console.log(JSON.stringify({ component: 'toast', step: 'swiping', swiping }));"
+            ),
+            Self::iife(
+                "const toast = document.querySelector('#monoxus-toast-viewport li'); \
+                 if (toast) { \
+                     toast.dispatchEvent(new PointerEvent('pointerup', { clientX: 200, clientY: 100, bubbles: true })); \
+                 }"
+            ),
+            Self::iife(
+                "const toast = document.querySelector('#monoxus-toast-viewport li'); \
+                 const swipeOut = toast ? toast.getAttribute('data-swipe-out') : null; \
+                 console.log(JSON.stringify({ component: 'toast', step: 'swipe-out', swipeOut }));"
+            ),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const toasts = document.querySelectorAll('#monoxus-toast-viewport li'); \
+                 console.log(JSON.stringify({ component: 'toast', step: 'swipe-evicted', toastCount: toasts.length }));"
+            ),
             Self::click_element("#dispatch-stack-3"),
             Self::wait_call(0.3),
             Self::iife(
                 "const viewport = document.querySelector('#monoxus-toast-viewport'); \
                  const toasts = viewport ? viewport.querySelectorAll('li') : []; \
-                 console.log(JSON.stringify({ component: 'toast', step: 'dispatched', toastCount: toasts.length }));"
+                 console.log(JSON.stringify({ component: 'toast', step: 'dispatched-stack', toastCount: toasts.length }));"
             ),
             Self::click_element("#clear-all"),
             Self::wait_call(0.4),
@@ -335,7 +379,7 @@ impl ScriptBuilder {
                  const toasts = viewport ? viewport.querySelectorAll('li') : []; \
                  console.log(JSON.stringify({ component: 'toast', step: 'cleared', toastCount: toasts.length }));"
             ),
-        )
+        ].join("\n")
     }
 }
 
@@ -625,21 +669,29 @@ mod tests {
     fn test_data_and_gesture_verification_script_generators() {
         let driver = EgoWebDriver::default_local();
 
-        // 1. Select script invariants: sub-second waits, IIFE, correct IDs
+        // 1. Select script invariants: sub-second waits, IIFE, correct IDs, typeahead
         let sel_script = driver.generate_select_verification_script();
         assert!(sel_script.contains("#nav-link-select"));
         assert!(sel_script.contains("#select-trigger"));
         assert!(sel_script.contains("#select-content"));
         assert!(sel_script.contains("ArrowDown"));
+        assert!(sel_script.contains("KeyB"));
+        assert!(sel_script.contains("KeyP"));
         assert!(sel_script.contains("Enter"));
         assert!(sel_script.contains("(() => {"));
         assert!(sel_script.contains("await wait(0.30);"));
         assert!(!sel_script.contains("300"));
         assert!(!sel_script.contains("500"));
 
-        // 2. Toast script invariants: sub-second waits, IIFE, correct IDs
+        // 2. Toast script invariants: sub-second waits, IIFE, correct IDs, pointer swipe gesture
         let toast_script = driver.generate_toast_verification_script();
         assert!(toast_script.contains("#nav-link-toast"));
+        assert!(toast_script.contains("#dispatch-info"));
+        assert!(toast_script.contains("pointerdown"));
+        assert!(toast_script.contains("pointermove"));
+        assert!(toast_script.contains("pointerup"));
+        assert!(toast_script.contains("data-swiping"));
+        assert!(toast_script.contains("data-swipe-out"));
         assert!(toast_script.contains("#dispatch-stack-3"));
         assert!(toast_script.contains("#monoxus-toast-viewport"));
         assert!(toast_script.contains("#clear-all"));

@@ -21,6 +21,7 @@ pub fn BasicFruitSelectSection() -> Element {
         monoxus::select::SelectItemData::new("blueberry", "Blueberry", false),
         monoxus::select::SelectItemData::new("cherry", "Cherry", false),
         monoxus::select::SelectItemData::new("grapes", "Grapes", false),
+        monoxus::select::SelectItemData::new("pineapple", "Pineapple", false),
     ];
 
     let def = Select::new(scope.clone())
@@ -111,6 +112,12 @@ pub fn BasicFruitSelectSection() -> Element {
                                 text: "Grapes".to_string(),
                                 class: "select-item".to_string(),
                                 ItemRow { text: "Grapes", is_selected: selected_val().as_deref() == Some("grapes") }
+                            }
+                            SelectItem {
+                                value: "pineapple".to_string(),
+                                text: "Pineapple".to_string(),
+                                class: "select-item".to_string(),
+                                ItemRow { text: "Pineapple", is_selected: selected_val().as_deref() == Some("pineapple") }
                             }
                         }
                     }

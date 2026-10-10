@@ -258,7 +258,7 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
     let swipe_out_val = *swipe_out.read();
     let swipe_dir_val = *swipe_direction_name.read();
 
-    let mut inline_style = String::new();
+    let mut inline_style = String::from("pointer-events: auto; ");
     if let Some(ref cs) = props.computed_style {
         inline_style.push_str(&cs.to_style_string());
         inline_style.push(' ');

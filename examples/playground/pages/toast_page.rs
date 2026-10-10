@@ -3,6 +3,11 @@ use monoxus::toast::*;
 use std::time::Duration;
 
 const SONNER_STYLE: &str = r#"
+html, body, main {
+    min-height: 100%;
+    height: 100%;
+}
+
 #monoxus-toast-viewport {
     position: fixed;
     width: 356px;
@@ -46,7 +51,7 @@ const SONNER_STYLE: &str = r#"
     position: absolute;
     width: 100%;
     box-sizing: border-box;
-    pointer-events: auto;
+    pointer-events: auto !important;
     touch-action: none;
     background-color: #ffffff;
     border: 1px solid #e2e8f0;
@@ -325,6 +330,15 @@ pub fn ToastPage() -> Element {
                         );
                     },
                     "📚 Dispatch 3 Stacked Toasts"
+                }
+
+                button {
+                    id: "dispatch-info",
+                    style: "padding: 0.75rem 1rem; border-radius: 0.5rem; background-color: #ffffff; color: #0284c7; font-weight: 600; font-size: 0.875rem; border: 1px solid #bae6fd; cursor: pointer;",
+                    onclick: move |_| {
+                        toast::info("Informational update ready", None);
+                    },
+                    "ℹ️ Info Toast"
                 }
 
                 button {
