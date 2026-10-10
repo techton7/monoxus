@@ -21,11 +21,14 @@ js-sys = "0.3"
 
 [features]
 default = []
-native = ["oxidase/native"]
-blitz-host = ["oxidase/blitz-host"]
+native = ["oxidase/native", "oxidase/blitz-host"]
 
 [[test]]
 name = "native_overlay_test"
+required-features = ["native"]
+
+[[test]]
+name = "native_data_gesture_test"
 required-features = ["native"]
 
 [dev-dependencies]

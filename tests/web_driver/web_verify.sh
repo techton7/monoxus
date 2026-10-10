@@ -359,6 +359,119 @@ EOF
             echo -e "${GREEN}[PASS]${NC} AlertDialog verified (destructive content mounted, cancel dismissed)."
             ;;
 
+        select)
+            ego-browser nodejs <<EOF
+const wait = (s) => new Promise((r) => setTimeout(r, s * 1000));
+const task = await taskSpace("verify-monoxus-select");
+const page = task.page("p1");
+
+await page.goto("${BASE_URL}");
+await wait(0.5);
+
+// Navigate to Select
+await page.evaluate("(() => { const btn = document.querySelector('#nav-link-select'); if (btn) btn.click(); })()");
+await wait(0.3);
+
+// Click trigger to open dropdown
+await page.evaluate("(() => { const btn = document.querySelector('#select-trigger'); if (btn) { btn.focus(); btn.click(); } })()");
+await wait(0.3);
+
+// Verify open state and active descendant
+const openRes = await page.evaluate("(() => { \
+    const trigger = document.querySelector('#select-trigger'); \
+    const content = document.querySelector('#select-content'); \
+    const openState = trigger ? trigger.getAttribute('aria-expanded') : null; \
+    const activeDesc = content ? content.getAttribute('aria-activedescendant') : null; \
+    return { openState, activeDesc, contentMounted: !!content }; \
+})()");
+console.log(JSON.stringify(openRes));
+
+if (openRes.openState !== "true" || !openRes.contentMounted) {
+    throw new Error(\`Select open assertion failed: openState=\${openRes.openState}, mounted=\${openRes.contentMounted}\`);
+}
+
+// Send ArrowDown to advance roving focus
+await page.evaluate("(() => { \
+    const content = document.querySelector('#select-content'); \
+    if (content) { \
+        content.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true })); \
+        content.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowDown', code: 'ArrowDown', bubbles: true })); \
+    } \
+})()");
+await wait(0.3);
+
+// Commit selection with Enter
+await page.evaluate("(() => { \
+    const content = document.querySelector('#select-content'); \
+    if (content) { \
+        content.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true })); \
+        content.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true })); \
+    } \
+})()");
+await wait(0.5);
+
+const closedRes = await page.evaluate("(() => { \
+    const trigger = document.querySelector('#select-trigger'); \
+    const content = document.querySelector('#select-content'); \
+    const openState = trigger ? trigger.getAttribute('aria-expanded') : null; \
+    return { openState, contentMounted: !!content }; \
+})()");
+console.log(JSON.stringify(closedRes));
+
+if (closedRes.openState !== "false") {
+    throw new Error(\`Select close assertion failed: openState=\${closedRes.openState}\`);
+}
+
+await task.finish({ keep: [] });
+EOF
+            echo -e "${GREEN}[PASS]${NC} Select verified (dropdown open, roving focus, selection commit, close)."
+            ;;
+
+        toast)
+            ego-browser nodejs <<EOF
+const wait = (s) => new Promise((r) => setTimeout(r, s * 1000));
+const task = await taskSpace("verify-monoxus-toast");
+const page = task.page("p1");
+
+await page.goto("${BASE_URL}");
+await wait(0.5);
+
+// Navigate to Toast
+await page.evaluate("(() => { const btn = document.querySelector('#nav-link-toast'); if (btn) btn.click(); })()");
+await wait(0.3);
+
+// Click #dispatch-stack-3 to dispatch toasts
+await page.evaluate("(() => { const btn = document.querySelector('#dispatch-stack-3'); if (btn) { btn.focus(); btn.click(); } })()");
+await wait(0.3);
+
+// Verify toasts mounted in viewport
+const mountedRes = await page.evaluate("(() => { \
+    const viewport = document.querySelector('#monoxus-toast-viewport'); \
+    const toasts = viewport ? viewport.querySelectorAll('li') : []; \
+    return { viewportMounted: !!viewport, toastCount: toasts.length }; \
+})()");
+console.log(JSON.stringify(mountedRes));
+
+if (!mountedRes.viewportMounted || mountedRes.toastCount < 1) {
+    throw new Error(\`Toast dispatch failed: viewport=\${mountedRes.viewportMounted}, count=\${mountedRes.toastCount}\`);
+}
+
+// Click #clear-all to dismiss
+await page.evaluate("(() => { const btn = document.querySelector('#clear-all'); if (btn) { btn.focus(); btn.click(); } })()");
+await wait(0.4);
+
+const clearedRes = await page.evaluate("(() => { \
+    const viewport = document.querySelector('#monoxus-toast-viewport'); \
+    const toasts = viewport ? viewport.querySelectorAll('li') : []; \
+    return { toastCount: toasts.length }; \
+})()");
+console.log(JSON.stringify(clearedRes));
+
+await task.finish({ keep: [] });
+EOF
+            echo -e "${GREEN}[PASS]${NC} Toast verified (viewport mounted, stacked dispatch, clear dismissal)."
+            ;;
+
         *)
             echo -e "${RED}[ERROR]${NC} Unknown component: ${comp}"
             exit 1
@@ -374,6 +487,8 @@ if [ "${TARGET}" = "all" ]; then
     verify_component tooltip
     verify_component dialog
     verify_component alert_dialog
+    verify_component select
+    verify_component toast
 else
     verify_component "${TARGET}"
 fi

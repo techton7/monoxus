@@ -277,6 +277,66 @@ impl ScriptBuilder {
             ),
         )
     }
+
+    /// Compact JS actions for Select web verification:
+    /// Navigates #nav-link-select, clicks #select-trigger, verifies dropdown opens,
+    /// sends ArrowDown to advance roving focus, sends Enter to commit selection, verifies closure.
+    pub fn verify_select_actions() -> String {
+        format!(
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            Self::navigate_nav_link("select"),
+            Self::wait_call(0.3),
+            Self::click_element("#select-trigger"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const trigger = document.querySelector('#select-trigger'); \
+                 const content = document.querySelector('#select-content'); \
+                 const openState = trigger ? trigger.getAttribute('aria-expanded') : null; \
+                 const activeDesc = content ? content.getAttribute('aria-activedescendant') : null; \
+                 console.log(JSON.stringify({ component: 'select', step: 'open', openState, activeDesc }));"
+            ),
+            Self::dispatch_key("#select-content", "ArrowDown", "ArrowDown"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const content = document.querySelector('#select-content'); \
+                 const activeDesc = content ? content.getAttribute('aria-activedescendant') : null; \
+                 console.log(JSON.stringify({ component: 'select', step: 'roving-focus', activeDesc }));"
+            ),
+            Self::dispatch_key("#select-content", "Enter", "Enter"),
+            Self::wait_call(0.5),
+            Self::iife(
+                "const content = document.querySelector('#select-content'); \
+                 const trigger = document.querySelector('#select-trigger'); \
+                 const openState = trigger ? trigger.getAttribute('aria-expanded') : null; \
+                 console.log(JSON.stringify({ component: 'select', step: 'closed', contentMounted: !!content, openState }));"
+            ),
+        )
+    }
+
+    /// Compact JS actions for Toast web verification:
+    /// Navigates #nav-link-toast, clicks #dispatch-stack-3, verifies toasts mount in viewport,
+    /// clicks #clear-all, verifies toasts dismiss.
+    pub fn verify_toast_actions() -> String {
+        format!(
+            "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
+            Self::navigate_nav_link("toast"),
+            Self::wait_call(0.3),
+            Self::click_element("#dispatch-stack-3"),
+            Self::wait_call(0.3),
+            Self::iife(
+                "const viewport = document.querySelector('#monoxus-toast-viewport'); \
+                 const toasts = viewport ? viewport.querySelectorAll('li') : []; \
+                 console.log(JSON.stringify({ component: 'toast', step: 'dispatched', toastCount: toasts.length }));"
+            ),
+            Self::click_element("#clear-all"),
+            Self::wait_call(0.4),
+            Self::iife(
+                "const viewport = document.querySelector('#monoxus-toast-viewport'); \
+                 const toasts = viewport ? viewport.querySelectorAll('li') : []; \
+                 console.log(JSON.stringify({ component: 'toast', step: 'cleared', toastCount: toasts.length }));"
+            ),
+        )
+    }
 }
 
 /// Headless browser execution driver using `ego-browser`.
@@ -368,6 +428,22 @@ await task.finish({{ keep: [] }});
         self.generate_runner_script(
             "verify-monoxus-alert-dialog",
             &ScriptBuilder::verify_alert_dialog_actions(),
+        )
+    }
+
+    /// Generates runner script for Select web verification.
+    pub fn generate_select_verification_script(&self) -> String {
+        self.generate_runner_script(
+            "verify-monoxus-select",
+            &ScriptBuilder::verify_select_actions(),
+        )
+    }
+
+    /// Generates runner script for Toast web verification.
+    pub fn generate_toast_verification_script(&self) -> String {
+        self.generate_runner_script(
+            "verify-monoxus-toast",
+            &ScriptBuilder::verify_toast_actions(),
         )
     }
 
@@ -543,5 +619,32 @@ mod tests {
         assert!(alert_script.contains("(() => {"));
         assert!(alert_script.contains("await wait(0.30);"));
         assert!(!alert_script.contains("300"));
+    }
+
+    #[test]
+    fn test_data_and_gesture_verification_script_generators() {
+        let driver = EgoWebDriver::default_local();
+
+        // 1. Select script invariants: sub-second waits, IIFE, correct IDs
+        let sel_script = driver.generate_select_verification_script();
+        assert!(sel_script.contains("#nav-link-select"));
+        assert!(sel_script.contains("#select-trigger"));
+        assert!(sel_script.contains("#select-content"));
+        assert!(sel_script.contains("ArrowDown"));
+        assert!(sel_script.contains("Enter"));
+        assert!(sel_script.contains("(() => {"));
+        assert!(sel_script.contains("await wait(0.30);"));
+        assert!(!sel_script.contains("300"));
+        assert!(!sel_script.contains("500"));
+
+        // 2. Toast script invariants: sub-second waits, IIFE, correct IDs
+        let toast_script = driver.generate_toast_verification_script();
+        assert!(toast_script.contains("#nav-link-toast"));
+        assert!(toast_script.contains("#dispatch-stack-3"));
+        assert!(toast_script.contains("#monoxus-toast-viewport"));
+        assert!(toast_script.contains("#clear-all"));
+        assert!(toast_script.contains("(() => {"));
+        assert!(toast_script.contains("await wait(0.30);"));
+        assert!(!toast_script.contains("300"));
     }
 }

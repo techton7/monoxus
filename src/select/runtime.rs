@@ -658,6 +658,13 @@ impl SelectRuntime {
     }
 
     pub fn register_item(&self, item: SelectItemRegistration) {
+        {
+            let reg = self.state.registry.read();
+            if reg.items_by_id.get(&item.id) == Some(&item) {
+                return;
+            }
+        }
+
         let val = item.value.clone();
         let disabled = item.disabled;
 
@@ -677,14 +684,14 @@ impl SelectRuntime {
         let mut items_sig = self.state.items;
         items_sig.set(active);
 
-        if self.is_open() && !disabled {
+        if self.is_open() && !disabled && self.highlighted_value().is_none() {
             let current_val = match self.select.mode() {
                 SelectMode::Single { .. } => self.value(),
                 SelectMode::Multiple => self.values().first().cloned(),
             };
             if current_val.as_deref() == Some(&val) {
                 self.set_highlighted(Some(val));
-            } else if self.highlighted_value().is_none() {
+            } else {
                 self.set_highlighted(Some(val));
             }
         }

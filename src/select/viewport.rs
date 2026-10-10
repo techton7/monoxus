@@ -29,7 +29,7 @@ impl SelectRuntime {
 
     pub fn highlight_next(&self) {
         let reg = self.state.registry.read();
-        let enabled: Vec<String> = if !reg.is_empty() {
+        let enabled: Vec<String> = if !reg.ordered_item_ids.is_empty() {
             reg.active_items()
                 .filter(|i| !i.disabled)
                 .map(|i| i.value.clone())
@@ -71,7 +71,7 @@ impl SelectRuntime {
 
     pub fn highlight_prev(&self) {
         let reg = self.state.registry.read();
-        let enabled: Vec<String> = if !reg.is_empty() {
+        let enabled: Vec<String> = if !reg.ordered_item_ids.is_empty() {
             reg.active_items()
                 .filter(|i| !i.disabled)
                 .map(|i| i.value.clone())

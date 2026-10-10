@@ -132,7 +132,7 @@ pub fn SelectContent(
     }
 
     let hl = ctx.runtime.highlighted_value();
-    let activedescendant = hl.map(|v| rels.item_id(&v));
+    let activedescendant = hl.as_ref().map(|v| rels.item_id(v));
     let eff_side = ctx.runtime.side();
     let eff_align = ctx.runtime.align();
     // Read live runtime state for content attributes

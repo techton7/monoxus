@@ -165,6 +165,7 @@ impl SelectRuntime {
     }
 
     pub async fn recalculate_floating_position(&self) {
+        oxidase::frame::next_frame().await;
         let trigger_id = self.relationships().trigger_id();
         let content_id = self.relationships().content_id();
         let boundary_id = self.collision_boundary();
@@ -188,7 +189,13 @@ impl SelectRuntime {
             namespace: Some("select"),
         };
 
-        if let Some(computed) = compute_overlay_position(&config) {
+        let mut computed_opt = compute_overlay_position(&config);
+        if computed_opt.is_none() {
+            oxidase::frame::next_frame().await;
+            computed_opt = compute_overlay_position(&config);
+        }
+
+        if let Some(computed) = computed_opt {
             let mut side_sig = self.state.side;
             if *side_sig.peek() != computed.side() {
                 side_sig.set(computed.side());
