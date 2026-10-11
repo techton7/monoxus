@@ -468,7 +468,7 @@ impl PopoverRuntime {
         }
 
         let runtime = self.clone();
-        spawn(async move {
+        crate::foundation::browser::spawn_root_task(async move {
             if let Err(error) = measure_popover_placement(runtime.popover(), runtime.state).await {
                 eprintln!(
                     "monoxus popover runtime could not refresh placement for {}: {error}",
@@ -492,7 +492,7 @@ fn schedule_pending_open_focus(popover: Popover, state: PopoverRuntimeState) {
         return;
     }
 
-    spawn(async move {
+    crate::foundation::browser::spawn_root_task(async move {
         loop {
             if !popover.is_open() || !*state.pending_open_focus.peek() {
                 return;
@@ -724,7 +724,7 @@ fn sync_popover_positioning(popover: &Popover, state: PopoverRuntimeState) {
         popover.relationships().content_id(),
         move |event| {
             let popover = popover_clone.clone();
-            spawn(async move {
+            crate::foundation::browser::spawn_root_task(async move {
                 if event == FloatingAutoUpdateEvent::Scroll {
                     match sync_hidden_popover_placement(&popover, state).await {
                         Ok(true) => return,
@@ -750,7 +750,7 @@ fn sync_popover_positioning(popover: &Popover, state: PopoverRuntimeState) {
     position_monitor.set(Some(watcher));
 
     let popover = popover.clone();
-    spawn(async move {
+    crate::foundation::browser::spawn_root_task(async move {
         if let Err(error) = measure_popover_placement(&popover, state).await {
             eprintln!(
                 "monoxus popover runtime could not measure placement for {}: {error}",

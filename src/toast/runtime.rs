@@ -148,11 +148,7 @@ thread_local! {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ToastRuntime;
 
-fn safe_spawn<F: std::future::Future<Output = ()> + 'static>(fut: F) {
-    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        dioxus::core::spawn_forever(fut);
-    }));
-}
+use crate::foundation::browser::spawn_root_task;
 
 impl ToastRuntime {
     pub fn store(&self) -> &'static GlobalSignal<ToastStore> {
@@ -231,10 +227,7 @@ pub fn ensure_toast_watcher(viewport_id: &str) {
             }
         }
 
-        let config = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            TOAST_STORE.peek().config.clone()
-        }))
-        .unwrap_or_default();
+        let config = TOAST_STORE.peek().config.clone();
 
         if let Some(watcher) = start_toast_browser_monitor(
             &config,
@@ -327,7 +320,7 @@ pub mod toast {
     }
 
     fn spawn_toast_timer(id: ToastId) {
-        safe_spawn(async move {
+        spawn_root_task(async move {
             loop {
                 futures_timer::Delay::new(Duration::from_millis(50)).await;
                 let mut store = TOAST_STORE.write();
@@ -357,7 +350,7 @@ pub mod toast {
                     }
                     store.dismiss_toast(id);
                     drop(store);
-                    safe_spawn(async move {
+                    spawn_root_task(async move {
                         futures_timer::Delay::new(TIME_BEFORE_UNMOUNT).await;
                         TOAST_STORE.write().remove_toast(id);
                     });
@@ -413,7 +406,7 @@ pub mod toast {
         if let Some(target_id) = id {
             if store.dismiss_toast(target_id) {
                 drop(store);
-                safe_spawn(async move {
+                spawn_root_task(async move {
                     futures_timer::Delay::new(TIME_BEFORE_UNMOUNT).await;
                     TOAST_STORE.write().remove_toast(target_id);
                 });
@@ -428,7 +421,7 @@ pub mod toast {
             store.dismiss_all();
             drop(store);
             for active_id in active_ids {
-                safe_spawn(async move {
+                spawn_root_task(async move {
                     futures_timer::Delay::new(TIME_BEFORE_UNMOUNT).await;
                     TOAST_STORE.write().remove_toast(active_id);
                 });

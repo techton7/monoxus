@@ -309,7 +309,7 @@ pub fn DialogContent(
     use_effect(use_reactive((&is_open,), move |(open_val,)| {
         if open_val {
             let cid = effect_content_id.clone();
-            spawn(async move {
+            crate::foundation::browser::spawn_root_task(async move {
                 crate::foundation::browser::focus_first_focusable(&cid, None);
             });
         }

@@ -144,7 +144,7 @@ impl SelectRuntime {
             &content_id,
             move |_event| {
                 let runtime = runtime.clone();
-                spawn(async move {
+                crate::foundation::browser::spawn_root_task(async move {
                     runtime.recalculate_floating_position().await;
                 });
             },
@@ -154,7 +154,7 @@ impl SelectRuntime {
         monitor_sig.set(Some(watcher));
 
         let runtime = self.clone();
-        spawn(async move {
+        crate::foundation::browser::spawn_root_task(async move {
             runtime.recalculate_floating_position().await;
         });
     }

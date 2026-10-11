@@ -138,12 +138,16 @@ pub(crate) fn start_document_dismiss_monitor_with_boundaries(
 #[allow(dead_code)]
 pub(crate) const DEFAULT_FOCUSABLE_SELECTOR: &str = "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])";
 
+pub fn spawn_root_task<F: std::future::Future<Output = ()> + 'static>(fut: F) -> dioxus::core::Task {
+    dioxus::core::spawn_forever(fut)
+}
+
 pub(crate) fn focus_mounted_handle(handle: Option<MountedHandle>) -> bool {
     let Some(handle) = handle else {
         return false;
     };
     let el = oxidase::Element::from(handle);
-    spawn(async move {
+    spawn_root_task(async move {
         let _ = el.focus().await;
     });
     true
@@ -173,7 +177,7 @@ pub(crate) async fn is_reference_hidden(anchor_ids: &[&str]) -> Result<bool, Str
 
 pub(crate) fn focus_element_by_id(target_id: &str) {
     let tid = target_id.to_string();
-    spawn(async move {
+    spawn_root_task(async move {
         let _ = oxidase::frame::next_frame().await;
         if let Some(el) = oxidase::document().element_by_id(&tid) {
             let _ = el.focus().await;
@@ -183,7 +187,7 @@ pub(crate) fn focus_element_by_id(target_id: &str) {
 
 pub(crate) fn restore_focus_element_by_id(target_id: &str) {
     let tid = target_id.to_string();
-    spawn(async move {
+    spawn_root_task(async move {
         let _ = oxidase::frame::next_frame().await;
         if let Some(el) = oxidase::document().element_by_id(&tid) {
             let options = oxidase::dom::FocusOptions::new(true);
@@ -194,6 +198,7 @@ pub(crate) fn restore_focus_element_by_id(target_id: &str) {
 
 #[cfg(target_arch = "wasm32")]
 mod scroll_lock {
+    use super::spawn_root_task;
     use std::{
         cell::RefCell,
         collections::HashSet,
@@ -315,7 +320,7 @@ mod scroll_lock {
 
         let delay_ms = restore_delay.unwrap_or(0);
         if delay_ms > 0 {
-            dioxus::prelude::spawn(async move {
+            spawn_root_task(async move {
                 futures_timer::Delay::new(Duration::from_millis(delay_ms)).await;
                 do_restore();
             });
@@ -371,7 +376,7 @@ pub(crate) fn focus_first_focusable(content_id: &str, focusable_selector: Option
         let _ = focusable_selector;
         let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::dom::document);
         if let Some(target) = doc.element_by_id(content_id) {
-            spawn(async move {
+            spawn_root_task(async move {
                 let _ = target.focus().await;
             });
         }

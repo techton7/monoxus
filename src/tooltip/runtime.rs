@@ -147,7 +147,7 @@ impl TooltipProviderRuntime {
         pending_open_tooltip_id.set(Some(tooltip_id.clone()));
         let provider_runtime = self.clone();
 
-        spawn(async move {
+        crate::foundation::browser::spawn_root_task(async move {
             Delay::new(Duration::from_millis(
                 provider_runtime.provider.delay_duration_ms(),
             ))
@@ -218,7 +218,7 @@ impl TooltipProviderRuntime {
         let request_token = *self.state.skip_delay_token.peek();
         let provider_runtime = self.clone();
 
-        spawn(async move {
+        crate::foundation::browser::spawn_root_task(async move {
             Delay::new(Duration::from_millis(
                 provider_runtime.provider.skip_delay_duration_ms(),
             ))
@@ -591,7 +591,7 @@ impl TooltipRuntime {
             }
 
             let runtime_clone = runtime.clone();
-            spawn(async move {
+            crate::foundation::browser::spawn_root_task(async move {
                 oxidase::frame::next_frame().await;
                 if let Some(placement) = compute_tooltip_position(&runtime_clone.tooltip) {
                     let should_update = runtime_clone
@@ -786,7 +786,7 @@ impl TooltipRuntime {
         }
 
         let runtime = self.clone();
-        spawn(async move {
+        crate::foundation::browser::spawn_root_task(async move {
             Delay::new(Duration::from_millis(runtime.delay_duration_ms())).await;
             if *runtime.state.open_request_token.peek() == request_token {
                 (runtime.on_open_change)(true);
@@ -812,7 +812,7 @@ impl TooltipRuntime {
         let request_token = advance_tooltip_token(self.state.hover_transfer_token);
         let runtime = self.clone();
 
-        spawn(async move {
+        crate::foundation::browser::spawn_root_task(async move {
             Delay::new(Duration::from_millis(TOOLTIP_HOVER_TRANSFER_GRACE_MS)).await;
             if *runtime.state.hover_transfer_token.peek() != request_token {
                 return;
@@ -919,7 +919,7 @@ fn sync_tooltip_positioning(
     }
 
     let tooltip_clone_for_placement = tooltip.clone();
-    spawn(async move {
+    crate::foundation::browser::spawn_root_task(async move {
         oxidase::frame::next_frame().await;
         if let Some(placement) = compute_tooltip_position(&tooltip_clone_for_placement) {
             let should_update = state
