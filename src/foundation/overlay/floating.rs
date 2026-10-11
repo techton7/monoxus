@@ -912,6 +912,7 @@ pub fn compute_overlay_position(config: &OverlayPositionConfig) -> Option<Floati
 
         let compute_config = oxidase_floating_ui::types::ComputePositionConfig::new(&platform)
             .placement(placement)
+            .strategy(oxidase_floating_ui::geometry::Strategy::Fixed)
             .middleware(middlewares);
         let reference = oxidase_floating_ui::geometry::ElementOrVirtual::Element(&anchor_str);
         let result = oxidase_floating_ui::compute_position(reference, &content_str, compute_config);
@@ -948,6 +949,7 @@ pub fn compute_overlay_position(config: &OverlayPositionConfig) -> Option<Floati
 
         let compute_config = oxidase_floating_ui::types::ComputePositionConfig::new(&platform)
             .placement(placement)
+            .strategy(oxidase_floating_ui::geometry::Strategy::Fixed)
             .middleware(middlewares);
         let reference = oxidase_floating_ui::geometry::ElementOrVirtual::Element(&anchor_str);
         let result = oxidase_floating_ui::compute_position(reference, &content_str, compute_config);
