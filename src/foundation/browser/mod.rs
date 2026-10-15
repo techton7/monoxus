@@ -9,11 +9,8 @@ pub use oxidase::watcher::{
     PresenceEventPayload, PresenceFallbackReason, PresenceMonitorFallback,
 };
 
-
-
-
-pub use oxidase::WatcherGuard;
 pub use crate::foundation::overlay::{Point2D, Rect2D};
+pub use oxidase::WatcherGuard;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PresenceMonitorEvent {
@@ -138,7 +135,9 @@ pub(crate) fn start_document_dismiss_monitor_with_boundaries(
 #[allow(dead_code)]
 pub(crate) const DEFAULT_FOCUSABLE_SELECTOR: &str = "a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex='-1'])";
 
-pub fn spawn_root_task<F: std::future::Future<Output = ()> + 'static>(fut: F) -> dioxus::core::Task {
+pub fn spawn_root_task<F: std::future::Future<Output = ()> + 'static>(
+    fut: F,
+) -> dioxus::core::Task {
     dioxus::core::spawn_forever(fut)
 }
 
@@ -158,7 +157,11 @@ pub(crate) async fn get_viewport_size() -> Result<[f64; 2], String> {
         .inner_size()
         .await
         .map_err(|e| e.to_string())?;
-    Ok([width, height])
+    if width > 0.0 && height > 0.0 {
+        Ok([width, height])
+    } else {
+        Err("Viewport dimensions are unavailable or non-positive".to_string())
+    }
 }
 
 pub(crate) async fn active_element_matches_id(target_id: &str) -> bool {
@@ -199,11 +202,7 @@ pub(crate) fn restore_focus_element_by_id(target_id: &str) {
 #[cfg(target_arch = "wasm32")]
 mod scroll_lock {
     use super::spawn_root_task;
-    use std::{
-        cell::RefCell,
-        collections::HashSet,
-        time::Duration,
-    };
+    use std::{cell::RefCell, collections::HashSet, time::Duration};
 
     struct ScrollLockState {
         locks: HashSet<String>,
@@ -500,7 +499,6 @@ pub(crate) fn remove_element_by_id(element_id: &str) {
     }
 }
 
-
 pub(crate) fn start_form_reset_monitor(
     element_id: &str,
     form_id: Option<&str>,
@@ -717,7 +715,9 @@ mod tests {
 
     #[test]
     fn test_document_pointer_stream_and_client_rect_noop() {
-        use super::{DocumentPointerStreamGuard, get_element_client_rect, start_document_pointer_stream};
+        use super::{
+            DocumentPointerStreamGuard, get_element_client_rect, start_document_pointer_stream,
+        };
 
         let mut guard = DocumentPointerStreamGuard::noop();
         guard.stop();

@@ -10,18 +10,16 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        DocumentDismissEvent, FloatingAutoUpdateEvent, PresenceMonitorEvent,
-        WatcherGuard,
+        DocumentDismissEvent, FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard,
         acquire_scroll_lock, focus_element_by_id, focus_first_focusable, focus_mounted_handle,
         release_scroll_lock, restore_focus_element_by_id,
-        start_document_dismiss_monitor_with_boundaries,
-        start_floating_auto_update_monitor,
+        start_document_dismiss_monitor_with_boundaries, start_floating_auto_update_monitor,
         start_presence_monitor,
     },
     overlay::{
-        compute_overlay_position, FloatingPlacement, FloatingReadiness, GeometryVars,
-        OverlayPositionConfig, Presence, PresenceCloseCycleId, PresenceController,
-        PresenceControllerUpdate, Rect, Size,
+        FloatingPlacement, FloatingReadiness, GeometryVars, OverlayPositionConfig, Presence,
+        PresenceCloseCycleId, PresenceController, PresenceControllerUpdate, Rect, Size,
+        compute_overlay_position,
     },
     state::DataState,
 };
@@ -581,11 +579,7 @@ fn sync_popover_document_dismissal(
     let trigger_id = popover.relationships().trigger_id().to_owned();
     let content_id = popover.relationships().content_id().to_owned();
     let anchor_id = popover.relationships().anchor_id().to_owned();
-    let boundaries = [
-        trigger_id.as_str(),
-        content_id.as_str(),
-        anchor_id.as_str(),
-    ];
+    let boundaries = [trigger_id.as_str(), content_id.as_str(), anchor_id.as_str()];
     let watcher = start_document_dismiss_monitor_with_boundaries(&boundaries, move |event| {
         let should_dismiss = should_dismiss_popover_from_document_event(&popover, &event);
         if should_dismiss {
@@ -858,12 +852,18 @@ async fn measure_popover_placement(
     let anchor_rect = read_client_rect(anchor_handle, "anchor").await?;
     let content_rect = read_client_rect(content_handle, "content").await?;
     let content_size = Size::new(content_rect.width(), content_rect.height());
-    let viewport_size = read_viewport_size().await?;
-    let placement = popover.lifecycle().floating().position_with_available_size(
-        anchor_rect,
-        content_size,
-        viewport_size,
-    );
+    let placement = if let Ok(vp) = crate::foundation::browser::get_viewport_size().await {
+        popover.lifecycle().floating().position_with_available_size(
+            anchor_rect,
+            content_size,
+            Size::new(vp[0] as f32, vp[1] as f32),
+        )
+    } else {
+        popover
+            .lifecycle()
+            .floating()
+            .position(anchor_rect, content_size)
+    };
 
     let should_update = state
         .placement
@@ -889,11 +889,6 @@ async fn read_client_rect(mounted: PopoverMountedHandle, label: &str) -> Result<
         rect.width() as f32,
         rect.height() as f32,
     ))
-}
-
-async fn read_viewport_size() -> Result<Size, String> {
-    let viewport = crate::foundation::browser::get_viewport_size().await?;
-    Ok(Size::new(viewport[0] as f32, viewport[1] as f32))
 }
 
 fn clear_popover_content_handle(state: PopoverRuntimeState) {
@@ -983,32 +978,30 @@ fn start_popover_presence_monitor(
     stop_popover_presence_monitor(state, popover.relationships().content_id());
 
     let content_id = popover.relationships().content_id().to_owned();
-    let watcher = start_presence_monitor(content_id.as_str(), cycle_id, move |event| {
-        match event {
-            PresenceMonitorEvent::Fallback {
-                cycle_id: event_cycle,
-                ..
-            }
-            | PresenceMonitorEvent::AnimationEnd {
-                cycle_id: event_cycle,
-                ..
-            }
-            | PresenceMonitorEvent::AnimationCancel {
-                cycle_id: event_cycle,
-                ..
-            } => {
-                complete_popover_presence_close_cycle(state, event_cycle);
-            }
-            PresenceMonitorEvent::Stopped {
-                cycle_id: event_cycle,
-            } => {
-                if state
-                    .presence_monitor
-                    .cycle_id
-                    .with_peek(|current| *current == Some(event_cycle))
-                {
-                    clear_popover_presence_monitor_state(state);
-                }
+    let watcher = start_presence_monitor(content_id.as_str(), cycle_id, move |event| match event {
+        PresenceMonitorEvent::Fallback {
+            cycle_id: event_cycle,
+            ..
+        }
+        | PresenceMonitorEvent::AnimationEnd {
+            cycle_id: event_cycle,
+            ..
+        }
+        | PresenceMonitorEvent::AnimationCancel {
+            cycle_id: event_cycle,
+            ..
+        } => {
+            complete_popover_presence_close_cycle(state, event_cycle);
+        }
+        PresenceMonitorEvent::Stopped {
+            cycle_id: event_cycle,
+        } => {
+            if state
+                .presence_monitor
+                .cycle_id
+                .with_peek(|current| *current == Some(event_cycle))
+            {
+                clear_popover_presence_monitor_state(state);
             }
         }
     });

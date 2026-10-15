@@ -2,10 +2,10 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{
-        start_document_dismiss_monitor_with_boundaries,
-        start_floating_auto_update_monitor, start_form_reset_monitor, DocumentDismissEvent,
+        DocumentDismissEvent, start_document_dismiss_monitor_with_boundaries,
+        start_floating_auto_update_monitor, start_form_reset_monitor,
     },
-    overlay::{compute_overlay_position, FloatingReadiness, OverlayPositionConfig},
+    overlay::{FloatingReadiness, OverlayPositionConfig, compute_overlay_position},
 };
 
 use super::{runtime::SelectRuntime, types::SelectMode};
@@ -82,8 +82,8 @@ impl SelectRuntime {
         let boundaries = [trigger_id.as_str(), content_id.as_str()];
         let trigger_id_clone = trigger_id.clone();
         let content_id_clone = content_id.clone();
-        let watcher = start_document_dismiss_monitor_with_boundaries(&boundaries, move |event| {
-            match event {
+        let watcher =
+            start_document_dismiss_monitor_with_boundaries(&boundaries, move |event| match event {
                 DocumentDismissEvent::Escape => {
                     if let Some(cb) = runtime.state.on_escape_keydown.read().clone() {
                         let synth = SyntheticEscapeKey;
@@ -120,8 +120,7 @@ impl SelectRuntime {
                         runtime.close_dropdown_without_restore();
                     }
                 }
-            }
-        });
+            });
 
         let mut dm_sig = self.state.dismiss_monitor;
         dm_sig.set(Some(watcher));
@@ -139,16 +138,13 @@ impl SelectRuntime {
         let content_id = self.relationships().content_id().to_owned();
 
         let runtime = self.clone();
-        let watcher = start_floating_auto_update_monitor(
-            &[&trigger_id],
-            &content_id,
-            move |_event| {
+        let watcher =
+            start_floating_auto_update_monitor(&[&trigger_id], &content_id, move |_event| {
                 let runtime = runtime.clone();
                 crate::foundation::browser::spawn_root_task(async move {
                     runtime.recalculate_floating_position().await;
                 });
-            },
-        );
+            });
 
         let mut monitor_sig = self.state.position_monitor;
         monitor_sig.set(Some(watcher));
@@ -204,7 +200,9 @@ impl SelectRuntime {
             let trigger_handle_opt = self.state.trigger_handle.with_peek(|h| h.clone());
             let content_handle_opt = self.state.content_handle.with_peek(|h| h.clone());
             if let (Some(th), Some(ch)) = (trigger_handle_opt, content_handle_opt) {
-                if let (Ok(tr_rect), Ok(co_rect)) = (th.get_client_rect().await, ch.get_client_rect().await) {
+                if let (Ok(tr_rect), Ok(co_rect)) =
+                    (th.get_client_rect().await, ch.get_client_rect().await)
+                {
                     let anchor = crate::foundation::overlay::Rect::new(
                         tr_rect.origin.x as f32,
                         tr_rect.origin.y as f32,
@@ -215,15 +213,33 @@ impl SelectRuntime {
                         co_rect.width() as f32,
                         co_rect.height() as f32,
                     );
-                    let vp = crate::foundation::browser::get_viewport_size().await.unwrap_or([800.0, 600.0]);
-                    let avail_size = crate::foundation::overlay::Size::new(vp[0] as f32, vp[1] as f32);
-
-                    let layer = crate::foundation::overlay::FloatingLayer::new(self.preferred_side())
-                        .with_align(self.preferred_align())
-                        .with_side_offset(self.side_offset())
-                        .with_align_offset(self.align_offset())
-                        .with_available_space(avail_size);
-                    let placement = layer.position_with_available_size(anchor, content_size, avail_size);
+                    let avail_size = crate::foundation::browser::get_viewport_size()
+                        .await
+                        .ok()
+                        .map(|vp| {
+                            crate::foundation::overlay::Size::new(vp[0] as f32, vp[1] as f32)
+                        });
+                    let placement = match avail_size {
+                        Some(avail) => {
+                            let layer = crate::foundation::overlay::FloatingLayer::new(
+                                self.preferred_side(),
+                            )
+                            .with_align(self.preferred_align())
+                            .with_side_offset(self.side_offset())
+                            .with_align_offset(self.align_offset())
+                            .with_available_space(avail);
+                            layer.position_with_available_size(anchor, content_size, avail)
+                        }
+                        None => {
+                            let layer = crate::foundation::overlay::FloatingLayer::new(
+                                self.preferred_side(),
+                            )
+                            .with_align(self.preferred_align())
+                            .with_side_offset(self.side_offset())
+                            .with_align_offset(self.align_offset());
+                            layer.position(anchor, content_size)
+                        }
+                    };
 
                     let mut side_sig = self.state.side;
                     if *side_sig.peek() != placement.side() {
