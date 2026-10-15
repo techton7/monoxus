@@ -82,6 +82,8 @@ pub struct SelectRuntimeState {
     pub presence_monitor: RetainedRootPresenceMonitorState,
     pub placement: Signal<Option<FloatingPlacement>>,
     pub content_readiness: Signal<FloatingReadiness>,
+    pub trigger_handle: Signal<Option<Rc<MountedData>>>,
+    pub content_handle: Signal<Option<Rc<MountedData>>>,
 }
 
 #[derive(Clone)]
@@ -191,6 +193,8 @@ where
         },
         placement: use_signal(|| None),
         content_readiness: use_signal(FloatingReadiness::default),
+        trigger_handle: use_signal(|| None),
+        content_handle: use_signal(|| None),
     };
 
     let cleanup_state = state;
@@ -307,6 +311,8 @@ impl SelectRuntime {
             },
             placement: Signal::new(None),
             content_readiness: Signal::new(FloatingReadiness::default()),
+            trigger_handle: Signal::new(None),
+            content_handle: Signal::new(None),
         };
 
         Self {
@@ -804,6 +810,8 @@ impl SelectRuntime {
         placement_sig.set(None);
         let mut readiness_sig = self.state.content_readiness;
         readiness_sig.set(FloatingReadiness::Measuring);
+        let mut ch_sig = self.state.content_handle;
+        ch_sig.set(None);
 
         if restore_focus {
             self.trigger_close_auto_focus();

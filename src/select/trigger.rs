@@ -162,6 +162,13 @@ pub fn SelectTrigger(
                     runtime.handle_trigger_keydown(&evt);
                 }
             },
+            onmounted: {
+                let runtime = ctx.runtime.clone();
+                move |evt: Event<MountedData>| {
+                    let mut th = runtime.state.trigger_handle;
+                    th.set(Some(evt.data()));
+                }
+            },
             {children}
         }
     }

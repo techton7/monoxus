@@ -233,6 +233,17 @@ pub fn SelectContent(
                         runtime.handle_content_keydown(&evt, now_ms);
                     }
                 },
+                onmounted: {
+                    let runtime = ctx.runtime.clone();
+                    move |evt: Event<MountedData>| {
+                        let mut ch = runtime.state.content_handle;
+                        ch.set(Some(evt.data()));
+                        let rt = runtime.clone();
+                        crate::foundation::browser::spawn_root_task(async move {
+                            rt.recalculate_floating_position().await;
+                        });
+                    }
+                },
                 {children}
             }
         }

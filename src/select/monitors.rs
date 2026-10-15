@@ -152,11 +152,6 @@ impl SelectRuntime {
 
         let mut monitor_sig = self.state.position_monitor;
         monitor_sig.set(Some(watcher));
-
-        let runtime = self.clone();
-        crate::foundation::browser::spawn_root_task(async move {
-            runtime.recalculate_floating_position().await;
-        });
     }
 
     pub fn stop_position_monitor(&self) {
@@ -165,7 +160,6 @@ impl SelectRuntime {
     }
 
     pub async fn recalculate_floating_position(&self) {
-        oxidase::frame::next_frame().await;
         let trigger_id = self.relationships().trigger_id();
         let content_id = self.relationships().content_id();
         let boundary_id = self.collision_boundary();
@@ -189,11 +183,7 @@ impl SelectRuntime {
             namespace: Some("select"),
         };
 
-        let mut computed_opt = compute_overlay_position(&config);
-        if computed_opt.is_none() {
-            oxidase::frame::next_frame().await;
-            computed_opt = compute_overlay_position(&config);
-        }
+        let computed_opt = compute_overlay_position(&config);
 
         if let Some(computed) = computed_opt {
             let mut side_sig = self.state.side;
@@ -210,6 +200,47 @@ impl SelectRuntime {
             placement_sig.set(Some(computed));
             let mut readiness_sig = self.state.content_readiness;
             readiness_sig.set(FloatingReadiness::Ready);
+        } else {
+            let trigger_handle_opt = self.state.trigger_handle.with_peek(|h| h.clone());
+            let content_handle_opt = self.state.content_handle.with_peek(|h| h.clone());
+            if let (Some(th), Some(ch)) = (trigger_handle_opt, content_handle_opt) {
+                if let (Ok(tr_rect), Ok(co_rect)) = (th.get_client_rect().await, ch.get_client_rect().await) {
+                    let anchor = crate::foundation::overlay::Rect::new(
+                        tr_rect.origin.x as f32,
+                        tr_rect.origin.y as f32,
+                        tr_rect.width() as f32,
+                        tr_rect.height() as f32,
+                    );
+                    let content_size = crate::foundation::overlay::Size::new(
+                        co_rect.width() as f32,
+                        co_rect.height() as f32,
+                    );
+                    let vp = crate::foundation::browser::get_viewport_size().await.unwrap_or([800.0, 600.0]);
+                    let avail_size = crate::foundation::overlay::Size::new(vp[0] as f32, vp[1] as f32);
+
+                    let layer = crate::foundation::overlay::FloatingLayer::new(self.preferred_side())
+                        .with_align(self.preferred_align())
+                        .with_side_offset(self.side_offset())
+                        .with_align_offset(self.align_offset())
+                        .with_available_space(avail_size);
+                    let placement = layer.position_with_available_size(anchor, content_size, avail_size);
+
+                    let mut side_sig = self.state.side;
+                    if *side_sig.peek() != placement.side() {
+                        side_sig.set(placement.side());
+                    }
+                    let mut align_sig = self.state.align;
+                    if *align_sig.peek() != placement.align() {
+                        align_sig.set(placement.align());
+                    }
+                    self.set_reference_hidden(placement.reference_hidden());
+
+                    let mut placement_sig = self.state.placement;
+                    placement_sig.set(Some(placement));
+                    let mut readiness_sig = self.state.content_readiness;
+                    readiness_sig.set(FloatingReadiness::Ready);
+                }
+            }
         }
     }
 
