@@ -394,7 +394,8 @@ pub fn AlertDialogRoot(
     #[props(default)] portal_host: Option<PortalHost>,
     children: Element,
 ) -> Element {
-    let open_signal = open.unwrap_or_else(|| use_signal(|| default_open.unwrap_or(false)));
+    let fallback_open = use_signal(|| default_open.unwrap_or(false));
+    let open_signal = open.unwrap_or(fallback_open);
     let scope_id = id.clone().unwrap_or_else(|| "alert-dialog".to_string());
     let scope = ScopeHandle::root("alert-dialog").child(scope_id);
 

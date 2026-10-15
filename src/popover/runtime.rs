@@ -1037,7 +1037,8 @@ fn stop_popover_presence_monitor(state: PopoverRuntimeState, _content_id: &str) 
 
 fn clear_popover_presence_monitor_state(state: PopoverRuntimeState) {
     let mut active_monitor = state.presence_monitor.monitor;
-    active_monitor.set(None);
+    let old_watcher = active_monitor.write().take();
+    drop(old_watcher);
     let mut active_cycle_id = state.presence_monitor.cycle_id;
     active_cycle_id.set(None);
 }

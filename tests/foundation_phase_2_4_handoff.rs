@@ -10,8 +10,8 @@ use monoxus::foundation::{
         PlacementAlign, PlacementSide, PortalHost, Presence, PresenceState, Rect, Size,
     },
     shared::{
-        CollectionRegistry, Direction, Orientation, RovingFocusController, RovingFocusKey,
-        ScopeHandle, use_direction, use_stable_id,
+        CollectionRegistry, Direction, Orientation, resolve_direction, RovingFocusController,
+        RovingFocusKey, ScopeHandle, use_stable_id,
     },
     state::{self, DataState},
 };
@@ -83,7 +83,7 @@ fn projected_compound_lane_reuses_public_state_composition_and_utility_exports()
     assert!(registry.register("separator", false));
     assert!(registry.register("content", true));
 
-    let controller = RovingFocusController::new(use_direction(None, Some(Direction::Rtl)))
+    let controller = RovingFocusController::new(resolve_direction(None, Some(Direction::Rtl)))
         .with_orientation(Orientation::Horizontal)
         .with_looping(true);
 
@@ -140,7 +140,7 @@ fn positioned_overlay_lane_publishes_wrapper_safe_overlay_hooks_and_geometry() {
 
     let floating = FloatingLayer::new(PlacementSide::Bottom)
         .with_align(PlacementAlign::Start)
-        .with_direction(use_direction(None, Some(Direction::Rtl)))
+        .with_direction(resolve_direction(None, Some(Direction::Rtl)))
         .with_side_offset(4.0)
         .with_available_space(Size::new(200.0, 120.0))
         .with_namespace("popover");

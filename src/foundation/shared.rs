@@ -153,12 +153,14 @@ impl Direction {
     }
 }
 
-pub fn use_direction(
+pub fn resolve_direction(
     override_direction: Option<Direction>,
     inherited_direction: Option<Direction>,
 ) -> Direction {
     Direction::resolve(override_direction, inherited_direction)
 }
+
+pub use resolve_direction as use_direction;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Orientation {

@@ -29,9 +29,8 @@ pub struct CollapsibleRootProps {
 
 #[component]
 pub fn CollapsibleRoot(props: CollapsibleRootProps) -> Element {
-    let open_signal = props
-        .open
-        .unwrap_or_else(|| use_signal(|| props.default_open.unwrap_or(false)));
+    let fallback_open = use_signal(|| props.default_open.unwrap_or(false));
+    let open_signal = props.open.unwrap_or(fallback_open);
 
     let disabled_signal = use_signal(|| props.disabled);
     let mut disabled_sig = disabled_signal;

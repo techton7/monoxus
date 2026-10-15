@@ -244,12 +244,12 @@ where
     };
 
     let has_form = runtime.select().name().is_some() || runtime.select().form().is_some();
-    if has_form {
-        let rt = runtime.clone();
-        use_effect(move || {
+    let rt = runtime.clone();
+    use_effect(move || {
+        if has_form {
             rt.start_form_reset_monitor();
-        });
-    }
+        }
+    });
 
     runtime
 }

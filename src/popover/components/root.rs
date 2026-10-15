@@ -54,9 +54,8 @@ pub struct PopoverRootProps {
 
 #[component]
 pub fn PopoverRoot(props: PopoverRootProps) -> Element {
-    let open_signal = props
-        .open
-        .unwrap_or_else(|| use_signal(|| props.default_open.unwrap_or(false)));
+    let fallback_open = use_signal(|| props.default_open.unwrap_or(false));
+    let open_signal = props.open.unwrap_or(fallback_open);
 
     let scope_id = props.id.clone().unwrap_or_else(|| "popover".to_string());
     let scope = ScopeHandle::root("popover").child(scope_id);

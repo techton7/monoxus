@@ -29,7 +29,8 @@ pub fn TabsRoot(
     children: Element,
 ) -> Element {
     let initial_val = default_value.unwrap_or_default();
-    let val_signal = value.unwrap_or_else(|| use_signal(|| initial_val.clone()));
+    let fallback_val = use_signal(|| initial_val.clone());
+    let val_signal = value.unwrap_or(fallback_val);
     let scope_id = id.clone().unwrap_or_else(|| "tabs".to_string());
     let scope = ScopeHandle::root("tabs").child(scope_id);
 
