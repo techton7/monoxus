@@ -5,13 +5,11 @@ root = "../.."
 [app.web]
 program = "dx"
 args = ["serve", "--example", "playground", "--web", "--open", "false", "--port", "8080"]
-cwd = "../.."
 url = "http://127.0.0.1:8080"
 
 [app.native]
 program = "cargo"
 args = ["run", "--features", "native", "--example", "playground"]
-cwd = "../.."
 
 [defaults]
 viewports = ["desktop"]
