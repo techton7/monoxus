@@ -1,7 +1,3 @@
-[app]
-package = "monoxus"
-root = "../.."
-
 [[scenarios]]
 name = "collapsible-closed"
 description = "Verify initial closed state of collapsible component in playground"

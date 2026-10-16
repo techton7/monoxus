@@ -1,7 +1,3 @@
-[app]
-package = "monoxus"
-root = "../.."
-
 [[scenarios]]
 name = "select-open"
 description = "Verify Select dropdown listbox opening, positioning, and item display"

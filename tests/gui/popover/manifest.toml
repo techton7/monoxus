@@ -1,7 +1,3 @@
-[app]
-package = "monoxus"
-root = "../.."
-
 [[scenarios]]
 name = "popover-open"
 description = "Verify Popover anchored placement, content card, and arrow alignment"

@@ -1,7 +1,3 @@
-[app]
-package = "monoxus"
-root = "../.."
-
 [[scenarios]]
 name = "dialog-open"
 description = "Verify Dialog modal opening, overlay backdrop, and content dialog panel"
