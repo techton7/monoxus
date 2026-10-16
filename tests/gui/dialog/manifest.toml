@@ -1,0 +1,34 @@
+[app]
+package = "monoxus"
+root = "../.."
+
+[[scenarios]]
+name = "dialog-open"
+description = "Verify Dialog modal opening, overlay backdrop, and content dialog panel"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-dialog"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#dialog-trigger"
+
+[[scenarios.targets]]
+id = "dialog-trigger"
+selector = "#dialog-trigger"
+part = "trigger"
+state = "open"
+
+[[scenarios.targets]]
+id = "dialog-content"
+selector = "#dialog-content"
+part = "content"
+state = "open"
+
+[[scenarios.targets]]
+id = "dialog-overlay"
+selector = "#dialog-overlay"
+part = "overlay"
+state = "open"

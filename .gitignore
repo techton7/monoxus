@@ -1,4 +1,5 @@
 /target
 *.png
+!tests/gui/**/baselines/**/*.png
 # Local cargo config (contains local [patch.crates-io] for dioxus-js-bindgen development)
 .cargo/

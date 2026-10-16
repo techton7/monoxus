@@ -1,0 +1,25 @@
+[app]
+package = "monoxus"
+root = "../.."
+
+[app.web]
+program = "dx"
+args = ["serve", "--example", "playground", "--web", "--open", "false", "--port", "8080"]
+cwd = "../.."
+url = "http://127.0.0.1:8080"
+
+[app.native]
+program = "cargo"
+args = ["run", "--features", "native", "--example", "playground"]
+cwd = "../.."
+
+[defaults]
+viewports = ["desktop"]
+
+[defaults.settle]
+timeout_ms = 4000
+font_ready = true
+double_raf = true
+idle_frames = 2
+native_frame_count = 2
+animation_policy = "finish"

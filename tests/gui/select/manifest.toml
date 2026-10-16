@@ -1,0 +1,28 @@
+[app]
+package = "monoxus"
+root = "../.."
+
+[[scenarios]]
+name = "select-open"
+description = "Verify Select dropdown listbox opening, positioning, and item display"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-select"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#select-trigger"
+
+[[scenarios.targets]]
+id = "select-trigger"
+selector = "#select-trigger"
+part = "trigger"
+state = "open"
+
+[[scenarios.targets]]
+id = "select-content"
+selector = "#select-content"
+part = "content"
+state = "open"

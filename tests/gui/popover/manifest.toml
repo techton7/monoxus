@@ -1,0 +1,34 @@
+[app]
+package = "monoxus"
+root = "../.."
+
+[[scenarios]]
+name = "popover-open"
+description = "Verify Popover anchored placement, content card, and arrow alignment"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-popover"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#popover-trigger"
+
+[[scenarios.targets]]
+id = "popover-trigger"
+selector = "#popover-trigger"
+part = "trigger"
+state = "open"
+
+[[scenarios.targets]]
+id = "popover-content"
+selector = "#popover-content"
+part = "content"
+state = "open"
+
+[[scenarios.targets]]
+id = "popover-arrow"
+selector = "#popover-arrow"
+part = "arrow"
+state = "open"

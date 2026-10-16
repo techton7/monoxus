@@ -1,0 +1,18 @@
+[app]
+package = "monoxus"
+root = "../.."
+
+[[scenarios]]
+name = "collapsible-closed"
+description = "Verify initial closed state of collapsible component in playground"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-collapsible"
+
+[[scenarios.targets]]
+id = "collapsible-trigger"
+selector = "#collapsible-trigger"
+part = "trigger"
+state = "closed"
