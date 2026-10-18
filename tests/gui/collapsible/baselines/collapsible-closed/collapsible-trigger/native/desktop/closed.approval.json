@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "collapsible-closed",
+    "target": "collapsible-trigger",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "closed"
+  },
+  "source_run_id": "run-20261018T171453Z",
+  "baseline_path": "tests/gui/collapsible/baselines/collapsible-closed/collapsible-trigger/native/desktop/closed.png",
+  "source_actual_path": "test-results/gui/runs/run-20261018T171453Z/actual/monoxus/collapsible-closed/collapsible-trigger/native/desktop/closed.png",
+  "approved_at": "2026-10-18T18:01:20.00126Z"
+}
