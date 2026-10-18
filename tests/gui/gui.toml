@@ -11,6 +11,11 @@ url = "http://127.0.0.1:8080"
 program = "cargo"
 args = ["run", "--features", "native", "--example", "playground"]
 
+[fonts]
+family = "Pretendard"
+source = "app:assets/fonts/PretendardVariable.ttf"
+mode = "verify"
+
 [defaults]
 viewports = ["desktop"]
 

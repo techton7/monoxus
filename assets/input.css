@@ -1,3 +1,21 @@
+@font-face {
+  font-family: 'Pretendard';
+  src: url('/assets/fonts/PretendardVariable.woff2') format('woff2-variations'),
+       url('/assets/fonts/PretendardVariable.ttf') format('truetype-variations'),
+       url('/assets/fonts/PretendardVariable.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: block;
+}
+
+:root {
+  --font-sans: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
 @import "tailwindcss";
 
 @source "../examples/playground";
