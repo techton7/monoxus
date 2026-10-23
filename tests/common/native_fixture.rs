@@ -46,7 +46,10 @@ pub fn click_at_and_pump<D: Document>(harness: &mut Harness<D>, x: f32, y: f32) 
         .map(|h| h.node_id)
         .unwrap_or_else(|| harness.base().root_node().id);
     if let Some(doc) = oxidase::dom::Document::current() {
-        doc.dispatch_capture_event(oxidase::dom::observer::CaptureEventKind::PointerDown, node_id);
+        doc.dispatch_capture_event(
+            oxidase::dom::observer::CaptureEventKind::PointerDown,
+            node_id,
+        );
     }
     harness.click_at(x, y);
     harness.pump();
@@ -67,7 +70,7 @@ pub fn send_key_and_pump_with<D: Document>(
     code: Code,
     modifiers: Modifiers,
 ) {
-    if key == Key::Escape {
+    if key == Key::Named(keyboard_types::NamedKey::Escape) {
         if let Some(doc) = oxidase::dom::Document::current() {
             let active_id = harness
                 .base()
@@ -232,4 +235,3 @@ pub fn assert_rect_non_empty<D: Document>(harness: &Harness<D>, selector: &str) 
         rect.height
     );
 }
-

@@ -22,7 +22,7 @@ js-sys = "0.3"
 
 [features]
 default = []
-native = ["oxidase/native", "oxidase/blitz-host"]
+native = ["oxidase/native"]
 
 [[test]]
 name = "native_overlay_test"
@@ -32,18 +32,22 @@ required-features = ["native"]
 name = "native_data_gesture_test"
 required-features = ["native"]
 
+[[test]]
+name = "native_presence_exit_test"
+required-features = ["native"]
+
 [dev-dependencies]
 dioxus = { version = "0.7.0", default-features = false, features = ["minimal"] }
 serde_json = "1.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-blitz-dom = { version = "0.3.0-beta.2", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.4" }
-blitz-test-harness = { version = "0.3.0-beta.2", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.4" }
+blitz-dom = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.4" }
+blitz-test-harness = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.4" }
 dioxus-native-dom = { version = "0.7.0", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.4" }
 oxidase = { version = "0.1.11", git = "https://github.com/techton7/oxidase.git", tag = "oxidase-v0.1.11", features = ["native"] }
 dioxus-native = { version = "0.7.0", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.4" }
-blitz-traits = { version = "0.3.0-beta.2", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.4" }
-keyboard-types = "0.7"
+blitz-traits = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.4" }
+keyboard-types = "0.8"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 web-sys = { version = "0.3", features = [

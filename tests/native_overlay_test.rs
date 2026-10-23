@@ -5,7 +5,7 @@
 
 mod common;
 use common::native_fixture::*;
-use keyboard_types::{Code, Key};
+use keyboard_types::{Code, Key, NamedKey};
 
 #[path = "../examples/playground/popover.rs"]
 mod playground_popover;
@@ -73,7 +73,7 @@ fn test_native_popover_floating_and_dismiss() {
 
     focus_node(&mut harness, "#popover-content");
     assert_native_focus_id(&harness, "#popover-content");
-    send_key_and_pump(&mut harness, Key::Escape, Code::Escape);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
     std::thread::sleep(std::time::Duration::from_millis(550));
     oxidase::frame::tick(std::time::Duration::from_millis(16));
     harness.pump();
@@ -223,7 +223,11 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
     assert_rect_non_empty(&dialog_harness, "#dialog-content");
 
     // Escape key dismissal
-    send_key_and_pump(&mut dialog_harness, Key::Escape, Code::Escape);
+    send_key_and_pump(
+        &mut dialog_harness,
+        Key::Named(NamedKey::Escape),
+        Code::Escape,
+    );
     std::thread::sleep(std::time::Duration::from_millis(550));
     oxidase::frame::tick(std::time::Duration::from_millis(16));
     dialog_harness.pump();
@@ -244,7 +248,11 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
 
     // Click backdrop (at (5.0, 5.0) on overlay outside centered content)
     let overlay_rect = dialog_harness.layout_rect("#dialog-overlay");
-    click_at_and_pump(&mut dialog_harness, overlay_rect.x + 5.0, overlay_rect.y + 5.0);
+    click_at_and_pump(
+        &mut dialog_harness,
+        overlay_rect.x + 5.0,
+        overlay_rect.y + 5.0,
+    );
     std::thread::sleep(std::time::Duration::from_millis(550));
     oxidase::frame::tick(std::time::Duration::from_millis(16));
     dialog_harness.pump();
@@ -298,7 +306,11 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
 
     // Verify modal backdrop: clicking overlay does NOT dismiss AlertDialog
     let overlay_rect = alert_harness.layout_rect("#alert-dialog-overlay");
-    click_at_and_pump(&mut alert_harness, overlay_rect.x + 5.0, overlay_rect.y + 5.0);
+    click_at_and_pump(
+        &mut alert_harness,
+        overlay_rect.x + 5.0,
+        overlay_rect.y + 5.0,
+    );
     std::thread::sleep(std::time::Duration::from_millis(200));
     alert_harness.pump();
 

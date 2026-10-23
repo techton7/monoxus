@@ -67,20 +67,7 @@ dependencies = [
 
 [[package]]
 name = "accesskit_xplat"
-version = "0.2.0"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
-dependencies = [
- "accesskit",
- "accesskit_macos",
- "accesskit_windows",
- "android-activity",
- "raw-window-handle",
-]
-
-[[package]]
-name = "accesskit_xplat"
-version = "0.2.0"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4#ab9203248ad50fc4e6f088a1844750fd5319ff02"
+version = "0.2.1"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -135,7 +122,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0f2a1bb052857d5dd49572219344a7332b31b76405648eabac5bc68978251bcd"
 dependencies = [
  "android-properties",
- "bitflags 2.13.1",
+ "bitflags",
  "cc",
  "jni 0.22.4",
  "libc",
@@ -298,7 +285,7 @@ checksum = "0348a1c054491f4bfe6ab86a7b6ab1e44e45d899005de92f58b3df180b36ddaf"
 dependencies = [
  "clipboard-win",
  "log",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "parking_lot",
@@ -451,12 +438,6 @@ checksum = "b71798fca2c1fe1086445a7258a4bc81e6e49dcd24c8d0dd9a1e57395b603f51"
 
 [[package]]
 name = "bitflags"
-version = "1.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
-
-[[package]]
-name = "bitflags"
 version = "2.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b588b76d00fde79687d7646a9b5bdf3cc0f655e0bbd080335a95d7e96f3587da"
@@ -466,27 +447,30 @@ dependencies = [
 
 [[package]]
 name = "blitz-dom"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
+version = "0.3.0-beta.4"
 dependencies = [
  "accesskit",
  "anyrender 0.14.0",
  "app_units",
  "atomic_refcell",
- "bitflags 2.13.1",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
+ "bitflags",
+ "blitz-traits",
  "color",
  "cssparser",
  "cursor-icon",
- "debug_timer 0.1.3 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
+ "debug_timer 0.1.3",
  "euclid",
  "html-escape",
+ "icu_casemap",
+ "icu_locale_core",
+ "icu_properties",
+ "icu_segmenter",
  "image",
- "keyboard-types 0.7.0",
+ "keyboard-types 0.8.3",
  "kurbo",
  "linebender_resource_handle",
  "markup5ever",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "parley",
  "percent-encoding",
  "rayon",
@@ -497,7 +481,7 @@ dependencies = [
  "stylo",
  "stylo_dom",
  "stylo_static_prefs",
- "stylo_taffy 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
+ "stylo_taffy",
  "stylo_traits",
  "svgtypes",
  "taffy",
@@ -506,143 +490,25 @@ dependencies = [
  "url",
  "usvg",
  "web-time",
+ "writeable",
  "wuff",
 ]
 
 [[package]]
-name = "blitz-dom"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4#ab9203248ad50fc4e6f088a1844750fd5319ff02"
-dependencies = [
- "accesskit",
- "anyrender 0.14.0",
- "app_units",
- "atomic_refcell",
- "bitflags 2.13.1",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "color",
- "cssparser",
- "cursor-icon",
- "debug_timer 0.1.3 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "euclid",
- "html-escape",
- "image",
- "keyboard-types 0.7.0",
- "kurbo",
- "linebender_resource_handle",
- "markup5ever",
- "objc2 0.6.4",
- "parley",
- "percent-encoding",
- "rayon",
- "selectors",
- "skrifa",
- "slotmap",
- "smallvec",
- "stylo",
- "stylo_dom",
- "stylo_static_prefs",
- "stylo_taffy 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "stylo_traits",
- "svgtypes",
- "taffy",
- "thin-vec",
- "thread_local",
- "url",
- "usvg",
- "web-time",
- "wuff",
-]
-
-[[package]]
-name = "blitz-host"
-version = "0.2.0"
-dependencies = [
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-host-bridge",
- "blitz-host-protocol",
- "blitz-host-transport",
- "dioxus",
- "dioxus-native 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "keyboard-types 0.7.0",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "blitz-host-bridge"
-version = "0.2.0"
-dependencies = [
- "anyrender 0.14.0",
- "anyrender_vello_cpu",
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-host-protocol",
- "blitz-host-transport",
- "blitz-paint 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "peniko",
- "png 0.17.16",
-]
-
-[[package]]
-name = "blitz-host-protocol"
-version = "0.2.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "blitz-host-transport"
-version = "0.2.0"
-dependencies = [
- "blitz-host-protocol",
- "interprocess",
- "libc",
- "serde",
- "serde_json",
- "windows-sys 0.61.2",
-]
-
-[[package]]
 name = "blitz-html"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
+version = "0.3.0-beta.4"
 dependencies = [
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "html5ever",
- "xml5ever",
-]
-
-[[package]]
-name = "blitz-html"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4#ab9203248ad50fc4e6f088a1844750fd5319ff02"
-dependencies = [
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
+ "blitz-dom",
+ "blitz-traits",
  "html5ever",
  "xml5ever",
 ]
 
 [[package]]
 name = "blitz-net"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
+version = "0.3.0-beta.4"
 dependencies = [
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "data-url",
- "reqwest",
- "tokio",
- "wasm-bindgen-futures",
-]
-
-[[package]]
-name = "blitz-net"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4#ab9203248ad50fc4e6f088a1844750fd5319ff02"
-dependencies = [
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
+ "blitz-traits",
  "data-url",
  "reqwest",
  "tokio",
@@ -651,35 +517,12 @@ dependencies = [
 
 [[package]]
 name = "blitz-paint"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
+version = "0.3.0-beta.4"
 dependencies = [
  "anyrender 0.14.0",
  "anyrender_svg",
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "bytemuck",
- "color",
- "euclid",
- "kurbo",
- "parley",
- "peniko",
- "skrifa",
- "smallvec",
- "stylo",
- "taffy",
- "usvg",
-]
-
-[[package]]
-name = "blitz-paint"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4#ab9203248ad50fc4e6f088a1844750fd5319ff02"
-dependencies = [
- "anyrender 0.14.0",
- "anyrender_svg",
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
+ "blitz-dom",
+ "blitz-traits",
  "bytemuck",
  "color",
  "euclid",
@@ -695,43 +538,19 @@ dependencies = [
 
 [[package]]
 name = "blitz-shell"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
+version = "0.3.0-beta.4"
 dependencies = [
  "accesskit",
- "accesskit_xplat 0.2.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
+ "accesskit_xplat",
  "android-activity",
  "anyrender 0.14.0",
  "arboard",
  "atomic_refcell",
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-paint 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
+ "blitz-dom",
+ "blitz-paint",
+ "blitz-traits",
  "futures-util",
- "keyboard-types 0.7.0",
- "rfd",
- "wasm-bindgen",
- "web-sys",
- "web-time",
- "winit",
-]
-
-[[package]]
-name = "blitz-shell"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4#ab9203248ad50fc4e6f088a1844750fd5319ff02"
-dependencies = [
- "accesskit",
- "accesskit_xplat 0.2.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "android-activity",
- "anyrender 0.14.0",
- "arboard",
- "atomic_refcell",
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "blitz-paint 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "futures-util",
- "keyboard-types 0.7.0",
+ "keyboard-types 0.8.3",
  "rfd",
  "wasm-bindgen",
  "web-sys",
@@ -741,45 +560,27 @@ dependencies = [
 
 [[package]]
 name = "blitz-test-harness"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4#ab9203248ad50fc4e6f088a1844750fd5319ff02"
+version = "0.3.0-beta.4"
 dependencies = [
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "blitz-html 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
+ "blitz-dom",
+ "blitz-html",
+ "blitz-traits",
  "dioxus-core",
- "dioxus-native-dom 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "keyboard-types 0.7.0",
+ "dioxus-native-dom",
+ "keyboard-types 0.8.3",
  "smol_str",
 ]
 
 [[package]]
 name = "blitz-traits"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
+version = "0.3.0-beta.4"
 dependencies = [
  "atomic_refcell",
- "bitflags 2.13.1",
+ "bitflags",
  "bytes",
  "cursor-icon",
  "http",
- "keyboard-types 0.7.0",
- "serde",
- "smol_str",
- "url",
-]
-
-[[package]]
-name = "blitz-traits"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4#ab9203248ad50fc4e6f088a1844750fd5319ff02"
-dependencies = [
- "atomic_refcell",
- "bitflags 2.13.1",
- "bytes",
- "cursor-icon",
- "http",
- "keyboard-types 0.7.0",
+ "keyboard-types 0.8.3",
  "serde",
  "smol_str",
  "url",
@@ -809,7 +610,7 @@ version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdeb9d870516001442e364c5220d3574d2da8dc765554b4a617230d33fa58ef5"
 dependencies = [
- "objc2 0.6.4",
+ "objc2 0.6.5",
 ]
 
 [[package]]
@@ -897,7 +698,7 @@ version = "0.14.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4dbf9978365bac10f54d1d4b04f7ce4427e51f71d61f2fe15e3fed5166474df7"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "polling",
  "rustix",
  "slab",
@@ -1317,18 +1118,12 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
+
+[[package]]
+name = "debug_timer"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
-
-[[package]]
-name = "debug_timer"
-version = "0.1.3"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
-
-[[package]]
-name = "debug_timer"
-version = "0.1.3"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4#ab9203248ad50fc4e6f088a1844750fd5319ff02"
 
 [[package]]
 name = "derive_more"
@@ -1602,18 +1397,17 @@ dependencies = [
 [[package]]
 name = "dioxus-native"
 version = "0.7.0"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
 dependencies = [
  "android-activity",
  "anyrender 0.14.0",
  "anyrender_vello_cpu",
  "anyrender_vello_hybrid",
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-html 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-net 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-paint 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-shell 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
+ "blitz-dom",
+ "blitz-html",
+ "blitz-net",
+ "blitz-paint",
+ "blitz-shell",
+ "blitz-traits",
  "cfg-if",
  "dioxus-asset-resolver",
  "dioxus-cli-config",
@@ -1622,44 +1416,9 @@ dependencies = [
  "dioxus-document",
  "dioxus-history",
  "dioxus-html",
- "dioxus-native-dom 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
+ "dioxus-native-dom",
  "futures-util",
- "keyboard-types 0.7.0",
- "peniko",
- "rustc-hash 2.1.3",
- "slotmap",
- "tokio",
- "webbrowser",
- "wgpu_context 0.10.0",
- "winit",
-]
-
-[[package]]
-name = "dioxus-native"
-version = "0.7.0"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4#ab9203248ad50fc4e6f088a1844750fd5319ff02"
-dependencies = [
- "android-activity",
- "anyrender 0.14.0",
- "anyrender_vello_cpu",
- "anyrender_vello_hybrid",
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "blitz-html 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "blitz-net 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "blitz-paint 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "blitz-shell 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "cfg-if",
- "dioxus-asset-resolver",
- "dioxus-cli-config",
- "dioxus-core",
- "dioxus-devtools",
- "dioxus-document",
- "dioxus-history",
- "dioxus-html",
- "dioxus-native-dom 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "futures-util",
- "keyboard-types 0.7.0",
+ "keyboard-types 0.8.3",
  "peniko",
  "rustc-hash 2.1.3",
  "slotmap",
@@ -1672,28 +1431,13 @@ dependencies = [
 [[package]]
 name = "dioxus-native-dom"
 version = "0.7.0"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
 dependencies = [
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
+ "blitz-dom",
+ "blitz-traits",
  "dioxus-core",
  "dioxus-html",
  "futures-util",
- "keyboard-types 0.7.0",
- "rustc-hash 2.1.3",
-]
-
-[[package]]
-name = "dioxus-native-dom"
-version = "0.7.0"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4#ab9203248ad50fc4e6f088a1844750fd5319ff02"
-dependencies = [
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "dioxus-core",
- "dioxus-html",
- "futures-util",
- "keyboard-types 0.7.0",
+ "keyboard-types 0.8.3",
  "rustc-hash 2.1.3",
 ]
 
@@ -1789,10 +1533,10 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1e0e367e4e7da84520dedcac1901e4da967309406d1e51017ae1abfb97adbd38"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.6.2",
  "libc",
- "objc2 0.6.4",
+ "objc2 0.6.5",
 ]
 
 [[package]]
@@ -1814,12 +1558,6 @@ checksum = "ab8ecd87370524b461f8557c119c405552c396ed91fc0a8eec68679eab26f94a"
 dependencies = [
  "libloading",
 ]
-
-[[package]]
-name = "doctest-file"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2db04e74f0a9a93103b50e90b96024c9b2bdca8bce6a632ec71b88736d3d359"
 
 [[package]]
 name = "document-features"
@@ -2052,13 +1790,14 @@ dependencies = [
 
 [[package]]
 name = "fontique"
-version = "0.11.0"
-source = "git+https://github.com/linebender/parley?rev=e41dfea5cf50669ac67c5a8aca8d1664ffb72904#e41dfea5cf50669ac67c5a8aca8d1664ffb72904"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bbf1df16263783918b7da396077521f92b729ef7c429444dfcf03581f1448b77"
 dependencies = [
  "hashbrown 0.17.1",
  "linebender_resource_handle",
  "memmap2",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-core-text",
  "objc2-foundation 0.3.2",
@@ -2341,7 +2080,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b89c83349105e3732062a895becfc71a8f921bb71ecbbdd8ff99263e3b53a0ca"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "gpu-descriptor-types",
  "hashbrown 0.15.5",
 ]
@@ -2352,7 +2091,7 @@ version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdf242682df893b86f33a73828fb09ca4b2d3bb6cc95249707fc684d27484b91"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
 ]
 
 [[package]]
@@ -2383,7 +2122,7 @@ version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c03d949a14aa089bbb282f7dd76a498a7f684428e4257202efc119ec010376f9"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "bytemuck",
  "read-fonts",
  "smallvec",
@@ -2577,13 +2316,36 @@ dependencies = [
 ]
 
 [[package]]
-name = "icu_collections"
-version = "2.3.0"
+name = "icu_casemap"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa68d21081c4a05d5a901a1c62add574c77048b6a1c67be3b50ce0b60d4ca513"
+checksum = "1a6f143e9349267b80ae071a6ec25d4797c45756d8b2671a8b24b7b25b81ab94"
+dependencies = [
+ "icu_casemap_data",
+ "icu_collections",
+ "icu_locale_core",
+ "icu_properties",
+ "icu_provider",
+ "potential_utf",
+ "writeable",
+ "zerovec",
+]
+
+[[package]]
+name = "icu_casemap_data"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "71a5c321208537711696af55bc2ab5dad939e4f6e0aef92dd6a2555deceedf3a"
+
+[[package]]
+name = "icu_collections"
+version = "2.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fe090a42a0d3140fed8c63263ed1fecc02422cb2f4bfe55cd8de2de1b8e105dd"
 dependencies = [
  "displaydoc",
  "potential_utf",
+ "serde",
  "utf8_iter",
  "yoke",
  "zerofrom",
@@ -2592,9 +2354,9 @@ dependencies = [
 
 [[package]]
 name = "icu_locale_core"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d56e28588da92eee5c3201a6eff33fabdd49b62269c8938d4ff050ce4d900deb"
+checksum = "25d29b57c17c6528d0dc4c2141cfa2d08200465acb537a3909c8b9b8a4a984c0"
 dependencies = [
  "displaydoc",
  "litemap",
@@ -2606,9 +2368,9 @@ dependencies = [
 
 [[package]]
 name = "icu_locale_fallback"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "251af8e57c9400e3eb58242fe5b8b1152b2a64fdf4cf632f923c38ccee6f2fa9"
+checksum = "406e9ae5b95d8aa37db6293405931b766a6172d1848daee22d70eb44aa78a43c"
 dependencies = [
  "icu_locale_core",
  "icu_locale_fallback_data",
@@ -2620,15 +2382,15 @@ dependencies = [
 
 [[package]]
 name = "icu_locale_fallback_data"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "decf2a22ec8fa68f1a0c1129a3f8583f8f8bc24e8b9ccbe98ead99f62a4dc3a8"
+checksum = "3632ebbd0c5c3637ba1a40bdf8288f2cb9d2268e73441a69d5fc73d7cfbaa87c"
 
 [[package]]
 name = "icu_normalizer"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12f9cf5f235641ed274641dd81c3f28d870e276763d0797aeeab72317b1c646f"
+checksum = "404a3b8c486f205c87fe7f23ab6894d84a4ad76d6e4671ae1981ba7def87c599"
 dependencies = [
  "icu_collections",
  "icu_normalizer_data",
@@ -2640,15 +2402,15 @@ dependencies = [
 
 [[package]]
 name = "icu_normalizer_data"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1563da1ed3e0b3bf3d74c9b85917ac9c56464d2f57242270c09c9e752f8021a0"
+checksum = "20f0088bfb7441f7a37fa0c9e20cb1e9cba1cac6b9ce8cd2a6dc44294f8e8cbc"
 
 [[package]]
 name = "icu_properties"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e7ca276ad3145661a65914e6daf131ca5120cd3dcee8f8f3214b8875184a148"
+checksum = "2ea83d991c56158f7cf898bf86436c1dfe7c07ee82fe88951f2695c9f37a379f"
 dependencies = [
  "displaydoc",
  "icu_collections",
@@ -2661,15 +2423,15 @@ dependencies = [
 
 [[package]]
 name = "icu_properties_data"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e590f038c1464a96894fd6d10127e90a8be4509f56ff7ecef851b15cee0b7caa"
+checksum = "b98f29af82d02b163fe50161388350e743bb3107cc8e8c2f7314cb505faddfcf"
 
 [[package]]
 name = "icu_provider"
-version = "2.3.1"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d27bbb9d3abbefac45d55f647c9de1d44aafcd1186eb91879afef17c396c3e73"
+checksum = "413099315636c588ee8f011190b329b971a09a8fae9d157e01dcae8379468514"
 dependencies = [
  "displaydoc",
  "icu_locale_core",
@@ -2684,9 +2446,9 @@ dependencies = [
 
 [[package]]
 name = "icu_segmenter"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82d07aafccd67af15d02512a6adf5896fbc5ed00f2e99b471d2efa14016db3db"
+checksum = "61b195dc605f81aa181bec9b3bd14e26cc71b903e4644f6af578ca9772c7a710"
 dependencies = [
  "core_maths",
  "icu_collections",
@@ -2696,14 +2458,15 @@ dependencies = [
  "potential_utf",
  "smallvec",
  "utf8_iter",
+ "zerotrie",
  "zerovec",
 ]
 
 [[package]]
 name = "icu_segmenter_data"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae293c039020f9ec10710af98d29ce6aa2051486638b49c9a6409f3b4a9e98ad"
+checksum = "913a7d294ad056474749152107309fdee3ec17d2482d1ab70fdc61a81c64b9a3"
 
 [[package]]
 name = "ident_case"
@@ -2745,7 +2508,7 @@ dependencies = [
  "image-webp",
  "moxcms",
  "num-traits",
- "png 0.18.1",
+ "png",
  "zune-core",
  "zune-jpeg",
 ]
@@ -2783,19 +2546,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a588916bfdfd92e71cacef98a63d9b1f0d74d6599980d11894290e7ddefffcf7"
 dependencies = [
  "cfb",
-]
-
-[[package]]
-name = "interprocess"
-version = "2.4.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cb02ffbf25e8ef0f4a95bff054eef75f6d1bf16919474cf2caa63b21997478a"
-dependencies = [
- "doctest-file",
- "libc",
- "recvmsg",
- "widestring",
- "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2941,9 +2691,8 @@ version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b750dcadc39a09dbadd74e118f6dd6598df77fa01df0cfcdc52c28dece74528a"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "serde",
- "unicode-segmentation",
 ]
 
 [[package]]
@@ -2952,7 +2701,7 @@ version = "0.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0fbe853b403ae61a04233030ae8a79d94975281ed9770a1f9e246732b534b28d"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "serde",
 ]
 
@@ -3131,7 +2880,7 @@ version = "0.1.25"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61ff90caf6077a803a240f62fdbe88645a890bbca49ef8174c3cb0404362171d"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "libc",
  "plain",
  "redox_syscall 0.9.4",
@@ -3233,7 +2982,7 @@ checksum = "f44db74bde26fdf427af23f1d146c211aed857c59e3be750cf2617f6b0b05c94"
 dependencies = [
  "proc-macro2",
  "syn 2.0.119",
- "synstructure",
+ "synstructure 0.13.2",
 ]
 
 [[package]]
@@ -3248,7 +2997,7 @@ dependencies = [
  "manganis-core",
  "manganis-macro",
  "ndk-context",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "thiserror 2.0.20",
 ]
 
@@ -3356,15 +3105,15 @@ dependencies = [
 name = "monoxus"
 version = "0.1.0"
 dependencies = [
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
+ "blitz-dom",
  "blitz-test-harness",
- "blitz-traits 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
+ "blitz-traits",
  "dioxus",
- "dioxus-native 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
- "dioxus-native-dom 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4)",
+ "dioxus-native",
+ "dioxus-native-dom",
  "futures-timer",
  "js-sys",
- "keyboard-types 0.7.0",
+ "keyboard-types 0.8.3",
  "oxidase",
  "oxidase-floating-ui",
  "serde",
@@ -3397,7 +3146,7 @@ checksum = "b2bf919621e7975acb27d881bae2fb993e0d45c8e0446e85e6272971e00dc8df"
 dependencies = [
  "arrayvec",
  "bit-set 0.9.1",
- "bitflags 2.13.1",
+ "bitflags",
  "cfg-if",
  "cfg_aliases",
  "codespan-reporting",
@@ -3423,7 +3172,7 @@ checksum = "a616d2fb8c89516ac2723a581f69d6c18576046bed761bd6b305e5618e6ae130"
 dependencies = [
  "arrayvec",
  "bit-set 0.10.0",
- "bitflags 2.13.1",
+ "bitflags",
  "cfg-if",
  "cfg_aliases",
  "codespan-reporting",
@@ -3476,7 +3225,7 @@ version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3f42e7bbe13d351b6bead8286a43aac9534b82bd3cc43e47037f012ebfd62d4"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "jni-sys 0.3.1",
  "log",
  "ndk-sys",
@@ -3597,9 +3346,9 @@ dependencies = [
 
 [[package]]
 name = "objc2"
-version = "0.6.4"
+version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a12a8ed07aefc768292f076dc3ac8c48f3781c8f2d5851dd3d98950e8c5a89f"
+checksum = "08849bbd4767dfae9457696856ae1c84fe4e0281bbe4a7abff2d0e06fb7981f8"
 dependencies = [
  "objc2-encode",
 ]
@@ -3610,7 +3359,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e4e89ad9e3d7d297152b17d39ed92cd50ca8063a89a9fa569046d41568891eff"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.5.1",
  "libc",
  "objc2 0.5.2",
@@ -3626,9 +3375,9 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.6.2",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
@@ -3640,7 +3389,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "617fbf49e071c178c0b24c080767db52958f716d9eabdf0890523aeae54773ef"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.5.1",
  "objc2 0.5.2",
  "objc2-foundation 0.2.2",
@@ -3652,10 +3401,10 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.6.2",
  "dispatch2",
- "objc2 0.6.4",
+ "objc2 0.6.5",
 ]
 
 [[package]]
@@ -3664,10 +3413,10 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e022c9d066895efa1345f8e33e584b9f958da2fd4cd116792e15e07e4720a807"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "dispatch2",
  "libc",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-io-surface",
 ]
@@ -3690,7 +3439,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0cde0dfb48d25d2b4862161a4d5fcc0e3c24367869ad306b0c9ec0073bfed92d"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "objc2-core-foundation",
 ]
 
@@ -3700,7 +3449,7 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d425caf1df73233f29fd8a5c3e5edbc30d2d4307870f802d18f00d83dc5141a6"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "objc2-core-foundation",
  "objc2-core-graphics",
 ]
@@ -3717,7 +3466,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ee638a5da3799329310ad4cfa62fbf045d5f56e3ef5ba4149e7452dcf89d5a8"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.5.1",
  "libc",
  "objc2 0.5.2",
@@ -3729,9 +3478,9 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.6.2",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-core-foundation",
 ]
 
@@ -3741,8 +3490,8 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "180788110936d59bab6bd83b6060ffdfffb3b922ba1396b312ae795e1de9d81d"
 dependencies = [
- "bitflags 2.13.1",
- "objc2 0.6.4",
+ "bitflags",
+ "objc2 0.6.5",
  "objc2-core-foundation",
 ]
 
@@ -3752,7 +3501,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd0cba1276f6023976a406a14ffa85e1fdd19df6b0f737b063b95f6c8c7aadd6"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.5.1",
  "objc2 0.5.2",
  "objc2-foundation 0.2.2",
@@ -3764,9 +3513,9 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a0125f776a10d00af4152d74616409f0d4a2053a6f57fa5b7d6aa2854ac04794"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.6.2",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-foundation 0.3.2",
 ]
 
@@ -3776,7 +3525,7 @@ version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e42bee7bff906b14b167da2bac5efe6b6a07e6f7c0a21a7308d40c960242dc7a"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.5.1",
  "objc2 0.5.2",
  "objc2-foundation 0.2.2",
@@ -3789,8 +3538,8 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96c1358452b371bf9f104e21ec536d37a650eb10f7ee379fff67d2e08d537f1f"
 dependencies = [
- "bitflags 2.13.1",
- "objc2 0.6.4",
+ "bitflags",
+ "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
@@ -3803,8 +3552,8 @@ version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d87d638e33c06f577498cbcc50491496a3ed4246998a7fbba7ccb98b1e7eab22"
 dependencies = [
- "bitflags 2.13.1",
- "objc2 0.6.4",
+ "bitflags",
+ "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
 ]
@@ -3821,7 +3570,7 @@ version = "0.10.81"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "77823a27f0babb03091cb9ed9ef80af3b39dbc82f97e8fa530374b7dafd87a45"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "cfg-if",
  "foreign-types",
  "libc",
@@ -3900,9 +3649,8 @@ name = "oxidase"
 version = "0.1.11"
 dependencies = [
  "anyrender_vello",
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
- "blitz-host",
- "blitz-shell 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
+ "blitz-dom",
+ "blitz-shell",
  "dioxus",
  "futures-timer",
  "js-sys",
@@ -3920,7 +3668,7 @@ dependencies = [
 name = "oxidase-floating-ui"
 version = "0.1.11"
 dependencies = [
- "blitz-dom 0.3.0-beta.2 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
+ "blitz-dom",
  "js-sys",
  "serde",
  "serde_json",
@@ -3976,16 +3724,18 @@ dependencies = [
 
 [[package]]
 name = "parlance"
-version = "0.1.0"
-source = "git+https://github.com/linebender/parley?rev=e41dfea5cf50669ac67c5a8aca8d1664ffb72904#e41dfea5cf50669ac67c5a8aca8d1664ffb72904"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73072a9470554c8e794778acece2312661218aaabb635600957d952cf01c716e"
 dependencies = [
  "bytemuck",
 ]
 
 [[package]]
 name = "parley"
-version = "0.11.0"
-source = "git+https://github.com/linebender/parley?rev=e41dfea5cf50669ac67c5a8aca8d1664ffb72904#e41dfea5cf50669ac67c5a8aca8d1664ffb72904"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61bd0c0c1737f0b3d3726dc06b225083af213b61913e4fbae1670613a106c6ce"
 dependencies = [
  "fontique",
  "hashbrown 0.17.1",
@@ -3997,8 +3747,9 @@ dependencies = [
 
 [[package]]
 name = "parley_data"
-version = "0.11.0"
-source = "git+https://github.com/linebender/parley?rev=e41dfea5cf50669ac67c5a8aca8d1664ffb72904#e41dfea5cf50669ac67c5a8aca8d1664ffb72904"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c43b63f808f6cc8f4a3b07de0d62a977bddd2e0bb5c232bd9e93ba8ef92e5e4b"
 dependencies = [
  "icu_collections",
  "icu_properties",
@@ -4006,13 +3757,15 @@ dependencies = [
 
 [[package]]
 name = "parley_emoji"
-version = "0.11.0"
-source = "git+https://github.com/linebender/parley?rev=e41dfea5cf50669ac67c5a8aca8d1664ffb72904#e41dfea5cf50669ac67c5a8aca8d1664ffb72904"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c4482d912d7671a7cd2089794f90ef3bb5f5f8c738230fb0fcd50fa020f0ed3"
 
 [[package]]
 name = "parley_engine"
-version = "0.11.0"
-source = "git+https://github.com/linebender/parley?rev=e41dfea5cf50669ac67c5a8aca8d1664ffb72904#e41dfea5cf50669ac67c5a8aca8d1664ffb72904"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b74c0d373e462e504ad4436710a39f099e18e848e1ee711f70cd2dcd5a69b290"
 dependencies = [
  "fontique",
  "harfrust",
@@ -4223,24 +3976,11 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "png"
-version = "0.17.16"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82151a2fc869e011c153adc57cf2789ccb8d9906ce52c0b39a6b5697749d7526"
-dependencies = [
- "bitflags 1.3.2",
- "crc32fast",
- "fdeflate",
- "flate2",
- "miniz_oxide 0.8.9",
-]
-
-[[package]]
-name = "png"
 version = "0.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60769b8b31b2a9f263dae2776c37b1b28ae246943cf719eb6946a1db05128a61"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "crc32fast",
  "fdeflate",
  "flate2",
@@ -4463,7 +4203,7 @@ version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40d213455a5f1dc59214213c7330e074ddf8114c9a42411eb890c767357ce135"
 dependencies = [
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
  "objc2-quartz-core 0.3.2",
@@ -4501,18 +4241,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "recvmsg"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d3edd4d5d42c92f0a659926464d4cce56b562761267ecf0f469d85b7de384175"
-
-[[package]]
 name = "redox_event"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5018d583d6d2f5499352aea8d177e9067d1eb03ab17c78169d5ba7a30001b15"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "libredox",
 ]
 
@@ -4522,7 +4256,7 @@ version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
 ]
 
 [[package]]
@@ -4531,7 +4265,7 @@ version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "737970939a87c6fa31e7acad13307bccbb017a073b695b6089a2c484f929e20e"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
 ]
 
 [[package]]
@@ -4617,7 +4351,7 @@ dependencies = [
  "js-sys",
  "libc",
  "log",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
@@ -4672,7 +4406,7 @@ version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6fe4565b9518b83ef4f91bb47ce29620ca828bd32cb7e408f0062e9930ba190"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "errno",
  "libc",
  "linux-raw-sys",
@@ -4758,7 +4492,7 @@ version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b7f4bc775c73d9a02cde8bf7b2ec4c9d12743edf609006c7facc23998404cd1d"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "core-foundation",
  "core-foundation-sys",
  "libc",
@@ -4781,7 +4515,7 @@ version = "0.41.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8322aebea94a6cc288ff884e8a49bdbceef60206c400c6c46d22e62fc4fd91a6"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "cssparser",
  "derive_more",
  "log",
@@ -5044,9 +4778,9 @@ checksum = "9b0e903ee191d8f7a8fbf0d712c3a1699d19e04ceba5ad1eb673053c7d938a09"
 
 [[package]]
 name = "smallvec"
-version = "1.16.0"
+version = "1.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9be42f50aa861c555654aa3a37f52f4b1074bacf4e48fe0ef7fa584e80f1f0f"
+checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
 
 [[package]]
 name = "smithay-client-toolkit"
@@ -5054,7 +4788,7 @@ version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "74dc9ee14b0fdcb535f9556141bacac070c994a977d2240ee455d7438a617f00"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "calloop",
  "calloop-wayland-source",
  "cursor-icon",
@@ -5099,7 +4833,7 @@ version = "0.4.0+sdk-1.4.341.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d9571ea910ebd84c86af4b3ed27f9dbdc6ad06f17c5f96146b2b671e2976744f"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
 ]
 
 [[package]]
@@ -5198,7 +4932,7 @@ dependencies = [
  "app_units",
  "arrayvec",
  "atomic_refcell",
- "bitflags 2.13.1",
+ "bitflags",
  "byteorder",
  "cssparser",
  "derive_more",
@@ -5266,7 +5000,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
- "synstructure",
+ "synstructure 0.13.2",
 ]
 
 [[package]]
@@ -5275,7 +5009,7 @@ version = "0.22.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9febcb03f2b669ef06b3e8a5209e6280971ed55cecf83fbf3c0562fcf2aa2ec6"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "stylo_malloc_size_of",
 ]
 
@@ -5309,21 +5043,9 @@ dependencies = [
 
 [[package]]
 name = "stylo_taffy"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
+version = "0.3.0-beta.4"
 dependencies = [
- "bitflags 2.13.1",
- "stylo",
- "stylo_atoms",
- "taffy",
-]
-
-[[package]]
-name = "stylo_taffy"
-version = "0.3.0-beta.2"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.4#ab9203248ad50fc4e6f088a1844750fd5319ff02"
-dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "stylo",
  "stylo_atoms",
  "taffy",
@@ -5336,7 +5058,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "645d6bfe40eb6e86ebe9f2d2adadcbced41bfa96175de7cb13d4d178d27bc83d"
 dependencies = [
  "app_units",
- "bitflags 2.13.1",
+ "bitflags",
  "cssparser",
  "euclid",
  "malloc_size_of_derive",
@@ -5492,7 +5214,7 @@ version = "29.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5a6fd43fc7e90b9d5b252af666c147f5e2ee692add2b075f7f0d6fc2f5357bb6"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "is-macro",
  "num-bigint",
  "once_cell",
@@ -5558,7 +5280,7 @@ version = "45.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "52c29766d4f60c867b48e4d433a4d6c1247f86e4fd1e5ca2babcdd2128806f91"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "compact_str",
  "either",
  "num-bigint",
@@ -5745,9 +5467,20 @@ dependencies = [
 ]
 
 [[package]]
-name = "taffy"
+name = "synstructure"
 version = "0.14.0"
-source = "git+https://github.com/DioxusLabs/taffy?rev=4142c9d8cac05d8b39eac9632856ed04f7623d52#4142c9d8cac05d8b39eac9632856ed04f7623d52"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "901704edd0dfe137f1987838ee4f259e4e063c31371bdb423f7ae38ec6f77f02"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.5",
+]
+
+[[package]]
+name = "taffy"
+version = "0.15.0"
+source = "git+https://github.com/DioxusLabs/taffy?rev=4e59968eda29ceeb0bbaeb3993c8cd38baa3d0a6#4e59968eda29ceeb0bbaeb3993c8cd38baa3d0a6"
 dependencies = [
  "serde",
  "slotmap",
@@ -5876,9 +5609,9 @@ dependencies = [
 
 [[package]]
 name = "tinystr"
-version = "0.8.4"
+version = "0.8.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1e27c91459209c2986af3dcf603a5a74a4368754ce37414f59acc971167f643"
+checksum = "abc840c238154d58f9e86b2792261edfde565a17696e1cda1a449de27979801a"
 dependencies = [
  "displaydoc",
  "serde_core",
@@ -5915,7 +5648,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
- "synstructure",
+ "synstructure 0.13.2",
 ]
 
 [[package]]
@@ -6014,7 +5747,7 @@ version = "0.6.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4cfcf7e2740e6fc6d4d688b4ef00650406bb94adf4731e43c096c3a19fe40840"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "bytes",
  "futures-util",
  "http",
@@ -6260,7 +5993,7 @@ dependencies = [
  "futures-intrusive",
  "log",
  "peniko",
- "png 0.18.1",
+ "png",
  "skrifa",
  "static_assertions",
  "thiserror 2.0.20",
@@ -6280,7 +6013,7 @@ dependencies = [
  "guillotiere",
  "log",
  "peniko",
- "png 0.18.1",
+ "png",
  "smallvec",
  "thiserror 2.0.20",
 ]
@@ -6508,7 +6241,7 @@ version = "0.31.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3c36a0f861ad76d0901f2800b46321410d9f73f2ea88aac0650d86c32688073"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "rustix",
  "wayland-backend",
  "wayland-scanner",
@@ -6520,7 +6253,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "625c5029dbd43d25e6aa9615e88b829a5cad13b2819c4ae129fdbb7c31ab4c7e"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "cursor-icon",
  "wayland-backend",
 ]
@@ -6542,7 +6275,7 @@ version = "0.32.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23d0c813de3daa2ed6520af85a3bd49b0e722a3078506899aa9686fea58dc4b6"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "wayland-backend",
  "wayland-client",
  "wayland-scanner",
@@ -6554,7 +6287,7 @@ version = "20251230.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "91c6c3e7178e553d093d46999032bc79aafea9dedd71dd702c8ace7bbc25cf13"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
@@ -6567,7 +6300,7 @@ version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e9567599ef23e09b8dad6e429e5738d4509dfc46b3b21f32841a304d16b29c8"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
@@ -6580,7 +6313,7 @@ version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b6d8cf1eb2c1c31ed1f5643c88a6e53538129d4af80030c8cabd1f9fa884d91"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
@@ -6593,7 +6326,7 @@ version = "0.3.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "eb04e52f7836d7c7976c78ca0250d61e33873c34156a2a1fc9474828ec268234"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
@@ -6664,7 +6397,7 @@ dependencies = [
  "jni 0.22.4",
  "log",
  "ndk-context",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
  "url",
@@ -6713,7 +6446,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76e8840e1ba2881d4cbb18d2147627a56af426ff064c0401eb0c8410c6325d07"
 dependencies = [
  "arrayvec",
- "bitflags 2.13.1",
+ "bitflags",
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
@@ -6743,7 +6476,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "527ccdf43dd5b2e8676eed9984ce00e2bbb0a1b85b70c1969dcb6cd2eb55ab9e"
 dependencies = [
  "arrayvec",
- "bitflags 2.13.1",
+ "bitflags",
  "bytemuck",
  "cfg-if",
  "cfg_aliases",
@@ -6775,7 +6508,7 @@ dependencies = [
  "arrayvec",
  "bit-set 0.9.1",
  "bit-vec 0.9.1",
- "bitflags 2.13.1",
+ "bitflags",
  "bytemuck",
  "cfg_aliases",
  "document-features",
@@ -6809,7 +6542,7 @@ dependencies = [
  "arrayvec",
  "bit-set 0.10.0",
  "bit-vec 0.9.1",
- "bitflags 2.13.1",
+ "bitflags",
  "bytemuck",
  "cfg_aliases",
  "document-features",
@@ -6907,7 +6640,7 @@ dependencies = [
  "arrayvec",
  "ash",
  "bit-set 0.9.1",
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.6.2",
  "bytemuck",
  "cfg-if",
@@ -6924,7 +6657,7 @@ dependencies = [
  "log",
  "naga 29.0.4",
  "ndk-sys",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
  "objc2-metal 0.3.2",
@@ -6961,7 +6694,7 @@ dependencies = [
  "arrayvec",
  "ash",
  "bit-set 0.10.0",
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.6.2",
  "bytemuck",
  "cfg-if",
@@ -6978,7 +6711,7 @@ dependencies = [
  "naga 30.0.1",
  "naga-types",
  "ndk-sys",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-core-graphics",
  "objc2-foundation 0.3.2",
@@ -7033,7 +6766,7 @@ version = "29.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84bf84cd9ca8ca45e2b223a3868f1adf9bfc0c66aeac212e76ee7e40fdadf8f5"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "bytemuck",
  "js-sys",
  "log",
@@ -7047,7 +6780,7 @@ version = "30.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "99dad6f1fbdbbdb4c278a6508b059d44688f5cebddf78d005a46a31340269286"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "bytemuck",
  "js-sys",
  "log",
@@ -7114,12 +6847,6 @@ dependencies = [
  "bytemuck",
  "safe_arch",
 ]
-
-[[package]]
-name = "widestring"
-version = "1.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72069c3113ab32ab29e5584db3c6ec55d416895e60715417b5b883a357c3e471"
 
 [[package]]
 name = "winapi-util"
@@ -7395,7 +7122,7 @@ version = "0.31.0-beta.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f431156a3e4f0f1b35eaaf37674e55838e3652908c8088f570466274d1902e2b"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "cfg_aliases",
  "cursor-icon",
  "dpi",
@@ -7423,7 +7150,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d5d60d944a564986b9311e325334cc22e7e4cf726dd0ff7475fd925404215af4"
 dependencies = [
  "android-activity",
- "bitflags 2.13.1",
+ "bitflags",
  "dpi",
  "ndk",
  "raw-window-handle",
@@ -7438,11 +7165,11 @@ version = "0.31.0-beta.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23343ec0ea7ac6aa72f38009a6ff66fb63bcf6395e0622fba72794d2a762ab42"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.6.2",
  "dispatch2",
  "dpi",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
  "objc2-core-foundation",
  "objc2-core-graphics",
@@ -7464,7 +7191,7 @@ dependencies = [
  "block2 0.6.2",
  "dpi",
  "memmap2",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
  "smol_str",
@@ -7480,7 +7207,7 @@ version = "0.31.0-beta.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8af6307236c51847199950c15cf80e0481a250bb96ce9132f5026df4ad3d0f9"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "cursor-icon",
  "dpi",
  "keyboard-types 0.8.3",
@@ -7496,7 +7223,7 @@ version = "0.31.0-beta.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "278a8ae837902a3bc95dd2fd696d680da33f32130eecc29905358c9089cf6c50"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "dpi",
  "libredox",
  "orbclient",
@@ -7513,11 +7240,11 @@ version = "0.31.0-beta.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83315a3ea1739c8466cf23d35e3b0a2cb20c9515d8857666b633afef484740b5"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "block2 0.6.2",
  "dispatch2",
  "dpi",
- "objc2 0.6.4",
+ "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-foundation 0.3.2",
  "objc2-ui-kit",
@@ -7534,7 +7261,7 @@ version = "0.31.0-beta.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b64ceed06de0c45886eef05102106abe1413e703384e337bc57c7e95b71f803"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "calloop",
  "cursor-icon",
  "dpi",
@@ -7563,7 +7290,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f539be45f95cc297bdfb80569aef38d925d64aec4133852a4d3fc5cb3660f1c9"
 dependencies = [
  "atomic-waker",
- "bitflags 2.13.1",
+ "bitflags",
  "concurrent-queue",
  "cursor-icon",
  "dpi",
@@ -7585,7 +7312,7 @@ version = "0.31.0-beta.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25fb480c41df01d351f656cbf3ad74013f8a9d22bb5b2dcab59f9167e7a0b6ec"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "cursor-icon",
  "dpi",
  "raw-window-handle",
@@ -7604,7 +7331,7 @@ version = "0.31.0-beta.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb5746cd907e514b7895491a1c6f7d0cb70077f9e16928cd74ae6f987ffd96aa"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "bytemuck",
  "calloop",
  "cursor-icon",
@@ -7708,7 +7435,7 @@ version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d039de8032a9a8856a6be89cea3e5d12fdd82306ab7c94d74e6deab2460651c5"
 dependencies = [
- "bitflags 2.13.1",
+ "bitflags",
  "dlib",
  "log",
  "once_cell",
@@ -7756,9 +7483,9 @@ dependencies = [
 
 [[package]]
 name = "yoke"
-version = "0.8.3"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "709fe23a0424b6a435d82152b1bd3fdfb0833487d5fa90d05d42762a9891fef5"
+checksum = "417ef3fcf6c300b7dbd25c85531a746931c02ad536f3cf4786ed1e88223340b3"
 dependencies = [
  "stable_deref_trait",
  "yoke-derive",
@@ -7767,14 +7494,14 @@ dependencies = [
 
 [[package]]
 name = "yoke-derive"
-version = "0.8.2"
+version = "0.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "de844c262c8848816172cef550288e7dc6c7b7814b4ee56b3e1553f275f1858e"
+checksum = "ec8ebde2db3681e8c9980cc27822030e68752690ddfa9473e739aeb4dbde6d71"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
- "synstructure",
+ "syn 3.0.5",
+ "synstructure 0.14.0",
 ]
 
 [[package]]
@@ -7815,7 +7542,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.119",
- "synstructure",
+ "synstructure 0.13.2",
 ]
 
 [[package]]
@@ -7838,9 +7565,9 @@ dependencies = [
 
 [[package]]
 name = "zerovec"
-version = "0.11.8"
+version = "0.11.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb0464e17806c1d976d5cba29399c7f08e516e279e2ba493f63123b5fca67dd8"
+checksum = "f58a2799cfe9a1670c7ea8edbd52ef8edb93cb37a7f83bf31ba9e35d9dae6a40"
 dependencies = [
  "serde",
  "yoke",
@@ -7850,9 +7577,9 @@ dependencies = [
 
 [[package]]
 name = "zerovec-derive"
-version = "0.11.6"
+version = "0.11.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34df6fc39dbd26ddc9c10e6a2984476e13acce22e64e4487636ef494369225da"
+checksum = "c3743ddbf47738d929cd1ae2e199d40d0162979dfe31aef8ae646d2bf00bf97a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -7885,3 +7612,19 @@ checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core",
 ]
+
+[[patch.unused]]
+name = "blitz-host"
+version = "0.2.0"
+
+[[patch.unused]]
+name = "blitz-host-bridge"
+version = "0.2.0"
+
+[[patch.unused]]
+name = "blitz-host-protocol"
+version = "0.2.0"
+
+[[patch.unused]]
+name = "blitz-host-transport"
+version = "0.2.0"
