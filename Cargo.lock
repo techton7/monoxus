@@ -67,7 +67,8 @@ dependencies = [
 
 [[package]]
 name = "accesskit_xplat"
-version = "0.2.1"
+version = "0.2.0"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -279,9 +280,9 @@ dependencies = [
 
 [[package]]
 name = "arboard"
-version = "3.6.1"
+version = "3.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0348a1c054491f4bfe6ab86a7b6ab1e44e45d899005de92f58b3df180b36ddaf"
+checksum = "aeb9553e62312c8756a5979254fc6d7da8bbeb5986a1e17037fab932f7037917"
 dependencies = [
  "clipboard-win",
  "log",
@@ -290,7 +291,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
  "x11rb",
 ]
 
@@ -448,6 +449,7 @@ dependencies = [
 [[package]]
 name = "blitz-dom"
 version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "accesskit",
  "anyrender 0.14.0",
@@ -458,15 +460,11 @@ dependencies = [
  "color",
  "cssparser",
  "cursor-icon",
- "debug_timer 0.1.3",
+ "debug_timer 0.1.3 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6)",
  "euclid",
  "html-escape",
- "icu_casemap",
- "icu_locale_core",
- "icu_properties",
- "icu_segmenter",
  "image",
- "keyboard-types 0.8.3",
+ "keyboard-types 0.7.0",
  "kurbo",
  "linebender_resource_handle",
  "markup5ever",
@@ -490,13 +488,13 @@ dependencies = [
  "url",
  "usvg",
  "web-time",
- "writeable",
  "wuff",
 ]
 
 [[package]]
 name = "blitz-html"
 version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -507,6 +505,7 @@ dependencies = [
 [[package]]
 name = "blitz-net"
 version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "blitz-traits",
  "data-url",
@@ -518,6 +517,7 @@ dependencies = [
 [[package]]
 name = "blitz-paint"
 version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "anyrender 0.14.0",
  "anyrender_svg",
@@ -529,16 +529,19 @@ dependencies = [
  "kurbo",
  "parley",
  "peniko",
+ "png",
  "skrifa",
  "smallvec",
  "stylo",
  "taffy",
+ "ttf-parser",
  "usvg",
 ]
 
 [[package]]
 name = "blitz-shell"
 version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "accesskit",
  "accesskit_xplat",
@@ -550,7 +553,7 @@ dependencies = [
  "blitz-paint",
  "blitz-traits",
  "futures-util",
- "keyboard-types 0.8.3",
+ "keyboard-types 0.7.0",
  "rfd",
  "wasm-bindgen",
  "web-sys",
@@ -561,26 +564,28 @@ dependencies = [
 [[package]]
 name = "blitz-test-harness"
 version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "blitz-dom",
  "blitz-html",
  "blitz-traits",
  "dioxus-core",
  "dioxus-native-dom",
- "keyboard-types 0.8.3",
+ "keyboard-types 0.7.0",
  "smol_str",
 ]
 
 [[package]]
 name = "blitz-traits"
 version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "atomic_refcell",
  "bitflags",
  "bytes",
  "cursor-icon",
  "http",
- "keyboard-types 0.8.3",
+ "keyboard-types 0.7.0",
  "serde",
  "smol_str",
  "url",
@@ -769,9 +774,9 @@ checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
 name = "clipboard-win"
-version = "5.4.1"
+version = "5.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4"
+checksum = "052af7878466feccda12ba7a6a67d019d712f296809559b47c12c8cc196d3a9a"
 dependencies = [
  "error-code",
 ]
@@ -1118,12 +1123,13 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 
 [[package]]
 name = "derive_more"
@@ -1397,6 +1403,7 @@ dependencies = [
 [[package]]
 name = "dioxus-native"
 version = "0.7.0"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "android-activity",
  "anyrender 0.14.0",
@@ -1418,7 +1425,7 @@ dependencies = [
  "dioxus-html",
  "dioxus-native-dom",
  "futures-util",
- "keyboard-types 0.8.3",
+ "keyboard-types 0.7.0",
  "peniko",
  "rustc-hash 2.1.3",
  "slotmap",
@@ -1431,13 +1438,14 @@ dependencies = [
 [[package]]
 name = "dioxus-native-dom"
 version = "0.7.0"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
  "dioxus-core",
  "dioxus-html",
  "futures-util",
- "keyboard-types 0.8.3",
+ "keyboard-types 0.7.0",
  "rustc-hash 2.1.3",
 ]
 
@@ -1790,9 +1798,8 @@ dependencies = [
 
 [[package]]
 name = "fontique"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbf1df16263783918b7da396077521f92b729ef7c429444dfcf03581f1448b77"
+version = "0.11.0"
+source = "git+https://github.com/linebender/parley?rev=e41dfea5cf50669ac67c5a8aca8d1664ffb72904#e41dfea5cf50669ac67c5a8aca8d1664ffb72904"
 dependencies = [
  "hashbrown 0.17.1",
  "linebender_resource_handle",
@@ -2316,28 +2323,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "icu_casemap"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a6f143e9349267b80ae071a6ec25d4797c45756d8b2671a8b24b7b25b81ab94"
-dependencies = [
- "icu_casemap_data",
- "icu_collections",
- "icu_locale_core",
- "icu_properties",
- "icu_provider",
- "potential_utf",
- "writeable",
- "zerovec",
-]
-
-[[package]]
-name = "icu_casemap_data"
-version = "2.4.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "71a5c321208537711696af55bc2ab5dad939e4f6e0aef92dd6a2555deceedf3a"
-
-[[package]]
 name = "icu_collections"
 version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2345,7 +2330,6 @@ checksum = "fe090a42a0d3140fed8c63263ed1fecc02422cb2f4bfe55cd8de2de1b8e105dd"
 dependencies = [
  "displaydoc",
  "potential_utf",
- "serde",
  "utf8_iter",
  "yoke",
  "zerofrom",
@@ -2693,6 +2677,7 @@ checksum = "b750dcadc39a09dbadd74e118f6dd6598df77fa01df0cfcdc52c28dece74528a"
 dependencies = [
  "bitflags",
  "serde",
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -3113,7 +3098,7 @@ dependencies = [
  "dioxus-native-dom",
  "futures-timer",
  "js-sys",
- "keyboard-types 0.8.3",
+ "keyboard-types 0.7.0",
  "oxidase",
  "oxidase-floating-ui",
  "serde",
@@ -3724,18 +3709,16 @@ dependencies = [
 
 [[package]]
 name = "parlance"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73072a9470554c8e794778acece2312661218aaabb635600957d952cf01c716e"
+version = "0.1.0"
+source = "git+https://github.com/linebender/parley?rev=e41dfea5cf50669ac67c5a8aca8d1664ffb72904#e41dfea5cf50669ac67c5a8aca8d1664ffb72904"
 dependencies = [
  "bytemuck",
 ]
 
 [[package]]
 name = "parley"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61bd0c0c1737f0b3d3726dc06b225083af213b61913e4fbae1670613a106c6ce"
+version = "0.11.0"
+source = "git+https://github.com/linebender/parley?rev=e41dfea5cf50669ac67c5a8aca8d1664ffb72904#e41dfea5cf50669ac67c5a8aca8d1664ffb72904"
 dependencies = [
  "fontique",
  "hashbrown 0.17.1",
@@ -3747,9 +3730,8 @@ dependencies = [
 
 [[package]]
 name = "parley_data"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c43b63f808f6cc8f4a3b07de0d62a977bddd2e0bb5c232bd9e93ba8ef92e5e4b"
+version = "0.11.0"
+source = "git+https://github.com/linebender/parley?rev=e41dfea5cf50669ac67c5a8aca8d1664ffb72904#e41dfea5cf50669ac67c5a8aca8d1664ffb72904"
 dependencies = [
  "icu_collections",
  "icu_properties",
@@ -3757,15 +3739,13 @@ dependencies = [
 
 [[package]]
 name = "parley_emoji"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c4482d912d7671a7cd2089794f90ef3bb5f5f8c738230fb0fcd50fa020f0ed3"
+version = "0.11.0"
+source = "git+https://github.com/linebender/parley?rev=e41dfea5cf50669ac67c5a8aca8d1664ffb72904#e41dfea5cf50669ac67c5a8aca8d1664ffb72904"
 
 [[package]]
 name = "parley_engine"
-version = "0.12.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b74c0d373e462e504ad4436710a39f099e18e848e1ee711f70cd2dcd5a69b290"
+version = "0.11.0"
+source = "git+https://github.com/linebender/parley?rev=e41dfea5cf50669ac67c5a8aca8d1664ffb72904#e41dfea5cf50669ac67c5a8aca8d1664ffb72904"
 dependencies = [
  "fontique",
  "harfrust",
@@ -5044,6 +5024,7 @@ dependencies = [
 [[package]]
 name = "stylo_taffy"
 version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "bitflags",
  "stylo",
@@ -5479,8 +5460,8 @@ dependencies = [
 
 [[package]]
 name = "taffy"
-version = "0.15.0"
-source = "git+https://github.com/DioxusLabs/taffy?rev=4e59968eda29ceeb0bbaeb3993c8cd38baa3d0a6#4e59968eda29ceeb0bbaeb3993c8cd38baa3d0a6"
+version = "0.14.0"
+source = "git+https://github.com/DioxusLabs/taffy?rev=4142c9d8cac05d8b39eac9632856ed04f7623d52#4142c9d8cac05d8b39eac9632856ed04f7623d52"
 dependencies = [
  "serde",
  "slotmap",
@@ -6964,16 +6945,7 @@ version = "0.45.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75283be5efb2831d37ea142365f009c02ec203cd29a3ebecbc093d52315b66d0"
 dependencies = [
- "windows-targets 0.42.2",
-]
-
-[[package]]
-name = "windows-sys"
-version = "0.60.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2f500e4d28234f72040990ec9d39e3a6b950f9f22d3dba18416c35882612bcb"
-dependencies = [
- "windows-targets 0.53.5",
+ "windows-targets",
 ]
 
 [[package]]
@@ -6991,30 +6963,13 @@ version = "0.42.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e5180c00cd44c9b1c88adb3693291f1cd93605ded80c250a75d472756b4d071"
 dependencies = [
- "windows_aarch64_gnullvm 0.42.2",
- "windows_aarch64_msvc 0.42.2",
- "windows_i686_gnu 0.42.2",
- "windows_i686_msvc 0.42.2",
- "windows_x86_64_gnu 0.42.2",
- "windows_x86_64_gnullvm 0.42.2",
- "windows_x86_64_msvc 0.42.2",
-]
-
-[[package]]
-name = "windows-targets"
-version = "0.53.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4945f9f551b88e0d65f3db0bc25c33b8acea4d9e41163edf90dcd0b19f9069f3"
-dependencies = [
- "windows-link",
- "windows_aarch64_gnullvm 0.53.1",
- "windows_aarch64_msvc 0.53.1",
- "windows_i686_gnu 0.53.1",
- "windows_i686_gnullvm",
- "windows_i686_msvc 0.53.1",
- "windows_x86_64_gnu 0.53.1",
- "windows_x86_64_gnullvm 0.53.1",
- "windows_x86_64_msvc 0.53.1",
+ "windows_aarch64_gnullvm",
+ "windows_aarch64_msvc",
+ "windows_i686_gnu",
+ "windows_i686_msvc",
+ "windows_x86_64_gnu",
+ "windows_x86_64_gnullvm",
+ "windows_x86_64_msvc",
 ]
 
 [[package]]
@@ -7033,22 +6988,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "597a5118570b68bc08d8d59125332c54f1ba9d9adeedeef5b99b02ba2b0698f8"
 
 [[package]]
-name = "windows_aarch64_gnullvm"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9d8416fa8b42f5c947f8482c43e7d89e73a173cead56d044f6a56104a6d1b53"
-
-[[package]]
 name = "windows_aarch64_msvc"
 version = "0.42.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e08e8864a60f06ef0d0ff4ba04124db8b0fb3be5776a5cd47641e942e58c4d43"
-
-[[package]]
-name = "windows_aarch64_msvc"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9d782e804c2f632e395708e99a94275910eb9100b2114651e04744e9b125006"
 
 [[package]]
 name = "windows_i686_gnu"
@@ -7057,28 +7000,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c61d927d8da41da96a81f029489353e68739737d3beca43145c8afec9a31a84f"
 
 [[package]]
-name = "windows_i686_gnu"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "960e6da069d81e09becb0ca57a65220ddff016ff2d6af6a223cf372a506593a3"
-
-[[package]]
-name = "windows_i686_gnullvm"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa7359d10048f68ab8b09fa71c3daccfb0e9b559aed648a8f95469c27057180c"
-
-[[package]]
 name = "windows_i686_msvc"
 version = "0.42.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "44d840b6ec649f480a41c8d80f9c65108b92d89345dd94027bfe06ac444d1060"
-
-[[package]]
-name = "windows_i686_msvc"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e7ac75179f18232fe9c285163565a57ef8d3c89254a30685b57d83a38d326c2"
 
 [[package]]
 name = "windows_x86_64_gnu"
@@ -7087,34 +7012,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8de912b8b8feb55c064867cf047dda097f92d51efad5b491dfb98f6bbb70cb36"
 
 [[package]]
-name = "windows_x86_64_gnu"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c3842cdd74a865a8066ab39c8a7a473c0778a3f29370b5fd6b4b9aa7df4a499"
-
-[[package]]
 name = "windows_x86_64_gnullvm"
 version = "0.42.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26d41b46a36d453748aedef1486d5c7a85db22e56aff34643984ea85514e94a3"
 
 [[package]]
-name = "windows_x86_64_gnullvm"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ffa179e2d07eee8ad8f57493436566c7cc30ac536a3379fdf008f47f6bb7ae1"
-
-[[package]]
 name = "windows_x86_64_msvc"
 version = "0.42.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9aec5da331524158c6d1a4ac0ab1541149c0b9505fde06423b02f5ef0106b9f0"
-
-[[package]]
-name = "windows_x86_64_msvc"
-version = "0.53.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6bbff5f0aada427a1e5a6da5f1f98158182f26556f345ac9e04d36d0ebed650"
 
 [[package]]
 name = "winit"

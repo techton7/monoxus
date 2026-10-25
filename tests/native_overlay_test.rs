@@ -5,7 +5,7 @@
 
 mod common;
 use common::native_fixture::*;
-use keyboard_types::{Code, Key, NamedKey};
+use keyboard_types::{Code, Key};
 
 #[path = "../examples/playground/popover.rs"]
 mod playground_popover;
@@ -73,7 +73,7 @@ fn test_native_popover_floating_and_dismiss() {
 
     focus_node(&mut harness, "#popover-content");
     assert_native_focus_id(&harness, "#popover-content");
-    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+    send_key_and_pump(&mut harness, Key::Escape, Code::Escape);
     std::thread::sleep(std::time::Duration::from_millis(550));
     oxidase::frame::tick(std::time::Duration::from_millis(16));
     harness.pump();
@@ -225,7 +225,7 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
     // Escape key dismissal
     send_key_and_pump(
         &mut dialog_harness,
-        Key::Named(NamedKey::Escape),
+        Key::Escape,
         Code::Escape,
     );
     std::thread::sleep(std::time::Duration::from_millis(550));

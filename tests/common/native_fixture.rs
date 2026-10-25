@@ -70,7 +70,7 @@ pub fn send_key_and_pump_with<D: Document>(
     code: Code,
     modifiers: Modifiers,
 ) {
-    if key == Key::Named(keyboard_types::NamedKey::Escape) {
+    if key == Key::Escape {
         if let Some(doc) = oxidase::dom::Document::current() {
             let active_id = harness
                 .base()
