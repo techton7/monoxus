@@ -9,7 +9,7 @@ use dioxus::prelude::*;
 mod common;
 use common::native_fixture::*;
 use keyboard_types::{Code, Key, Modifiers};
-use monoxus::toast::{toast, ToastOptions, TOAST_STORE};
+use monoxus::toast::{TOAST_STORE, ToastOptions, toast};
 use std::time::Duration;
 
 #[path = "../examples/playground/scenarios/select/mod.rs"]
@@ -46,10 +46,8 @@ fn test_native_select_document_order_and_roving_focus() {
 
     // Interaction 1: Click trigger to open select dropdown
     click_and_pump(&mut harness, "#select-trigger");
-    std::thread::sleep(Duration::from_millis(60));
-    harness.pump();
-    oxidase::frame::tick(Duration::from_millis(16));
-    harness.pump();
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
 
     // Open state assertions: content mounts and has non-empty layout rect
     assert!(
@@ -65,7 +63,10 @@ fn test_native_select_document_order_and_roving_focus() {
     // Initial item highlighted corresponds to pre-selected value "apple"
     let initial_descendant = harness.attr("#select-content", "aria-activedescendant");
     assert!(
-        initial_descendant.as_deref().unwrap_or("").contains("apple"),
+        initial_descendant
+            .as_deref()
+            .unwrap_or("")
+            .contains("apple"),
         "Initial active descendant should be apple, got {initial_descendant:?}"
     );
 
@@ -104,8 +105,7 @@ fn test_native_select_document_order_and_roving_focus() {
     );
 
     // Wait for exit presence animation/transition to unmount content
-    std::thread::sleep(Duration::from_millis(550));
-    harness.pump();
+    advance_frame_and_pump(&mut harness, 0.25);
 
     assert!(
         harness.query("#select-content").is_none(),
@@ -117,10 +117,8 @@ fn test_native_select_document_order_and_roving_focus() {
     // a. Open dropdown on `#select-trigger`, focus `#select-content`.
     // =========================================================================
     click_and_pump(&mut harness, "#select-trigger");
-    std::thread::sleep(Duration::from_millis(60));
-    harness.pump();
-    oxidase::frame::tick(Duration::from_millis(16));
-    harness.pump();
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
 
     assert!(
         harness.query("#select-content").is_some(),
@@ -169,8 +167,7 @@ fn test_native_select_document_order_and_roving_focus() {
         Some("false"),
         "Dropdown should close after Enter commit"
     );
-    std::thread::sleep(Duration::from_millis(550));
-    harness.pump();
+    advance_frame_and_pump(&mut harness, 0.25);
     assert!(
         harness.query("#select-content").is_none(),
         "Content should unmount after committing blueberry"
@@ -248,14 +245,19 @@ fn test_native_toast_swipe_dismiss_gesture() {
     );
     assert_rect_non_empty(&harness, "#monoxus-toast-viewport li");
     assert_eq!(
-        harness.attr("#monoxus-toast-viewport li", "data-state").as_deref(),
+        harness
+            .attr("#monoxus-toast-viewport li", "data-state")
+            .as_deref(),
         Some("open"),
         "Active toast should have data-state='open'"
     );
 
     // d. Query toast layout rect
     let rect = harness.layout_rect("#monoxus-toast-viewport li");
-    assert!(rect.width > 0.0 && rect.height > 0.0, "Toast should have non-empty rect");
+    assert!(
+        rect.width > 0.0 && rect.height > 0.0,
+        "Toast should have non-empty rect"
+    );
 
     // e. Synthesize real pointer drag exceeding 45px swipe threshold:
     harness.mouse_down_at(rect.x + 20.0, rect.y + 20.0);
@@ -264,7 +266,9 @@ fn test_native_toast_swipe_dismiss_gesture() {
 
     // Assert transient attributes:
     assert_eq!(
-        harness.attr("#monoxus-toast-viewport li", "data-swiping").as_deref(),
+        harness
+            .attr("#monoxus-toast-viewport li", "data-swiping")
+            .as_deref(),
         Some("true"),
         "Toast should reflect data-swiping='true' while actively dragging"
     );
@@ -274,19 +278,22 @@ fn test_native_toast_swipe_dismiss_gesture() {
 
     // Assert swipe out attributes:
     assert_eq!(
-        harness.attr("#monoxus-toast-viewport li", "data-swipe-out").as_deref(),
+        harness
+            .attr("#monoxus-toast-viewport li", "data-swipe-out")
+            .as_deref(),
         Some("true"),
         "Toast should reflect data-swipe-out='true' after release exceeding threshold"
     );
     assert_eq!(
-        harness.attr("#monoxus-toast-viewport li", "data-swipe-direction").as_deref(),
+        harness
+            .attr("#monoxus-toast-viewport li", "data-swipe-direction")
+            .as_deref(),
         Some("right"),
         "Toast should reflect data-swipe-direction='right'"
     );
 
-    // Advance unmount delay (200ms) via sleep + pump
-    std::thread::sleep(Duration::from_millis(300));
-    harness.pump();
+    // Advance animation clock past swipe-out exit animation (200ms)
+    advance_frame_and_pump(&mut harness, 0.25);
 
     // Assert toast is unmounted from #monoxus-toast-viewport
     assert!(
@@ -338,17 +345,16 @@ fn test_native_toast_timer_auto_close_lifecycle() {
     );
     assert_rect_non_empty(&harness, "#monoxus-toast-viewport li");
     assert_eq!(
-        harness.attr("#monoxus-toast-viewport li", "data-state").as_deref(),
+        harness
+            .attr("#monoxus-toast-viewport li", "data-state")
+            .as_deref(),
         Some("open"),
         "Timer toast should initially have data-state='open'"
     );
 
-    // d. Advance past duration (150ms) + pump, advance past unmount delay (250ms) + pump
-    std::thread::sleep(Duration::from_millis(150));
-    harness.pump();
-
-    std::thread::sleep(Duration::from_millis(250));
-    harness.pump();
+    // d. Advance virtual frame past timer duration (60ms) and exit transition (350ms)
+    advance_frame_and_pump(&mut harness, 0.1);
+    advance_frame_and_pump(&mut harness, 0.35);
 
     // e. Assert toast is automatically evicted from DOM without any pointer interaction
     assert!(

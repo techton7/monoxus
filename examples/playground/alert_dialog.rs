@@ -4,6 +4,42 @@ use monoxus::alert_dialog::{
     DialogOverlay, DialogPortal, DialogTitle, DialogTrigger,
 };
 
+const ALERT_DIALOG_PLAYGROUND_STYLE: &str = r#"
+@keyframes monoxus-dialog-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes monoxus-dialog-fade-out {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+#alert-dialog-overlay[data-state='open'] {
+    animation: monoxus-dialog-fade-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#alert-dialog-overlay[data-state='closed'] {
+    animation: monoxus-dialog-fade-out 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+#alert-dialog-content[data-state='open'] {
+    animation: monoxus-dialog-fade-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#alert-dialog-content[data-state='closed'] {
+    animation: monoxus-dialog-fade-out 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+"#;
+
 #[component]
 pub fn AlertDialogPlayground() -> Element {
     let open = use_signal(|| false);
@@ -12,6 +48,7 @@ pub fn AlertDialogPlayground() -> Element {
     rsx! {
         div {
             class: "max-w-2xl mx-auto space-y-6",
+            style { "{ALERT_DIALOG_PLAYGROUND_STYLE}" }
 
             // Header Section
             div {

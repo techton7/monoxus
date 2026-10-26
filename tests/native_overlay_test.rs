@@ -5,6 +5,7 @@
 
 mod common;
 use common::native_fixture::*;
+use dioxus::prelude::*;
 use keyboard_types::{Code, Key};
 
 #[path = "../examples/playground/popover.rs"]
@@ -54,8 +55,7 @@ fn test_native_popover_floating_and_dismiss() {
 
     // Dismissal path 1: Click close button
     click_and_pump(&mut harness, "#popover-close");
-    std::thread::sleep(std::time::Duration::from_millis(550));
-    harness.pump();
+    advance_frame_and_pump(&mut harness, 0.35);
 
     assert!(
         harness.query("#popover-content").is_none(),
@@ -74,11 +74,7 @@ fn test_native_popover_floating_and_dismiss() {
     focus_node(&mut harness, "#popover-content");
     assert_native_focus_id(&harness, "#popover-content");
     send_key_and_pump(&mut harness, Key::Escape, Code::Escape);
-    std::thread::sleep(std::time::Duration::from_millis(550));
-    oxidase::frame::tick(std::time::Duration::from_millis(16));
-    harness.pump();
-    harness.tick(0.01);
-    harness.pump();
+    advance_frame_and_pump(&mut harness, 0.35);
 
     assert!(
         harness.query("#popover-content").is_none(),
@@ -96,10 +92,7 @@ fn test_native_popover_floating_and_dismiss() {
 
     // Click outside popover content and anchor/trigger (at page coordinates 5.0, 5.0)
     click_at_and_pump(&mut harness, 5.0, 5.0);
-    std::thread::sleep(std::time::Duration::from_millis(550));
-    oxidase::frame::tick(std::time::Duration::from_millis(16));
-    harness.pump();
-    harness.tick(0.01);
+    advance_frame_and_pump(&mut harness, 0.35);
 
     assert!(
         harness.query("#popover-content").is_none(),
@@ -114,7 +107,17 @@ fn test_native_popover_floating_and_dismiss() {
 #[test]
 fn test_native_tooltip_trigger_and_arrow() {
     let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut harness = mount_native_scenario(playground_tooltip::TooltipPlayground);
+
+    fn tooltip_test_scenario() -> Element {
+        rsx! {
+            playground_tooltip::TooltipPlayground {
+                delay_duration_ms: 0,
+                disable_hoverable_content: true,
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(tooltip_test_scenario);
 
     // Assert trigger mounts #tooltip-trigger with valid bounds
     assert_rect_non_empty(&harness, "#tooltip-trigger");
@@ -123,17 +126,13 @@ fn test_native_tooltip_trigger_and_arrow() {
         "Tooltip content should not be mounted initially"
     );
 
-    // Trigger pointer enter / move on #tooltip-trigger and advance delay
+    // Trigger pointer enter / move on #tooltip-trigger with delay_duration_ms=0
     let (tx, ty) = harness.center_of("#tooltip-trigger");
     harness.move_mouse_to(tx, ty);
-    std::thread::sleep(std::time::Duration::from_millis(600));
-    harness.pump();
-    harness.pump();
-    oxidase::frame::tick(std::time::Duration::from_millis(16));
-    harness.pump();
-    harness.tick(0.01);
-    oxidase::frame::tick(std::time::Duration::from_millis(16));
-    harness.pump();
+    // Pass 1: Trigger hover -> mounts DOM nodes in unpositioned state and registers next_frame()
+    advance_frame_and_pump(&mut harness, 0.02);
+    // Pass 2: next_frame() future resumes -> Floating UI calculates coordinates & arrow layout
+    advance_frame_and_pump(&mut harness, 0.02);
 
     // Assert #tooltip-content and #tooltip-arrow mount with valid bounds
     assert!(
@@ -166,20 +165,10 @@ fn test_native_tooltip_trigger_and_arrow() {
 
     // Interaction 2: Pointer leave dismisses tooltip
     harness.move_mouse_to(0.0, 0.0);
-    // 1. Advance past the 40ms hover transfer grace period so request_close is invoked and effects settle
-    std::thread::sleep(std::time::Duration::from_millis(60));
     harness.pump();
     harness.pump();
-    harness.pump();
-    harness.pump();
-
-    // 2. Advance past the 500ms exit presence animation fallback
-    std::thread::sleep(std::time::Duration::from_millis(600));
-    oxidase::frame::tick(std::time::Duration::from_millis(16));
-    harness.pump();
-    harness.pump();
-    harness.pump();
-    harness.pump();
+    // Advance past the 200ms monoxus-tooltip-content-out exit animation
+    advance_frame_and_pump(&mut harness, 0.25);
 
     assert!(
         harness.query("#tooltip-content").is_none(),
@@ -223,15 +212,8 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
     assert_rect_non_empty(&dialog_harness, "#dialog-content");
 
     // Escape key dismissal
-    send_key_and_pump(
-        &mut dialog_harness,
-        Key::Escape,
-        Code::Escape,
-    );
-    std::thread::sleep(std::time::Duration::from_millis(550));
-    oxidase::frame::tick(std::time::Duration::from_millis(16));
-    dialog_harness.pump();
-    dialog_harness.tick(0.01);
+    send_key_and_pump(&mut dialog_harness, Key::Escape, Code::Escape);
+    advance_frame_and_pump(&mut dialog_harness, 0.25);
 
     assert!(
         dialog_harness.query("#dialog-content").is_none(),
@@ -253,10 +235,7 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
         overlay_rect.x + 5.0,
         overlay_rect.y + 5.0,
     );
-    std::thread::sleep(std::time::Duration::from_millis(550));
-    oxidase::frame::tick(std::time::Duration::from_millis(16));
-    dialog_harness.pump();
-    dialog_harness.tick(0.01);
+    advance_frame_and_pump(&mut dialog_harness, 0.25);
 
     assert!(
         dialog_harness.query("#dialog-content").is_none(),
@@ -272,10 +251,7 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
     );
 
     click_and_pump(&mut dialog_harness, "#dialog-close");
-    std::thread::sleep(std::time::Duration::from_millis(550));
-    oxidase::frame::tick(std::time::Duration::from_millis(16));
-    dialog_harness.pump();
-    dialog_harness.tick(0.01);
+    advance_frame_and_pump(&mut dialog_harness, 0.25);
 
     assert!(
         dialog_harness.query("#dialog-content").is_none(),
@@ -311,8 +287,7 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
         overlay_rect.x + 5.0,
         overlay_rect.y + 5.0,
     );
-    std::thread::sleep(std::time::Duration::from_millis(200));
-    alert_harness.pump();
+    advance_frame_and_pump(&mut alert_harness, 0.1);
 
     assert!(
         alert_harness.query("#alert-dialog-content").is_some(),
@@ -321,10 +296,7 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
 
     // Interaction 2: Click cancel button to dismiss alert dialog
     click_and_pump(&mut alert_harness, "#alert-dialog-cancel");
-    std::thread::sleep(std::time::Duration::from_millis(550));
-    oxidase::frame::tick(std::time::Duration::from_millis(16));
-    alert_harness.pump();
-    alert_harness.tick(0.01);
+    advance_frame_and_pump(&mut alert_harness, 0.25);
 
     assert!(
         alert_harness.query("#alert-dialog-content").is_none(),

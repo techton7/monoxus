@@ -5,8 +5,8 @@ use dioxus::prelude::*;
 #[allow(unused_imports)]
 use crate::foundation::{
     browser::{
-        DocumentDismissEvent, FloatingAutoUpdateEvent, PresenceMonitorEvent,
-        WatcherGuard, restore_focus_element_by_id, scroll_element_into_view_nearest,
+        DocumentDismissEvent, FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard,
+        restore_focus_element_by_id, scroll_element_into_view_nearest,
         start_document_dismiss_monitor, start_floating_auto_update_monitor,
         start_form_reset_monitor, start_presence_monitor,
     },
@@ -23,16 +23,16 @@ use super::{
         SelectContentAttributes, SelectItemAttributes, SelectRootAttributes,
         SelectTriggerAttributes,
     },
-    relationships::SelectRelationships,
     registry::{MountedOptionRegistry, SelectItemRegistration},
+    relationships::SelectRelationships,
     state::Select,
     types::{SelectItemData, SelectMode},
 };
 
 pub use super::monitors::PointerDownOutsideEvent;
 pub(crate) use super::presence::{
-    stop_select_presence_monitor, sync_select_presence, RetainedRootPresenceMonitorState,
-    SelectContentPresenceLane,
+    RetainedRootPresenceMonitorState, SelectContentPresenceLane, stop_select_presence_monitor,
+    sync_select_presence,
 };
 
 pub type SelectValueChangeHandler = Rc<dyn Fn(Option<String>)>;
@@ -621,6 +621,9 @@ impl SelectRuntime {
         let mut open_sig = self.state.open;
         open_sig.set(true);
 
+        let mut tb_sig = self.state.typeahead_buffer;
+        tb_sig.set(String::new());
+
         if let Some(ref cb) = self.on_open_change {
             cb(true);
         }
@@ -640,7 +643,11 @@ impl SelectRuntime {
                     .find(|i| &i.value == v && !i.disabled)
                     .map(|i| i.value.clone())
             })
-            .or_else(|| reg.active_items().find(|i| !i.disabled).map(|i| i.value.clone()))
+            .or_else(|| {
+                reg.active_items()
+                    .find(|i| !i.disabled)
+                    .map(|i| i.value.clone())
+            })
             .or_else(|| {
                 let items = self.state.items.read();
                 current_val
@@ -806,6 +813,9 @@ impl SelectRuntime {
         self.stop_dismiss_monitor();
         self.stop_position_monitor();
 
+        let mut tb_sig = self.state.typeahead_buffer;
+        tb_sig.set(String::new());
+
         let mut placement_sig = self.state.placement;
         placement_sig.set(None);
         let mut readiness_sig = self.state.content_readiness;
@@ -950,13 +960,14 @@ pub const SELECT_RADIX_COMPATIBILITY_PREFIX: &str = "radix-select";
 pub const SELECT_RADIX_ANCHOR_LABEL: &str = "trigger";
 
 pub fn select_content_css_variables(geometry: &GeometryVars) -> Vec<(String, String)> {
-    let mut vars: Vec<(String, String)> = geometry
-        .css_iter()
-        .chain(geometry.compatibility_alias_iter(
-            SELECT_RADIX_COMPATIBILITY_PREFIX,
-            SELECT_RADIX_ANCHOR_LABEL,
-        ))
-        .collect();
+    let mut vars: Vec<(String, String)> =
+        geometry
+            .css_iter()
+            .chain(geometry.compatibility_alias_iter(
+                SELECT_RADIX_COMPATIBILITY_PREFIX,
+                SELECT_RADIX_ANCHOR_LABEL,
+            ))
+            .collect();
 
     vars.push((
         "--bits-select-anchor-width".to_string(),
@@ -993,5 +1004,3 @@ pub fn serialize_css_custom_properties(entries: &[(String, String)]) -> String {
     }
     style
 }
-
-

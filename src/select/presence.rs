@@ -79,6 +79,14 @@ pub(crate) fn start_select_presence_monitor(
             | PresenceMonitorEvent::AnimationCancel {
                 cycle_id: event_cycle,
                 ..
+            }
+            | PresenceMonitorEvent::TransitionEnd {
+                cycle_id: event_cycle,
+                ..
+            }
+            | PresenceMonitorEvent::TransitionCancel {
+                cycle_id: event_cycle,
+                ..
             } => {
                 complete_select_presence_close_cycle(state, event_cycle);
             }

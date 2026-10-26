@@ -229,36 +229,32 @@ pub fn ensure_toast_watcher(viewport_id: &str) {
 
         let config = TOAST_STORE.peek().config.clone();
 
-        if let Some(watcher) = start_toast_browser_monitor(
-            &config,
-            viewport_id,
-            {
-                let v_id = viewport_id.to_string();
-                move |event| match event {
-                    ToastBrowserEvent::Visibility { visible } => {
-                        let should_pause = TOAST_STORE.peek().config.pause_when_page_is_hidden;
-                        crate::toast::hotkey::apply_visibility_change(visible, should_pause);
-                    }
-                    ToastBrowserEvent::Hover { hovered } => {
-                        TOAST_STORE.write().set_hovered(hovered);
-                    }
-                    ToastBrowserEvent::Focus { focused } => {
-                        TOAST_STORE.write().set_focused(focused);
-                    }
-                    ToastBrowserEvent::SwipeActive { swiping } => {
-                        TOAST_STORE.write().set_swiping(swiping);
-                    }
-                    ToastBrowserEvent::SwipeDismiss { id } => {
-                        toast::dismiss(Some(ToastId(id)));
-                    }
-                    ToastBrowserEvent::Hotkey { key } => {
-                        let cfg = TOAST_STORE.peek().config.clone();
-                        crate::toast::hotkey::handle_landmark_keydown(&key, &cfg.hotkey, &v_id);
-                    }
-                    ToastBrowserEvent::Stopped => {}
+        if let Some(watcher) = start_toast_browser_monitor(&config, viewport_id, {
+            let v_id = viewport_id.to_string();
+            move |event| match event {
+                ToastBrowserEvent::Visibility { visible } => {
+                    let should_pause = TOAST_STORE.peek().config.pause_when_page_is_hidden;
+                    crate::toast::hotkey::apply_visibility_change(visible, should_pause);
                 }
-            },
-        ) {
+                ToastBrowserEvent::Hover { hovered } => {
+                    TOAST_STORE.write().set_hovered(hovered);
+                }
+                ToastBrowserEvent::Focus { focused } => {
+                    TOAST_STORE.write().set_focused(focused);
+                }
+                ToastBrowserEvent::SwipeActive { swiping } => {
+                    TOAST_STORE.write().set_swiping(swiping);
+                }
+                ToastBrowserEvent::SwipeDismiss { id } => {
+                    toast::dismiss(Some(ToastId(id)));
+                }
+                ToastBrowserEvent::Hotkey { key } => {
+                    let cfg = TOAST_STORE.peek().config.clone();
+                    crate::toast::hotkey::handle_landmark_keydown(&key, &cfg.hotkey, &v_id);
+                }
+                ToastBrowserEvent::Stopped => {}
+            }
+        }) {
             *slot_ref = Some((viewport_id.to_string(), watcher));
         }
     });
@@ -322,7 +318,14 @@ pub mod toast {
     fn spawn_toast_timer(id: ToastId) {
         spawn_root_task(async move {
             loop {
-                futures_timer::Delay::new(Duration::from_millis(50)).await;
+                // Race virtual frame advance (for native test harnesses / animations)
+                // against wall-clock delay (for headless VirtualDom unit tests).
+                let tick = futures_util::future::select(
+                    Box::pin(oxidase::frame::next_frame()),
+                    Box::pin(futures_timer::Delay::new(Duration::from_millis(25))),
+                )
+                .await;
+
                 let mut store = TOAST_STORE.write();
                 let is_paused = store.paused;
                 let Some(item) = store.toasts.iter_mut().find(|t| t.id == id) else {
@@ -335,10 +338,19 @@ pub mod toast {
                 let mut auto_close_cb = None;
                 if !is_paused {
                     let now = ToastInstant::now();
-                    let elapsed = now.saturating_duration_since(item.last_started_at);
+                    let elapsed = match tick {
+                        futures_util::future::Either::Left((frame, _)) => {
+                            item.last_started_at = now;
+                            frame.delta
+                        }
+                        futures_util::future::Either::Right(((), _)) => {
+                            let el = now.saturating_duration_since(item.last_started_at);
+                            item.last_started_at = now;
+                            el
+                        }
+                    };
                     item.remaining_duration = item.remaining_duration.saturating_sub(elapsed);
-                    item.last_started_at = now;
-                    if item.remaining_duration.is_zero() {
+                    if item.remaining_duration.is_zero() || item.duration.is_zero() {
                         expired = true;
                         auto_close_cb = item.options.on_auto_close;
                     }
@@ -559,4 +571,3 @@ mod tests {
         );
     }
 }
-

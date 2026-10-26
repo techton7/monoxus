@@ -990,6 +990,14 @@ fn start_popover_presence_monitor(
         | PresenceMonitorEvent::AnimationCancel {
             cycle_id: event_cycle,
             ..
+        }
+        | PresenceMonitorEvent::TransitionEnd {
+            cycle_id: event_cycle,
+            ..
+        }
+        | PresenceMonitorEvent::TransitionCancel {
+            cycle_id: event_cycle,
+            ..
         } => {
             complete_popover_presence_close_cycle(state, event_cycle);
         }

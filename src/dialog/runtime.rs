@@ -525,6 +525,14 @@ fn start_dialog_presence_monitor(
             | PresenceMonitorEvent::AnimationCancel {
                 cycle_id: event_cycle,
                 ..
+            }
+            | PresenceMonitorEvent::TransitionEnd {
+                cycle_id: event_cycle,
+                ..
+            }
+            | PresenceMonitorEvent::TransitionCancel {
+                cycle_id: event_cycle,
+                ..
             } => {
                 complete_dialog_presence_close_cycle(
                     presence_lane,

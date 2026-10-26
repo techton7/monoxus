@@ -87,12 +87,13 @@ html, body, main {
 #monoxus-toast-viewport li[data-sonner-toast] {
     --y: translateY(calc(var(--lift, -1) * 14px * var(--toasts-before, 0))) scale(var(--scale, 1));
     transform: var(--y);
-    height: var(--front-toast-height);
+    height: var(--front-toast-height, auto);
 }
 
 #monoxus-toast-viewport li[data-sonner-toast][data-expanded="false"][data-front="true"] {
     --y: translateY(0px) scale(1);
     transform: var(--y);
+    height: auto;
 }
 
 /* Expanded Stack: reveal items with measured offset */

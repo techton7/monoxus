@@ -13,9 +13,14 @@ pub struct ToastComputedStyle {
 impl ToastComputedStyle {
     /// Formats the layout properties into CSS custom properties string.
     pub fn to_style_string(&self) -> String {
+        let height_str = if self.height > 0.0 {
+            format!("--height: {}px; ", self.height)
+        } else {
+            String::new()
+        };
         format!(
-            "--height: {}px; --offset: {}px; --scale: {:.3}; --z-index: {}; --index: {}; --toasts-before: {};",
-            self.height, self.offset, self.scale, self.z_index, self.index, self.index
+            "{height_str}--offset: {}px; --scale: {:.3}; --z-index: {}; --index: {}; --toasts-before: {};",
+            self.offset, self.scale, self.z_index, self.index, self.index
         )
     }
 }
@@ -35,11 +40,7 @@ impl ToastStackLayout {
     /// - Offset accumulates cumulative heights plus gap spacing.
     /// - Scale is locked at `1.0`.
     /// - Z-index descends from front to back (`total - i`).
-    pub fn compute(
-        heights: &[f64],
-        gap: f64,
-        is_expanded: bool,
-    ) -> Vec<ToastComputedStyle> {
+    pub fn compute(heights: &[f64], gap: f64, is_expanded: bool) -> Vec<ToastComputedStyle> {
         let total = heights.len();
         let mut results = Vec::with_capacity(total);
         let mut accumulated_h = 0.0;

@@ -26,6 +26,14 @@ pub(crate) enum PresenceMonitorEvent {
         cycle_id: PresenceCloseCycleId,
         animation_name: String,
     },
+    TransitionEnd {
+        cycle_id: PresenceCloseCycleId,
+        property_name: String,
+    },
+    TransitionCancel {
+        cycle_id: PresenceCloseCycleId,
+        property_name: String,
+    },
     Stopped {
         cycle_id: PresenceCloseCycleId,
     },
@@ -60,6 +68,20 @@ pub(crate) fn start_presence_monitor(
                 } => PresenceMonitorEvent::AnimationCancel {
                     cycle_id: PresenceCloseCycleId::from_raw(cycle_id),
                     animation_name,
+                },
+                oxidase::watcher::PresenceEvent::TransitionEnd {
+                    cycle_id,
+                    property_name,
+                } => PresenceMonitorEvent::TransitionEnd {
+                    cycle_id: PresenceCloseCycleId::from_raw(cycle_id),
+                    property_name,
+                },
+                oxidase::watcher::PresenceEvent::TransitionCancel {
+                    cycle_id,
+                    property_name,
+                } => PresenceMonitorEvent::TransitionCancel {
+                    cycle_id: PresenceCloseCycleId::from_raw(cycle_id),
+                    property_name,
                 },
                 oxidase::watcher::PresenceEvent::Stopped { cycle_id } => {
                     PresenceMonitorEvent::Stopped {

@@ -7,8 +7,8 @@
 
 use blitz_dom::Document;
 use blitz_test_harness::Harness;
-use blitz_traits::events::{BlitzKeyEvent, KeyState, UiEvent};
 use blitz_traits::SmolStr;
+use blitz_traits::events::{BlitzKeyEvent, KeyState, UiEvent};
 use dioxus::prelude::Element;
 use dioxus_native_dom::DioxusDocument;
 use keyboard_types::{Code, Key, Location, Modifiers};
@@ -22,6 +22,19 @@ pub fn mount_native_scenario(app: fn() -> Element) -> Harness<DioxusDocument> {
     oxidase::dom::Document::set_current(Some(native_doc));
     harness.pump();
     harness
+}
+
+/// Advances simulated animation clock by `dt_seconds`, flushes queued native animation and
+/// transition events into the Dioxus VirtualDom, ticks the oxidase frame, and pumps layout.
+pub fn advance_frame_and_pump(harness: &mut Harness<DioxusDocument>, dt_seconds: f64) {
+    let next_time = harness.time() + dt_seconds;
+    if let Some(doc) = oxidase::dom::Document::current() {
+        doc.resolve(next_time);
+    }
+    harness.tick(dt_seconds);
+    harness.doc.flush_animation_events();
+    oxidase::frame::tick(std::time::Duration::from_secs_f64(dt_seconds));
+    harness.pump();
 }
 
 /// Interaction Helper: Clicks the node matching `selector`, then runs `pump()` and `tick(0.01)`.

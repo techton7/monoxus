@@ -2,7 +2,7 @@ use crate::foundation::overlay::Point2D;
 use crate::toast::attrs::ToastRootAttrs;
 use crate::toast::gesture::{SwipeAction, SwipeAxis, SwipeGestureReducer, SwipeReducerConfig};
 use crate::toast::layout::ToastComputedStyle;
-use crate::toast::runtime::{toast, toast_now_ms, TOAST_STORE};
+use crate::toast::runtime::{TOAST_STORE, toast, toast_now_ms};
 use crate::toast::types::{ToastId, ToastPhase, ToastPosition, ToastType};
 use dioxus::prelude::*;
 use std::cell::RefCell;
@@ -13,7 +13,10 @@ fn try_set_pointer_capture(evt: &PointerData) -> bool {
     use wasm_bindgen::JsCast;
     if let Some(web_event) = evt.downcast::<web_sys::PointerEvent>() {
         let pointer_id = web_event.pointer_id();
-        if let Some(target) = web_event.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) {
+        if let Some(target) = web_event
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        {
             return target.set_pointer_capture(pointer_id).is_ok();
         }
     }
@@ -30,7 +33,10 @@ fn try_release_pointer_capture(evt: &PointerData) {
     use wasm_bindgen::JsCast;
     if let Some(web_event) = evt.downcast::<web_sys::PointerEvent>() {
         let pointer_id = web_event.pointer_id();
-        if let Some(target) = web_event.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) {
+        if let Some(target) = web_event
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        {
             let _ = target.release_pointer_capture(pointer_id);
         }
     }
@@ -43,7 +49,10 @@ fn try_release_pointer_capture(_evt: &PointerData) {}
 fn is_button_target(evt: &PointerData) -> bool {
     use wasm_bindgen::JsCast;
     if let Some(web_event) = evt.downcast::<web_sys::PointerEvent>() {
-        if let Some(target) = web_event.target().and_then(|t| t.dyn_into::<web_sys::Element>().ok()) {
+        if let Some(target) = web_event
+            .target()
+            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+        {
             if target.tag_name().eq_ignore_ascii_case("button")
                 || target.closest("button").ok().flatten().is_some()
             {
@@ -107,7 +116,11 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
     let swipe_direction_name = use_signal(|| None::<&'static str>);
 
     let active_reducer = use_hook(|| Rc::new(RefCell::new(None::<SwipeGestureReducer>)));
-    let pointer_stream_guard = use_hook(|| Rc::new(RefCell::new(None::<crate::foundation::browser::DocumentPointerStreamGuard>)));
+    let pointer_stream_guard = use_hook(|| {
+        Rc::new(RefCell::new(
+            None::<crate::foundation::browser::DocumentPointerStreamGuard>,
+        ))
+    });
 
     let onpointerdown = {
         let reducer_cell = active_reducer.clone();
@@ -145,11 +158,11 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
                 let mut sy = swipe_delta_y;
                 let mut swiping_sig = is_swiping_local;
 
-                let guard = crate::foundation::browser::start_document_pointer_stream(move |pt: Point2D| {
-                    let mut cell = reducer_for_stream.borrow_mut();
-                    if let Some(ref mut red) = *cell {
-                        match red.handle_move(pt) {
-                            SwipeAction::Update { delta_x, delta_y } => {
+                let guard = crate::foundation::browser::start_document_pointer_stream(
+                    move |pt: Point2D| {
+                        let mut cell = reducer_for_stream.borrow_mut();
+                        if let Some(ref mut red) = *cell {
+                            if let SwipeAction::Update { delta_x, delta_y } = red.handle_move(pt) {
                                 sx.set(delta_x);
                                 sy.set(delta_y);
                                 if red.is_swiping() {
@@ -157,10 +170,9 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
                                     TOAST_STORE.write().set_swiping(true);
                                 }
                             }
-                            _ => {}
                         }
-                    }
-                });
+                    },
+                );
                 *guard_cell.borrow_mut() = Some(guard);
             }
         }
@@ -177,16 +189,13 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
             if let Some(ref mut red) = *cell {
                 let coords = evt.client_coordinates();
                 let pt = Point2D::new(coords.x, coords.y);
-                match red.handle_move(pt) {
-                    SwipeAction::Update { delta_x, delta_y } => {
-                        sx.set(delta_x);
-                        sy.set(delta_y);
-                        if red.is_swiping() {
-                            swiping_sig.set(true);
-                            TOAST_STORE.write().set_swiping(true);
-                        }
+                if let SwipeAction::Update { delta_x, delta_y } = red.handle_move(pt) {
+                    sx.set(delta_x);
+                    sy.set(delta_y);
+                    if red.is_swiping() {
+                        swiping_sig.set(true);
+                        TOAST_STORE.write().set_swiping(true);
                     }
-                    _ => {}
                 }
             }
         }
@@ -229,10 +238,18 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
                     SwipeAction::Dismiss(id) => {
                         let dir_str = match reducer.axis() {
                             Some(SwipeAxis::X) => {
-                                if reducer.state.delta_x() > 0.0 { "right" } else { "left" }
+                                if reducer.state.delta_x() > 0.0 {
+                                    "right"
+                                } else {
+                                    "left"
+                                }
                             }
                             Some(SwipeAxis::Y) => {
-                                if reducer.state.delta_y() > 0.0 { "down" } else { "up" }
+                                if reducer.state.delta_y() > 0.0 {
+                                    "down"
+                                } else {
+                                    "up"
+                                }
                             }
                             None => "right",
                         };
@@ -264,7 +281,11 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
         inline_style.push(' ');
     }
     if is_swiping_val || sx_val != 0.0 || sy_val != 0.0 {
-        let drag_offset = if sx_val.abs() > sy_val.abs() { sx_val } else { sy_val };
+        let drag_offset = if sx_val.abs() > sy_val.abs() {
+            sx_val
+        } else {
+            sy_val
+        };
         inline_style.push_str(&format!(
             "--swipe-amount-x: {sx_val}px; --swipe-amount-y: {sy_val}px; --drag-offset: {drag_offset}px; "
         ));
@@ -310,6 +331,20 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
             onpointercancel: {
                 let mut end_fn = handle_pointer_end.clone();
                 move |evt: PointerEvent| end_fn(Some(&evt), true)
+            },
+            onanimationend: {
+                let toast_id = props.id;
+                move |_evt: AnimationEvent| {
+                    TOAST_STORE.write().remove_toast(toast_id);
+                }
+            },
+            ontransitionend: {
+                let toast_id = props.id;
+                move |_evt: TransitionEvent| {
+                    if TOAST_STORE.read().toasts.iter().any(|t| t.id == toast_id && t.phase == ToastPhase::Dismissing) {
+                        TOAST_STORE.write().remove_toast(toast_id);
+                    }
+                }
             },
             {props.children}
         }

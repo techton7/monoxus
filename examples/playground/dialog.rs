@@ -4,6 +4,42 @@ use monoxus::dialog::{
     DialogTitle, DialogTrigger,
 };
 
+const DIALOG_PLAYGROUND_STYLE: &str = r#"
+@keyframes monoxus-dialog-fade-in {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes monoxus-dialog-fade-out {
+    from {
+        opacity: 1;
+    }
+    to {
+        opacity: 0;
+    }
+}
+
+#dialog-overlay[data-state='open'] {
+    animation: monoxus-dialog-fade-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#dialog-overlay[data-state='closed'] {
+    animation: monoxus-dialog-fade-out 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+#dialog-content[data-state='open'] {
+    animation: monoxus-dialog-fade-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+#dialog-content[data-state='closed'] {
+    animation: monoxus-dialog-fade-out 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+"#;
+
 #[component]
 pub fn DialogPlayground() -> Element {
     let open = use_signal(|| false);
@@ -11,6 +47,7 @@ pub fn DialogPlayground() -> Element {
     rsx! {
         div {
             class: "max-w-2xl mx-auto space-y-6",
+            style { "{DIALOG_PLAYGROUND_STYLE}" }
 
             // Header Section
             div {

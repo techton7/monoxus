@@ -8,7 +8,7 @@ use monoxus::{
         shared::ScopeHandle,
         state::DataState,
     },
-    tooltip::{Tooltip, TooltipProvider, use_tooltip_provider_runtime, use_tooltip_runtime},
+    tooltip::{use_tooltip_provider_runtime, use_tooltip_runtime, Tooltip, TooltipProvider},
 };
 
 const CARD_STYLE: &str = "display: grid; gap: 1rem; padding: 1.25rem; border-radius: 0.75rem; border: 1px solid #a5f3fc; background-color: white; box-shadow: 0 10px 30px rgba(8, 145, 178, 0.08);";
@@ -72,15 +72,25 @@ const TOOLTIP_PLAYGROUND_CSS: &str = r#"
 }
 "#;
 
+#[derive(Clone, PartialEq, Props)]
+pub struct TooltipPlaygroundProps {
+    #[props(default)]
+    pub delay_duration_ms: Option<u64>,
+    #[props(default)]
+    pub disable_hoverable_content: Option<bool>,
+}
+
 #[component]
-pub fn TooltipPlayground() -> Element {
+pub fn TooltipPlayground(props: TooltipPlaygroundProps) -> Element {
+    let delay = props.delay_duration_ms.unwrap_or(450);
     let first_open = use_signal(|| false);
     let second_open = use_signal(|| false);
     let provider = TooltipProvider::new(ScopeHandle::root("playground").child("tooltip-provider"))
-        .with_delay_duration_ms(450)
+        .with_delay_duration_ms(delay)
         .with_skip_delay_duration_ms(600)
         .with_close_on_trigger_click(true)
-        .with_ignore_non_keyboard_focus(true);
+        .with_ignore_non_keyboard_focus(true)
+        .with_disable_hoverable_content(props.disable_hoverable_content.unwrap_or(false));
     let provider_runtime = use_tooltip_provider_runtime(provider.clone());
     let first = use_tooltip_runtime(
         Tooltip::new(
@@ -156,24 +166,45 @@ pub fn TooltipPlayground() -> Element {
     let (first_wrapper_style, first_ref_hidden_str) = if first_positioning_state == "positioned" {
         if let Some(ref p) = first_placement {
             let w_pos_style = p.wrapper_style(FloatingReadiness::Ready, Some("20"));
-            let ref_hidden = if p.reference_hidden() { "true" } else { "false" };
+            let ref_hidden = if p.reference_hidden() {
+                "true"
+            } else {
+                "false"
+            };
             (w_pos_style, ref_hidden)
         } else {
-            (FloatingReadiness::wrapper_measuring_style(Some("20")), "false")
+            (
+                FloatingReadiness::wrapper_measuring_style(Some("20")),
+                "false",
+            )
         }
     } else {
-        (FloatingReadiness::wrapper_measuring_style(Some("20")), "false")
+        (
+            FloatingReadiness::wrapper_measuring_style(Some("20")),
+            "false",
+        )
     };
-    let (second_wrapper_style, second_ref_hidden_str) = if second_positioning_state == "positioned" {
+    let (second_wrapper_style, second_ref_hidden_str) = if second_positioning_state == "positioned"
+    {
         if let Some(ref p) = second_placement {
             let w_pos_style = p.wrapper_style(FloatingReadiness::Ready, Some("20"));
-            let ref_hidden = if p.reference_hidden() { "true" } else { "false" };
+            let ref_hidden = if p.reference_hidden() {
+                "true"
+            } else {
+                "false"
+            };
             (w_pos_style, ref_hidden)
         } else {
-            (FloatingReadiness::wrapper_measuring_style(Some("20")), "false")
+            (
+                FloatingReadiness::wrapper_measuring_style(Some("20")),
+                "false",
+            )
         }
     } else {
-        (FloatingReadiness::wrapper_measuring_style(Some("20")), "false")
+        (
+            FloatingReadiness::wrapper_measuring_style(Some("20")),
+            "false",
+        )
     };
 
     let first_content_style = tooltip_content_style(

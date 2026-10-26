@@ -1,9 +1,14 @@
+use dioxus::html::{AnimationData, TransitionData};
 use dioxus::prelude::*;
 
-use crate::foundation::shared::ScopeHandle;
+use crate::foundation::{
+    browser::{start_presence_monitor, PresenceMonitorEvent, WatcherGuard},
+    overlay::PresenceController,
+    shared::ScopeHandle,
+};
 
 use super::{
-    runtime::{AccordionRuntime, use_accordion_runtime},
+    runtime::{use_accordion_runtime, AccordionRuntime},
     state::Accordion,
     types::{AccordionDirection, AccordionMode, AccordionOrientation},
 };
@@ -202,6 +207,54 @@ pub fn AccordionContent(
     let item_ctx = use_context::<AccordionItemContext>();
     let attrs = ctx.runtime.content(&item_ctx.value);
 
+    let is_open = ctx.runtime.is_open(&item_ctx.value);
+    let mut presence = use_signal(|| PresenceController::new(is_open).with_retained_mount(true));
+    let mut monitor = use_signal(|| None::<WatcherGuard>);
+
+    use_effect(use_reactive((&is_open,), {
+        let content_id = attrs.id().to_string();
+        move |(open,)| {
+            let update = presence.write().sync(open);
+            if let Some(cycle_id) = update.started_close_cycle() {
+                let watcher =
+                    start_presence_monitor(
+                        content_id.as_str(),
+                        cycle_id,
+                        move |event| match event {
+                            PresenceMonitorEvent::TransitionEnd {
+                                cycle_id: event_cycle,
+                                ..
+                            }
+                            | PresenceMonitorEvent::TransitionCancel {
+                                cycle_id: event_cycle,
+                                ..
+                            }
+                            | PresenceMonitorEvent::AnimationEnd {
+                                cycle_id: event_cycle,
+                                ..
+                            }
+                            | PresenceMonitorEvent::AnimationCancel {
+                                cycle_id: event_cycle,
+                                ..
+                            }
+                            | PresenceMonitorEvent::Fallback {
+                                cycle_id: event_cycle,
+                                ..
+                            } => {
+                                presence.write().complete_close_cycle(event_cycle);
+                            }
+                            _ => {}
+                        },
+                    );
+                monitor.set(Some(watcher));
+            } else if !update.should_render() || update.invalidated_close_cycle().is_some() {
+                monitor.set(None);
+            }
+        }
+    }));
+
+    let hidden = (!presence.read().should_render()).then_some(true);
+
     rsx! {
         div {
             id: "{attrs.id()}",
@@ -209,10 +262,22 @@ pub fn AccordionContent(
             style: style.as_deref().unwrap_or_default(),
             role: "{attrs.role()}",
             "aria-labelledby": "{attrs.aria_labelledby()}",
-            hidden: attrs.is_hidden(),
+            hidden: hidden,
             "data-state": "{attrs.data_state_str()}",
             "data-orientation": "{attrs.data_orientation()}",
             "data-value": "{attrs.data_value()}",
+            ontransitionend: move |_evt: Event<TransitionData>| {
+                let cycle = presence.read().active_close_cycle();
+                if let Some(cycle) = cycle {
+                    presence.write().complete_close_cycle(cycle);
+                }
+            },
+            onanimationend: move |_evt: Event<AnimationData>| {
+                let cycle = presence.read().active_close_cycle();
+                if let Some(cycle) = cycle {
+                    presence.write().complete_close_cycle(cycle);
+                }
+            },
             {children}
         }
     }

@@ -47,6 +47,7 @@ pub fn BasicFruitSelectSection() -> Element {
     let open_state = if is_open() { "Open" } else { "Closed" };
 
     rsx! {
+        style { "{super::shared::SELECT_PLAYGROUND_CSS}" }
         div {
             style: "border: 1px solid #e9d5ff; border-radius: 0.5rem; padding: 1.25rem; background-color: #faf5ff;",
             div {
