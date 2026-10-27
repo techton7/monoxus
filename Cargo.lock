@@ -68,7 +68,6 @@ dependencies = [
 [[package]]
 name = "accesskit_xplat"
 version = "0.2.0"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -437,7 +436,6 @@ dependencies = [
 [[package]]
 name = "blitz-dom"
 version = "0.3.0-beta.4"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "accesskit",
  "anyrender",
@@ -448,7 +446,7 @@ dependencies = [
  "color",
  "cssparser",
  "cursor-icon",
- "debug_timer 0.1.3 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6)",
+ "debug_timer 0.1.3",
  "euclid",
  "html-escape",
  "image",
@@ -482,7 +480,6 @@ dependencies = [
 [[package]]
 name = "blitz-html"
 version = "0.3.0-beta.4"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -493,7 +490,6 @@ dependencies = [
 [[package]]
 name = "blitz-net"
 version = "0.3.0-beta.4"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "blitz-traits",
  "data-url",
@@ -505,7 +501,6 @@ dependencies = [
 [[package]]
 name = "blitz-paint"
 version = "0.3.0-beta.4"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "anyrender",
  "anyrender_svg",
@@ -529,7 +524,6 @@ dependencies = [
 [[package]]
 name = "blitz-shell"
 version = "0.3.0-beta.4"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "accesskit",
  "accesskit_xplat",
@@ -552,7 +546,6 @@ dependencies = [
 [[package]]
 name = "blitz-test-harness"
 version = "0.3.0-beta.4"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "blitz-dom",
  "blitz-html",
@@ -566,7 +559,6 @@ dependencies = [
 [[package]]
 name = "blitz-traits"
 version = "0.3.0-beta.4"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "atomic_refcell",
  "bitflags",
@@ -1111,13 +1103,12 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 
 [[package]]
 name = "derive_more"
@@ -1391,7 +1382,6 @@ dependencies = [
 [[package]]
 name = "dioxus-native"
 version = "0.7.0"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "android-activity",
  "anyrender",
@@ -1415,6 +1405,7 @@ dependencies = [
  "futures-util",
  "keyboard-types 0.7.0",
  "peniko",
+ "percent-encoding",
  "rustc-hash 2.1.3",
  "slotmap",
  "tokio",
@@ -1426,7 +1417,6 @@ dependencies = [
 [[package]]
 name = "dioxus-native-dom"
 version = "0.7.0"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "blitz-dom",
  "blitz-traits",
@@ -5015,7 +5005,6 @@ dependencies = [
 [[package]]
 name = "stylo_taffy"
 version = "0.3.0-beta.4"
-source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.6#b3862adbbe909211f918699c4e56213eb54367cd"
 dependencies = [
  "bitflags",
  "stylo",
@@ -7500,19 +7489,3 @@ checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core",
 ]
-
-[[patch.unused]]
-name = "blitz-host"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "blitz-host-bridge"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "blitz-host-protocol"
-version = "0.2.0"
-
-[[patch.unused]]
-name = "blitz-host-transport"
-version = "0.2.0"
