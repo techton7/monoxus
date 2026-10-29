@@ -387,8 +387,13 @@ impl SelectRuntime {
         if *hl_sig.peek() != val {
             hl_sig.set(val.clone());
             if let Some(ref v) = val {
-                let item_id = self.relationships().item_id(v);
-                scroll_element_into_view_nearest(&item_id);
+                if self.is_open()
+                    && self.content_readiness() == FloatingReadiness::Ready
+                    && self.placement().is_some()
+                {
+                    let item_id = self.relationships().item_id(v);
+                    scroll_element_into_view_nearest(&item_id);
+                }
             }
         }
     }

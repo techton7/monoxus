@@ -177,7 +177,9 @@ fn floating_readiness_exposes_measurement_and_positioning_labels() {
     );
 
     let unpositioned = FloatingReadiness::unpositioned_style();
-    assert!(unpositioned.contains("left: -9999px"));
+    assert!(unpositioned.contains("left: 0px"));
+    assert!(unpositioned.contains("top: 0px"));
+    assert!(unpositioned.contains("width: max-content"));
     assert!(unpositioned.contains("visibility: hidden"));
     assert!(unpositioned.contains("pointer-events: none"));
 

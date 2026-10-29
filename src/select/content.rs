@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    browser::restore_focus_element_by_id,
+    browser::{restore_focus_element_by_id, scroll_element_into_view_nearest},
     overlay::{PlacementAlign, PlacementSide},
 };
 
@@ -76,11 +76,17 @@ pub fn SelectContent(
     }));
 
     let focus_cid = content_id.clone();
+    let scroll_runtime = runtime.clone();
     use_effect(use_reactive((&is_open, &readiness_sig, &placement_sig), {
         let cid = focus_cid.clone();
+        let rt = scroll_runtime.clone();
         move |(open, readiness, placement)| {
             if open && readiness() == crate::foundation::overlay::FloatingReadiness::Ready && placement().is_some() {
                 restore_focus_element_by_id(&cid);
+                if let Some(ref v) = rt.highlighted_value() {
+                    let item_id = rt.relationships().item_id(v);
+                    scroll_element_into_view_nearest(&item_id);
+                }
             }
         }
     }));

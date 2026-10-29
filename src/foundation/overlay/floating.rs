@@ -154,9 +154,9 @@ impl FloatingReadiness {
         matches!(self, Self::Ready)
     }
 
-    /// Standard unpositioned CSS style hiding the element offscreen during initial measurement.
+    /// Standard unpositioned CSS style hiding the element during initial measurement.
     pub const fn unpositioned_style() -> &'static str {
-        "position: fixed; left: -9999px; top: -9999px; visibility: hidden; pointer-events: none;"
+        "position: fixed; left: 0px; top: 0px; width: max-content; visibility: hidden; pointer-events: none;"
     }
 
     /// Returns standard position style given readiness and placement.

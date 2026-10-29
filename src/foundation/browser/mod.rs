@@ -44,10 +44,14 @@ pub(crate) fn start_presence_monitor(
     cycle_id: PresenceCloseCycleId,
     mut on_event: impl FnMut(PresenceMonitorEvent) + 'static,
 ) -> WatcherGuard {
+    let runtime = dioxus::core::Runtime::try_current();
     oxidase::watcher::watch_presence(
         root_id,
         cycle_id.get(),
         move |payload: oxidase::watcher::PresenceEvent| {
+            let _guard = runtime
+                .as_ref()
+                .map(|rt| dioxus::core::RuntimeGuard::new(rt.clone()));
             let event = match payload {
                 oxidase::watcher::PresenceEvent::Fallback { cycle_id, reason } => {
                     PresenceMonitorEvent::Fallback {
@@ -100,10 +104,14 @@ pub(crate) fn start_floating_auto_update_monitor(
     content_id: &str,
     mut on_event: impl FnMut(FloatingAutoUpdateEvent) + 'static,
 ) -> WatcherGuard {
+    let runtime = dioxus::core::Runtime::try_current();
     oxidase::watcher::watch_floating_auto_update(
         anchor_ids,
         content_id,
         move |payload: oxidase::watcher::FloatingAutoUpdateEvent| {
+            let _guard = runtime
+                .as_ref()
+                .map(|rt| dioxus::core::RuntimeGuard::new(rt.clone()));
             let event = match payload {
                 oxidase::watcher::FloatingAutoUpdateEvent::Scroll => {
                     FloatingAutoUpdateEvent::Scroll
@@ -136,9 +144,13 @@ pub(crate) fn start_document_dismiss_monitor_with_boundaries(
     boundaries: &[&str],
     mut on_event: impl FnMut(DocumentDismissEvent) + 'static,
 ) -> WatcherGuard {
+    let runtime = dioxus::core::Runtime::try_current();
     oxidase::watcher::watch_document_dismiss(
         boundaries,
         move |payload: oxidase::watcher::DismissEvent| {
+            let _guard = runtime
+                .as_ref()
+                .map(|rt| dioxus::core::RuntimeGuard::new(rt.clone()));
             let event = match payload {
                 oxidase::watcher::DismissEvent::PointerDown { path_ids } => {
                     DocumentDismissEvent::PointerDown { path_ids }
@@ -436,7 +448,17 @@ pub(crate) fn scroll_element_into_view_nearest(element_id: &str) {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = element_id;
+        if let Some(el) = oxidase::dom::document().element_by_id(element_id) {
+            dioxus::prelude::spawn(async move {
+                let _ = el
+                    .scroll_into_view_with_options(oxidase::dom::ScrollIntoViewOptions {
+                        behavior: oxidase::dom::ScrollBehavior::Instant,
+                        block: oxidase::dom::ScrollLogicalPosition::Nearest,
+                        inline: oxidase::dom::ScrollLogicalPosition::Nearest,
+                    })
+                    .await;
+            });
+        }
     }
 }
 
@@ -646,8 +668,9 @@ pub fn get_element_client_rect(id: &str) -> Option<Rect2D> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = id;
-        None
+        let doc = oxidase::dom::document();
+        let rect = doc.measure_rect(id)?;
+        Some(Rect2D::new(rect.x, rect.y, rect.width, rect.height))
     }
 }
 
