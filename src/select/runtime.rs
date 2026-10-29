@@ -386,14 +386,13 @@ impl SelectRuntime {
         let mut hl_sig = self.state.highlighted_value;
         if *hl_sig.peek() != val {
             hl_sig.set(val.clone());
-            if let Some(ref v) = val {
-                if self.is_open()
-                    && self.content_readiness() == FloatingReadiness::Ready
-                    && self.placement().is_some()
-                {
-                    let item_id = self.relationships().item_id(v);
-                    scroll_element_into_view_nearest(&item_id);
-                }
+            if let Some(ref v) = val
+                && self.is_open()
+                && self.content_readiness() == FloatingReadiness::Ready
+                && self.placement().is_some()
+            {
+                let item_id = self.relationships().item_id(v);
+                scroll_element_into_view_nearest(&item_id);
             }
         }
     }
