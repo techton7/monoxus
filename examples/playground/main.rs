@@ -16,9 +16,27 @@ use pages::{
     TabsPage, ToastPage, TooltipPage,
 };
 
+#[component]
+fn RootApp() -> Element {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        rsx! {
+            blitz_host::BlitzHost {
+                App {}
+            }
+        }
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        rsx! {
+            App {}
+        }
+    }
+}
+
 #[oxidase::main]
 fn main() {
-    dioxus::launch(App);
+    dioxus::launch(RootApp);
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

@@ -452,7 +452,7 @@ pub(crate) fn scroll_element_into_view_nearest(element_id: &str) {
             dioxus::prelude::spawn(async move {
                 let _ = el
                     .scroll_into_view_with_options(oxidase::dom::ScrollIntoViewOptions {
-                        behavior: oxidase::dom::ScrollBehavior::Instant,
+                        behavior: oxidase::dom::ScrollBehavior::Auto,
                         block: oxidase::dom::ScrollLogicalPosition::Nearest,
                         inline: oxidase::dom::ScrollLogicalPosition::Nearest,
                     })

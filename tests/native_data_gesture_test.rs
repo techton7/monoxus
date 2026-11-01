@@ -362,3 +362,114 @@ fn test_native_toast_timer_auto_close_lifecycle() {
         "Timer toast should be automatically evicted after duration expires"
     );
 }
+
+/// Select outside click dismissal lifecycle
+///
+/// Verifies that clicking outside an open Select dropdown triggers outside dismissal:
+/// trigger aria-expanded collapses to "false", exit presence transition runs,
+/// and content unmounts completely from the DOM without panicking.
+#[test]
+fn test_native_select_outside_click_dismissal() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(playground_select::BasicFruitSelectSection);
+
+    // Initial state: trigger collapsed
+    assert_eq!(
+        harness.attr("#select-trigger", "aria-expanded").as_deref(),
+        Some("false"),
+        "Select trigger should initially be collapsed"
+    );
+
+    // Click trigger to open dropdown
+    click_and_pump(&mut harness, "#select-trigger");
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    // Assert open state
+    assert_eq!(
+        harness.attr("#select-trigger", "aria-expanded").as_deref(),
+        Some("true"),
+        "Select trigger should be expanded when open"
+    );
+    assert!(
+        harness.query("#select-content").is_some(),
+        "Select content should mount when open"
+    );
+
+    // Interaction: Click outside dropdown at blank canvas coordinates (500.0, 500.0)
+    click_at_and_pump(&mut harness, 500.0, 500.0);
+
+    // Assert immediate trigger collapse
+    assert_eq!(
+        harness.attr("#select-trigger", "aria-expanded").as_deref(),
+        Some("false"),
+        "Select trigger should collapse immediately on outside click"
+    );
+
+    // Advance frame past exit animation (0.25s)
+    advance_frame_and_pump(&mut harness, 0.25);
+
+    // Assert content is fully unmounted
+    assert!(
+        harness.query("#select-content").is_none(),
+        "Select content should be unmounted after outside click dismissal"
+    );
+}
+
+/// Select Escape keydown dismissal lifecycle
+///
+/// Verifies that pressing Escape while Select is open and focused dismisses the dropdown:
+/// trigger aria-expanded collapses to "false", exit presence transition runs,
+/// and content unmounts completely from the DOM without panicking.
+#[test]
+fn test_native_select_escape_dismissal() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(playground_select::BasicFruitSelectSection);
+
+    // Initial state: trigger collapsed
+    assert_eq!(
+        harness.attr("#select-trigger", "aria-expanded").as_deref(),
+        Some("false"),
+        "Select trigger should initially be collapsed"
+    );
+
+    // Click trigger to open dropdown
+    click_and_pump(&mut harness, "#select-trigger");
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    // Assert open state
+    assert_eq!(
+        harness.attr("#select-trigger", "aria-expanded").as_deref(),
+        Some("true"),
+        "Select trigger should be expanded when open"
+    );
+    assert!(
+        harness.query("#select-content").is_some(),
+        "Select content should mount when open"
+    );
+
+    // Focus content to receive key events
+    focus_node(&mut harness, "#select-content");
+
+    // Send Escape key
+    send_key_and_pump(&mut harness, Key::Escape, Code::Escape);
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    // Assert immediate trigger collapse
+    assert_eq!(
+        harness.attr("#select-trigger", "aria-expanded").as_deref(),
+        Some("false"),
+        "Select trigger should collapse immediately on Escape key"
+    );
+
+    // Advance frame past exit animation (0.25s)
+    advance_frame_and_pump(&mut harness, 0.25);
+
+    // Assert content is fully unmounted
+    assert!(
+        harness.query("#select-content").is_none(),
+        "Select content should be unmounted after Escape dismissal"
+    );
+}
+

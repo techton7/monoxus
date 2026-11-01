@@ -22,3 +22,49 @@ id = "select-content"
 selector = "#select-content"
 part = "content"
 state = "open"
+
+[[scenarios]]
+name = "select-outside-dismiss"
+description = "Verify Select dropdown closes upon outside pointer click"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-select"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#select-trigger"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-select"
+
+[[scenarios.targets]]
+id = "select-trigger"
+selector = "#select-trigger"
+part = "trigger"
+state = "closed"
+
+[[scenarios]]
+name = "select-escape-dismiss"
+description = "Verify Select dropdown closes upon pressing Escape key"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-select"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#select-trigger"
+
+[[scenarios.actions]]
+kind = "key"
+key = "Escape"
+
+[[scenarios.targets]]
+id = "select-trigger"
+selector = "#select-trigger"
+part = "trigger"
+state = "closed"

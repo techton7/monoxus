@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "select-outside-dismiss",
+    "target": "select-trigger",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "closed"
+  },
+  "source_run_id": "run-20261028T113130Z",
+  "baseline_path": "tests/gui/select/baselines/select-outside-dismiss/select-trigger/native/desktop/closed.png",
+  "source_actual_path": "test-results/gui/runs/run-20261028T113130Z/actual/monoxus/select-outside-dismiss/select-trigger/native/desktop/closed.png",
+  "approved_at": "2026-10-28T11:32:00.209118Z"
+}

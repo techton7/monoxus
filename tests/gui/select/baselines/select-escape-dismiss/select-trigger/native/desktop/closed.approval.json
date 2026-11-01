@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "select-escape-dismiss",
+    "target": "select-trigger",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "closed"
+  },
+  "source_run_id": "run-20261028T113138Z",
+  "baseline_path": "tests/gui/select/baselines/select-escape-dismiss/select-trigger/native/desktop/closed.png",
+  "source_actual_path": "test-results/gui/runs/run-20261028T113138Z/actual/monoxus/select-escape-dismiss/select-trigger/native/desktop/closed.png",
+  "approved_at": "2026-10-28T11:32:00.215089Z"
+}

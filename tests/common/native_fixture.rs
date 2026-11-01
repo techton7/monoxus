@@ -19,6 +19,7 @@ use keyboard_types::{Code, Key, Location, Modifiers};
 pub fn mount_native_scenario(app: fn() -> Element) -> Harness<DioxusDocument> {
     let mut harness = Harness::from_component(app);
     let native_doc = oxidase::dom::Document::from_base(harness.doc.inner.clone());
+    native_doc.attach_engine_bridges();
     oxidase::dom::Document::set_current(Some(native_doc));
     harness.pump();
     harness
@@ -39,11 +40,6 @@ pub fn advance_frame_and_pump(harness: &mut Harness<DioxusDocument>, dt_seconds:
 
 /// Interaction Helper: Clicks the node matching `selector`, then runs `pump()` and `tick(0.01)`.
 pub fn click_and_pump<D: Document>(harness: &mut Harness<D>, selector: &str) {
-    if let Some(nid) = harness.query(selector) {
-        if let Some(doc) = oxidase::dom::Document::current() {
-            doc.dispatch_capture_event(oxidase::dom::observer::CaptureEventKind::PointerDown, nid);
-        }
-    }
     harness.click(selector);
     harness.pump();
     oxidase::frame::tick(std::time::Duration::from_millis(16));
@@ -53,17 +49,6 @@ pub fn click_and_pump<D: Document>(harness: &mut Harness<D>, selector: &str) {
 
 /// Interaction Helper: Clicks at page coordinates `(x, y)`, dispatching capture event and then pumping layout.
 pub fn click_at_and_pump<D: Document>(harness: &mut Harness<D>, x: f32, y: f32) {
-    let node_id = harness
-        .base()
-        .hit(x, y)
-        .map(|h| h.node_id)
-        .unwrap_or_else(|| harness.base().root_node().id);
-    if let Some(doc) = oxidase::dom::Document::current() {
-        doc.dispatch_capture_event(
-            oxidase::dom::observer::CaptureEventKind::PointerDown,
-            node_id,
-        );
-    }
     harness.click_at(x, y);
     harness.pump();
     oxidase::frame::tick(std::time::Duration::from_millis(16));
@@ -83,21 +68,6 @@ pub fn send_key_and_pump_with<D: Document>(
     code: Code,
     modifiers: Modifiers,
 ) {
-    if key == Key::Escape {
-        if let Some(doc) = oxidase::dom::Document::current() {
-            let active_id = harness
-                .base()
-                .active_focus_node_id()
-                .unwrap_or_else(|| harness.base().root_node().id);
-            doc.dispatch_capture_event(
-                oxidase::dom::observer::CaptureEventKind::KeyDown {
-                    key: "Escape".into(),
-                },
-                active_id,
-            );
-        }
-    }
-
     let text = match (&key, KeyState::Pressed) {
         (Key::Character(t), KeyState::Pressed) => Some(SmolStr::new(t)),
         _ => None,
