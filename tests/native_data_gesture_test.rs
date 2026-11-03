@@ -473,3 +473,78 @@ fn test_native_select_escape_dismissal() {
     );
 }
 
+/// Test 6: Select wheel scroll alignment in scrollable container
+///
+/// Verifies Invariant A & Invariant D:
+/// When Select is open inside a scrollable container and mouse wheel scroll is dispatched,
+/// the floating position monitor recalculates placement via the synchronous fast-path,
+/// keeping SelectContent anchored to SelectTrigger with side_offset (4.0px) preserved.
+#[test]
+fn test_native_select_wheel_scroll_alignment() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    #[component]
+    fn ScrollTestContainer() -> Element {
+        rsx! {
+            div {
+                id: "scroll-container",
+                style: "width: 500px; height: 350px; overflow-y: auto; padding: 20px;",
+                div {
+                    style: "height: 80px;",
+                    "Top spacer"
+                }
+                playground_select::BasicFruitSelectSection {}
+                div {
+                    style: "height: 800px;",
+                    "Bottom spacer"
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(ScrollTestContainer);
+
+    // Initial state: trigger collapsed
+    assert_eq!(
+        harness.attr("#select-trigger", "aria-expanded").as_deref(),
+        Some("false"),
+        "Select trigger should initially be collapsed"
+    );
+
+    // Click trigger to open dropdown
+    click_and_pump(&mut harness, "#select-trigger");
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    assert_eq!(
+        harness.attr("#select-trigger", "aria-expanded").as_deref(),
+        Some("true"),
+        "Select trigger should be expanded"
+    );
+    assert!(
+        harness.query("#select-content").is_some(),
+        "Select content should be mounted"
+    );
+
+    let initial_trigger_rect = harness.layout_rect("#select-trigger");
+    let initial_content_rect = harness.layout_rect("#select-content");
+    let initial_gap = initial_content_rect.y - (initial_trigger_rect.y + initial_trigger_rect.height);
+    assert!(
+        (initial_gap - 4.0).abs() <= 1.0,
+        "Initial gap between trigger bottom and content top should be ~4.0px, got {initial_gap}"
+    );
+
+    // Dispatch mouse wheel scroll down by 50px on the scroll container
+    wheel_at_and_pump(&mut harness, 200.0, 150.0, 0.0, -50.0);
+
+    // Re-verify layout rects after scroll
+    let scrolled_trigger_rect = harness.layout_rect("#select-trigger");
+    let scrolled_content_rect = harness.layout_rect("#select-content");
+    let scrolled_gap = scrolled_content_rect.y - (scrolled_trigger_rect.y + scrolled_trigger_rect.height);
+    assert!(
+        (scrolled_gap - 4.0).abs() <= 1.0,
+        "Scrolled gap between trigger bottom and content top should remain ~4.0px, got {scrolled_gap}"
+    );
+}
+
+

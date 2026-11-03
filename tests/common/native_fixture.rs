@@ -103,6 +103,22 @@ pub fn send_key_and_pump_with<D: Document>(
     harness.tick(0.01);
 }
 
+/// Interaction Helper: Scrolls with the mouse wheel at page coordinates `(x, y)` by `(delta_x, delta_y)`,
+/// ticks the frame clock for 16ms to execute coalesced trailing frame callbacks, and pumps layout.
+pub fn wheel_at_and_pump<D: Document>(
+    harness: &mut Harness<D>,
+    x: f32,
+    y: f32,
+    delta_x: f64,
+    delta_y: f64,
+) {
+    harness.wheel_at(x, y, delta_x, delta_y);
+    harness.pump();
+    oxidase::frame::tick(std::time::Duration::from_millis(16));
+    harness.pump();
+    harness.tick(0.01);
+}
+
 /// Sets native focus to the element matching `selector` and pumps the harness.
 pub fn focus_node<D: Document>(harness: &mut Harness<D>, selector: &str) {
     let node_id = harness.node(selector);

@@ -717,6 +717,9 @@ fn sync_popover_positioning(popover: &Popover, state: PopoverRuntimeState) {
         ],
         popover.relationships().content_id(),
         move |event| {
+            if try_measure_popover_placement_sync(&popover_clone, state) {
+                return;
+            }
             let popover = popover_clone.clone();
             crate::foundation::browser::spawn_root_task(async move {
                 if event == FloatingAutoUpdateEvent::Scroll {
@@ -743,15 +746,62 @@ fn sync_popover_positioning(popover: &Popover, state: PopoverRuntimeState) {
     let mut position_monitor = state.position_monitor;
     position_monitor.set(Some(watcher));
 
-    let popover = popover.clone();
-    crate::foundation::browser::spawn_root_task(async move {
-        if let Err(error) = measure_popover_placement(&popover, state).await {
-            eprintln!(
-                "monoxus popover runtime could not measure placement for {}: {error}",
-                popover.relationships().root_id(),
-            );
+    if !try_measure_popover_placement_sync(popover, state) {
+        let popover = popover.clone();
+        crate::foundation::browser::spawn_root_task(async move {
+            if let Err(error) = measure_popover_placement(&popover, state).await {
+                eprintln!(
+                    "monoxus popover runtime could not measure placement for {}: {error}",
+                    popover.relationships().root_id(),
+                );
+            }
+        });
+    }
+}
+
+fn try_measure_popover_placement_sync(
+    popover: &Popover,
+    state: PopoverRuntimeState,
+) -> bool {
+    let anchor_id = if state.anchor_handle.with_peek(|handle| handle.is_some()) {
+        popover.relationships().anchor_id()
+    } else {
+        popover.relationships().trigger_id()
+    };
+    let content_id = popover.relationships().content_id();
+    let arrow_id = Some(popover.relationships().arrow_id());
+
+    let floating = popover.lifecycle().floating();
+    let config = OverlayPositionConfig {
+        anchor_id,
+        content_id,
+        arrow_id,
+        boundary_id: None,
+        side: floating.side(),
+        align: floating.align(),
+        side_offset: floating.side_offset(),
+        align_offset: floating.align_offset(),
+        avoid_collisions: true,
+        collision_padding: 0.0,
+        arrow_padding: 0.0,
+        hide_when_detached: floating.hide_when_detached(),
+        sticky: false,
+        namespace: Some("popover"),
+    };
+
+    if let Some(placement) = compute_overlay_position(&config) {
+        let should_update = state
+            .placement
+            .with_peek(|current| current.as_ref() != Some(&placement));
+        if should_update {
+            let mut current = state.placement;
+            current.set(Some(placement));
         }
-    });
+        set_popover_content_readiness(state, FloatingReadiness::Ready);
+        true
+    } else {
+        false
+    }
 }
 
 fn stop_popover_position_monitor(state: PopoverRuntimeState) {
@@ -800,41 +850,7 @@ async fn measure_popover_placement(
     popover: &Popover,
     state: PopoverRuntimeState,
 ) -> Result<(), String> {
-    let anchor_id = if state.anchor_handle.with_peek(|handle| handle.is_some()) {
-        popover.relationships().anchor_id()
-    } else {
-        popover.relationships().trigger_id()
-    };
-    let content_id = popover.relationships().content_id();
-    let arrow_id = Some(popover.relationships().arrow_id());
-
-    let floating = popover.lifecycle().floating();
-    let config = OverlayPositionConfig {
-        anchor_id,
-        content_id,
-        arrow_id,
-        boundary_id: None,
-        side: floating.side(),
-        align: floating.align(),
-        side_offset: floating.side_offset(),
-        align_offset: floating.align_offset(),
-        avoid_collisions: true,
-        collision_padding: 0.0,
-        arrow_padding: 0.0,
-        hide_when_detached: floating.hide_when_detached(),
-        sticky: false,
-        namespace: Some("popover"),
-    };
-
-    if let Some(placement) = compute_overlay_position(&config) {
-        let should_update = state
-            .placement
-            .with_peek(|current| current.as_ref() != Some(&placement));
-        if should_update {
-            let mut current = state.placement;
-            current.set(Some(placement));
-        }
-        set_popover_content_readiness(state, FloatingReadiness::Ready);
+    if try_measure_popover_placement_sync(popover, state) {
         return Ok(());
     }
 

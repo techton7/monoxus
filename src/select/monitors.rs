@@ -140,10 +140,12 @@ impl SelectRuntime {
         let runtime = self.clone();
         let watcher =
             start_floating_auto_update_monitor(&[&trigger_id], &content_id, move |_event| {
-                let runtime = runtime.clone();
-                crate::foundation::browser::spawn_root_task(async move {
-                    runtime.recalculate_floating_position().await;
-                });
+                if !runtime.recalculate_floating_position_sync() {
+                    let runtime = runtime.clone();
+                    crate::foundation::browser::spawn_root_task(async move {
+                        runtime.recalculate_floating_position().await;
+                    });
+                }
             });
 
         let mut monitor_sig = self.state.position_monitor;
@@ -155,7 +157,7 @@ impl SelectRuntime {
         pm_sig.set(None);
     }
 
-    pub async fn recalculate_floating_position(&self) {
+    pub fn recalculate_floating_position_sync(&self) -> bool {
         let trigger_id = self.relationships().trigger_id();
         let content_id = self.relationships().content_id();
         let boundary_id = self.collision_boundary();
@@ -179,9 +181,7 @@ impl SelectRuntime {
             namespace: Some("select"),
         };
 
-        let computed_opt = compute_overlay_position(&config);
-
-        if let Some(computed) = computed_opt {
+        if let Some(computed) = compute_overlay_position(&config) {
             let mut side_sig = self.state.side;
             if *side_sig.peek() != computed.side() {
                 side_sig.set(computed.side());
@@ -196,10 +196,20 @@ impl SelectRuntime {
             placement_sig.set(Some(computed));
             let mut readiness_sig = self.state.content_readiness;
             readiness_sig.set(FloatingReadiness::Ready);
+            true
         } else {
-            let trigger_handle_opt = self.state.trigger_handle.with_peek(|h| h.clone());
-            let content_handle_opt = self.state.content_handle.with_peek(|h| h.clone());
-            if let (Some(th), Some(ch)) = (trigger_handle_opt, content_handle_opt) {
+            false
+        }
+    }
+
+    pub async fn recalculate_floating_position(&self) {
+        if self.recalculate_floating_position_sync() {
+            return;
+        }
+
+        let trigger_handle_opt = self.state.trigger_handle.with_peek(|h| h.clone());
+        let content_handle_opt = self.state.content_handle.with_peek(|h| h.clone());
+        if let (Some(th), Some(ch)) = (trigger_handle_opt, content_handle_opt) {
                 if let (Ok(tr_rect), Ok(co_rect)) =
                     (th.get_client_rect().await, ch.get_client_rect().await)
                 {
@@ -258,7 +268,6 @@ impl SelectRuntime {
                 }
             }
         }
-    }
 
     pub fn start_form_reset_monitor(&self) {
         self.stop_form_reset_monitor();

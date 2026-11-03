@@ -105,13 +105,11 @@ pub(crate) fn start_floating_auto_update_monitor(
     mut on_event: impl FnMut(FloatingAutoUpdateEvent) + 'static,
 ) -> WatcherGuard {
     let runtime = dioxus::core::Runtime::try_current();
+    let scope_id = runtime.as_ref().and_then(|rt| rt.try_current_scope_id());
     oxidase::watcher::watch_floating_auto_update(
         anchor_ids,
         content_id,
         move |payload: oxidase::watcher::FloatingAutoUpdateEvent| {
-            let _guard = runtime
-                .as_ref()
-                .map(|rt| dioxus::core::RuntimeGuard::new(rt.clone()));
             let event = match payload {
                 oxidase::watcher::FloatingAutoUpdateEvent::Scroll => {
                     FloatingAutoUpdateEvent::Scroll
@@ -120,7 +118,12 @@ pub(crate) fn start_floating_auto_update_monitor(
                     FloatingAutoUpdateEvent::Update
                 }
             };
-            on_event(event);
+            if let Some(rt) = &runtime {
+                let scope = scope_id.unwrap_or(dioxus::core::ScopeId::ROOT);
+                rt.in_scope(scope, || on_event(event));
+            } else {
+                on_event(event);
+            }
         },
     )
     .unwrap_or_else(|_| WatcherGuard::noop())
