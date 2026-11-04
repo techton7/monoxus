@@ -790,6 +790,14 @@ fn try_measure_popover_placement_sync(
     };
 
     if let Some(placement) = compute_overlay_position(&config) {
+        let geom = placement.geometry();
+        let is_ready = geom.content_width() > 0.0 && geom.content_height() > 0.0;
+        if is_ready {
+            set_popover_content_readiness(state, FloatingReadiness::Ready);
+        } else {
+            set_popover_content_readiness(state, FloatingReadiness::Measuring);
+        }
+
         let should_update = state
             .placement
             .with_peek(|current| current.as_ref() != Some(&placement));
@@ -797,8 +805,7 @@ fn try_measure_popover_placement_sync(
             let mut current = state.placement;
             current.set(Some(placement));
         }
-        set_popover_content_readiness(state, FloatingReadiness::Ready);
-        true
+        is_ready
     } else {
         false
     }
@@ -881,6 +888,13 @@ async fn measure_popover_placement(
             .position(anchor_rect, content_size)
     };
 
+    let geom = placement.geometry();
+    if geom.content_width() > 0.0 && geom.content_height() > 0.0 {
+        set_popover_content_readiness(state, FloatingReadiness::Ready);
+    } else {
+        set_popover_content_readiness(state, FloatingReadiness::Measuring);
+    }
+
     let should_update = state
         .placement
         .with_peek(|current| current.as_ref() != Some(&placement));
@@ -888,7 +902,6 @@ async fn measure_popover_placement(
         let mut current = state.placement;
         current.set(Some(placement));
     }
-    set_popover_content_readiness(state, FloatingReadiness::Ready);
 
     Ok(())
 }
@@ -1164,5 +1177,23 @@ mod tests {
         assert!(serialized.contains("--monoxus-popover-floating-x: 24px;"));
         assert!(serialized.contains("--radix-popover-content-transform-origin: 26px 0px;"));
         assert!(serialized.contains("--radix-popover-trigger-height: 16px;"));
+    }
+
+    #[test]
+    fn popover_readiness_guard_requires_positive_content_dimensions() {
+        let zero_geom = GeometryVars::new(
+            "popover", 0.0, 0.0, 0.0, 0.0, 100.0, 100.0, 50.0, 20.0, 0.0, 0.0,
+        );
+        assert!(!(zero_geom.content_width() > 0.0 && zero_geom.content_height() > 0.0));
+
+        let zero_height_geom = GeometryVars::new(
+            "popover", 0.0, 0.0, 0.0, 0.0, 100.0, 100.0, 50.0, 20.0, 100.0, 0.0,
+        );
+        assert!(!(zero_height_geom.content_width() > 0.0 && zero_height_geom.content_height() > 0.0));
+
+        let non_zero_geom = GeometryVars::new(
+            "popover", 0.0, 0.0, 0.0, 0.0, 100.0, 100.0, 50.0, 20.0, 100.0, 50.0,
+        );
+        assert!(non_zero_geom.content_width() > 0.0 && non_zero_geom.content_height() > 0.0);
     }
 }

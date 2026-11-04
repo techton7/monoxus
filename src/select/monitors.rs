@@ -192,11 +192,18 @@ impl SelectRuntime {
             }
             self.set_reference_hidden(computed.reference_hidden());
 
+            let geom = computed.geometry();
+            let is_ready = geom.content_width() > 0.0 && geom.content_height() > 0.0;
+            let mut readiness_sig = self.state.content_readiness;
+            if is_ready {
+                readiness_sig.set(FloatingReadiness::Ready);
+            } else {
+                readiness_sig.set(FloatingReadiness::Measuring);
+            }
+
             let mut placement_sig = self.state.placement;
             placement_sig.set(Some(computed));
-            let mut readiness_sig = self.state.content_readiness;
-            readiness_sig.set(FloatingReadiness::Ready);
-            true
+            is_ready
         } else {
             false
         }
@@ -261,10 +268,16 @@ impl SelectRuntime {
                     }
                     self.set_reference_hidden(placement.reference_hidden());
 
+                    let geom = placement.geometry();
+                    let mut readiness_sig = self.state.content_readiness;
+                    if geom.content_width() > 0.0 && geom.content_height() > 0.0 {
+                        readiness_sig.set(FloatingReadiness::Ready);
+                    } else {
+                        readiness_sig.set(FloatingReadiness::Measuring);
+                    }
+
                     let mut placement_sig = self.state.placement;
                     placement_sig.set(Some(placement));
-                    let mut readiness_sig = self.state.content_readiness;
-                    readiness_sig.set(FloatingReadiness::Ready);
                 }
             }
         }

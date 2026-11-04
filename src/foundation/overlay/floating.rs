@@ -156,7 +156,7 @@ impl FloatingReadiness {
 
     /// Standard unpositioned CSS style hiding the element during initial measurement.
     pub const fn unpositioned_style() -> &'static str {
-        "position: fixed; left: 0px; top: 0px; width: max-content; visibility: hidden; pointer-events: none;"
+        "position: fixed; left: 0px; top: 0px; min-width: max-content; width: max-content; visibility: hidden; pointer-events: none;"
     }
 
     /// Returns standard position style given readiness and placement.
@@ -177,7 +177,7 @@ impl FloatingReadiness {
     /// Canonical outer wrapper style during measurement before coordinates are locked.
     pub fn wrapper_measuring_style(z_index: Option<&str>) -> String {
         let z = z_index.map(|v| format!(" z-index: {v};")).unwrap_or_default();
-        format!("{} min-width: max-content;{}", Self::unpositioned_style(), z)
+        format!("{}{}", Self::unpositioned_style(), z)
     }
 }
 
@@ -279,7 +279,12 @@ impl FloatingPlacement {
         } else {
             ""
         };
-        format!("{base} min-width: max-content;{z}{ref_hidden}")
+        let min_w = if base.contains("min-width: max-content;") {
+            ""
+        } else {
+            " min-width: max-content;"
+        };
+        format!("{base}{min_w}{z}{ref_hidden}")
     }
 }
 
