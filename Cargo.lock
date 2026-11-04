@@ -68,6 +68,19 @@ dependencies = [
 [[package]]
 name = "accesskit_xplat"
 version = "0.2.0"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
+dependencies = [
+ "accesskit",
+ "accesskit_macos",
+ "accesskit_windows",
+ "android-activity",
+ "raw-window-handle",
+]
+
+[[package]]
+name = "accesskit_xplat"
+version = "0.2.0"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9#60fcbe7f135f0fc4452544da9b3de337b41619eb"
 dependencies = [
  "accesskit",
  "accesskit_macos",
@@ -441,18 +454,19 @@ dependencies = [
 
 [[package]]
 name = "blitz-dom"
-version = "0.3.0-beta.4"
+version = "0.3.0-beta.2"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
 dependencies = [
  "accesskit",
  "anyrender",
  "app_units",
  "atomic_refcell",
  "bitflags 2.13.1",
- "blitz-traits",
+ "blitz-traits 0.3.0-beta.2",
  "color",
  "cssparser",
  "cursor-icon",
- "debug_timer 0.1.3",
+ "debug_timer 0.1.3 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
  "euclid",
  "html-escape",
  "image",
@@ -471,7 +485,52 @@ dependencies = [
  "stylo",
  "stylo_dom",
  "stylo_static_prefs",
- "stylo_taffy",
+ "stylo_taffy 0.3.0-beta.2",
+ "stylo_traits",
+ "svgtypes",
+ "taffy",
+ "thin-vec",
+ "thread_local",
+ "url",
+ "usvg",
+ "web-time",
+ "wuff",
+]
+
+[[package]]
+name = "blitz-dom"
+version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9#60fcbe7f135f0fc4452544da9b3de337b41619eb"
+dependencies = [
+ "accesskit",
+ "anyrender",
+ "app_units",
+ "atomic_refcell",
+ "bitflags 2.13.1",
+ "blitz-traits 0.3.0-beta.4",
+ "color",
+ "cssparser",
+ "cursor-icon",
+ "debug_timer 0.1.3 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9)",
+ "euclid",
+ "html-escape",
+ "image",
+ "keyboard-types 0.7.0",
+ "kurbo",
+ "linebender_resource_handle",
+ "markup5ever",
+ "objc2 0.6.5",
+ "parley",
+ "percent-encoding",
+ "rayon",
+ "selectors",
+ "skrifa",
+ "slotmap",
+ "smallvec",
+ "stylo",
+ "stylo_dom",
+ "stylo_static_prefs",
+ "stylo_taffy 0.3.0-beta.4",
  "stylo_traits",
  "svgtypes",
  "taffy",
@@ -486,15 +545,14 @@ dependencies = [
 [[package]]
 name = "blitz-host"
 version = "0.2.0"
+source = "git+https://github.com/techton7/blitz-host.git?tag=blitz-host-v0.2.0#8f7d96763ccd946385445bc32e9b5d9a6c3f9a67"
 dependencies = [
- "blitz-dom",
+ "blitz-dom 0.3.0-beta.2",
  "blitz-host-bridge",
  "blitz-host-protocol",
  "blitz-host-transport",
- "blitz-traits",
  "dioxus",
- "dioxus-core",
- "dioxus-native",
+ "dioxus-native 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
  "keyboard-types 0.7.0",
  "serde",
  "serde_json",
@@ -503,13 +561,14 @@ dependencies = [
 [[package]]
 name = "blitz-host-bridge"
 version = "0.2.0"
+source = "git+https://github.com/techton7/blitz-host.git?tag=blitz-host-v0.2.0#8f7d96763ccd946385445bc32e9b5d9a6c3f9a67"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
- "blitz-dom",
+ "blitz-dom 0.3.0-beta.2",
  "blitz-host-protocol",
  "blitz-host-transport",
- "blitz-paint",
+ "blitz-paint 0.3.0-beta.2",
  "peniko",
  "png 0.17.16",
 ]
@@ -517,6 +576,7 @@ dependencies = [
 [[package]]
 name = "blitz-host-protocol"
 version = "0.2.0"
+source = "git+https://github.com/techton7/blitz-host.git?tag=blitz-host-v0.2.0#8f7d96763ccd946385445bc32e9b5d9a6c3f9a67"
 dependencies = [
  "serde",
  "serde_json",
@@ -525,6 +585,7 @@ dependencies = [
 [[package]]
 name = "blitz-host-transport"
 version = "0.2.0"
+source = "git+https://github.com/techton7/blitz-host.git?tag=blitz-host-v0.2.0#8f7d96763ccd946385445bc32e9b5d9a6c3f9a67"
 dependencies = [
  "blitz-host-protocol",
  "interprocess",
@@ -536,19 +597,44 @@ dependencies = [
 
 [[package]]
 name = "blitz-html"
-version = "0.3.0-beta.4"
+version = "0.3.0-beta.2"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
 dependencies = [
- "blitz-dom",
- "blitz-traits",
+ "blitz-dom 0.3.0-beta.2",
+ "blitz-traits 0.3.0-beta.2",
+ "html5ever",
+ "xml5ever",
+]
+
+[[package]]
+name = "blitz-html"
+version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9#60fcbe7f135f0fc4452544da9b3de337b41619eb"
+dependencies = [
+ "blitz-dom 0.3.0-beta.4",
+ "blitz-traits 0.3.0-beta.4",
  "html5ever",
  "xml5ever",
 ]
 
 [[package]]
 name = "blitz-net"
-version = "0.3.0-beta.4"
+version = "0.3.0-beta.2"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
 dependencies = [
- "blitz-traits",
+ "blitz-traits 0.3.0-beta.2",
+ "data-url",
+ "reqwest",
+ "tokio",
+ "wasm-bindgen-futures",
+]
+
+[[package]]
+name = "blitz-net"
+version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9#60fcbe7f135f0fc4452544da9b3de337b41619eb"
+dependencies = [
+ "blitz-traits 0.3.0-beta.4",
  "data-url",
  "reqwest",
  "tokio",
@@ -557,12 +643,35 @@ dependencies = [
 
 [[package]]
 name = "blitz-paint"
-version = "0.3.0-beta.4"
+version = "0.3.0-beta.2"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
 dependencies = [
  "anyrender",
  "anyrender_svg",
- "blitz-dom",
- "blitz-traits",
+ "blitz-dom 0.3.0-beta.2",
+ "blitz-traits 0.3.0-beta.2",
+ "bytemuck",
+ "color",
+ "euclid",
+ "kurbo",
+ "parley",
+ "peniko",
+ "skrifa",
+ "smallvec",
+ "stylo",
+ "taffy",
+ "usvg",
+]
+
+[[package]]
+name = "blitz-paint"
+version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9#60fcbe7f135f0fc4452544da9b3de337b41619eb"
+dependencies = [
+ "anyrender",
+ "anyrender_svg",
+ "blitz-dom 0.3.0-beta.4",
+ "blitz-traits 0.3.0-beta.4",
  "bytemuck",
  "color",
  "euclid",
@@ -580,17 +689,41 @@ dependencies = [
 
 [[package]]
 name = "blitz-shell"
-version = "0.3.0-beta.4"
+version = "0.3.0-beta.2"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
 dependencies = [
  "accesskit",
- "accesskit_xplat",
+ "accesskit_xplat 0.2.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
  "android-activity",
  "anyrender",
  "arboard",
  "atomic_refcell",
- "blitz-dom",
- "blitz-paint",
- "blitz-traits",
+ "blitz-dom 0.3.0-beta.2",
+ "blitz-paint 0.3.0-beta.2",
+ "blitz-traits 0.3.0-beta.2",
+ "futures-util",
+ "keyboard-types 0.7.0",
+ "rfd",
+ "wasm-bindgen",
+ "web-sys",
+ "web-time",
+ "winit",
+]
+
+[[package]]
+name = "blitz-shell"
+version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9#60fcbe7f135f0fc4452544da9b3de337b41619eb"
+dependencies = [
+ "accesskit",
+ "accesskit_xplat 0.2.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9)",
+ "android-activity",
+ "anyrender",
+ "arboard",
+ "atomic_refcell",
+ "blitz-dom 0.3.0-beta.4",
+ "blitz-paint 0.3.0-beta.4",
+ "blitz-traits 0.3.0-beta.4",
  "futures-util",
  "keyboard-types 0.7.0",
  "rfd",
@@ -603,19 +736,37 @@ dependencies = [
 [[package]]
 name = "blitz-test-harness"
 version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9#60fcbe7f135f0fc4452544da9b3de337b41619eb"
 dependencies = [
- "blitz-dom",
- "blitz-html",
- "blitz-traits",
+ "blitz-dom 0.3.0-beta.4",
+ "blitz-html 0.3.0-beta.4",
+ "blitz-traits 0.3.0-beta.4",
  "dioxus-core",
- "dioxus-native-dom",
+ "dioxus-native-dom 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9)",
  "keyboard-types 0.7.0",
  "smol_str",
 ]
 
 [[package]]
 name = "blitz-traits"
+version = "0.3.0-beta.2"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
+dependencies = [
+ "atomic_refcell",
+ "bitflags 2.13.1",
+ "bytes",
+ "cursor-icon",
+ "http",
+ "keyboard-types 0.7.0",
+ "serde",
+ "smol_str",
+ "url",
+]
+
+[[package]]
+name = "blitz-traits"
 version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9#60fcbe7f135f0fc4452544da9b3de337b41619eb"
 dependencies = [
  "atomic_refcell",
  "bitflags 2.13.1",
@@ -888,9 +1039,11 @@ dependencies = [
 [[package]]
 name = "const-serialize"
 version = "0.8.0-alpha.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9e42cd5aabba86f128b3763da1fec1491c0f728ce99245062cd49b6f9e6d235b"
 dependencies = [
  "const-serialize 0.7.2",
- "const-serialize-macro 0.8.0-alpha.0",
+ "const-serialize-macro 0.8.0-alpha.3",
  "serde",
 ]
 
@@ -907,7 +1060,9 @@ dependencies = [
 
 [[package]]
 name = "const-serialize-macro"
-version = "0.8.0-alpha.0"
+version = "0.8.0-alpha.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b7d372d7ea4c50890f188c72a08782d5c98bc8c7cc9dc4343b61d8ba8e20c26b"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1156,12 +1311,18 @@ checksum = "be1e0bca6c3637f992fc1cc7cbc52a78c1ef6db076dbf1059c4323d6a2048376"
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
 
 [[package]]
 name = "debug_timer"
 version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da220af51a1a335e9a930beaaef53d261e41ea9eecfb3d973a3ddae1a7284b9c"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
+
+[[package]]
+name = "debug_timer"
+version = "0.1.3"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9#60fcbe7f135f0fc4452544da9b3de337b41619eb"
 
 [[package]]
 name = "derive_more"
@@ -1222,12 +1383,13 @@ dependencies = [
 [[package]]
 name = "dioxus-asset-resolver"
 version = "0.7.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "84235ff0e272f15d4537603cdd50df6d45d50e51bb96326dbc0bdfd01d825226"
 dependencies = [
- "dioxus-cli-config 0.7.10",
+ "dioxus-cli-config",
  "http",
  "infer",
  "jni 0.21.1",
- "manganis-core",
  "ndk",
  "ndk-context",
  "ndk-sys",
@@ -1235,10 +1397,6 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
 ]
-
-[[package]]
-name = "dioxus-cli-config"
-version = "0.7.10"
 
 [[package]]
 name = "dioxus-cli-config"
@@ -1273,7 +1431,7 @@ checksum = "1b232228ada232c0adc151e41ebd9ef70cc04683db097fa0dc6015979fa01722"
 dependencies = [
  "anyhow",
  "const_format",
- "dioxus-core-types 0.7.10 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dioxus-core-types",
  "futures-channel",
  "futures-util",
  "generational-box",
@@ -1303,10 +1461,6 @@ dependencies = [
 [[package]]
 name = "dioxus-core-types"
 version = "0.7.10"
-
-[[package]]
-name = "dioxus-core-types"
-version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96007ed6cbad951dfed82d83c581aabd95bc591f351f5666d454ddbe7845b324"
 
@@ -1316,7 +1470,7 @@ version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "434cebb282b3f820a341582ebfd37dab907d5a25c3eeafd87802468afcd2a959"
 dependencies = [
- "dioxus-cli-config 0.7.10 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dioxus-cli-config",
  "dioxus-core",
  "dioxus-devtools-types",
  "dioxus-signals",
@@ -1347,7 +1501,7 @@ checksum = "2f6fadd5c6d886b48b762820abae1a08142a2159f8a1136c0466b4b4ed9f547e"
 dependencies = [
  "dioxus-core",
  "dioxus-core-macro",
- "dioxus-core-types 0.7.10 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dioxus-core-types",
  "dioxus-html",
  "futures-channel",
  "futures-util",
@@ -1394,7 +1548,7 @@ dependencies = [
  "bytes",
  "dioxus-core",
  "dioxus-core-macro",
- "dioxus-core-types 0.7.10 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dioxus-core-types",
  "dioxus-hooks",
  "dioxus-html-internal-macro",
  "enumset",
@@ -1442,33 +1596,64 @@ dependencies = [
 [[package]]
 name = "dioxus-native"
 version = "0.7.0"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
 dependencies = [
  "android-activity",
  "anyrender",
  "anyrender_vello_cpu",
  "anyrender_vello_hybrid",
- "blitz-dom",
- "blitz-html",
- "blitz-net",
- "blitz-paint",
- "blitz-shell",
- "blitz-traits",
+ "blitz-dom 0.3.0-beta.2",
+ "blitz-html 0.3.0-beta.2",
+ "blitz-net 0.3.0-beta.2",
+ "blitz-paint 0.3.0-beta.2",
+ "blitz-shell 0.3.0-beta.2",
+ "blitz-traits 0.3.0-beta.2",
  "cfg-if",
  "dioxus-asset-resolver",
- "dioxus-cli-config 0.7.10 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dioxus-cli-config",
  "dioxus-core",
- "dioxus-core-macro",
  "dioxus-devtools",
  "dioxus-document",
  "dioxus-history",
- "dioxus-hooks",
  "dioxus-html",
- "dioxus-native-dom",
- "dioxus-signals",
- "dioxus-stores",
+ "dioxus-native-dom 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3)",
  "futures-util",
  "keyboard-types 0.7.0",
- "manganis",
+ "peniko",
+ "rustc-hash 2.1.3",
+ "slotmap",
+ "tokio",
+ "webbrowser",
+ "wgpu_context",
+ "winit",
+]
+
+[[package]]
+name = "dioxus-native"
+version = "0.7.0"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9#60fcbe7f135f0fc4452544da9b3de337b41619eb"
+dependencies = [
+ "android-activity",
+ "anyrender",
+ "anyrender_vello_cpu",
+ "anyrender_vello_hybrid",
+ "blitz-dom 0.3.0-beta.4",
+ "blitz-html 0.3.0-beta.4",
+ "blitz-net 0.3.0-beta.4",
+ "blitz-paint 0.3.0-beta.4",
+ "blitz-shell 0.3.0-beta.4",
+ "blitz-traits 0.3.0-beta.4",
+ "cfg-if",
+ "dioxus-asset-resolver",
+ "dioxus-cli-config",
+ "dioxus-core",
+ "dioxus-devtools",
+ "dioxus-document",
+ "dioxus-history",
+ "dioxus-html",
+ "dioxus-native-dom 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9)",
+ "futures-util",
+ "keyboard-types 0.7.0",
  "peniko",
  "percent-encoding",
  "rustc-hash 2.1.3",
@@ -1482,9 +1667,24 @@ dependencies = [
 [[package]]
 name = "dioxus-native-dom"
 version = "0.7.0"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
 dependencies = [
- "blitz-dom",
- "blitz-traits",
+ "blitz-dom 0.3.0-beta.2",
+ "blitz-traits 0.3.0-beta.2",
+ "dioxus-core",
+ "dioxus-html",
+ "futures-util",
+ "keyboard-types 0.7.0",
+ "rustc-hash 2.1.3",
+]
+
+[[package]]
+name = "dioxus-native-dom"
+version = "0.7.0"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9#60fcbe7f135f0fc4452544da9b3de337b41619eb"
+dependencies = [
+ "blitz-dom 0.3.0-beta.4",
+ "blitz-traits 0.3.0-beta.4",
  "dioxus-core",
  "dioxus-html",
  "futures-util",
@@ -1551,9 +1751,9 @@ version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "481093233d789c5ffbdde66e7970e803b01a199a7ab0c0f8ef84c65d30b7384f"
 dependencies = [
- "dioxus-cli-config 0.7.10 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dioxus-cli-config",
  "dioxus-core",
- "dioxus-core-types 0.7.10 (registry+https://github.com/rust-lang/crates.io-index)",
+ "dioxus-core-types",
  "dioxus-devtools",
  "dioxus-document",
  "dioxus-history",
@@ -3035,6 +3235,8 @@ dependencies = [
 [[package]]
 name = "manganis"
 version = "0.7.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ed2af894a724a0b6e521f9efe84f98cfdc74a4de6828efef77ffd3b1679fd52"
 dependencies = [
  "const-serialize 0.7.2",
  "const-serialize 0.8.0-alpha.0",
@@ -3049,11 +3251,13 @@ dependencies = [
 [[package]]
 name = "manganis-core"
 version = "0.7.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e258c71b137bf48deaffb48b8a8a2f994af9e5c3ca201daa20d41e26b379da11"
 dependencies = [
  "const-serialize 0.7.2",
  "const-serialize 0.8.0-alpha.0",
- "dioxus-cli-config 0.7.10",
- "dioxus-core-types 0.7.10",
+ "dioxus-cli-config",
+ "dioxus-core-types",
  "serde",
  "winnow 0.7.15",
 ]
@@ -3061,6 +3265,8 @@ dependencies = [
 [[package]]
 name = "manganis-macro"
 version = "0.7.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0abae8346bbf637e6d21ac3831863bd5a98657517f5cd2d69d651046b95e7ce9"
 dependencies = [
  "dunce",
  "macro-string",
@@ -3144,15 +3350,15 @@ dependencies = [
 
 [[package]]
 name = "monoxus"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
- "blitz-dom",
+ "blitz-dom 0.3.0-beta.4",
  "blitz-host",
  "blitz-test-harness",
- "blitz-traits",
+ "blitz-traits 0.3.0-beta.4",
  "dioxus",
- "dioxus-native",
- "dioxus-native-dom",
+ "dioxus-native 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9)",
+ "dioxus-native-dom 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9)",
  "futures-timer",
  "futures-util",
  "js-sys",
@@ -3691,13 +3897,14 @@ dependencies = [
 [[package]]
 name = "oxidase"
 version = "0.3.3"
+source = "git+https://github.com/techton7/oxidase.git?tag=oxidase-v0.3.3#a82f272a295501bf169a3982b1f402970eadb4d1"
 dependencies = [
  "anyrender_vello",
- "blitz-dom",
- "blitz-shell",
- "blitz-traits",
+ "blitz-dom 0.3.0-beta.4",
+ "blitz-shell 0.3.0-beta.4",
+ "blitz-traits 0.3.0-beta.4",
  "dioxus",
- "dioxus-native",
+ "dioxus-native 0.7.0 (git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9)",
  "futures-timer",
  "js-sys",
  "oxidase-floating-ui",
@@ -3713,8 +3920,9 @@ dependencies = [
 [[package]]
 name = "oxidase-floating-ui"
 version = "0.3.3"
+source = "git+https://github.com/techton7/oxidase.git?tag=oxidase-v0.3.3#a82f272a295501bf169a3982b1f402970eadb4d1"
 dependencies = [
- "blitz-dom",
+ "blitz-dom 0.3.0-beta.4",
  "js-sys",
  "serde",
  "serde_json",
@@ -3726,6 +3934,7 @@ dependencies = [
 [[package]]
 name = "oxidase-macro"
 version = "0.3.3"
+source = "git+https://github.com/techton7/oxidase.git?tag=oxidase-v0.3.3#a82f272a295501bf169a3982b1f402970eadb4d1"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -5103,7 +5312,19 @@ dependencies = [
 
 [[package]]
 name = "stylo_taffy"
+version = "0.3.0-beta.2"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.3#f80ac70e75f76e0624545081e14187d8b0a3e9f4"
+dependencies = [
+ "bitflags 2.13.1",
+ "stylo",
+ "stylo_atoms",
+ "taffy",
+]
+
+[[package]]
+name = "stylo_taffy"
 version = "0.3.0-beta.4"
+source = "git+https://github.com/techton7/blitz.git?tag=techton-main-v0.2.9#60fcbe7f135f0fc4452544da9b3de337b41619eb"
 dependencies = [
  "bitflags 2.13.1",
  "stylo",
