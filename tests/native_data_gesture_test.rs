@@ -547,4 +547,92 @@ fn test_native_select_wheel_scroll_alignment() {
     );
 }
 
+/// Test 7: Bottom viewport collision flips to Top on initial open without wheel scroll
+///
+/// Verifies Task 5.3 & Invariant 3:
+/// When Select is mounted near the bottom of the viewport where downward space is insufficient,
+/// clicking the trigger to open causes layout resolution via the native post-mount loop.
+/// The dropdown automatically flips to PlacementSide::Top (content_rect.y + content_rect.height <= trigger_rect.y)
+/// and reaches FloatingReadiness::Ready without any mouse wheel or scroll events.
+#[test]
+fn test_native_select_bottom_collision_flips_to_top_without_wheel_scroll() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    #[component]
+    fn BottomCollisionScenario() -> Element {
+        rsx! {
+            div {
+                id: "viewport-root",
+                style: "width: 800px; height: 600px; position: relative;",
+                div {
+                    style: "height: 480px;",
+                    "Top spacer pushing trigger to bottom of 600px viewport"
+                }
+                playground_select::BasicFruitSelectSection {}
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(BottomCollisionScenario);
+
+    // Initial state: trigger collapsed
+    assert_eq!(
+        harness.attr("#select-trigger", "aria-expanded").as_deref(),
+        Some("false"),
+        "Select trigger should initially be collapsed"
+    );
+
+    // Click trigger to open dropdown
+    click_and_pump(&mut harness, "#select-trigger");
+
+    // Advance frames to simulate host render frame ticks and native layout resolution
+    advance_frame_and_pump(&mut harness, 0.016);
+    advance_frame_and_pump(&mut harness, 0.016);
+
+    assert_eq!(
+        harness.attr("#select-trigger", "aria-expanded").as_deref(),
+        Some("true"),
+        "Select trigger should be expanded"
+    );
+    assert!(
+        harness.query("#select-content").is_some(),
+        "Select content should be mounted"
+    );
+
+    let trigger_rect = harness.layout_rect("#select-trigger");
+    let content_rect = harness.layout_rect("#select-content");
+
+    // Assert that the content flipped above the trigger (PlacementSide::Top)
+    assert!(
+        content_rect.y + content_rect.height <= trigger_rect.y + 1.0,
+        "Dropdown must flip to PlacementSide::Top: content bottom ({}) should be <= trigger top ({})",
+        content_rect.y + content_rect.height,
+        trigger_rect.y
+    );
+
+    // Assert that side_offset (~4px) is preserved between content bottom and trigger top
+    let gap = trigger_rect.y - (content_rect.y + content_rect.height);
+    assert!(
+        (gap - 4.0).abs() <= 1.5,
+        "Gap between flipped content bottom and trigger top should be ~4.0px, got {gap}"
+    );
+
+    // Assert that content readiness is ready (data-positioning-state="positioned")
+    let positioning_state = harness.attr("#select-content", "data-positioning-state");
+    assert_eq!(
+        positioning_state.as_deref(),
+        Some("positioned"),
+        "Content must have data-positioning-state='positioned' (FloatingReadiness::Ready)"
+    );
+
+    // Assert that data-side is flipped to "top"
+    let side_attr = harness.attr("#select-content", "data-side");
+    assert_eq!(
+        side_attr.as_deref(),
+        Some("top"),
+        "Content must have data-side='top'"
+    );
+}
+
+
 
