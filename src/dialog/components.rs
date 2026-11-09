@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use dioxus::prelude::keyboard_types::{Key, NamedKey};
 
 use crate::foundation::{overlay::PortalHost, shared::ScopeHandle};
 
@@ -293,7 +294,7 @@ pub fn DialogContent(
     let fallback_trigger_id = runtime.relationships().trigger_id().to_string();
 
     let on_keydown = move |evt: KeyboardEvent| {
-        if evt.key() == Key::Escape {
+        if evt.key() == Key::Named(NamedKey::Escape) {
             open.set(false);
             if let Some(h) = on_change {
                 h.call(false);

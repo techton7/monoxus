@@ -1,3 +1,5 @@
+#![cfg(feature = "manganis-embedded")]
+
 use dioxus::prelude::*;
 
 #[test]

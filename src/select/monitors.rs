@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use dioxus::prelude::keyboard_types::{Code, Key, Location, Modifiers, NamedKey};
 
 use crate::foundation::{
     browser::{
@@ -13,22 +14,22 @@ use super::{runtime::SelectRuntime, types::SelectMode};
 struct SyntheticEscapeKey;
 
 impl dioxus::html::ModifiersInteraction for SyntheticEscapeKey {
-    fn modifiers(&self) -> dioxus::html::input_data::keyboard_types::Modifiers {
-        dioxus::html::input_data::keyboard_types::Modifiers::empty()
+    fn modifiers(&self) -> Modifiers {
+        Modifiers::empty()
     }
 }
 
 impl dioxus::events::HasKeyboardData for SyntheticEscapeKey {
-    fn key(&self) -> dioxus::html::input_data::keyboard_types::Key {
-        dioxus::html::input_data::keyboard_types::Key::Escape
+    fn key(&self) -> Key {
+        Key::Named(NamedKey::Escape)
     }
 
-    fn code(&self) -> dioxus::html::input_data::keyboard_types::Code {
-        dioxus::html::input_data::keyboard_types::Code::Escape
+    fn code(&self) -> Code {
+        Code::Escape
     }
 
-    fn location(&self) -> dioxus::html::input_data::keyboard_types::Location {
-        dioxus::html::input_data::keyboard_types::Location::Standard
+    fn location(&self) -> Location {
+        Location::Standard
     }
 
     fn is_auto_repeating(&self) -> bool {

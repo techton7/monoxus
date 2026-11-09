@@ -7,7 +7,7 @@
 mod common;
 use common::native_fixture::*;
 use dioxus::prelude::*;
-use keyboard_types::{Code, Key};
+use keyboard_types::{Code, Key, NamedKey};
 use monoxus::collapsible::{CollapsibleContent, CollapsibleRoot, CollapsibleTrigger};
 
 // Include the playground scenario directly to demonstrate mounting playground components
@@ -99,5 +99,5 @@ fn test_native_harness_relational_geometry_and_keyboard() {
     assert_relative_aligned(&harness, "#aligned-trigger", "#aligned-content", 2.0);
 
     // Keyboard dispatch helper test
-    send_key_and_pump(&mut harness, Key::Enter, Code::Enter);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
 }

@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use dioxus::prelude::keyboard_types::{Key, NamedKey};
 
 use crate::foundation::{
     browser::{restore_focus_element_by_id, scroll_element_into_view_nearest},
@@ -216,7 +217,7 @@ pub fn SelectContent(
                     let runtime = ctx.runtime.clone();
                     let esc_cb = on_escape_keydown;
                     move |evt| {
-                        if evt.key() == Key::Escape {
+                        if evt.key() == Key::Named(NamedKey::Escape) {
                             if let Some(ref cb) = esc_cb {
                                 cb.call(evt.clone());
                             }

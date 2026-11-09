@@ -6,7 +6,7 @@
 mod common;
 use common::native_fixture::*;
 use dioxus::prelude::*;
-use keyboard_types::{Code, Key};
+use keyboard_types::{Code, Key, NamedKey};
 
 #[path = "../examples/playground/popover.rs"]
 mod playground_popover;
@@ -73,7 +73,7 @@ fn test_native_popover_floating_and_dismiss() {
 
     focus_node(&mut harness, "#popover-content");
     assert_native_focus_id(&harness, "#popover-content");
-    send_key_and_pump(&mut harness, Key::Escape, Code::Escape);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
     advance_frame_and_pump(&mut harness, 0.35);
 
     assert!(
@@ -212,7 +212,7 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
     assert_rect_non_empty(&dialog_harness, "#dialog-content");
 
     // Escape key dismissal
-    send_key_and_pump(&mut dialog_harness, Key::Escape, Code::Escape);
+    send_key_and_pump(&mut dialog_harness, Key::Named(NamedKey::Escape), Code::Escape);
     advance_frame_and_pump(&mut dialog_harness, 0.25);
 
     assert!(

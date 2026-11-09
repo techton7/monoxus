@@ -5,7 +5,7 @@
 
 mod common;
 use common::native_fixture::*;
-use keyboard_types::{Code, Key};
+use keyboard_types::{Code, Key, NamedKey};
 
 #[path = "../examples/playground/collapsible.rs"]
 mod playground_collapsible;
@@ -222,7 +222,7 @@ fn test_native_tabs_arrow_navigation_and_roving_focus() {
     assert_native_focus_id(&harness, "tabs-trigger-1");
 
     // Keyboard navigation: ArrowRight -> moves roving focus and active tab to #tabs-trigger-2
-    send_key_and_pump(&mut harness, Key::ArrowRight, Code::ArrowRight);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowRight), Code::ArrowRight);
 
     assert_eq!(
         harness.attr("#tabs-trigger-2", "data-state").as_deref(),
@@ -255,7 +255,7 @@ fn test_native_tabs_arrow_navigation_and_roving_focus() {
     assert_native_focus_id(&harness, "tabs-trigger-2");
 
     // Boundary Navigation: End -> jumps to #tabs-trigger-3
-    send_key_and_pump(&mut harness, Key::End, Code::End);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::End), Code::End);
     assert_eq!(
         harness.attr("#tabs-trigger-3", "data-state").as_deref(),
         Some("active"),
@@ -270,7 +270,7 @@ fn test_native_tabs_arrow_navigation_and_roving_focus() {
     assert_native_focus_id(&harness, "tabs-trigger-3");
 
     // Boundary Navigation: Home -> jumps to #tabs-trigger-1
-    send_key_and_pump(&mut harness, Key::Home, Code::Home);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Home), Code::Home);
     assert_eq!(
         harness.attr("#tabs-trigger-1", "data-state").as_deref(),
         Some("active"),
@@ -285,7 +285,7 @@ fn test_native_tabs_arrow_navigation_and_roving_focus() {
     assert_native_focus_id(&harness, "tabs-trigger-1");
 
     // Navigation: ArrowLeft -> wraps to #tabs-trigger-3 (looping focus)
-    send_key_and_pump(&mut harness, Key::ArrowLeft, Code::ArrowLeft);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowLeft), Code::ArrowLeft);
     assert_eq!(
         harness.attr("#tabs-trigger-3", "data-state").as_deref(),
         Some("active"),

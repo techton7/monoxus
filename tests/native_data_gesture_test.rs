@@ -8,7 +8,7 @@
 use dioxus::prelude::*;
 mod common;
 use common::native_fixture::*;
-use keyboard_types::{Code, Key, Modifiers};
+use keyboard_types::{Code, Key, Modifiers, NamedKey};
 use monoxus::toast::{TOAST_STORE, ToastOptions, toast};
 use std::time::Duration;
 
@@ -71,7 +71,7 @@ fn test_native_select_document_order_and_roving_focus() {
     );
 
     // Send ArrowDown: roving focus advances to next item in document tree order ("banana")
-    send_key_and_pump(&mut harness, Key::ArrowDown, Code::ArrowDown);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowDown), Code::ArrowDown);
     let after_down1 = harness.attr("#select-content", "aria-activedescendant");
     assert!(
         after_down1.as_deref().unwrap_or("").contains("banana"),
@@ -79,7 +79,7 @@ fn test_native_select_document_order_and_roving_focus() {
     );
 
     // Send ArrowDown again: roving focus advances to "blueberry"
-    send_key_and_pump(&mut harness, Key::ArrowDown, Code::ArrowDown);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowDown), Code::ArrowDown);
     let after_down2 = harness.attr("#select-content", "aria-activedescendant");
     assert!(
         after_down2.as_deref().unwrap_or("").contains("blueberry"),
@@ -87,7 +87,7 @@ fn test_native_select_document_order_and_roving_focus() {
     );
 
     // Send ArrowUp: roving focus steps backward to "banana"
-    send_key_and_pump(&mut harness, Key::ArrowUp, Code::ArrowUp);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
     let after_up = harness.attr("#select-content", "aria-activedescendant");
     assert!(
         after_up.as_deref().unwrap_or("").contains("banana"),
@@ -95,7 +95,7 @@ fn test_native_select_document_order_and_roving_focus() {
     );
 
     // Interaction 2: Send Enter to commit selection of "banana" and close dropdown
-    send_key_and_pump(&mut harness, Key::Enter, Code::Enter);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
 
     // Closed state assertions: trigger is collapsed
     assert_eq!(
@@ -161,7 +161,7 @@ fn test_native_select_document_order_and_roving_focus() {
     );
 
     // d. Press Enter to commit "blueberry" and close dropdown.
-    send_key_and_pump(&mut harness, Key::Enter, Code::Enter);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
     assert_eq!(
         harness.attr("#select-trigger", "aria-expanded").as_deref(),
         Some("false"),
@@ -453,7 +453,7 @@ fn test_native_select_escape_dismissal() {
     focus_node(&mut harness, "#select-content");
 
     // Send Escape key
-    send_key_and_pump(&mut harness, Key::Escape, Code::Escape);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
     advance_frame_and_pump(&mut harness, 0.02);
 
     // Assert immediate trigger collapse
