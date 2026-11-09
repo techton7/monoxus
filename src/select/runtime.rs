@@ -624,6 +624,7 @@ impl SelectRuntime {
 
         let mut open_sig = self.state.open;
         open_sig.set(true);
+        sync_select_presence(self.relationships().content_id(), self.state, true);
 
         let mut tb_sig = self.state.typeahead_buffer;
         tb_sig.set(String::new());
@@ -805,6 +806,7 @@ impl SelectRuntime {
 
         let mut open_sig = self.state.open;
         open_sig.set(false);
+        sync_select_presence(self.relationships().content_id(), self.state, false);
 
         if let Some(ref cb) = self.on_open_change {
             cb(false);

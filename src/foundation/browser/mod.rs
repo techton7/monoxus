@@ -218,9 +218,13 @@ pub(crate) async fn is_reference_hidden(anchor_ids: &[&str]) -> Result<bool, Str
 pub(crate) fn focus_element_by_id(target_id: &str) {
     let tid = target_id.to_string();
     spawn_root_task(async move {
-        let _ = oxidase::frame::next_frame().await;
-        if let Some(el) = oxidase::document().element_by_id(&tid) {
-            let _ = el.focus().await;
+        for _ in 0..5 {
+            let _ = oxidase::frame::next_frame().await;
+            if let Some(el) = oxidase::document().element_by_id(&tid)
+                && el.focus().await.is_ok()
+            {
+                break;
+            }
         }
     });
 }
@@ -228,10 +232,14 @@ pub(crate) fn focus_element_by_id(target_id: &str) {
 pub(crate) fn restore_focus_element_by_id(target_id: &str) {
     let tid = target_id.to_string();
     spawn_root_task(async move {
-        let _ = oxidase::frame::next_frame().await;
-        if let Some(el) = oxidase::document().element_by_id(&tid) {
-            let options = oxidase::dom::FocusOptions::new(true);
-            let _ = el.focus_with_options(options).await;
+        for _ in 0..5 {
+            let _ = oxidase::frame::next_frame().await;
+            let doc = oxidase::document();
+            if let Some(el) = doc.element_by_id(&tid)
+                && el.focus_with_options(oxidase::dom::FocusOptions::new(true)).await.is_ok()
+            {
+                break;
+            }
         }
     });
 }

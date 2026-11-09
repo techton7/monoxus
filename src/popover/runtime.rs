@@ -327,6 +327,7 @@ impl PopoverRuntime {
         let mut content_handle = self.state.content_handle;
         content_handle.set(Some(mounted.clone()));
         self.capture_focus_target(self.relationships().content_id().to_owned(), mounted);
+        sync_popover_positioning(self.popover(), self.state);
         self.refresh_live_placement();
         self.try_apply_pending_open_focus();
     }

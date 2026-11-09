@@ -20,7 +20,11 @@ pub fn mount_native_scenario(app: fn() -> Element) -> Harness<DioxusDocument> {
     let mut harness = Harness::from_component(app);
     let native_doc = oxidase::dom::Document::from_base(harness.doc.inner.clone());
     native_doc.attach_engine_bridges();
-    oxidase::dom::Document::set_current(Some(native_doc));
+    oxidase::dom::Document::set_current(Some(native_doc.clone()));
+    let doc_for_vdom = native_doc;
+    harness.doc.vdom.in_scope(dioxus::core::ScopeId::ROOT, move || {
+        dioxus::prelude::provide_context(doc_for_vdom);
+    });
     harness.pump();
     harness
 }
@@ -28,10 +32,10 @@ pub fn mount_native_scenario(app: fn() -> Element) -> Harness<DioxusDocument> {
 /// Advances simulated animation clock by `dt_seconds`, flushes queued native animation and
 /// transition events into the Dioxus VirtualDom, ticks the oxidase frame, and pumps layout.
 pub fn advance_frame_and_pump(harness: &mut Harness<DioxusDocument>, dt_seconds: f64) {
+    let native_doc = oxidase::dom::Document::from_base(harness.doc.inner.clone());
+    oxidase::dom::Document::set_current(Some(native_doc.clone()));
     let next_time = harness.time() + dt_seconds;
-    if let Some(doc) = oxidase::dom::Document::current() {
-        doc.resolve(next_time);
-    }
+    native_doc.resolve(next_time);
     harness.tick(dt_seconds);
     harness.doc.flush_animation_events();
     oxidase::frame::tick(std::time::Duration::from_secs_f64(dt_seconds));

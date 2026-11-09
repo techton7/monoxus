@@ -574,6 +574,12 @@ impl TooltipRuntime {
         move |event| {
             let mut content_handle = runtime.state.content_handle;
             content_handle.set(Some(event.data()));
+            sync_tooltip_positioning(
+                &runtime.tooltip,
+                runtime.provider_runtime.clone(),
+                Rc::clone(&runtime.on_open_change),
+                runtime.state,
+            );
             let pos = compute_tooltip_position(&runtime.tooltip);
             if let Some(placement) = pos {
                 if placement.geometry().content_height() > 0.0 {

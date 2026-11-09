@@ -150,6 +150,9 @@ impl SelectRuntime {
 
         let mut monitor_sig = self.state.position_monitor;
         monitor_sig.set(Some(watcher));
+
+        // Initial sync position evaluation matching @floating-ui/dom autoUpdate standard
+        self.recalculate_floating_position_sync();
     }
 
     pub fn stop_position_monitor(&self) {

@@ -67,10 +67,10 @@ pub fn SelectContent(
     use_effect(use_reactive((&is_open,), {
         let rt = runtime.clone();
         move |(open,)| {
-            if open {
-                rt.start_position_monitor();
-            } else {
+            if !open {
                 rt.stop_position_monitor();
+            } else if rt.should_render_content() {
+                rt.start_position_monitor();
             }
         }
     }));
@@ -244,10 +244,7 @@ pub fn SelectContent(
                     move |evt: Event<MountedData>| {
                         let mut ch = runtime.state.content_handle;
                         ch.set(Some(evt.data()));
-                        let rt = runtime.clone();
-                        crate::foundation::browser::spawn_root_task(async move {
-                            rt.recalculate_floating_position().await;
-                        });
+                        runtime.start_position_monitor();
                     }
                 },
                 {children}
