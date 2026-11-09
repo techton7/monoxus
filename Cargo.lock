@@ -7943,3 +7943,19 @@ checksum = "27bc9d5b815bc103f142aa054f561d9187d191692ec7c2d1e2b4737f8dbd7296"
 dependencies = [
  "zune-core",
 ]
+
+[[patch.unused]]
+name = "dioxus-asset-resolver"
+version = "0.7.10"
+
+[[patch.unused]]
+name = "manganis"
+version = "0.7.10"
+
+[[patch.unused]]
+name = "manganis-core"
+version = "0.7.10"
+
+[[patch.unused]]
+name = "manganis-macro"
+version = "0.7.10"
