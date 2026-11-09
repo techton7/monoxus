@@ -52,12 +52,12 @@ manganis = "0.7.10"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 blitz-host = { version = "0.2.0", git = "https://github.com/techton7/blitz-host.git", tag = "blitz-host-v0.2.0", features = ["dioxus-native"] }
-blitz-dom = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.10" }
-blitz-test-harness = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.10" }
-dioxus-native-dom = { version = "0.7.0", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.10" }
+blitz-dom = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.12" }
+blitz-test-harness = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.12" }
+dioxus-native-dom = { version = "0.7.0", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.12" }
 oxidase = { version = "0.3.4", git = "https://github.com/techton7/oxidase.git", tag = "oxidase-v0.3.4", features = ["native"] }
-dioxus-native = { version = "0.7.0", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.10" }
-blitz-traits = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.10" }
+dioxus-native = { version = "0.7.0", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.12" }
+blitz-traits = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.2.12" }
 keyboard-types = "0.7"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
