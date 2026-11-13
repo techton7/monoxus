@@ -19,7 +19,7 @@ pub struct TooltipProviderProps {
     pub disable_hoverable_content: bool,
     #[props(default = true)]
     pub close_on_trigger_click: bool,
-    #[props(default = false)]
+    #[props(default = true)]
     pub ignore_non_keyboard_focus: bool,
     pub children: Element,
 }

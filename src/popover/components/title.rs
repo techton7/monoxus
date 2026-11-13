@@ -27,8 +27,13 @@ pub fn PopoverTitle(props: PopoverTitleProps) -> Element {
     let cleanup_id = title_id.clone();
     let mut cleanup_ctx = ctx.clone();
     dioxus::core::use_drop(move || {
-        if cleanup_ctx.title_id.peek().as_deref() == Some(cleanup_id.as_str()) {
-            cleanup_ctx.title_id.set(None);
+        if cleanup_ctx
+            .title_id
+            .try_peek()
+            .map(|id| id.as_deref() == Some(cleanup_id.as_str()))
+            .unwrap_or(false)
+        {
+            let _ = cleanup_ctx.title_id.try_write().map(|mut w| *w = None);
         }
     });
 

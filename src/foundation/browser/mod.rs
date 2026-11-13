@@ -11,6 +11,7 @@ pub use oxidase::watcher::{
 
 pub use crate::foundation::overlay::{Point2D, Rect2D};
 pub use oxidase::WatcherGuard;
+pub use oxidase::dom::FocusOptions;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PresenceMonitorEvent {
@@ -179,12 +180,20 @@ pub fn spawn_root_task<F: std::future::Future<Output = ()> + 'static>(
 }
 
 pub(crate) fn focus_mounted_handle(handle: Option<MountedHandle>) -> bool {
+    focus_mounted_handle_with_options(handle, FocusOptions::default())
+}
+
+#[allow(dead_code)]
+pub(crate) fn focus_mounted_handle_with_options(
+    handle: Option<MountedHandle>,
+    options: FocusOptions,
+) -> bool {
     let Some(handle) = handle else {
         return false;
     };
     let el = oxidase::Element::from(handle);
     spawn_root_task(async move {
-        let _ = el.focus().await;
+        let _ = el.focus_with_options(options).await;
     });
     true
 }
@@ -216,12 +225,17 @@ pub(crate) async fn is_reference_hidden(anchor_ids: &[&str]) -> Result<bool, Str
 }
 
 pub(crate) fn focus_element_by_id(target_id: &str) {
+    focus_element_by_id_with_options(target_id, FocusOptions::default());
+}
+
+pub(crate) fn focus_element_by_id_with_options(target_id: &str, options: FocusOptions) {
     let tid = target_id.to_string();
     spawn_root_task(async move {
         for _ in 0..5 {
             let _ = oxidase::frame::next_frame().await;
-            if let Some(el) = oxidase::document().element_by_id(&tid)
-                && el.focus().await.is_ok()
+            let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::document);
+            if let Some(el) = doc.element_by_id(&tid)
+                && el.focus_with_options(options).await.is_ok()
             {
                 break;
             }
@@ -230,18 +244,28 @@ pub(crate) fn focus_element_by_id(target_id: &str) {
 }
 
 pub(crate) fn restore_focus_element_by_id(target_id: &str) {
+    restore_focus_element_by_id_with_options(target_id, FocusOptions::new(true));
+}
+
+pub(crate) fn restore_focus_element_by_id_with_options(target_id: &str, options: FocusOptions) {
     let tid = target_id.to_string();
     spawn_root_task(async move {
         for _ in 0..5 {
             let _ = oxidase::frame::next_frame().await;
-            let doc = oxidase::document();
+            let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::document);
             if let Some(el) = doc.element_by_id(&tid)
-                && el.focus_with_options(oxidase::dom::FocusOptions::new(true)).await.is_ok()
+                && el.focus_with_options(options).await.is_ok()
             {
                 break;
             }
         }
     });
+}
+
+pub(crate) fn is_element_focus_visible_by_id(target_id: &str) -> Option<bool> {
+    let doc = oxidase::dom::Document::current()?;
+    let el = doc.element_by_id(target_id)?;
+    Some(el.matches_focus_visible())
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -375,10 +399,16 @@ mod scroll_lock {
 }
 
 pub(crate) fn focus_first_focusable(content_id: &str, focusable_selector: Option<&str>) {
+    focus_first_focusable_with_options(content_id, focusable_selector, FocusOptions::default());
+}
+
+pub(crate) fn focus_first_focusable_with_options(
+    content_id: &str,
+    focusable_selector: Option<&str>,
+    options: FocusOptions,
+) {
     #[cfg(target_arch = "wasm32")]
     {
-        use wasm_bindgen::JsCast;
-
         let selector = focusable_selector.unwrap_or(DEFAULT_FOCUSABLE_SELECTOR);
         let Some(window) = web_sys::window() else {
             return;
@@ -389,41 +419,43 @@ pub(crate) fn focus_first_focusable(content_id: &str, focusable_selector: Option
         let Some(root) = document.get_element_by_id(content_id) else {
             return;
         };
-        let Ok(root_html) = root.clone().dyn_into::<web_sys::HtmlElement>() else {
-            return;
-        };
 
         let candidate = if root.matches(selector).unwrap_or(false) {
-            Some(root_html.clone())
+            Some(root.clone())
         } else {
-            root.query_selector(selector)
-                .ok()
-                .flatten()
-                .and_then(|el| el.dyn_into::<web_sys::HtmlElement>().ok())
+            root.query_selector(selector).ok().flatten()
         };
 
         if let Some(target) = candidate {
             if target.id() == root.id() && !root.has_attribute("tabindex") {
                 let _ = root.set_attribute("tabindex", "-1");
             }
-            let _ = target.focus();
+            let _ = oxidase::Element::from_web(target).focus_sync_with_options(options);
             return;
         }
 
         if !root.has_attribute("tabindex") {
             let _ = root.set_attribute("tabindex", "-1");
         }
-        let _ = root_html.focus();
+        let _ = oxidase::Element::from_web(root).focus_sync_with_options(options);
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let _ = focusable_selector;
-        let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::dom::document);
-        if let Some(target) = doc.element_by_id(content_id) {
-            spawn_root_task(async move {
-                let _ = target.focus().await;
-            });
-        }
+        let selector = focusable_selector
+            .unwrap_or(DEFAULT_FOCUSABLE_SELECTOR)
+            .to_string();
+        let cid = content_id.to_string();
+        spawn_root_task(async move {
+            let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::dom::document);
+            if let Some(root) = doc.element_by_id(&cid) {
+                let target = if root.matches(&selector) {
+                    root
+                } else {
+                    root.query_selector(&selector).unwrap_or(root)
+                };
+                let _ = target.focus_with_options(options).await;
+            }
+        });
     }
 }
 
@@ -570,44 +602,19 @@ pub(crate) fn start_form_reset_monitor(
     .unwrap_or_else(|_| WatcherGuard::noop())
 }
 
-#[cfg(target_arch = "wasm32")]
-struct DocumentPointerStreamInner {
-    closure: wasm_bindgen::closure::Closure<dyn FnMut(web_sys::PointerEvent)>,
-}
-
-#[cfg(target_arch = "wasm32")]
-impl Drop for DocumentPointerStreamInner {
-    fn drop(&mut self) {
-        if let Some(window) = web_sys::window() {
-            if let Some(document) = window.document() {
-                use wasm_bindgen::JsCast;
-                let _ = document.remove_event_listener_with_callback(
-                    "pointermove",
-                    self.closure.as_ref().unchecked_ref(),
-                );
-            }
-        }
-    }
-}
-
 pub struct DocumentPointerStreamGuard {
-    #[cfg(target_arch = "wasm32")]
-    _inner: Option<DocumentPointerStreamInner>,
+    guard: Option<WatcherGuard>,
 }
 
 impl DocumentPointerStreamGuard {
     pub const fn noop() -> Self {
-        Self {
-            #[cfg(target_arch = "wasm32")]
-            _inner: None,
-        }
+        Self { guard: None }
     }
 
     #[allow(dead_code)]
     pub fn stop(&mut self) {
-        #[cfg(target_arch = "wasm32")]
-        {
-            self._inner = None;
+        if let Some(guard) = self.guard.take() {
+            guard.stop();
         }
     }
 }
@@ -625,41 +632,21 @@ impl std::fmt::Debug for DocumentPointerStreamGuard {
 }
 
 pub fn start_document_pointer_stream(
-    #[allow(unused_mut)] mut on_pointer_move: impl FnMut(Point2D) + 'static,
+    mut on_pointer_move: impl FnMut(Point2D) + 'static,
 ) -> DocumentPointerStreamGuard {
-    #[cfg(target_arch = "wasm32")]
-    {
-        use wasm_bindgen::JsCast;
-
-        let Some(window) = web_sys::window() else {
-            return DocumentPointerStreamGuard::noop();
-        };
-        let Some(document) = window.document() else {
-            return DocumentPointerStreamGuard::noop();
-        };
-
-        let closure = wasm_bindgen::closure::Closure::<dyn FnMut(web_sys::PointerEvent)>::new(
-            move |event: web_sys::PointerEvent| {
-                let point = Point2D::new(event.client_x() as f64, event.client_y() as f64);
-                on_pointer_move(point);
-            },
-        );
-
-        if document
-            .add_event_listener_with_callback("pointermove", closure.as_ref().unchecked_ref())
-            .is_ok()
-        {
-            DocumentPointerStreamGuard {
-                _inner: Some(DocumentPointerStreamInner { closure }),
-            }
+    let runtime = dioxus::core::Runtime::try_current();
+    let scope_id = runtime.as_ref().and_then(|rt| rt.try_current_scope_id());
+    match oxidase::dom::observer::observe_pointer_move(move |x, y| {
+        let point = Point2D::new(x, y);
+        if let Some(rt) = &runtime {
+            let scope = scope_id.unwrap_or(dioxus::core::ScopeId::ROOT);
+            rt.in_scope(scope, || on_pointer_move(point));
         } else {
-            DocumentPointerStreamGuard::noop()
+            on_pointer_move(point);
         }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = on_pointer_move;
-        DocumentPointerStreamGuard::noop()
+    }) {
+        Ok(guard) => DocumentPointerStreamGuard { guard: Some(guard) },
+        Err(_) => DocumentPointerStreamGuard::noop(),
     }
 }
 

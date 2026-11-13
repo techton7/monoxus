@@ -632,3 +632,313 @@ fn test_native_tooltip_space_enter_dismiss() {
     );
     assert_native_focus_id(&harness, "tooltip-trigger");
 }
+
+/// Test 9: Popover & Dialog :focus-visible modality and pointer-dismiss focus restoration
+#[test]
+fn test_native_popover_and_dialog_focus_visible_modality_and_pointer_dismiss_restoration() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    // -------------------------------------------------------------------------
+    // Part 1: PopoverPlayground (explicit Target open/close focus policies)
+    // -------------------------------------------------------------------------
+    let mut pop_harness = mount_native_scenario(playground_popover::PopoverPlayground);
+    let restore_id = "#10:playground|7:popover|13:restore-focus";
+
+    // a) Keyboard open (Space) + Keyboard Escape close -> Restore focus target HAS :focus-visible
+    focus_node(&mut pop_harness, "#popover-trigger");
+    send_key_and_pump(&mut pop_harness, Key::Character(" ".into()), Code::Space);
+    advance_frame_and_pump(&mut pop_harness, 0.05);
+    assert!(pop_harness.query("#popover-content").is_some());
+
+    send_key_and_pump(&mut pop_harness, Key::Named(NamedKey::Escape), Code::Escape);
+    advance_frame_and_pump(&mut pop_harness, 0.35);
+    assert!(pop_harness.query("#popover-content").is_none());
+    assert_native_focus_visible(&pop_harness, restore_id, true);
+
+    // b) Keyboard open (Space), then unfocusable outside pointer click (5.0, 5.0)
+    //    -> Restore focus target gets :focus=true and :focus-visible=false (no spurious ring)
+    focus_node(&mut pop_harness, "#popover-trigger");
+    send_key_and_pump(&mut pop_harness, Key::Character(" ".into()), Code::Space);
+    advance_frame_and_pump(&mut pop_harness, 0.05);
+    assert!(pop_harness.query("#popover-content").is_some());
+
+    click_at_and_pump(&mut pop_harness, 5.0, 5.0);
+    advance_frame_and_pump(&mut pop_harness, 0.35);
+    assert!(pop_harness.query("#popover-content").is_none());
+    assert_native_focus_visible(&pop_harness, restore_id, false);
+
+    // -------------------------------------------------------------------------
+    // Part 2: Non-modal Popover with default Trigger close policy does not steal outside click focus
+    // -------------------------------------------------------------------------
+    #[component]
+    fn NonModalPopoverOutsideFocusScenario() -> Element {
+        use monoxus::popover::{PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger};
+        rsx! {
+            div {
+                style: "width: 600px; height: 400px; padding: 24px;",
+                PopoverRoot {
+                    id: "nm-pop",
+                    PopoverTrigger { id: "nm-pop-trigger", "Open Popover" }
+                    PopoverPortal {
+                        PopoverContent {
+                            id: "nm-pop-content",
+                            PopoverClose { id: "nm-pop-close", "Close" }
+                        }
+                    }
+                }
+                button {
+                    id: "outside-action-btn",
+                    style: "margin-top: 200px;",
+                    "Outside Action"
+                }
+            }
+        }
+    }
+
+    let mut nm_harness = mount_native_scenario(NonModalPopoverOutsideFocusScenario);
+    focus_node(&mut nm_harness, "#nm-pop-trigger");
+    send_key_and_pump(&mut nm_harness, Key::Named(NamedKey::Enter), Code::Enter);
+    advance_frame_and_pump(&mut nm_harness, 0.05);
+    assert!(nm_harness.query("#nm-pop-content").is_some());
+
+    // Mouse-clicking #outside-action-btn dismisses non-modal popover WITHOUT stealing focus back to #nm-pop-trigger
+    click_and_pump(&mut nm_harness, "#outside-action-btn");
+    advance_frame_and_pump(&mut nm_harness, 0.1);
+    assert_native_focus_visible(&nm_harness, "#outside-action-btn", false);
+
+    // -------------------------------------------------------------------------
+    // Part 3: Dialog keyboard open -> backdrop pointer click restores #dialog-trigger with :focus-visible=false
+    // -------------------------------------------------------------------------
+    let mut dlg_harness = mount_native_scenario(playground_dialog::DialogPlayground);
+    focus_node(&mut dlg_harness, "#dialog-trigger");
+    send_key_and_pump(&mut dlg_harness, Key::Named(NamedKey::Enter), Code::Enter);
+    advance_frame_and_pump(&mut dlg_harness, 0.05);
+    assert!(dlg_harness.query("#dialog-content").is_some());
+
+    // Escape key close -> #dialog-trigger HAS :focus-visible=true
+    send_key_and_pump(&mut dlg_harness, Key::Named(NamedKey::Escape), Code::Escape);
+    advance_frame_and_pump(&mut dlg_harness, 0.25);
+    assert!(dlg_harness.query("#dialog-content").is_none());
+    assert_native_focus_visible(&dlg_harness, "#dialog-trigger", true);
+
+    // Re-open via keyboard (Enter), then click unfocusable #dialog-overlay backdrop
+    send_key_and_pump(&mut dlg_harness, Key::Named(NamedKey::Enter), Code::Enter);
+    advance_frame_and_pump(&mut dlg_harness, 0.05);
+    assert!(dlg_harness.query("#dialog-content").is_some());
+
+    let overlay_rect = dlg_harness.layout_rect("#dialog-overlay");
+    click_at_and_pump(&mut dlg_harness, overlay_rect.x + 5.0, overlay_rect.y + 5.0);
+    advance_frame_and_pump(&mut dlg_harness, 0.25);
+    assert!(dlg_harness.query("#dialog-content").is_none());
+    assert_native_focus_visible(&dlg_harness, "#dialog-trigger", false);
+}
+
+/// Test 10: Tooltip :focus-visible modality gating and passive grace corridor without pointer capture
+#[test]
+fn test_native_tooltip_focus_visible_gating_and_passive_grace_corridor() {
+    use blitz_traits::events::BlitzPointerId;
+
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    #[component]
+    fn TooltipModalityScenario() -> Element {
+        use monoxus::tooltip::{TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger};
+        rsx! {
+            div {
+                style: "width: 600px; height: 400px; padding: 40px; display: flex; gap: 24px;",
+                button { id: "lead-btn", "Before" }
+                TooltipProvider {
+                    delay_duration: 0,
+                    TooltipRoot {
+                        id: "mod-tt",
+                        TooltipTrigger {
+                            "Hover or Tab"
+                        }
+                        TooltipPortal {
+                            TooltipContent { "Keyboard Tooltip" }
+                        }
+                    }
+                }
+                button {
+                    id: "prog-focus-btn",
+                    onclick: move |_| async move {
+                        if let Some(doc) = oxidase::Document::current()
+                            && let Some(el) = doc.element_by_id("7:tooltip|6:mod-tt|7:trigger")
+                        {
+                            let _ = el
+                                .focus_with_options(oxidase::FocusOptions {
+                                    prevent_scroll: false,
+                                    focus_visible: Some(false),
+                                })
+                                .await;
+                        }
+                    },
+                    "Programmatic Non-Visible Focus"
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(TooltipModalityScenario);
+    let mod_trigger_id = "7:tooltip|6:mod-tt|7:trigger";
+    let mod_trigger_sel = "[id=\"7:tooltip|6:mod-tt|7:trigger\"]";
+    let mod_content_sel = "[id=\"7:tooltip|6:mod-tt|7:content\"]";
+
+    // 1. Mouse click on trigger focuses it with pointer modality (:focus-visible=false) -> tooltip stays closed
+    click_and_pump(&mut harness, mod_trigger_sel);
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert_native_focus_visible(&harness, mod_trigger_id, false);
+    assert!(
+        harness.query(mod_content_sel).is_none(),
+        "Mouse click focus (:focus-visible=false) must NOT spuriously open Tooltip"
+    );
+
+    // 2. Programmatic FocusOptions { focus_visible: Some(false) } moves focus onto trigger
+    //    WITHOUT firing pointerdown/mouseenter on trigger -> live :focus-visible
+    //    gate in TooltipRuntime::trigger_focus suppresses opening
+    click_and_pump(&mut harness, "#lead-btn");
+    assert_native_focus_visible(&harness, "#lead-btn", false);
+    click_and_pump(&mut harness, "#prog-focus-btn");
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert_native_focus_visible(&harness, mod_trigger_id, false);
+    assert!(
+        harness.query(mod_content_sel).is_none(),
+        "Programmatic non-visible focus (:focus-visible=false) must NOT open Tooltip"
+    );
+
+    // 3. Focus #lead-btn, then press Tab -> focuses trigger with :focus-visible=true -> Tooltip opens
+    click_and_pump(&mut harness, "#lead-btn");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Tab), Code::Tab);
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert_native_focus_visible(&harness, mod_trigger_id, true);
+    assert!(
+        harness.query(mod_content_sel).is_some(),
+        "Keyboard Tab focus (:focus-visible=true) must open Tooltip"
+    );
+
+    // 4. Passive observe_pointer_move grace corridor on hoverable TooltipPlayground (never acquires pointer capture)
+    fn hoverable_tooltip_scenario() -> Element {
+        rsx! {
+            playground_tooltip::TooltipPlayground {
+                delay_duration_ms: 0,
+                disable_hoverable_content: false,
+            }
+        }
+    }
+
+    let mut grace_harness = mount_native_scenario(hoverable_tooltip_scenario);
+    let trigger_nid = grace_harness.node("#tooltip-trigger");
+    let trigger_rect = grace_harness.layout_rect("#tooltip-trigger");
+    let (tx, ty) = grace_harness.center_of("#tooltip-trigger");
+    grace_harness.move_mouse_to(tx, ty);
+    advance_frame_and_pump(&mut grace_harness, 0.02);
+    advance_frame_and_pump(&mut grace_harness, 0.02);
+
+    assert!(grace_harness.query("#tooltip-content").is_some());
+    assert!(
+        !grace_harness
+            .base()
+            .has_pointer_capture(trigger_nid, BlitzPointerId::Mouse.to_dom_pointer_id()),
+        "Tooltip passive pointer stream must never acquire pointer capture"
+    );
+
+    // Leave trigger's left edge by 2px (inside 5px padded grace corridor, outside arrow/content)
+    grace_harness.move_mouse_to(trigger_rect.x - 2.0, ty);
+    grace_harness.pump();
+    grace_harness.pump();
+    assert!(
+        grace_harness.query("#tooltip-content").is_some(),
+        "Tooltip must remain open while pointer is inside safe polygon grace corridor"
+    );
+    assert!(
+        !grace_harness
+            .base()
+            .has_pointer_capture(trigger_nid, BlitzPointerId::Mouse.to_dom_pointer_id()),
+        "Leaving trigger into grace corridor must never acquire pointer capture"
+    );
+
+    // Move far outside corridor -> passive observe_pointer_move detects ExitedCorridor and closes tooltip
+    grace_harness.move_mouse_to(5.0, 550.0);
+    grace_harness.pump();
+    grace_harness.pump();
+    advance_frame_and_pump(&mut grace_harness, 0.25);
+    assert!(
+        grace_harness.query("#tooltip-content").is_none(),
+        "Moving pointer outside safe polygon corridor must dismiss hoverable Tooltip"
+    );
+}
+
+/// Test 13: Tooltip post-unmount drop safety regression test
+///
+/// Verifies that when a component owning TooltipProvider and Tooltip unmounts
+/// while the skip_delay root timer (600ms) or other root tasks are pending,
+/// the waking task aborts cleanly without panicking with ValueDroppedError.
+#[test]
+fn test_native_tooltip_unmount_during_skip_delay_no_panic() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    fn unmount_tooltip_scenario() -> Element {
+        let mut mounted = use_signal(|| true);
+
+        if !mounted() {
+            return rsx! {
+                div {
+                    id: "unmounted-placeholder",
+                    "Unmounted"
+                }
+            };
+        }
+
+        rsx! {
+            div {
+                button {
+                    id: "unmount-btn",
+                    onclick: move |_| mounted.set(false),
+                    "Unmount"
+                }
+                playground_tooltip::TooltipPlayground {
+                    delay_duration_ms: 0,
+                    disable_hoverable_content: true,
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(unmount_tooltip_scenario);
+    assert_rect_non_empty(&harness, "#tooltip-trigger");
+
+    // 1. Open tooltip via hover (delay=0)
+    let (tx, ty) = harness.center_of("#tooltip-trigger");
+    harness.move_mouse_to(tx, ty);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(
+        harness.query("#tooltip-content").is_some(),
+        "Tooltip must be open after hover"
+    );
+
+    // 2. Move pointer away to trigger close and start the 600ms skip_delay timer
+    harness.move_mouse_to(0.0, 0.0);
+    harness.pump();
+    harness.pump();
+    advance_frame_and_pump(&mut harness, 0.25);
+    assert!(
+        harness.query("#tooltip-content").is_none(),
+        "Tooltip must be dismissed after leaving trigger"
+    );
+
+    // 3. Immediately unmount while the 600ms skip_delay timer is still pending
+    click_and_pump(&mut harness, "#unmount-btn");
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(
+        harness.query("#unmounted-placeholder").is_some(),
+        "Placeholder must be present after unmounting TooltipPlayground"
+    );
+
+    // 4. Sleep past the 600ms skip-delay duration and pump VirtualDom/reactor
+    std::thread::sleep(std::time::Duration::from_millis(650));
+    advance_frame_and_pump(&mut harness, 0.05);
+
+    // 5. Zero panic! Re-assert placeholder is still valid and intact
+    assert!(harness.query("#unmounted-placeholder").is_some());
+}

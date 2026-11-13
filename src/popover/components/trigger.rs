@@ -35,6 +35,7 @@ pub fn PopoverTrigger(props: PopoverTriggerProps) -> Element {
             "data-state": trigger.data_state().as_str(),
             "data-disabled": if props.disabled { "true" } else { "false" },
             onmounted: runtime.mount_trigger(),
+            onpointerdown: runtime.trigger_pointer_down(),
             onclick: runtime.trigger_click(),
             {props.children}
         }

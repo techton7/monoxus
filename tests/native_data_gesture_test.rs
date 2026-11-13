@@ -759,5 +759,193 @@ fn test_native_select_bottom_collision_flips_to_top_without_wheel_scroll() {
     );
 }
 
+/// Test 5: Toast W3C Pointer Capture out-of-bounds release, interactive button guard, and lostpointercapture recovery
+#[test]
+fn test_native_toast_pointer_capture_out_of_bounds_release_button_guard_and_lost_capture() {
+    use blitz_traits::events::{
+        BlitzPointerEvent, BlitzPointerId, MouseEventButton, MouseEventButtons, PointerCoords,
+        PointerDetails, UiEvent,
+    };
+    use monoxus::toast::ToastActionData;
+
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mouse_pid = BlitzPointerId::Mouse.to_dom_pointer_id();
+
+    let drag_move_to = |harness: &mut blitz_test_harness::Harness<dioxus_native_dom::DioxusDocument>,
+                        x: f32,
+                        y: f32| {
+        harness.dispatch(UiEvent::PointerMove(BlitzPointerEvent {
+            id: BlitzPointerId::Mouse,
+            is_primary: true,
+            coords: PointerCoords {
+                page_x: x,
+                page_y: y,
+                screen_x: x,
+                screen_y: y,
+                client_x: x,
+                client_y: y,
+            },
+            button: MouseEventButton::Main,
+            buttons: MouseEventButtons::Primary,
+            mods: Default::default(),
+            details: PointerDetails::default(),
+            element: Default::default(),
+            active_pointers: Default::default(),
+        }));
+        harness.pump();
+    };
+
+    let mut harness = mount_native_scenario(playground_toast::ToastPage);
+    harness.set_viewport_size(800, 1400);
+    harness.pump();
+
+    {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        toast::dismiss(None);
+        TOAST_STORE.write().toasts.clear();
+        toast::message(
+            "Pointer Capture Toast",
+            Some(ToastOptions {
+                action: Some(ToastActionData::new("Undo", "Undo action")),
+                duration: Some(Duration::from_secs(60)),
+                ..Default::default()
+            }),
+        );
+    }
+    harness.pump();
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    let toast_sel = "#monoxus-toast-viewport li";
+    assert!(harness.query(toast_sel).is_some(), "Toast must mount");
+    let toast_nid = harness.node(toast_sel);
+
+    // -------------------------------------------------------------------------
+    // Part A: Interactive <button> child guard (ToastAction button)
+    // -------------------------------------------------------------------------
+    let action_sel = "#monoxus-toast-viewport li button[aria-label=\"Undo action\"]";
+    assert!(
+        harness.query(action_sel).is_some(),
+        "ToastAction button must be mounted"
+    );
+    let action_rect = harness.layout_rect(action_sel);
+    harness.mouse_down_at(
+        action_rect.x + action_rect.width * 0.5,
+        action_rect.y + action_rect.height * 0.5,
+    );
+    drag_move_to(&mut harness, action_rect.x + 120.0, action_rect.y + 10.0);
+
+    assert_eq!(
+        harness.attr(toast_sel, "data-swiping"),
+        None,
+        "Pointer down on descendant <button> must NOT start toast swipe"
+    );
+    assert!(
+        !harness.base().has_pointer_capture(toast_nid, mouse_pid),
+        "Toast <li> must NOT acquire pointer capture when pressing a descendant <button>"
+    );
+    // Release outside the button so click does not dismiss toast
+    harness.mouse_up_at(10.0, 10.0);
+    harness.pump();
+    assert_eq!(harness.attr(toast_sel, "data-state").as_deref(), Some("open"));
+
+    // -------------------------------------------------------------------------
+    // Part B: Mid-drag lostpointercapture cancels swipe and snaps back cleanly
+    // -------------------------------------------------------------------------
+    let rect = harness.layout_rect(toast_sel);
+    let start_x = rect.x + 20.0;
+    let start_y = rect.y + 16.0;
+
+    harness.mouse_down_at(start_x, start_y);
+    harness.pump();
+    assert!(
+        harness.base().has_pointer_capture(toast_nid, mouse_pid),
+        "Toast <li> must acquire native W3C pointer capture on pointerdown"
+    );
+
+    drag_move_to(&mut harness, start_x + 30.0, start_y);
+    assert_eq!(
+        harness.attr(toast_sel, "data-swiping").as_deref(),
+        Some("true"),
+        "Toast must enter swiping state during captured drag"
+    );
+
+    // Force external release of pointer capture mid-drag -> next pointer event fires lostpointercapture
+    harness
+        .base_mut()
+        .release_pointer_capture(toast_nid, mouse_pid)
+        .expect("release_pointer_capture on active capture target must succeed");
+    drag_move_to(&mut harness, 5.0, 5.0);
+
+    assert_eq!(
+        harness.attr(toast_sel, "data-swiping"),
+        None,
+        "lostpointercapture must cancel active swipe and clear data-swiping"
+    );
+    assert_eq!(
+        harness.attr(toast_sel, "data-swipe-out").as_deref(),
+        Some("false"),
+        "lostpointercapture must snap back instead of dismissing"
+    );
+    assert_eq!(
+        harness.attr(toast_sel, "data-state").as_deref(),
+        Some("open"),
+        "Toast must remain open after lostpointercapture snap-back"
+    );
+    {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        assert!(
+            !TOAST_STORE.read().interaction_state.swiping,
+            "TOAST_STORE.interaction_state.swiping must reset to false on lostpointercapture"
+        );
+    }
+    harness.mouse_up_at(5.0, 5.0);
+    harness.pump();
+    advance_frame_and_pump(&mut harness, 0.5);
+
+    // -------------------------------------------------------------------------
+    // Part C: Out-of-bounds drag + release outside toast bounds dismisses via pointer capture
+    // -------------------------------------------------------------------------
+    let rect = harness.layout_rect(toast_sel);
+    let down_x = rect.x + 20.0;
+    let down_y = rect.y + 16.0;
+    // Release coordinates well outside the toast's vertical bounds (top of page y=20.0) and >80px right
+    let out_x = (down_x + 95.0).min(795.0);
+    let out_y = 20.0;
+    assert!(
+        out_y < rect.y - 20.0,
+        "Release y={out_y} must be strictly outside toast rect y={}",
+        rect.y
+    );
+
+    harness.mouse_down_at(down_x, down_y);
+    harness.pump();
+    // Move horizontally first to lock X swipe axis, then move completely outside vertical bounds
+    drag_move_to(&mut harness, out_x, down_y);
+    drag_move_to(&mut harness, out_x, out_y);
+    assert_eq!(
+        harness.attr(toast_sel, "data-swiping").as_deref(),
+        Some("true")
+    );
+
+    harness.mouse_up_at(out_x, out_y);
+    harness.pump();
+
+    assert_eq!(
+        harness.attr(toast_sel, "data-swipe-out").as_deref(),
+        Some("true"),
+        "Out-of-bounds pointerup under pointer capture must finalize swipe-out dismissal"
+    );
+    assert!(
+        !harness.base().has_pointer_capture(toast_nid, mouse_pid),
+        "Pointer capture must be released after pointerup"
+    );
+
+    advance_frame_and_pump(&mut harness, 0.25);
+    assert!(
+        harness.query(toast_sel).is_none(),
+        "Toast must unmount after out-of-bounds captured swipe dismissal"
+    );
+}
+
 
 

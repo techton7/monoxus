@@ -115,9 +115,13 @@ pub(crate) fn stop_select_presence_monitor(state: SelectRuntimeState, _content_i
 
 pub(crate) fn clear_select_presence_monitor_state(state: SelectRuntimeState) {
     let mut active_monitor = state.presence_monitor.monitor;
-    active_monitor.set(None);
+    if let Ok(mut m) = active_monitor.try_write() {
+        *m = None;
+    }
     let mut active_cycle_id = state.presence_monitor.cycle_id;
-    active_cycle_id.set(None);
+    if let Ok(mut c) = active_cycle_id.try_write() {
+        *c = None;
+    }
 }
 
 pub(crate) fn complete_select_presence_close_cycle(

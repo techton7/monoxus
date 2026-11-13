@@ -151,6 +151,15 @@ pub fn SelectTrigger(
             "data-state": "{attrs.data_state_str()}",
             "data-disabled": if attrs.is_disabled() { "true" } else { "false" },
             "data-placeholder": attrs.data_placeholder_str(),
+            onpointerdown: {
+                let runtime = ctx.runtime.clone();
+                let is_dis = attrs.is_disabled();
+                move |_| {
+                    if !is_dis && runtime.is_open() {
+                        runtime.mark_pointer_dismiss();
+                    }
+                }
+            },
             onclick: {
                 let runtime = ctx.runtime.clone();
                 move |_| {

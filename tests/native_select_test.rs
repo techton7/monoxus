@@ -147,3 +147,45 @@ fn test_native_select_multi_word_space_typeahead() {
         "Enter must commit highlighted option and close dropdown"
     );
 }
+
+/// Test 4: Select :focus-visible restoration parity (keyboard close vs mouse item click & outside pointer dismiss)
+#[test]
+fn test_native_select_focus_visible_keyboard_vs_pointer_restoration() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(scenarios_select::BasicFruitSelectSection);
+
+    // 1. Open via keyboard (Enter) + close via Escape -> #select-trigger HAS :focus-visible=true
+    focus_node(&mut harness, "#select-trigger");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#select-content").is_some());
+
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert!(harness.query("#select-content").is_none());
+    assert_native_focus_visible(&harness, "#select-trigger", true);
+
+    // 2. Open via keyboard (Enter), then mouse-click an option ([data-value='banana'], unfocusable <div role='option'>)
+    //    -> commits banana AND restores #select-trigger with :focus-visible=false
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#select-content").is_some());
+
+    click_and_pump(&mut harness, "[data-value='banana']");
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert!(harness.query("#select-content").is_none());
+    assert_native_focus_visible(&harness, "#select-trigger", false);
+
+    // 3. Open via keyboard (Space), then mouse-click unfocusable outside coordinates (5.0, 5.0)
+    //    -> closes dropdown AND restores #select-trigger with :focus-visible=false
+    send_key_and_pump(&mut harness, Key::Character(" ".into()), Code::Space);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#select-content").is_some());
+
+    click_at_and_pump(&mut harness, 5.0, 5.0);
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert!(harness.query("#select-content").is_none());
+    assert_native_focus_visible(&harness, "#select-trigger", false);
+}

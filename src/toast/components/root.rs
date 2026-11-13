@@ -8,64 +8,45 @@ use dioxus::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-#[cfg(target_arch = "wasm32")]
-fn try_set_pointer_capture(evt: &PointerData) -> bool {
-    use wasm_bindgen::JsCast;
-    if let Some(web_event) = evt.downcast::<web_sys::PointerEvent>() {
-        let pointer_id = web_event.pointer_id();
-        if let Some(target) = web_event
-            .target()
-            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-        {
-            return target.set_pointer_capture(pointer_id).is_ok();
-        }
+fn try_set_pointer_capture(
+    evt: &PointerData,
+    mounted_root: Option<&oxidase::Element>,
+) -> Option<i32> {
+    let pointer_id = oxidase::dom::extract_pointer_id(evt);
+    if let Some(root) = mounted_root
+        && root.set_pointer_capture(pointer_id).is_ok()
+    {
+        return Some(pointer_id);
     }
-    false
+    if let Some(target) = oxidase::dom::pointer_event_target(evt)
+        && target.set_pointer_capture(pointer_id).is_ok()
+    {
+        return Some(pointer_id);
+    }
+    None
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn try_set_pointer_capture(_evt: &PointerData) -> bool {
-    false
-}
-
-#[cfg(target_arch = "wasm32")]
-fn try_release_pointer_capture(evt: &PointerData) {
-    use wasm_bindgen::JsCast;
-    if let Some(web_event) = evt.downcast::<web_sys::PointerEvent>() {
-        let pointer_id = web_event.pointer_id();
-        if let Some(target) = web_event
-            .target()
-            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-        {
-            let _ = target.release_pointer_capture(pointer_id);
-        }
+fn try_release_pointer_capture(
+    evt_opt: Option<&PointerEvent>,
+    mounted_root: Option<&oxidase::Element>,
+    captured_pid: Option<i32>,
+) {
+    let pointer_id = captured_pid.or_else(|| evt_opt.map(|evt| oxidase::dom::extract_pointer_id(&evt.data())));
+    let Some(pointer_id) = pointer_id else {
+        return;
+    };
+    if let Some(root) = mounted_root {
+        let _ = root.release_pointer_capture(pointer_id);
+    }
+    if let Some(evt) = evt_opt
+        && let Some(target) = oxidase::dom::pointer_event_target(&evt.data())
+    {
+        let _ = target.release_pointer_capture(pointer_id);
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn try_release_pointer_capture(_evt: &PointerData) {}
-
-#[cfg(target_arch = "wasm32")]
 fn is_button_target(evt: &PointerData) -> bool {
-    use wasm_bindgen::JsCast;
-    if let Some(web_event) = evt.downcast::<web_sys::PointerEvent>() {
-        if let Some(target) = web_event
-            .target()
-            .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
-        {
-            if target.tag_name().eq_ignore_ascii_case("button")
-                || target.closest("button").ok().flatten().is_some()
-            {
-                return true;
-            }
-        }
-    }
-    false
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn is_button_target(_evt: &PointerData) -> bool {
-    false
+    oxidase::dom::is_interactive_button_target(evt)
 }
 
 #[derive(Props, Clone, PartialEq)]
@@ -116,6 +97,8 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
     let swipe_direction_name = use_signal(|| None::<&'static str>);
 
     let active_reducer = use_hook(|| Rc::new(RefCell::new(None::<SwipeGestureReducer>)));
+    let mounted_root = use_hook(|| Rc::new(RefCell::new(None::<oxidase::Element>)));
+    let captured_pointer_id = use_hook(|| Rc::new(RefCell::new(None::<i32>)));
     let pointer_stream_guard = use_hook(|| {
         Rc::new(RefCell::new(
             None::<crate::foundation::browser::DocumentPointerStreamGuard>,
@@ -124,6 +107,8 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
 
     let onpointerdown = {
         let reducer_cell = active_reducer.clone();
+        let root_cell = mounted_root.clone();
+        let captured_pid_cell = captured_pointer_id.clone();
         let guard_cell = pointer_stream_guard.clone();
         let toast_id = props.id;
         let effective_position = position;
@@ -150,8 +135,12 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
             let reducer = SwipeGestureReducer::new(toast_id.0, start_point, start_time, config);
             *reducer_cell.borrow_mut() = Some(reducer);
 
-            let captured = try_set_pointer_capture(&evt.data());
-            if !captured {
+            let captured_pid = {
+                let root_ref = root_cell.borrow();
+                try_set_pointer_capture(&evt.data(), root_ref.as_ref())
+            };
+            *captured_pid_cell.borrow_mut() = captured_pid;
+            if captured_pid.is_none() {
                 // Substrate resilience: activate generic document pointer stream from foundation/browser/
                 let reducer_for_stream = reducer_cell.clone();
                 let mut sx = swipe_delta_x;
@@ -203,6 +192,8 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
 
     let handle_pointer_end = {
         let reducer_cell = active_reducer.clone();
+        let root_cell = mounted_root.clone();
+        let captured_pid_cell = captured_pointer_id.clone();
         let guard_cell = pointer_stream_guard.clone();
         let mut sx = swipe_delta_x;
         let mut sy = swipe_delta_y;
@@ -214,8 +205,10 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
             // Drop document pointer stream guard
             guard_cell.borrow_mut().take();
 
-            if let Some(evt) = evt_opt {
-                try_release_pointer_capture(&evt.data());
+            let pid = captured_pid_cell.borrow_mut().take();
+            {
+                let root_ref = root_cell.borrow();
+                try_release_pointer_capture(evt_opt, root_ref.as_ref(), pid);
             }
 
             let now_ms = toast_now_ms();
@@ -322,6 +315,12 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
             "data-testid": attrs.data_testid.as_deref().unwrap_or_default(),
             class: props.class.as_deref().unwrap_or_default(),
             style: combined_style.as_deref(),
+            onmounted: {
+                let root_cell = mounted_root.clone();
+                move |evt: MountedEvent| {
+                    *root_cell.borrow_mut() = Some(oxidase::Element::from_mounted(evt.data()));
+                }
+            },
             onpointerdown,
             onpointermove,
             onpointerup: {
@@ -331,6 +330,17 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
             onpointercancel: {
                 let mut end_fn = handle_pointer_end.clone();
                 move |evt: PointerEvent| end_fn(Some(&evt), true)
+            },
+            onlostpointercapture: {
+                let reducer_cell = active_reducer.clone();
+                let captured_pid_cell = captured_pointer_id.clone();
+                let mut end_fn = handle_pointer_end.clone();
+                move |_evt: PointerEvent| {
+                    *captured_pid_cell.borrow_mut() = None;
+                    if reducer_cell.borrow().is_some() {
+                        end_fn(None, true);
+                    }
+                }
             },
             onanimationend: {
                 let toast_id = props.id;

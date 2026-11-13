@@ -80,11 +80,9 @@ pub fn DialogRoot(
         let is_curr = open_signal();
         let was_open = *was_open_sig.peek();
         if was_open && !is_curr {
-            let trig = trigger_id
+            runtime_sig
                 .peek()
-                .clone()
-                .unwrap_or_else(|| runtime_sig.peek().relationships().trigger_id().to_string());
-            crate::foundation::browser::restore_focus_element_by_id(&trig);
+                .restore_close_focus_with_fallback(trigger_id.peek().as_deref());
         }
         if was_open != is_curr {
             was_open_sig.set(is_curr);
@@ -122,7 +120,9 @@ pub fn DialogTrigger(
         ctx.trigger_id.set(Some(trig_id.clone()));
     }
 
+    let runtime_for_click = runtime.clone();
     let on_click = move |_| {
+        runtime_for_click.clear_pointer_dismiss();
         open.set(true);
         if let Some(h) = on_change {
             h.call(true);
@@ -220,19 +220,23 @@ pub fn DialogOverlay(
     let outside_policy = *runtime.lifecycle().outside_interaction_policy();
 
     let trigger_sig = ctx.trigger_id;
-    let fallback_trigger_id = runtime.relationships().trigger_id().to_string();
+    let runtime_for_ptr = runtime.clone();
+    let runtime_for_click = runtime.clone();
+
+    let on_pointer_down = move |_| {
+        if !ctx.is_alert_dialog && outside_policy.pointer_down_outside().dismisses() {
+            runtime_for_ptr.mark_pointer_dismiss();
+        }
+    };
 
     let on_click = move |_| {
         if !ctx.is_alert_dialog && outside_policy.pointer_down_outside().dismisses() {
+            runtime_for_click.mark_pointer_dismiss();
             open.set(false);
             if let Some(h) = on_change {
                 h.call(false);
             }
-            let trig = trigger_sig
-                .peek()
-                .clone()
-                .unwrap_or_else(|| fallback_trigger_id.clone());
-            crate::foundation::browser::restore_focus_element_by_id(&trig);
+            runtime_for_click.restore_close_focus_with_fallback(trigger_sig.peek().as_deref());
         }
     };
 
@@ -253,6 +257,7 @@ pub fn DialogOverlay(
             "data-overlay": "true",
             aria_hidden: "true",
             onmounted: runtime.mount_overlay(),
+            onpointerdown: on_pointer_down,
             onclick: on_click,
             {children}
         }
@@ -291,19 +296,16 @@ pub fn DialogContent(
     let on_change = ctx.on_open_change;
 
     let trigger_sig = ctx.trigger_id;
-    let fallback_trigger_id = runtime.relationships().trigger_id().to_string();
+    let runtime_for_key = runtime.clone();
 
     let on_keydown = move |evt: KeyboardEvent| {
         if evt.key() == Key::Named(NamedKey::Escape) {
+            runtime_for_key.clear_pointer_dismiss();
             open.set(false);
             if let Some(h) = on_change {
                 h.call(false);
             }
-            let trig = trigger_sig
-                .peek()
-                .clone()
-                .unwrap_or_else(|| fallback_trigger_id.clone());
-            crate::foundation::browser::restore_focus_element_by_id(&trig);
+            runtime_for_key.restore_close_focus_with_fallback(trigger_sig.peek().as_deref());
         }
     };
 
@@ -397,18 +399,16 @@ pub fn DialogClose(
     let on_change = ctx.on_open_change;
 
     let trigger_sig = ctx.trigger_id;
-    let fallback_trigger_id = runtime.relationships().trigger_id().to_string();
+    let runtime_for_ptr = runtime.clone();
+    let runtime_for_key = runtime.clone();
+    let runtime_for_click = runtime.clone();
 
     let on_click = move |_| {
         open.set(false);
         if let Some(h) = on_change {
             h.call(false);
         }
-        let trig = trigger_sig
-            .peek()
-            .clone()
-            .unwrap_or_else(|| fallback_trigger_id.clone());
-        crate::foundation::browser::restore_focus_element_by_id(&trig);
+        runtime_for_click.restore_close_focus_with_fallback(trigger_sig.peek().as_deref());
     };
 
     rsx! {
@@ -419,6 +419,14 @@ pub fn DialogClose(
             style: style.as_deref().unwrap_or_default(),
             "data-state": close.data_state().as_str(),
             onmounted: runtime.mount_close(),
+            onpointerdown: move |_| runtime_for_ptr.mark_pointer_dismiss(),
+            onkeydown: move |evt: KeyboardEvent| {
+                if matches!(evt.key(), Key::Named(NamedKey::Enter))
+                    || evt.key() == Key::Character(" ".into())
+                {
+                    runtime_for_key.clear_pointer_dismiss();
+                }
+            },
             onclick: on_click,
             {children}
         }
@@ -441,18 +449,16 @@ pub fn AlertDialogAction(
     let on_change = ctx.on_open_change;
 
     let trigger_sig = ctx.trigger_id;
-    let fallback_trigger_id = runtime.relationships().trigger_id().to_string();
+    let runtime_for_ptr = runtime.clone();
+    let runtime_for_key = runtime.clone();
+    let runtime_for_click = runtime.clone();
 
     let click_handler = move |evt: MouseEvent| {
         open.set(false);
         if let Some(h) = on_change {
             h.call(false);
         }
-        let trig = trigger_sig
-            .peek()
-            .clone()
-            .unwrap_or_else(|| fallback_trigger_id.clone());
-        crate::foundation::browser::restore_focus_element_by_id(&trig);
+        runtime_for_click.restore_close_focus_with_fallback(trigger_sig.peek().as_deref());
         if let Some(cb) = on_click {
             cb.call(evt);
         }
@@ -466,6 +472,14 @@ pub fn AlertDialogAction(
             style: style.as_deref().unwrap_or_default(),
             "data-state": runtime.data_state().as_str(),
             onmounted: runtime.mount_focus_target(action_id.clone()),
+            onpointerdown: move |_| runtime_for_ptr.mark_pointer_dismiss(),
+            onkeydown: move |evt: KeyboardEvent| {
+                if matches!(evt.key(), Key::Named(NamedKey::Enter))
+                    || evt.key() == Key::Character(" ".into())
+                {
+                    runtime_for_key.clear_pointer_dismiss();
+                }
+            },
             onclick: click_handler,
             {children}
         }
@@ -488,18 +502,16 @@ pub fn AlertDialogCancel(
     let on_change = ctx.on_open_change;
 
     let trigger_sig = ctx.trigger_id;
-    let fallback_trigger_id = runtime.relationships().trigger_id().to_string();
+    let runtime_for_ptr = runtime.clone();
+    let runtime_for_key = runtime.clone();
+    let runtime_for_click = runtime.clone();
 
     let click_handler = move |evt: MouseEvent| {
         open.set(false);
         if let Some(h) = on_change {
             h.call(false);
         }
-        let trig = trigger_sig
-            .peek()
-            .clone()
-            .unwrap_or_else(|| fallback_trigger_id.clone());
-        crate::foundation::browser::restore_focus_element_by_id(&trig);
+        runtime_for_click.restore_close_focus_with_fallback(trigger_sig.peek().as_deref());
         if let Some(cb) = on_click {
             cb.call(evt);
         }
@@ -513,6 +525,14 @@ pub fn AlertDialogCancel(
             style: style.as_deref().unwrap_or_default(),
             "data-state": runtime.data_state().as_str(),
             onmounted: runtime.mount_focus_target(cancel_id.clone()),
+            onpointerdown: move |_| runtime_for_ptr.mark_pointer_dismiss(),
+            onkeydown: move |evt: KeyboardEvent| {
+                if matches!(evt.key(), Key::Named(NamedKey::Enter))
+                    || evt.key() == Key::Character(" ".into())
+                {
+                    runtime_for_key.clear_pointer_dismiss();
+                }
+            },
             onclick: click_handler,
             {children}
         }

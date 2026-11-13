@@ -127,6 +127,15 @@ pub fn SelectItem(
             "data-value": "{value}",
             "data-label": "{label_str}",
             "data-selected": if is_sel { "true" } else { "false" },
+            onpointerdown: {
+                let runtime = ctx.runtime.clone();
+                let is_dis = attrs.is_disabled();
+                move |_| {
+                    if !is_dis {
+                        runtime.mark_pointer_dismiss();
+                    }
+                }
+            },
             onclick: {
                 let runtime = ctx.runtime.clone();
                 let v = value.clone();

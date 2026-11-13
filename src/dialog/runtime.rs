@@ -8,9 +8,10 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        PresenceMonitorEvent, WatcherGuard, acquire_scroll_lock, focus_element_by_id,
-        focus_first_focusable as foundation_focus_first_focusable,
-        release_scroll_lock, restore_focus_element_by_id, start_presence_monitor,
+        FocusOptions, PresenceMonitorEvent, WatcherGuard, acquire_scroll_lock, focus_element_by_id,
+        focus_first_focusable as foundation_focus_first_focusable, release_scroll_lock,
+        restore_focus_element_by_id, restore_focus_element_by_id_with_options,
+        start_presence_monitor,
     },
     overlay::{
         Presence, PresenceCloseCycleId, PresenceController, PresenceControllerUpdate, PresenceState,
@@ -43,6 +44,7 @@ struct DialogRuntimeState {
     last_open: Signal<bool>,
     pending_open_focus: Signal<bool>,
     scroll_lock_held: Signal<bool>,
+    last_dismiss_was_pointer: Signal<bool>,
     overlay_id: Signal<Option<String>>,
     content_id: Signal<Option<String>>,
     trigger_id: Signal<Option<String>>,
@@ -128,6 +130,7 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         last_open: use_signal(|| dialog.is_open()),
         pending_open_focus: use_signal(|| dialog.is_open()),
         scroll_lock_held: use_signal(|| false),
+        last_dismiss_was_pointer: use_signal(|| false),
         overlay_id: use_signal(|| None),
         content_id: use_signal(|| None),
         trigger_id: use_signal(|| None),
@@ -349,6 +352,24 @@ impl DialogRuntime {
         let id = id.into();
         move |event| runtime.capture_focus_target(id.clone(), event.data())
     }
+
+    pub fn mark_pointer_dismiss(&self) {
+        let mut ptr = self.state.last_dismiss_was_pointer;
+        ptr.set(true);
+    }
+
+    pub fn clear_pointer_dismiss(&self) {
+        let mut ptr = self.state.last_dismiss_was_pointer;
+        ptr.set(false);
+    }
+
+    pub fn last_dismiss_was_pointer(&self) -> bool {
+        *self.state.last_dismiss_was_pointer.peek()
+    }
+
+    pub(crate) fn restore_close_focus_with_fallback(&self, fallback_trigger_id: Option<&str>) {
+        restore_close_focus(&self.dialog, self.state, fallback_trigger_id);
+    }
 }
 
 fn sync_dialog_runtime(dialog: &Dialog, mut state: DialogRuntimeState) {
@@ -390,9 +411,13 @@ fn sync_dialog_runtime(dialog: &Dialog, mut state: DialogRuntimeState) {
         && dialog.lifecycle().scroll_lock_policy().is_enabled();
     let is_holding_scroll_lock = *state.scroll_lock_held.peek();
 
-    if is_open && !was_open && !*state.pending_open_focus.peek() {
-        let mut pending_open_focus = state.pending_open_focus;
-        pending_open_focus.set(true);
+    if is_open && !was_open {
+        let mut ptr = state.last_dismiss_was_pointer;
+        ptr.set(false);
+        if !*state.pending_open_focus.peek() {
+            let mut pending_open_focus = state.pending_open_focus;
+            pending_open_focus.set(true);
+        }
     }
 
     if should_hold_scroll_lock && !is_holding_scroll_lock {
@@ -417,7 +442,7 @@ fn sync_dialog_runtime(dialog: &Dialog, mut state: DialogRuntimeState) {
         }
     } else {
         if was_open {
-            restore_close_focus(dialog, state);
+            restore_close_focus(dialog, state, None);
         }
 
         if *state.pending_open_focus.peek() {
@@ -455,18 +480,33 @@ fn apply_open_focus(dialog: &Dialog, state: DialogRuntimeState) -> bool {
     }
 }
 
-fn restore_close_focus(dialog: &Dialog, state: DialogRuntimeState) {
+fn restore_close_focus(
+    dialog: &Dialog,
+    state: DialogRuntimeState,
+    fallback_trigger_id: Option<&str>,
+) {
+    let was_pointer = *state.last_dismiss_was_pointer.peek();
+    let pointer_options = FocusOptions::with_focus_visible(false, Some(false));
     let trigger_id = state
         .trigger_id
         .peek()
         .clone()
+        .or_else(|| fallback_trigger_id.map(str::to_owned))
         .unwrap_or_else(|| dialog.relationships().trigger_id().to_string());
     match dialog.lifecycle().close_focus_policy() {
         DialogCloseFocusPolicy::Trigger => {
-            restore_focus_element_by_id(&trigger_id);
+            if was_pointer {
+                restore_focus_element_by_id_with_options(&trigger_id, pointer_options);
+            } else {
+                restore_focus_element_by_id(&trigger_id);
+            }
         }
         DialogCloseFocusPolicy::Target(target) => {
-            restore_focus_element_by_id(target);
+            if was_pointer {
+                restore_focus_element_by_id_with_options(target, pointer_options);
+            } else {
+                restore_focus_element_by_id(target);
+            }
         }
         DialogCloseFocusPolicy::None => {}
     }

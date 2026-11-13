@@ -334,3 +334,57 @@ fn test_escape_key_dismiss_behavior() {
     // Verify escape dismissal returned true
     assert!(*dismiss_result.borrow(), "dismiss_escape() should return true when tooltip is open");
 }
+
+#[test]
+fn test_tooltip_provider_unmount_during_skip_delay_no_panic() {
+    let mounted_cell = Rc::new(RefCell::new(None));
+    let open_cell = Rc::new(RefCell::new(None));
+
+    let m_cell = mounted_cell.clone();
+    let o_cell = open_cell.clone();
+
+    let mut dom = VirtualDom::new_with_props(
+        move |_: ()| {
+            let mounted = use_signal(|| true);
+            let open = use_signal(|| true);
+            *m_cell.borrow_mut() = Some(mounted);
+            *o_cell.borrow_mut() = Some(open);
+
+            if !mounted() {
+                return rsx! { div { id: "unmounted", "Unmounted" } };
+            }
+
+            rsx! {
+                TooltipProvider {
+                    delay_duration: 0,
+                    skip_delay_duration: 50,
+                    TooltipRoot {
+                        default_open: open(),
+                        TooltipTrigger { "Trigger" }
+                        TooltipPortal { TooltipContent { "Content" } }
+                    }
+                }
+            }
+        },
+        (),
+    );
+    dom.rebuild_in_place();
+
+    // Trigger close to start skip delay timer
+    let mut open_sig = open_cell.borrow().unwrap();
+    open_sig.set(false);
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+
+    // Unmount immediately before skip delay timer (50ms) expires
+    let mut mounted_sig = mounted_cell.borrow().unwrap();
+    mounted_sig.set(false);
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+
+    // Wait past the 50ms skip delay window
+    std::thread::sleep(std::time::Duration::from_millis(80));
+
+    // Pump VirtualDom work
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+}
+
+

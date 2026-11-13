@@ -5,10 +5,10 @@ use dioxus::prelude::*;
 #[allow(unused_imports)]
 use crate::foundation::{
     browser::{
-        DocumentDismissEvent, FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard,
-        restore_focus_element_by_id, scroll_element_into_view_nearest,
-        start_document_dismiss_monitor, start_floating_auto_update_monitor,
-        start_form_reset_monitor, start_presence_monitor,
+        DocumentDismissEvent, FloatingAutoUpdateEvent, FocusOptions, PresenceMonitorEvent,
+        WatcherGuard, restore_focus_element_by_id, restore_focus_element_by_id_with_options,
+        scroll_element_into_view_nearest, start_document_dismiss_monitor,
+        start_floating_auto_update_monitor, start_form_reset_monitor, start_presence_monitor,
     },
     overlay::{
         FloatingLayer, FloatingPlacement, FloatingReadiness, GeometryVars, PlacementAlign,
@@ -70,6 +70,7 @@ pub struct SelectRuntimeState {
     pub sticky: Signal<Option<String>>,
     pub reference_hidden: Signal<bool>,
     pub escape_prevented: Signal<bool>,
+    pub last_dismiss_was_pointer: Signal<bool>,
     pub on_escape_keydown: Signal<Option<EventHandler<KeyboardEvent>>>,
     pub on_pointer_down_outside: Signal<Option<EventHandler<PointerDownOutsideEvent>>>,
     pub on_close_auto_focus: Signal<Option<EventHandler<()>>>,
@@ -178,6 +179,7 @@ where
         sticky: use_signal(|| None),
         reference_hidden: use_signal(|| false),
         escape_prevented: use_signal(|| false),
+        last_dismiss_was_pointer: use_signal(|| false),
         on_escape_keydown: use_signal(|| None),
         on_pointer_down_outside: use_signal(|| None),
         on_close_auto_focus: use_signal(|| None),
@@ -202,11 +204,17 @@ where
     dioxus::core::use_drop(move || {
         stop_select_presence_monitor(cleanup_state, cleanup_content_id.as_str());
         let mut dm_sig = cleanup_state.dismiss_monitor;
-        dm_sig.set(None);
+        if let Ok(mut dm) = dm_sig.try_write() {
+            *dm = None;
+        }
         let mut pm_sig = cleanup_state.position_monitor;
-        pm_sig.set(None);
+        if let Ok(mut pm) = pm_sig.try_write() {
+            *pm = None;
+        }
         let mut frm_sig = cleanup_state.form_reset_monitor;
-        frm_sig.set(None);
+        if let Ok(mut frm) = frm_sig.try_write() {
+            *frm = None;
+        }
     });
 
     let presence_sync_state = state;
@@ -296,6 +304,7 @@ impl SelectRuntime {
             sticky: Signal::new(None),
             reference_hidden: Signal::new(false),
             escape_prevented: Signal::new(false),
+            last_dismiss_was_pointer: Signal::new(false),
             on_escape_keydown: Signal::new(None),
             on_pointer_down_outside: Signal::new(None),
             on_close_auto_focus: Signal::new(None),
@@ -528,9 +537,14 @@ impl SelectRuntime {
     }
 
     pub fn set_reference_hidden(&self, hidden: bool) {
-        let mut sig = self.state.reference_hidden;
-        if *sig.peek() != hidden {
-            sig.set(hidden);
+        if let Ok(current) = self.state.reference_hidden.try_peek() {
+            if *current != hidden {
+                drop(current);
+                let mut sig = self.state.reference_hidden;
+                if let Ok(mut w) = sig.try_write() {
+                    *w = hidden;
+                }
+            }
         }
     }
 
@@ -610,11 +624,35 @@ impl SelectRuntime {
         evt.default_action_enabled()
     }
 
+    pub fn mark_pointer_dismiss(&self) {
+        let mut sig = self.state.last_dismiss_was_pointer;
+        sig.set(true);
+    }
+
+    pub fn clear_pointer_dismiss(&self) {
+        let mut sig = self.state.last_dismiss_was_pointer;
+        sig.set(false);
+    }
+
+    pub fn last_dismiss_was_pointer(&self) -> bool {
+        *self.state.last_dismiss_was_pointer.peek()
+    }
+
     pub fn trigger_close_auto_focus(&self) {
         if let Some(cb) = self.state.on_close_auto_focus.read().clone() {
             cb.call(());
         }
-        restore_focus_element_by_id(self.relationships().trigger_id());
+        let was_pointer = *self.state.last_dismiss_was_pointer.peek();
+        let mut sig = self.state.last_dismiss_was_pointer;
+        sig.set(false);
+        if was_pointer {
+            restore_focus_element_by_id_with_options(
+                self.relationships().trigger_id(),
+                FocusOptions::with_focus_visible(false, Some(false)),
+            );
+        } else {
+            restore_focus_element_by_id(self.relationships().trigger_id());
+        }
     }
 
     pub fn open_dropdown(&self) {
@@ -622,6 +660,7 @@ impl SelectRuntime {
             return;
         }
 
+        self.clear_pointer_dismiss();
         let mut open_sig = self.state.open;
         open_sig.set(true);
         sync_select_presence(self.relationships().content_id(), self.state, true);
@@ -724,8 +763,10 @@ impl SelectRuntime {
 
     pub fn unregister_item(&self, id: &str) {
         let mut reg_sig = self.state.registry;
+        let Ok(mut r) = reg_sig.try_write() else {
+            return;
+        };
         let removed = {
-            let mut r = reg_sig.write();
             let item = r.items_by_id.get(id).cloned();
             r.unregister(id);
             item
@@ -733,8 +774,7 @@ impl SelectRuntime {
 
         if let Some(item) = removed {
             // Keep items synchronized in pure Rust
-            let active: Vec<SelectItemData> = reg_sig
-                .read()
+            let active: Vec<SelectItemData> = r
                 .active_items()
                 .map(|i| SelectItemData {
                     value: i.value.clone(),
@@ -742,15 +782,21 @@ impl SelectRuntime {
                     disabled: i.disabled,
                 })
                 .collect();
-            let mut items_sig = self.state.items;
-            items_sig.set(active);
-
-            if self.highlighted_value().as_deref() == Some(&item.value) {
-                let next_cand = reg_sig
-                    .read()
-                    .active_items()
+            let next_cand = if self.highlighted_value().as_deref() == Some(&item.value) {
+                r.active_items()
                     .find(|i| !i.disabled)
-                    .map(|i| i.value.clone());
+                    .map(|i| i.value.clone())
+            } else {
+                None
+            };
+            drop(r);
+
+            let mut items_sig = self.state.items;
+            if let Ok(mut items) = items_sig.try_write() {
+                *items = active;
+            }
+
+            if next_cand.is_some() {
                 self.set_highlighted(next_cand);
             }
         }

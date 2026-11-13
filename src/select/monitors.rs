@@ -99,6 +99,7 @@ impl SelectRuntime {
                         runtime.set_escape_prevented(false);
                         return;
                     }
+                    runtime.clear_pointer_dismiss();
                     runtime.close_dropdown();
                 }
                 DocumentDismissEvent::PointerDown { path_ids } => {
@@ -110,7 +111,8 @@ impl SelectRuntime {
                         if !should_close {
                             return;
                         }
-                        runtime.close_dropdown_without_restore();
+                        runtime.mark_pointer_dismiss();
+                        runtime.close_dropdown();
                     }
                 }
                 DocumentDismissEvent::FocusIn { path_ids } => {
@@ -118,6 +120,7 @@ impl SelectRuntime {
                         .iter()
                         .any(|id| id == &trigger_id_clone || id == &content_id_clone);
                     if !is_inside {
+                        runtime.clear_pointer_dismiss();
                         runtime.close_dropdown_without_restore();
                     }
                 }
@@ -129,7 +132,9 @@ impl SelectRuntime {
 
     pub fn stop_dismiss_monitor(&self) {
         let mut dm_sig = self.state.dismiss_monitor;
-        dm_sig.set(None);
+        if let Ok(mut dm) = dm_sig.try_write() {
+            *dm = None;
+        }
     }
 
     pub fn start_position_monitor(&self) {
@@ -158,7 +163,9 @@ impl SelectRuntime {
 
     pub fn stop_position_monitor(&self) {
         let mut pm_sig = self.state.position_monitor;
-        pm_sig.set(None);
+        if let Ok(mut pm) = pm_sig.try_write() {
+            *pm = None;
+        }
     }
 
     pub fn recalculate_floating_position_sync(&self) -> bool {
@@ -218,8 +225,8 @@ impl SelectRuntime {
             return;
         }
 
-        let trigger_handle_opt = self.state.trigger_handle.with_peek(|h| h.clone());
-        let content_handle_opt = self.state.content_handle.with_peek(|h| h.clone());
+        let trigger_handle_opt = self.state.trigger_handle.try_peek().ok().and_then(|h| h.clone());
+        let content_handle_opt = self.state.content_handle.try_peek().ok().and_then(|h| h.clone());
         if let (Some(th), Some(ch)) = (trigger_handle_opt, content_handle_opt) {
                 if let (Ok(tr_rect), Ok(co_rect)) =
                     (th.get_client_rect().await, ch.get_client_rect().await)
@@ -262,26 +269,46 @@ impl SelectRuntime {
                         }
                     };
 
-                    let mut side_sig = self.state.side;
-                    if *side_sig.peek() != placement.side() {
-                        side_sig.set(placement.side());
+                    let Ok(side_val) = self.state.side.try_peek() else {
+                        return;
+                    };
+                    if *side_val != placement.side() {
+                        drop(side_val);
+                        let mut side_sig = self.state.side;
+                        if let Ok(mut w) = side_sig.try_write() {
+                            *w = placement.side();
+                        }
+                    } else {
+                        drop(side_val);
                     }
-                    let mut align_sig = self.state.align;
-                    if *align_sig.peek() != placement.align() {
-                        align_sig.set(placement.align());
+
+                    if let Ok(align_val) = self.state.align.try_peek() {
+                        if *align_val != placement.align() {
+                            drop(align_val);
+                            let mut align_sig = self.state.align;
+                            if let Ok(mut w) = align_sig.try_write() {
+                                *w = placement.align();
+                            }
+                        }
                     }
+
                     self.set_reference_hidden(placement.reference_hidden());
 
                     let geom = placement.geometry();
-                    let mut readiness_sig = self.state.content_readiness;
-                    if geom.content_width() > 0.0 && geom.content_height() > 0.0 {
-                        readiness_sig.set(FloatingReadiness::Ready);
+                    let readiness = if geom.content_width() > 0.0 && geom.content_height() > 0.0 {
+                        FloatingReadiness::Ready
                     } else {
-                        readiness_sig.set(FloatingReadiness::Measuring);
+                        FloatingReadiness::Measuring
+                    };
+                    let mut readiness_sig = self.state.content_readiness;
+                    if let Ok(mut r) = readiness_sig.try_write() {
+                        *r = readiness;
                     }
 
                     let mut placement_sig = self.state.placement;
-                    placement_sig.set(Some(placement));
+                    if let Ok(mut p) = placement_sig.try_write() {
+                        *p = Some(placement);
+                    }
                 }
             }
         }
@@ -297,12 +324,16 @@ impl SelectRuntime {
             runtime.handle_form_reset();
         });
         let mut frm_sig = self.state.form_reset_monitor;
-        frm_sig.set(Some(watcher));
+        if let Ok(mut frm) = frm_sig.try_write() {
+            *frm = Some(watcher);
+        }
     }
 
     pub fn stop_form_reset_monitor(&self) {
         let mut frm_sig = self.state.form_reset_monitor;
-        frm_sig.set(None);
+        if let Ok(mut frm) = frm_sig.try_write() {
+            *frm = None;
+        }
     }
 
     pub fn handle_form_reset(&self) {

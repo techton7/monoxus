@@ -10,11 +10,11 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        DocumentDismissEvent, FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard,
-        acquire_scroll_lock, focus_element_by_id, focus_first_focusable, focus_mounted_handle,
-        release_scroll_lock, restore_focus_element_by_id,
-        start_document_dismiss_monitor_with_boundaries, start_floating_auto_update_monitor,
-        start_presence_monitor,
+        DocumentDismissEvent, FloatingAutoUpdateEvent, FocusOptions, PresenceMonitorEvent,
+        WatcherGuard, acquire_scroll_lock, focus_element_by_id, focus_first_focusable,
+        focus_mounted_handle, release_scroll_lock, restore_focus_element_by_id,
+        restore_focus_element_by_id_with_options, start_document_dismiss_monitor_with_boundaries,
+        start_floating_auto_update_monitor, start_presence_monitor,
     },
     overlay::{
         FloatingPlacement, FloatingReadiness, GeometryVars, OverlayPositionConfig, Presence,
@@ -100,6 +100,8 @@ struct PopoverRuntimeState {
     last_open: Signal<bool>,
     pending_open_focus: Signal<bool>,
     scroll_lock_held: Signal<bool>,
+    last_dismiss_was_pointer: Signal<bool>,
+    last_dismiss_was_outside_pointer: Signal<bool>,
 }
 
 #[derive(Clone)]
@@ -135,6 +137,8 @@ where
         last_open: use_signal(|| popover.is_open()),
         pending_open_focus: use_signal(|| popover.is_open()),
         scroll_lock_held: use_signal(|| false),
+        last_dismiss_was_pointer: use_signal(|| false),
+        last_dismiss_was_outside_pointer: use_signal(|| false),
     };
     let effect_state = state;
     let cleanup_state = state;
@@ -152,7 +156,7 @@ where
         stop_popover_position_monitor(cleanup_state);
         advance_popover_token(cleanup_state.dismiss_loop_token);
         stop_popover_dismiss_monitor(cleanup_state);
-        if *cleanup_state.scroll_lock_held.peek() {
+        if cleanup_state.scroll_lock_held.try_peek().map(|held| *held).unwrap_or(false) {
             release_scroll_lock(&cleanup_key, None);
         }
     });
@@ -414,6 +418,10 @@ impl PopoverRuntime {
             .dismiss_layer()
             .should_dismiss_escape(&stack)
         {
+            let mut ptr = self.state.last_dismiss_was_pointer;
+            ptr.set(false);
+            let mut out_ptr = self.state.last_dismiss_was_outside_pointer;
+            out_ptr.set(false);
             self.close_now();
             return true;
         }
@@ -429,6 +437,10 @@ impl PopoverRuntime {
             .dismiss_layer()
             .should_dismiss_outside_pointer(target.as_ref(), &stack)
         {
+            let mut ptr = self.state.last_dismiss_was_pointer;
+            ptr.set(true);
+            let mut out_ptr = self.state.last_dismiss_was_outside_pointer;
+            out_ptr.set(true);
             self.close_now();
             return true;
         }
@@ -444,11 +456,37 @@ impl PopoverRuntime {
             .dismiss_layer()
             .should_dismiss_outside_focus(target.as_ref(), &stack)
         {
+            let mut ptr = self.state.last_dismiss_was_pointer;
+            ptr.set(false);
+            let mut out_ptr = self.state.last_dismiss_was_outside_pointer;
+            out_ptr.set(false);
             self.close_now();
             return true;
         }
 
         false
+    }
+
+    pub fn trigger_pointer_down(&self) -> impl FnMut(Event<PointerData>) + 'static {
+        let runtime = self.clone();
+        move |_| {
+            if runtime.is_open() {
+                let mut ptr = runtime.state.last_dismiss_was_pointer;
+                ptr.set(true);
+                let mut out_ptr = runtime.state.last_dismiss_was_outside_pointer;
+                out_ptr.set(false);
+            }
+        }
+    }
+
+    pub fn close_pointer_down(&self) -> impl FnMut(Event<PointerData>) + 'static {
+        let runtime = self.clone();
+        move |_| {
+            let mut ptr = runtime.state.last_dismiss_was_pointer;
+            ptr.set(true);
+            let mut out_ptr = runtime.state.last_dismiss_was_outside_pointer;
+            out_ptr.set(false);
+        }
     }
 
     pub fn trigger_click(&self) -> impl FnMut(Event<MouseData>) + 'static {
@@ -487,19 +525,30 @@ impl PopoverRuntime {
 }
 
 fn schedule_pending_open_focus(popover: Popover, state: PopoverRuntimeState) {
-    if !popover.is_open() || !*state.pending_open_focus.peek() {
+    if !popover.is_open()
+        || !state
+            .pending_open_focus
+            .try_peek()
+            .map(|p| *p)
+            .unwrap_or(false)
+    {
         return;
     }
 
     crate::foundation::browser::spawn_root_task(async move {
         loop {
-            if !popover.is_open() || !*state.pending_open_focus.peek() {
+            let pending_res = state.pending_open_focus.try_peek();
+            let is_pending = pending_res.as_ref().map(|p| **p).unwrap_or(false);
+            if !popover.is_open() || !is_pending {
                 return;
             }
+            drop(pending_res);
 
             if apply_popover_open_focus(&popover, state).await {
                 let mut pending_open_focus = state.pending_open_focus;
-                pending_open_focus.set(false);
+                if let Ok(mut p) = pending_open_focus.try_write() {
+                    *p = false;
+                }
                 return;
             }
 
@@ -522,10 +571,16 @@ fn sync_popover_runtime(
         && popover.lifecycle().scroll_lock_policy().is_enabled();
     let is_holding_scroll_lock = *state.scroll_lock_held.peek();
 
-    if is_open && !was_open && !*state.pending_open_focus.peek() {
-        let mut pending_open_focus = state.pending_open_focus;
-        pending_open_focus.set(true);
-        schedule_pending_open_focus(popover.clone(), state);
+    if is_open && !was_open {
+        let mut ptr = state.last_dismiss_was_pointer;
+        ptr.set(false);
+        let mut out_ptr = state.last_dismiss_was_outside_pointer;
+        out_ptr.set(false);
+        if !*state.pending_open_focus.peek() {
+            let mut pending_open_focus = state.pending_open_focus;
+            pending_open_focus.set(true);
+            schedule_pending_open_focus(popover.clone(), state);
+        }
     }
 
     sync_popover_document_dismissal(popover, state, on_open_change);
@@ -584,6 +639,11 @@ fn sync_popover_document_dismissal(
     let watcher = start_document_dismiss_monitor_with_boundaries(&boundaries, move |event| {
         let should_dismiss = should_dismiss_popover_from_document_event(&popover, &event);
         if should_dismiss {
+            let is_pointer = matches!(event, DocumentDismissEvent::PointerDown { .. });
+            let mut ptr = state.last_dismiss_was_pointer;
+            ptr.set(is_pointer);
+            let mut out_ptr = state.last_dismiss_was_outside_pointer;
+            out_ptr.set(is_pointer);
             (on_open_change)(false);
         }
     });
@@ -664,13 +724,33 @@ async fn apply_popover_open_focus(popover: &Popover, state: PopoverRuntimeState)
     }
 }
 
-fn restore_popover_close_focus(popover: &Popover, _state: PopoverRuntimeState) {
+fn restore_popover_close_focus(popover: &Popover, mut state: PopoverRuntimeState) {
+    let was_pointer = *state.last_dismiss_was_pointer.peek();
+    let was_outside_pointer = *state.last_dismiss_was_outside_pointer.peek();
+    state.last_dismiss_was_pointer.set(false);
+    state.last_dismiss_was_outside_pointer.set(false);
+
+    let pointer_options = FocusOptions::with_focus_visible(false, Some(false));
     match popover.lifecycle().close_focus_policy() {
         PopoverCloseFocusPolicy::Trigger => {
-            restore_focus_element_by_id(popover.relationships().trigger_id());
+            if was_outside_pointer && !popover.lifecycle().is_modal() {
+                return;
+            }
+            if was_pointer {
+                restore_focus_element_by_id_with_options(
+                    popover.relationships().trigger_id(),
+                    pointer_options,
+                );
+            } else {
+                restore_focus_element_by_id(popover.relationships().trigger_id());
+            }
         }
         PopoverCloseFocusPolicy::Target(target) => {
-            restore_focus_element_by_id(target);
+            if was_pointer {
+                restore_focus_element_by_id_with_options(target, pointer_options);
+            } else {
+                restore_focus_element_by_id(target);
+            }
         }
         PopoverCloseFocusPolicy::None => {}
     }
@@ -745,7 +825,9 @@ fn sync_popover_positioning(popover: &Popover, state: PopoverRuntimeState) {
         },
     );
     let mut position_monitor = state.position_monitor;
-    position_monitor.set(Some(watcher));
+    if let Ok(mut pm) = position_monitor.try_write() {
+        *pm = Some(watcher);
+    }
 
     if !try_measure_popover_placement_sync(popover, state) {
         let popover = popover.clone();
@@ -814,12 +896,16 @@ fn try_measure_popover_placement_sync(
 
 fn stop_popover_position_monitor(state: PopoverRuntimeState) {
     let mut position_monitor = state.position_monitor;
-    position_monitor.set(None);
+    if let Ok(mut pm) = position_monitor.try_write() {
+        *pm = None;
+    }
 }
 
 fn stop_popover_dismiss_monitor(state: PopoverRuntimeState) {
     let mut dismiss_monitor = state.dismiss_monitor;
-    dismiss_monitor.set(None);
+    if let Ok(mut dm) = dismiss_monitor.try_write() {
+        *dm = None;
+    }
 }
 
 async fn sync_hidden_popover_placement(
@@ -834,7 +920,12 @@ async fn sync_hidden_popover_placement(
         return Ok(false);
     }
 
-    let Some(current_placement) = state.placement.with_peek(|current| current.clone()) else {
+    let Some(current_placement) = state
+        .placement
+        .try_peek()
+        .ok()
+        .and_then(|current| current.clone())
+    else {
         return Ok(false);
     };
     if current_placement.reference_hidden() {
@@ -842,7 +933,9 @@ async fn sync_hidden_popover_placement(
     }
 
     let mut placement = state.placement;
-    placement.set(Some(current_placement.hide_reference()));
+    if let Ok(mut p) = placement.try_write() {
+        *p = Some(current_placement.hide_reference());
+    }
     Ok(true)
 }
 
@@ -864,12 +957,25 @@ async fn measure_popover_placement(
 
     let Some(anchor_handle) = state
         .anchor_handle
-        .with_peek(|handle| handle.clone())
-        .or_else(|| state.trigger_handle.with_peek(|handle| handle.clone()))
+        .try_peek()
+        .ok()
+        .and_then(|handle| handle.clone())
+        .or_else(|| {
+            state
+                .trigger_handle
+                .try_peek()
+                .ok()
+                .and_then(|handle| handle.clone())
+        })
     else {
         return Ok(());
     };
-    let Some(content_handle) = state.content_handle.with_peek(|handle| handle.clone()) else {
+    let Some(content_handle) = state
+        .content_handle
+        .try_peek()
+        .ok()
+        .and_then(|handle| handle.clone())
+    else {
         return Ok(());
     };
 
@@ -896,12 +1002,16 @@ async fn measure_popover_placement(
         set_popover_content_readiness(state, FloatingReadiness::Measuring);
     }
 
-    let should_update = state
-        .placement
-        .with_peek(|current| current.as_ref() != Some(&placement));
+    let Ok(current) = state.placement.try_peek() else {
+        return Ok(());
+    };
+    let should_update = current.as_ref() != Some(&placement);
+    drop(current);
     if should_update {
         let mut current = state.placement;
-        current.set(Some(placement));
+        if let Ok(mut c) = current.try_write() {
+            *c = Some(placement);
+        }
     }
 
     Ok(())
@@ -922,26 +1032,44 @@ async fn read_client_rect(mounted: PopoverMountedHandle, label: &str) -> Result<
 }
 
 fn clear_popover_content_handle(state: PopoverRuntimeState) {
-    if state.content_handle.with_peek(|handle| handle.is_some()) {
+    if state
+        .content_handle
+        .try_peek()
+        .map(|handle| handle.is_some())
+        .unwrap_or(false)
+    {
         let mut content_handle = state.content_handle;
-        content_handle.set(None);
+        if let Ok(mut ch) = content_handle.try_write() {
+            *ch = None;
+        }
     }
 }
 
 fn clear_popover_placement(state: PopoverRuntimeState) {
-    if state.placement.with_peek(|placement| placement.is_some()) {
+    if state
+        .placement
+        .try_peek()
+        .map(|placement| placement.is_some())
+        .unwrap_or(false)
+    {
         let mut placement = state.placement;
-        placement.set(None);
+        if let Ok(mut pl) = placement.try_write() {
+            *pl = None;
+        }
     }
 }
 
 fn set_popover_content_readiness(state: PopoverRuntimeState, readiness: FloatingReadiness) {
     if state
         .content_readiness
-        .with_peek(|current| *current != readiness)
+        .try_peek()
+        .map(|current| *current != readiness)
+        .unwrap_or(false)
     {
         let mut current = state.content_readiness;
-        current.set(readiness);
+        if let Ok(mut cr) = current.try_write() {
+            *cr = readiness;
+        }
     }
 }
 
@@ -979,10 +1107,15 @@ fn serialize_css_custom_properties(entries: &[(String, String)]) -> String {
     style
 }
 
-fn advance_popover_token(signal: Signal<u64>) -> u64 {
-    let next = signal.with_peek(|value| value.saturating_add(1));
-    let mut signal = signal;
-    signal.set(next);
+fn advance_popover_token(mut signal: Signal<u64>) -> u64 {
+    let Ok(value) = signal.try_peek() else {
+        return 0;
+    };
+    let next = value.saturating_add(1);
+    drop(value);
+    if let Ok(mut write) = signal.try_write() {
+        *write = next;
+    }
     next
 }
 
@@ -1068,10 +1201,15 @@ fn stop_popover_presence_monitor(state: PopoverRuntimeState, _content_id: &str) 
 
 fn clear_popover_presence_monitor_state(state: PopoverRuntimeState) {
     let mut active_monitor = state.presence_monitor.monitor;
-    let old_watcher = active_monitor.write().take();
-    drop(old_watcher);
+    if let Ok(mut m) = active_monitor.try_write() {
+        let old_watcher = m.take();
+        drop(m);
+        drop(old_watcher);
+    }
     let mut active_cycle_id = state.presence_monitor.cycle_id;
-    active_cycle_id.set(None);
+    if let Ok(mut c) = active_cycle_id.try_write() {
+        *c = None;
+    }
 }
 
 #[cfg(test)]

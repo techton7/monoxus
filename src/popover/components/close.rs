@@ -32,6 +32,7 @@ pub fn PopoverClose(props: PopoverCloseProps) -> Element {
             "data-state": close.data_state().as_str(),
             "data-disabled": if props.disabled { "true" } else { "false" },
             onmounted: runtime.mount_close(),
+            onpointerdown: runtime.close_pointer_down(),
             onclick: runtime.close_click(),
             {props.children}
         }

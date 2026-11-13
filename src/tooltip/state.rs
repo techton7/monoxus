@@ -36,7 +36,7 @@ impl TooltipProvider {
             skip_delay_duration_ms: Self::DEFAULT_SKIP_DELAY_DURATION_MS,
             disable_hoverable_content: false,
             close_on_trigger_click: true,
-            ignore_non_keyboard_focus: false,
+            ignore_non_keyboard_focus: true,
         }
     }
 

@@ -134,11 +134,13 @@ pub fn focus_node<D: Document>(harness: &mut Harness<D>, selector: &str) {
 /// (or `harness.focused()`) matches the DOM node for `expected_id`.
 pub fn assert_native_focus_id<D: Document>(harness: &Harness<D>, expected_id: &str) {
     let raw_id = expected_id.trim_start_matches('#');
-    let sel = format!("#{raw_id}");
+    let attr_sel = format!("[id=\"{raw_id}\"]");
 
     let expected_node_id = harness
-        .query(&sel)
-        .unwrap_or_else(|| panic!("No node found in document matching selector '{sel}'"));
+        .base()
+        .get_element_by_id(raw_id)
+        .or_else(|| harness.query(&attr_sel))
+        .unwrap_or_else(|| panic!("No node found in document matching id '{raw_id}'"));
 
     let active_node_id = harness
         .base()
@@ -162,6 +164,27 @@ pub fn assert_native_focus_id<D: Document>(harness: &Harness<D>, expected_id: &s
         node_id_attr,
         Some(raw_id),
         "Active focused element has id attribute {node_id_attr:?}, expected '{raw_id}'"
+    );
+}
+
+/// Focus Modality Helper: Verifies active focus ownership on `expected_id` AND its live
+/// `:focus-visible` selector state in `BaseDocument`.
+pub fn assert_native_focus_visible<D: Document>(
+    harness: &Harness<D>,
+    expected_id: &str,
+    expected_focus_visible: bool,
+) {
+    assert_native_focus_id(harness, expected_id);
+    let raw_id = expected_id.trim_start_matches('#');
+    let attr_sel = format!("[id=\"{raw_id}\"]");
+    let node_id = harness
+        .base()
+        .get_element_by_id(raw_id)
+        .unwrap_or_else(|| harness.node(&attr_sel));
+    let actual = harness.base().is_focus_visible(node_id);
+    assert_eq!(
+        actual, expected_focus_visible,
+        "Expected '#{raw_id}' :focus-visible={expected_focus_visible}, got {actual}"
     );
 }
 

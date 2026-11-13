@@ -425,11 +425,9 @@ pub fn AlertDialogRoot(
         let is_curr = open_signal();
         let was_open = *was_open_sig.peek();
         if was_open && !is_curr {
-            let trig = trigger_id
+            runtime_sig
                 .peek()
-                .clone()
-                .unwrap_or_else(|| runtime_sig.peek().relationships().trigger_id().to_string());
-            crate::foundation::browser::restore_focus_element_by_id(&trig);
+                .restore_close_focus_with_fallback(trigger_id.peek().as_deref());
         }
         if was_open != is_curr {
             was_open_sig.set(is_curr);
