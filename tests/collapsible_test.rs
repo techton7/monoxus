@@ -373,3 +373,34 @@ fn test_collapsible_relationships_deterministic_ids() {
     assert_eq!(relationships.content_id(), scope.qualify("content"));
 }
 
+#[component]
+fn CollapsibleCallbackSample(call_count: Rc<RefCell<usize>>) -> Element {
+    let call_count = call_count.clone();
+    rsx! {
+        CollapsibleRoot {
+            id: "cb-root",
+            CollapsibleTrigger {
+                id: "cb-trigger",
+                onclick: move |_evt: MouseEvent| {
+                    *call_count.borrow_mut() += 1;
+                },
+                "Toggle"
+            }
+            CollapsibleContent {
+                id: "cb-content",
+                "Body"
+            }
+        }
+    }
+}
+
+#[test]
+fn test_collapsible_trigger_mouse_event_callback_contract() {
+    let call_count = Rc::new(RefCell::new(0));
+    let mut dom = VirtualDom::new_with_props(CollapsibleCallbackSample, CollapsibleCallbackSampleProps {
+        call_count: call_count.clone(),
+    });
+    dom.rebuild_in_place();
+    assert_eq!(*call_count.borrow(), 0);
+}
+

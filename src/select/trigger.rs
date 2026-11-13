@@ -145,6 +145,7 @@ pub fn SelectTrigger(
             aria_disabled: attrs.aria_disabled(),
             aria_required: attrs.aria_required(),
             tabindex: "{attrs.tabindex()}",
+            disabled: attrs.is_disabled(),
             class: class.as_deref().unwrap_or_default(),
             style: style.as_deref().unwrap_or_default(),
             "data-state": "{attrs.data_state_str()}",

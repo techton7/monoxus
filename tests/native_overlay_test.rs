@@ -304,3 +304,331 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
     );
     assert_native_focus_id(&alert_harness, "#alert-dialog-trigger");
 }
+
+/// Test 5: Double-correction invariant guard test (AC-4)
+///
+/// Verifies that:
+/// 1) `compute_coords_from_placement` produces identical results regardless of `floating.x` / `floating.y` input.
+/// 2) `NativeFloatingPlatform::get_element_rects` produces `floating.x == 0.0` and `floating.y == 0.0` for `Strategy::Fixed`.
+#[test]
+fn test_native_double_correction_invariants() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    use oxidase_floating_ui::compute_coords_from_placement;
+    use oxidase_floating_ui::geometry::{ElementOrVirtual, ElementRects, Placement, Rect, Strategy};
+    use oxidase_floating_ui::platform::NativeFloatingPlatform;
+    use oxidase_floating_ui::types::{FloatingPlatform, GetElementRectsArgs, Platform};
+
+    // 1. Invariant 1: compute_coords_from_placement ignores floating.x / floating.y across all 12 placements and directions
+    let reference = Rect {
+        x: 150.0,
+        y: 220.0,
+        width: 100.0,
+        height: 40.0,
+    };
+
+    let all_placements = [
+        Placement::Top,
+        Placement::TopStart,
+        Placement::TopEnd,
+        Placement::Right,
+        Placement::RightStart,
+        Placement::RightEnd,
+        Placement::Bottom,
+        Placement::BottomStart,
+        Placement::BottomEnd,
+        Placement::Left,
+        Placement::LeftStart,
+        Placement::LeftEnd,
+    ];
+
+    let rtl_options = [None, Some(false), Some(true)];
+
+    let floating_variations = [
+        Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 80.0,
+            height: 60.0,
+        },
+        Rect {
+            x: 50.0,
+            y: 120.0,
+            width: 80.0,
+            height: 60.0,
+        },
+        Rect {
+            x: -300.0,
+            y: -450.0,
+            width: 80.0,
+            height: 60.0,
+        },
+        Rect {
+            x: 12345.0,
+            y: -98765.0,
+            width: 80.0,
+            height: 60.0,
+        },
+    ];
+
+    for &placement in &all_placements {
+        for &rtl in &rtl_options {
+            let canonical_rects = ElementRects {
+                reference,
+                floating: floating_variations[0],
+            };
+            let canonical_coords = compute_coords_from_placement(&canonical_rects, placement, rtl);
+
+            for &varied_floating in &floating_variations[1..] {
+                let varied_rects = ElementRects {
+                    reference,
+                    floating: varied_floating,
+                };
+                let varied_coords = compute_coords_from_placement(&varied_rects, placement, rtl);
+                assert_eq!(
+                    canonical_coords,
+                    varied_coords,
+                    "compute_coords_from_placement must ignore floating.x/y for placement={:?}, rtl={:?}",
+                    placement,
+                    rtl
+                );
+            }
+        }
+    }
+
+    // 2. Invariant 2: NativeFloatingPlatform::get_element_rects produces floating.x == 0.0 and floating.y == 0.0 for Strategy::Fixed
+    #[component]
+    fn FloatingFixedScenario() -> Element {
+        rsx! {
+            div {
+                id: "fixed-root",
+                style: "width: 800px; height: 600px; position: relative;",
+                button {
+                    id: "ref-target",
+                    style: "position: absolute; left: 150px; top: 220px; width: 100px; height: 40px;",
+                    "Reference"
+                }
+                div {
+                    id: "float-target",
+                    style: "position: fixed; left: 400px; top: 500px; width: 80px; height: 60px;",
+                    "Floating"
+                }
+            }
+        }
+    }
+
+    let harness = mount_native_scenario(FloatingFixedScenario);
+    let platform = NativeFloatingPlatform::new(harness.doc.inner.clone());
+
+    let rects_from_fp = FloatingPlatform::get_element_rects(&platform, "ref-target", "float-target")
+        .expect("FloatingPlatform::get_element_rects must succeed");
+    assert_eq!(
+        rects_from_fp.floating.x, 0.0,
+        "FloatingPlatform floating.x must be 0.0 to prevent double-correction under Strategy::Fixed"
+    );
+    assert_eq!(
+        rects_from_fp.floating.y, 0.0,
+        "FloatingPlatform floating.y must be 0.0 to prevent double-correction under Strategy::Fixed"
+    );
+    assert_eq!(rects_from_fp.floating.width, 80.0);
+    assert_eq!(rects_from_fp.floating.height, 60.0);
+
+    let ref_node = harness.node("#ref-target");
+    let float_node = harness.node("#float-target");
+    let rects_from_node_platform = Platform::<blitz_dom::NodeId, ()>::get_element_rects(
+        &platform,
+        GetElementRectsArgs {
+            reference: ElementOrVirtual::Element(&ref_node),
+            floating: &float_node,
+            strategy: Strategy::Fixed,
+        },
+    );
+    assert_eq!(
+        rects_from_node_platform.floating.x, 0.0,
+        "Platform<NodeId> floating.x must be 0.0 to prevent double-correction under Strategy::Fixed"
+    );
+    assert_eq!(
+        rects_from_node_platform.floating.y, 0.0,
+        "Platform<NodeId> floating.y must be 0.0 to prevent double-correction under Strategy::Fixed"
+    );
+    assert_eq!(rects_from_node_platform.floating.width, 80.0);
+    assert_eq!(rects_from_node_platform.floating.height, 60.0);
+}
+
+/// Test 6: Popover Keyboard Activation and Descendant Input Space Typing
+#[test]
+fn test_native_popover_keyboard_activation_and_descendant_input() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(playground_popover::PopoverPlayground);
+
+    assert_rect_non_empty(&harness, "#popover-trigger");
+    assert!(harness.query("#popover-content").is_none());
+
+    // 1. Space key on focused trigger opens popover
+    focus_node(&mut harness, "#popover-trigger");
+    send_key_and_pump(&mut harness, Key::Character(" ".into()), Code::Space);
+
+    assert!(
+        harness.query("#popover-content").is_some(),
+        "Popover content must mount after Space on trigger"
+    );
+
+    // 2. Typing Space in focused descendant input does NOT close popover
+    focus_node(&mut harness, "#popover-nested-input");
+    send_key_and_pump(&mut harness, Key::Character(" ".into()), Code::Space);
+    assert!(
+        harness.query("#popover-content").is_some(),
+        "Popover must remain open when typing Space into descendant input"
+    );
+
+    // 3. Enter on PopoverClose closes popover and restores trigger focus
+    focus_node(&mut harness, "#popover-close");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
+    advance_frame_and_pump(&mut harness, 0.35);
+
+    assert!(
+        harness.query("#popover-content").is_none(),
+        "Popover content must unmount after Enter on PopoverClose"
+    );
+    assert!(harness.focused().is_some());
+}
+
+/// Test 7: Dialog & AlertDialog Keyboard Activation, Descendant Input, and Action/Cancel
+#[test]
+fn test_native_dialog_and_alert_dialog_keyboard_activation() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    // -------------------------------------------------------------------------
+    // Part 1: Dialog with Descendant Input
+    // -------------------------------------------------------------------------
+    let mut dialog_harness = mount_native_scenario(playground_dialog::DialogPlayground);
+
+    assert_rect_non_empty(&dialog_harness, "#dialog-trigger");
+    assert!(dialog_harness.query("#dialog-content").is_none());
+
+    // Enter on trigger opens dialog
+    focus_node(&mut dialog_harness, "#dialog-trigger");
+    send_key_and_pump(&mut dialog_harness, Key::Named(NamedKey::Enter), Code::Enter);
+
+    assert!(
+        dialog_harness.query("#dialog-content").is_some(),
+        "Dialog content must mount after Enter on DialogTrigger"
+    );
+
+    // Typing Space in descendant input does NOT close dialog
+    focus_node(&mut dialog_harness, "#name");
+    send_key_and_pump(&mut dialog_harness, Key::Character(" ".into()), Code::Space);
+    assert!(
+        dialog_harness.query("#dialog-content").is_some(),
+        "Dialog must remain open when typing Space into descendant input"
+    );
+
+    // Space on DialogClose closes dialog and restores trigger focus
+    focus_node(&mut dialog_harness, "#dialog-close");
+    send_key_and_pump(&mut dialog_harness, Key::Character(" ".into()), Code::Space);
+    advance_frame_and_pump(&mut dialog_harness, 0.25);
+
+    assert!(
+        dialog_harness.query("#dialog-content").is_none(),
+        "Dialog content must unmount after Space on DialogClose"
+    );
+    assert_native_focus_id(&dialog_harness, "#dialog-trigger");
+
+    // -------------------------------------------------------------------------
+    // Part 2: AlertDialog Cancel and Action Keyboard Activation
+    // -------------------------------------------------------------------------
+    let mut alert_harness = mount_native_scenario(playground_alert_dialog::AlertDialogPlayground);
+
+    // Space on AlertDialogTrigger opens modal
+    focus_node(&mut alert_harness, "#alert-dialog-trigger");
+    send_key_and_pump(&mut alert_harness, Key::Character(" ".into()), Code::Space);
+
+    assert!(
+        alert_harness.query("#alert-dialog-content").is_some(),
+        "AlertDialog must open upon Space key on trigger"
+    );
+
+    // Enter on Cancel closes alert dialog and restores trigger focus
+    focus_node(&mut alert_harness, "#alert-dialog-cancel");
+    send_key_and_pump(&mut alert_harness, Key::Named(NamedKey::Enter), Code::Enter);
+    advance_frame_and_pump(&mut alert_harness, 0.25);
+
+    assert!(
+        alert_harness.query("#alert-dialog-content").is_none(),
+        "AlertDialog must close upon Enter on Cancel"
+    );
+    assert_native_focus_id(&alert_harness, "#alert-dialog-trigger");
+
+    // Re-open with Enter
+    send_key_and_pump(&mut alert_harness, Key::Named(NamedKey::Enter), Code::Enter);
+    assert!(alert_harness.query("#alert-dialog-content").is_some());
+
+    // Space on Action/Confirm closes alert dialog and restores trigger focus
+    focus_node(&mut alert_harness, "#alert-dialog-confirm");
+    send_key_and_pump(&mut alert_harness, Key::Character(" ".into()), Code::Space);
+    advance_frame_and_pump(&mut alert_harness, 0.25);
+
+    assert!(
+        alert_harness.query("#alert-dialog-content").is_none(),
+        "AlertDialog must close upon Space on Action"
+    );
+    assert_native_focus_id(&alert_harness, "#alert-dialog-trigger");
+}
+
+/// Test 8: Tooltip Trigger Dismiss Upon Space and Enter
+#[test]
+fn test_native_tooltip_space_enter_dismiss() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    fn tooltip_dismiss_scenario() -> Element {
+        rsx! {
+            playground_tooltip::TooltipPlayground {
+                delay_duration_ms: 0,
+                disable_hoverable_content: true,
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(tooltip_dismiss_scenario);
+
+    // Open tooltip via mouse hover
+    let (tx, ty) = harness.center_of("#tooltip-trigger");
+    harness.move_mouse_to(tx, ty);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    assert!(
+        harness.query("#tooltip-content").is_some(),
+        "Tooltip must be open"
+    );
+
+    // Focus trigger and press Space -> dismisses open tooltip
+    focus_node(&mut harness, "#tooltip-trigger");
+    send_key_and_pump(&mut harness, Key::Character(" ".into()), Code::Space);
+    advance_frame_and_pump(&mut harness, 0.25);
+
+    assert!(
+        harness.query("#tooltip-content").is_none(),
+        "Tooltip must close upon Space key on TooltipTrigger"
+    );
+    assert_native_focus_id(&harness, "tooltip-trigger");
+
+    // Re-open tooltip
+    harness.move_mouse_to(0.0, 0.0);
+    advance_frame_and_pump(&mut harness, 0.25);
+    harness.move_mouse_to(tx, ty);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    assert!(harness.query("#tooltip-content").is_some());
+
+    // Press Enter on focused trigger -> dismisses open tooltip
+    focus_node(&mut harness, "#tooltip-trigger");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
+    advance_frame_and_pump(&mut harness, 0.25);
+
+    assert!(
+        harness.query("#tooltip-content").is_none(),
+        "Tooltip must close upon Enter key on TooltipTrigger"
+    );
+    assert_native_focus_id(&harness, "tooltip-trigger");
+}

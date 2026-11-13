@@ -3,6 +3,16 @@ use dioxus::prelude::*;
 use super::runtime::SelectRuntime;
 
 impl SelectRuntime {
+    pub fn typeahead_buffer(&self) -> String {
+        self.state.typeahead_buffer.read().clone()
+    }
+
+    pub fn has_active_typeahead(&self, now_ms: f64) -> bool {
+        let buf = self.state.typeahead_buffer.read();
+        let last_time = *self.state.last_key_timestamp_ms.read();
+        !buf.is_empty() && (now_ms - last_time) <= 500.0
+    }
+
     pub fn handle_typeahead(&self, ch: char, now_ms: f64) {
         let last_time = *self.state.last_key_timestamp_ms.read();
         let mut buf = self.state.typeahead_buffer.read().clone();

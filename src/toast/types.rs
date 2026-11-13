@@ -227,6 +227,31 @@ impl ToastActionEvent {
 }
 
 /// Primary or cancel action button configuration.
+/// Helper conversion trait allowing closures or Callbacks to be used as toast action handlers.
+pub trait IntoToastActionHandler<Marker = ()> {
+    fn into_handler(self) -> Callback<ToastActionEvent>;
+}
+
+impl IntoToastActionHandler<()> for Callback<ToastActionEvent> {
+    fn into_handler(self) -> Callback<ToastActionEvent> {
+        self
+    }
+}
+
+pub struct ActionEventClosureMarker;
+impl<F: FnMut(ToastActionEvent) + 'static> IntoToastActionHandler<ActionEventClosureMarker> for F {
+    fn into_handler(self) -> Callback<ToastActionEvent> {
+        Callback::new(self)
+    }
+}
+
+pub struct UnitClosureMarker;
+impl<F: FnMut() + 'static> IntoToastActionHandler<UnitClosureMarker> for F {
+    fn into_handler(mut self) -> Callback<ToastActionEvent> {
+        Callback::new(move |_| self())
+    }
+}
+
 #[derive(Clone)]
 pub struct ToastActionData {
     pub label: String,
@@ -243,8 +268,11 @@ impl ToastActionData {
         }
     }
 
-    pub fn with_handler(mut self, handler: impl Into<Callback<ToastActionEvent>>) -> Self {
-        self.on_click = Some(handler.into());
+    pub fn with_handler<Marker>(
+        mut self,
+        handler: impl IntoToastActionHandler<Marker>,
+    ) -> Self {
+        self.on_click = Some(handler.into_handler());
         self
     }
 }

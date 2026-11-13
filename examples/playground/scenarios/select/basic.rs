@@ -21,6 +21,8 @@ pub fn BasicFruitSelectSection() -> Element {
         monoxus::select::SelectItemData::new("blueberry", "Blueberry", false),
         monoxus::select::SelectItemData::new("cherry", "Cherry", false),
         monoxus::select::SelectItemData::new("grapes", "Grapes", false),
+        monoxus::select::SelectItemData::new("green-apple", "Green Apple", false),
+        monoxus::select::SelectItemData::new("green-grapes", "Green Grapes", false),
         monoxus::select::SelectItemData::new("pineapple", "Pineapple", false),
     ];
 
@@ -113,6 +115,18 @@ pub fn BasicFruitSelectSection() -> Element {
                                 text: "Grapes".to_string(),
                                 class: "select-item".to_string(),
                                 ItemRow { text: "Grapes", is_selected: selected_val().as_deref() == Some("grapes") }
+                            }
+                            SelectItem {
+                                value: "green-apple".to_string(),
+                                text: "Green Apple".to_string(),
+                                class: "select-item".to_string(),
+                                ItemRow { text: "Green Apple", is_selected: selected_val().as_deref() == Some("green-apple") }
+                            }
+                            SelectItem {
+                                value: "green-grapes".to_string(),
+                                text: "Green Grapes".to_string(),
+                                class: "select-item".to_string(),
+                                ItemRow { text: "Green Grapes", is_selected: selected_val().as_deref() == Some("green-grapes") }
                             }
                             SelectItem {
                                 value: "pineapple".to_string(),

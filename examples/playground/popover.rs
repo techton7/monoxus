@@ -275,6 +275,12 @@ pub fn PopoverPlayground() -> Element {
                                         style: MUTED_STYLE,
                                         "Anchored card with close focus retention and non-modal body scroll."
                                     }
+                                    input {
+                                        id: "popover-nested-input",
+                                        r#type: "text",
+                                        placeholder: "Search inside popover...",
+                                        style: "padding: 0.4rem 0.6rem; border: 1px solid #d8b4fe; border-radius: 0.5rem; font-size: 0.85rem;",
+                                    }
                                     button {
                                         id: open_focus_id.clone(),
                                         r#type: "button",

@@ -628,6 +628,8 @@ impl SelectRuntime {
 
         let mut tb_sig = self.state.typeahead_buffer;
         tb_sig.set(String::new());
+        let mut time_sig = self.state.last_key_timestamp_ms;
+        time_sig.set(0.0);
 
         if let Some(ref cb) = self.on_open_change {
             cb(true);
@@ -821,6 +823,8 @@ impl SelectRuntime {
 
         let mut tb_sig = self.state.typeahead_buffer;
         tb_sig.set(String::new());
+        let mut time_sig = self.state.last_key_timestamp_ms;
+        time_sig.set(0.0);
 
         let mut placement_sig = self.state.placement;
         placement_sig.set(None);
@@ -837,6 +841,9 @@ impl SelectRuntime {
     }
 
     pub fn toggle_open(&self) {
+        if self.is_disabled() {
+            return;
+        }
         if self.is_open() {
             self.close_dropdown();
         } else {

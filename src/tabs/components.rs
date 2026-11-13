@@ -126,6 +126,7 @@ pub fn TabsTrigger(
     let ctx = use_context::<TabsContext>();
     let item_value = value.clone();
     let trig_attrs = ctx.runtime.trigger(&value, disabled);
+    let is_disabled = trig_attrs.is_disabled();
     let trig_id = id.unwrap_or_else(|| trig_attrs.id().to_string());
 
     let trig_id_for_effect = trig_id.clone();
@@ -144,26 +145,37 @@ pub fn TabsTrigger(
     let runtime_click = ctx.runtime.clone();
     let val_click = value.clone();
     let on_click = move |_| {
-        if !disabled {
-            runtime_click.select_tab(&val_click);
+        if is_disabled {
+            return;
         }
+        runtime_click.select_tab(&val_click);
     };
 
     let runtime_focus = ctx.runtime.clone();
     let val_focus = value.clone();
     let on_focus = move |_| {
-        if !disabled && runtime_focus.tabs().activation_mode().is_automatic() {
+        if is_disabled {
+            return;
+        }
+        if runtime_focus.tabs().activation_mode().is_automatic() {
             runtime_focus.select_tab(&val_focus);
         }
     };
 
     let runtime_key = ctx.runtime.clone();
+    let val_key = value.clone();
     let on_keydown = move |evt: KeyboardEvent| {
+        if is_disabled {
+            return;
+        }
         let key = evt.key().to_string();
         if Tabs::is_navigation_key(&key) {
             evt.prevent_default();
             evt.stop_propagation();
             runtime_key.navigate_key(&key);
+        } else if matches!(key.as_str(), " " | "Enter") {
+            evt.prevent_default();
+            runtime_key.select_tab(&val_key);
         }
     };
 
@@ -179,9 +191,10 @@ pub fn TabsTrigger(
             tabindex: "{trig_attrs.tabindex()}",
             aria_selected: "{trig_attrs.aria_selected()}",
             aria_controls: "{aria_controls}",
+            disabled: is_disabled,
             "data-state": trig_attrs.data_state().as_str(),
             "data-orientation": "{trig_attrs.data_orientation()}",
-            "data-disabled": if disabled { "true" } else { "false" },
+            "data-disabled": if is_disabled { "true" } else { "false" },
             onclick: on_click,
             onfocus: on_focus,
             onkeydown: on_keydown,

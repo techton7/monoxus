@@ -157,9 +157,17 @@ impl SelectRuntime {
                 event.prevent_default();
                 self.highlight_last();
             }
-            "Enter" | " " => {
+            "Enter" => {
                 event.prevent_default();
                 if let Some(cand) = self.highlighted_value() {
+                    self.select_item(&cand);
+                }
+            }
+            " " => {
+                event.prevent_default();
+                if self.has_active_typeahead(now_ms) {
+                    self.handle_typeahead(' ', now_ms);
+                } else if let Some(cand) = self.highlighted_value() {
                     self.select_item(&cand);
                 }
             }

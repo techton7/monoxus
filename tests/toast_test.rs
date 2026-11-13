@@ -927,3 +927,32 @@ fn config_surface_and_directional_gesture_contract_test() {
     assert_eq!(root_attrs.data_y_position, "top");
     assert_eq!(root_attrs.data_swipe_out, "false");
 }
+
+#[component]
+fn ToastActionAndCloseTestComponent() -> Element {
+    let mut called = use_signal(|| false);
+    let on_click = Callback::new(move |ev: ToastActionEvent| {
+        called.set(true);
+        ev.prevent_default();
+    });
+
+    rsx! {
+        ToastAction {
+            alt_text: "Undo".to_string(),
+            toast_id: Some(ToastId(42)),
+            on_click: on_click,
+            "Undo"
+        }
+        ToastClose {
+            toast_id: Some(ToastId(42)),
+            aria_label: "Close".to_string(),
+            "X"
+        }
+    }
+}
+
+#[test]
+fn toast_action_and_close_event_handling_contract() {
+    let mut dom = VirtualDom::new(ToastActionAndCloseTestComponent);
+    dom.rebuild_in_place();
+}

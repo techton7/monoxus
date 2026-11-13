@@ -9,6 +9,7 @@
 mod common;
 use common::native_fixture::*;
 use dioxus::prelude::*;
+use keyboard_types::{Code, Key, NamedKey};
 
 #[path = "../examples/playground/scenarios/select/mod.rs"]
 mod scenarios_select;
@@ -62,4 +63,87 @@ fn test_native_select_click_immediate_ready_without_wheel_scroll() {
 
     // Verify relative placement below trigger
     assert_relative_below(&harness, "#select-trigger", "#select-content", 10.0);
+}
+
+/// Test 2: SelectTrigger Space and Enter Zero Double-Fire
+#[test]
+fn test_native_select_trigger_zero_double_fire() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(scenarios_select::BasicFruitSelectSection);
+
+    // Initial state: closed
+    assert_eq!(
+        harness.attr("#select-trigger", "data-state").as_deref(),
+        Some("closed")
+    );
+    assert!(harness.query("#select-content").is_none());
+
+    // 1. Focus trigger and press Space -> opens dropdown once (zero double-fire)
+    focus_node(&mut harness, "#select-trigger");
+    send_key_and_pump(&mut harness, Key::Character(" ".into()), Code::Space);
+
+    assert_eq!(
+        harness.attr("#select-trigger", "data-state").as_deref(),
+        Some("open"),
+        "Select trigger must remain open after Space (no double-fire close)"
+    );
+    assert!(
+        harness.query("#select-content").is_some(),
+        "Select content must mount upon Space on trigger"
+    );
+
+    // 2. Escape closes dropdown
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+    assert_eq!(
+        harness.attr("#select-trigger", "data-state").as_deref(),
+        Some("closed")
+    );
+    assert!(harness.query("#select-content").is_none());
+
+    // 3. Focus trigger and press Enter -> opens dropdown once (zero double-fire)
+    focus_node(&mut harness, "#select-trigger");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
+
+    assert_eq!(
+        harness.attr("#select-trigger", "data-state").as_deref(),
+        Some("open"),
+        "Select trigger must remain open after Enter (no double-fire close)"
+    );
+    assert!(
+        harness.query("#select-content").is_some(),
+        "Select content must mount upon Enter on trigger"
+    );
+}
+
+/// Test 3: Select Content Multi-Word Typeahead with Space
+#[test]
+fn test_native_select_multi_word_space_typeahead() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(scenarios_select::BasicFruitSelectSection);
+
+    // Open via Enter
+    focus_node(&mut harness, "#select-trigger");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
+    assert!(harness.query("#select-content").is_some());
+
+    // Focus content/listbox
+    focus_node(&mut harness, "#select-content");
+
+    // Type 'b' -> highlights "banana" or "blueberry"
+    send_key_and_pump(&mut harness, Key::Character("b".into()), Code::KeyB);
+    assert!(
+        harness.query("#select-content").is_some(),
+        "Select content must stay open while typing"
+    );
+
+    // Type 'l' -> highlights "blueberry"
+    send_key_and_pump(&mut harness, Key::Character("l".into()), Code::KeyL);
+    assert!(harness.query("#select-content").is_some());
+
+    // Press Enter to commit highlighted item -> selection commits and dropdown closes!
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
+    assert!(
+        harness.query("#select-content").is_none(),
+        "Enter must commit highlighted option and close dropdown"
+    );
 }

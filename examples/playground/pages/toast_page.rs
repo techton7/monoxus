@@ -225,6 +225,7 @@ html, body, main {
 
 #[component]
 pub fn ToastPage() -> Element {
+    let mut action_count = use_signal(|| 0usize);
     let store = TOAST_STORE.read();
     let current_pos = store.config.position;
     let allowed_dirs = store.config.effective_swipe_directions();
@@ -389,6 +390,27 @@ pub fn ToastPage() -> Element {
                 }
 
                 button {
+                    id: "dispatch-action",
+                    style: "padding: 0.75rem 1rem; border-radius: 0.5rem; background-color: #ffffff; color: #166534; font-weight: 600; font-size: 0.875rem; border: 1px solid #bbf7d0; cursor: pointer;",
+                    onclick: move |_| {
+                        toast::message(
+                            "Actionable notification",
+                            Some(ToastOptions {
+                                duration: Some(Duration::from_millis(30000)),
+                                action: Some(
+                                    ToastActionData::new("Undo", "Undo last change")
+                                        .with_handler(move |_| {
+                                            action_count += 1;
+                                        }),
+                                ),
+                                ..Default::default()
+                            }),
+                        );
+                    },
+                    "🔔 Action Toast"
+                }
+
+                button {
                     id: "clear-all",
                     style: "padding: 0.75rem 1rem; border-radius: 0.5rem; background-color: #f1f5f9; color: #475569; font-weight: 600; font-size: 0.875rem; border: 1px solid #e2e8f0; cursor: pointer;",
                     onclick: move |_| {
@@ -404,10 +426,18 @@ pub fn ToastPage() -> Element {
                 div {
                     style: "display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #f1f5f9; padding-bottom: 0.75rem;",
                     span { style: "font-size: 0.8125rem; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.05em;", "Toaster Engine State" }
-                    span {
-                        id: "active-toasts-count",
-                        style: "font-size: 0.75rem; font-weight: 600; padding: 0.125rem 0.5rem; border-radius: 9999px; background-color: #e2e8f0; color: #334155;",
-                        "Active Toasts: {store.toasts.len()}"
+                    div {
+                        style: "display: flex; align-items: center; gap: 0.5rem;",
+                        span {
+                            id: "toast-action-count",
+                            style: "font-size: 0.75rem; font-weight: 600; padding: 0.125rem 0.5rem; border-radius: 9999px; background-color: #dcfce7; color: #166534;",
+                            "Action Count: {action_count()}"
+                        }
+                        span {
+                            id: "active-toasts-count",
+                            style: "font-size: 0.75rem; font-weight: 600; padding: 0.125rem 0.5rem; border-radius: 9999px; background-color: #e2e8f0; color: #334155;",
+                            "Active Toasts: {store.toasts.len()}"
+                        }
                     }
                 }
                 div {

@@ -540,12 +540,137 @@ fn test_native_select_wheel_scroll_alignment() {
     // Re-verify layout rects after scroll
     let scrolled_trigger_rect = harness.layout_rect("#select-trigger");
     let scrolled_content_rect = harness.layout_rect("#select-content");
+
+    // Non-vacuous check: Trigger must have moved upward under wheel scroll down
+    assert!(
+        scrolled_trigger_rect.y < initial_trigger_rect.y - 40.0,
+        "Trigger must have moved upward under wheel scroll down (initial y={}, scrolled y={})",
+        initial_trigger_rect.y,
+        scrolled_trigger_rect.y
+    );
+
+    // Verify container scroll offset updated directly on the overflow ancestor node
+    let container_node = harness.node("#scroll-container");
+    let container_scroll_y = harness.base().get_node(container_node).unwrap().scroll_offset().y;
+    assert_eq!(
+        container_scroll_y, 50.0,
+        "Container scroll offset must be 50.0px after wheel scroll"
+    );
+
+    // Content must have repositioned upward to follow the trigger
+    assert!(
+        scrolled_content_rect.y < initial_content_rect.y - 40.0,
+        "Content must have repositioned upward to follow trigger under container scroll (initial y={}, scrolled y={})",
+        initial_content_rect.y,
+        scrolled_content_rect.y
+    );
+
     let scrolled_gap = scrolled_content_rect.y - (scrolled_trigger_rect.y + scrolled_trigger_rect.height);
     assert!(
         (scrolled_gap - 4.0).abs() <= 1.0,
         "Scrolled gap between trigger bottom and content top should remain ~4.0px, got {scrolled_gap}"
     );
 }
+
+/// Test 8: Select window/viewport scroll alignment (AC-2 Guard)
+///
+/// Verifies that when the window / viewport scrolls with the Select open,
+/// the fixed content stays anchored to the in-flow trigger with constant side-offset gap (4.0px).
+#[test]
+fn test_native_select_window_viewport_scroll_alignment() {
+    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    #[component]
+    fn WindowScrollScenario() -> Element {
+        rsx! {
+            div {
+                id: "window-scroll-root",
+                style: "width: 800px; height: 1800px; padding: 30px;",
+                div {
+                    style: "height: 100px;",
+                    "Window top spacer"
+                }
+                playground_select::BasicFruitSelectSection {}
+                div {
+                    style: "height: 1200px;",
+                    "Window bottom spacer"
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(WindowScrollScenario);
+    harness.set_viewport_size(800, 600);
+    harness.pump();
+
+    // Click trigger to open dropdown
+    click_and_pump(&mut harness, "#select-trigger");
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    assert_eq!(
+        harness.attr("#select-trigger", "aria-expanded").as_deref(),
+        Some("true"),
+        "Select trigger should be expanded"
+    );
+    assert!(
+        harness.query("#select-content").is_some(),
+        "Select content should be mounted"
+    );
+
+    let initial_trigger_rect = harness.layout_rect("#select-trigger");
+    let initial_content_rect = harness.layout_rect("#select-content");
+    let initial_gap = initial_content_rect.y - (initial_trigger_rect.y + initial_trigger_rect.height);
+    assert!(
+        (initial_gap - 4.0).abs() <= 1.0,
+        "Initial gap between trigger bottom and content top should be ~4.0px, got {initial_gap}"
+    );
+
+    // Dispatch window / viewport scroll down by 50px
+    wheel_at_and_pump(&mut harness, 400.0, 300.0, 0.0, -50.0);
+
+    let vp_scroll = harness.base().viewport_scroll();
+    assert_eq!(
+        vp_scroll.y, 50.0,
+        "Viewport must have scrolled vertically by 50.0px"
+    );
+
+    let scrolled_trigger_rect = harness.layout_rect("#select-trigger");
+    let scrolled_content_rect = harness.layout_rect("#select-content");
+
+    // In viewport coordinates (what the user actually sees on screen):
+    // 1. In-flow trigger moved upward relative to the viewport:
+    let trigger_viewport_y = scrolled_trigger_rect.y - vp_scroll.y as f32;
+    assert!(
+        trigger_viewport_y < initial_trigger_rect.y - 40.0,
+        "Trigger viewport y must have moved upward under window scroll (initial={}, viewport_y={})",
+        initial_trigger_rect.y,
+        trigger_viewport_y
+    );
+
+    // 2. Fixed content floating coordinate updated to stay anchored:
+    let style = harness.attr("#select-content", "style").unwrap_or_default();
+    assert!(
+        style.contains("--monoxus-select-floating-y: 178px"),
+        "Content floating y variable must update to 178px (228px - 50px), got style: {style}"
+    );
+
+    // 3. Maintained side-offset gap (~4.0px) in viewport coordinates:
+    let content_viewport_y = 178.0f32;
+    let viewport_gap = content_viewport_y - (trigger_viewport_y + scrolled_trigger_rect.height);
+    assert!(
+        (viewport_gap - 4.0).abs() <= 1.0,
+        "Viewport gap between trigger bottom and content top must remain ~4.0px, got {viewport_gap}"
+    );
+
+    // 4. Maintained side-offset gap (~4.0px) in page coordinates:
+    let page_gap = scrolled_content_rect.y - (scrolled_trigger_rect.y + scrolled_trigger_rect.height);
+    assert!(
+        (page_gap - 4.0).abs() <= 1.0,
+        "Page gap between trigger bottom and content top under viewport scroll should remain ~4.0px, got {page_gap}"
+    );
+}
+
 
 /// Test 7: Bottom viewport collision flips to Top on initial open without wheel scroll
 ///
