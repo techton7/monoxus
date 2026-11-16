@@ -25,6 +25,10 @@ pub fn ToastClose(props: ToastCloseProps) -> Element {
     let handle_click = move |_evt: MouseEvent| {
         if let Some(id) = props.toast_id {
             toast::dismiss(Some(id));
+            crate::toast::hotkey::handle_post_dismiss_focus(
+                Some(id),
+                "monoxus-toast-viewport",
+            );
         }
     };
 
@@ -32,6 +36,7 @@ pub fn ToastClose(props: ToastCloseProps) -> Element {
         button {
             r#type: "{attrs.r#type}",
             aria_label: "{label}",
+            "data-close-button": "",
             "data-radix-toast-announce-exclude": "{attrs.data_radix_toast_announce_exclude}",
             class: props.class.as_deref().unwrap_or_default(),
             onclick: handle_click,

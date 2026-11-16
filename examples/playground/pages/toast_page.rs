@@ -10,7 +10,7 @@ html, body, main {
 
 #monoxus-toast-viewport {
     position: fixed;
-    width: 356px;
+    width: var(--width, 356px);
     max-width: calc(100vw - 32px);
     margin: 0;
     padding: 0;
@@ -22,12 +22,12 @@ html, body, main {
 }
 
 #monoxus-toast-viewport[data-x-position="right"] {
-    right: 24px;
+    right: var(--offset-right, 24px);
     left: auto;
 }
 
 #monoxus-toast-viewport[data-x-position="left"] {
-    left: 24px;
+    left: var(--offset-left, 24px);
     right: auto;
 }
 
@@ -38,12 +38,12 @@ html, body, main {
 }
 
 #monoxus-toast-viewport[data-y-position="top"] {
-    top: 24px;
+    top: var(--offset-top, 24px);
     bottom: auto;
 }
 
 #monoxus-toast-viewport[data-y-position="bottom"] {
-    bottom: 24px;
+    bottom: var(--offset-bottom, 24px);
     top: auto;
 }
 
@@ -57,7 +57,7 @@ html, body, main {
     border: 1px solid #e2e8f0;
     border-radius: 10px;
     box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-    padding: 14px 16px;
+    padding: 14px 40px 14px 16px;
     color: #0f172a;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     font-size: 0.875rem;
@@ -65,6 +65,86 @@ html, body, main {
     transition: transform 350ms cubic-bezier(0.16, 1, 0.3, 1), opacity 300ms ease, height 350ms ease;
     z-index: var(--z-index, 1);
     outline: none;
+}
+
+#monoxus-toast-viewport li[data-sonner-toast] [data-title] {
+    font-weight: 600;
+    color: #0f172a;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+#monoxus-toast-viewport li[data-sonner-toast] [data-description] {
+    margin-top: 4px;
+    color: #475569;
+    font-size: 0.8125rem;
+    line-height: 1.2rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+#monoxus-toast-viewport li[data-sonner-toast] [data-button] {
+    margin-top: 10px;
+    margin-right: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid #0f172a;
+    background-color: #0f172a;
+    color: #ffffff;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#monoxus-toast-viewport li[data-sonner-toast] [data-cancel] {
+    margin-top: 10px;
+    margin-right: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    border: 1px solid #cbd5e1;
+    background-color: #f1f5f9;
+    color: #334155;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1rem;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#monoxus-toast-viewport li[data-sonner-toast] [data-close-button] {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    margin: 0;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    border: 1px solid #e2e8f0;
+    background-color: #f8fafc;
+    color: #64748b;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+}
+
+#monoxus-toast-viewport li[data-sonner-toast] [data-close-button]:hover {
+    background-color: #f1f5f9;
+    color: #0f172a;
+}
+
+#monoxus-toast-viewport li[data-sonner-toast] [data-close-button]:empty::before {
+    content: '×';
 }
 
 #monoxus-toast-viewport li[data-sonner-toast][data-y-position="bottom"] {
@@ -85,15 +165,24 @@ html, body, main {
 
 /* Stack Resting Transformations */
 #monoxus-toast-viewport li[data-sonner-toast] {
-    --y: translateY(calc(var(--lift, -1) * 14px * var(--toasts-before, 0))) scale(var(--scale, 1));
+    --y: translateY(calc(var(--lift, -1) * var(--gap, 14px) * var(--toasts-before, 0))) scale(var(--scale, 1));
     transform: var(--y);
-    height: var(--front-toast-height, auto);
 }
 
 #monoxus-toast-viewport li[data-sonner-toast][data-expanded="false"][data-front="true"] {
     --y: translateY(0px) scale(1);
     transform: var(--y);
     height: auto;
+}
+
+#monoxus-toast-viewport li[data-sonner-toast][data-expanded="false"][data-front="false"] {
+    height: var(--front-toast-height, auto);
+    overflow: hidden;
+}
+
+#monoxus-toast-viewport li[data-sonner-toast][data-expanded="false"][data-front="false"] > *:not([data-close-button]) {
+    opacity: 0;
+    pointer-events: none;
 }
 
 /* Expanded Stack: reveal items with measured offset */
@@ -104,24 +193,21 @@ html, body, main {
 }
 
 /* Sonner Gap Bridge: fills the empty gap between expanded cards so hover is continuous */
-#monoxus-toast-viewport li[data-sonner-toast][data-expanded="true"][data-y-position="bottom"]::after {
+#monoxus-toast-viewport li[data-sonner-toast][data-expanded="true"]::after {
     content: '';
     position: absolute;
     left: 0;
-    height: calc(14px + 1px);
-    bottom: 100%;
+    height: calc(var(--gap, 14px) + 2px);
     width: 100%;
     pointer-events: auto;
 }
 
+#monoxus-toast-viewport li[data-sonner-toast][data-expanded="true"][data-y-position="bottom"]::after {
+    bottom: 100%;
+}
+
 #monoxus-toast-viewport li[data-sonner-toast][data-expanded="true"][data-y-position="top"]::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    height: calc(14px + 1px);
     top: 100%;
-    width: 100%;
-    pointer-events: auto;
 }
 
 /* Active Swiping Gesture: transforms both X and Y components independently and prevents text selection */
@@ -403,6 +489,7 @@ pub fn ToastPage() -> Element {
                                             action_count += 1;
                                         }),
                                 ),
+                                cancel: Some(ToastActionData::new("Dismiss", "Dismiss notification")),
                                 ..Default::default()
                             }),
                         );

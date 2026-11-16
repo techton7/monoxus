@@ -268,136 +268,6 @@ pub(crate) fn is_element_focus_visible_by_id(target_id: &str) -> Option<bool> {
     Some(el.matches_focus_visible())
 }
 
-#[cfg(target_arch = "wasm32")]
-mod scroll_lock {
-    use super::spawn_root_task;
-    use std::{cell::RefCell, collections::HashSet, time::Duration};
-
-    struct ScrollLockState {
-        locks: HashSet<String>,
-        original_overflow: String,
-        original_padding_right: String,
-        cleanup_generation: u64,
-    }
-
-    thread_local! {
-        static STATE: RefCell<ScrollLockState> = RefCell::new(ScrollLockState {
-            locks: HashSet::new(),
-            original_overflow: String::new(),
-            original_padding_right: String::new(),
-            cleanup_generation: 0,
-        });
-    }
-
-    pub(crate) fn acquire(lock_id: &str) {
-        let Some(window) = web_sys::window() else {
-            return;
-        };
-        let Some(document) = window.document() else {
-            return;
-        };
-        let Some(body) = document.body() else {
-            return;
-        };
-
-        STATE.with(|state| {
-            let mut state = state.borrow_mut();
-            state.cleanup_generation = state.cleanup_generation.wrapping_add(1);
-
-            if state.locks.is_empty() {
-                let body_style = body.style();
-                state.original_overflow = body_style
-                    .get_property_value("overflow")
-                    .unwrap_or_default();
-                state.original_padding_right = body_style
-                    .get_property_value("padding-right")
-                    .unwrap_or_default();
-
-                let doc_elem = document.document_element();
-                let html_style = doc_elem
-                    .as_ref()
-                    .and_then(|el| window.get_computed_style(el).ok().flatten());
-                let computed_body_style = window.get_computed_style(&body).ok().flatten();
-
-                let has_stable_gutter = html_style
-                    .and_then(|s| s.get_property_value("scrollbar-gutter").ok())
-                    .unwrap_or_default()
-                    .contains("stable")
-                    || computed_body_style
-                        .and_then(|s| s.get_property_value("scrollbar-gutter").ok())
-                        .unwrap_or_default()
-                        .contains("stable");
-
-                let window_inner_width = window
-                    .inner_width()
-                    .ok()
-                    .and_then(|v| v.as_f64())
-                    .unwrap_or(0.0) as i32;
-                let doc_client_width = doc_elem.map(|el| el.client_width()).unwrap_or(0);
-                let scrollbar_width = window_inner_width - doc_client_width;
-
-                if scrollbar_width > 0 && !has_stable_gutter {
-                    let px_val = format!("{scrollbar_width}px");
-                    let _ = body_style.set_property("padding-right", &px_val);
-                    let _ = body_style.set_property("--scrollbar-width", &px_val);
-                }
-                let _ = body_style.set_property("overflow", "hidden");
-            }
-
-            state.locks.insert(lock_id.to_string());
-        });
-    }
-
-    pub(crate) fn release(lock_id: &str, restore_delay: Option<u64>) {
-        let Some(window) = web_sys::window() else {
-            return;
-        };
-        let Some(document) = window.document() else {
-            return;
-        };
-        let Some(body) = document.body() else {
-            return;
-        };
-
-        let (should_restore, token) = STATE.with(|state| {
-            let mut state = state.borrow_mut();
-            state.locks.remove(lock_id);
-            if !state.locks.is_empty() {
-                return (false, 0);
-            }
-            state.cleanup_generation = state.cleanup_generation.wrapping_add(1);
-            (true, state.cleanup_generation)
-        });
-
-        if !should_restore {
-            return;
-        }
-
-        let do_restore = move || {
-            STATE.with(|state| {
-                let state = state.borrow();
-                if state.cleanup_generation != token || !state.locks.is_empty() {
-                    return;
-                }
-                let body_style = body.style();
-                let _ = body_style.set_property("overflow", &state.original_overflow);
-                let _ = body_style.set_property("padding-right", &state.original_padding_right);
-                let _ = body_style.remove_property("--scrollbar-width");
-            });
-        };
-
-        let delay_ms = restore_delay.unwrap_or(0);
-        if delay_ms > 0 {
-            spawn_root_task(async move {
-                futures_timer::Delay::new(Duration::from_millis(delay_ms)).await;
-                do_restore();
-            });
-        } else {
-            do_restore();
-        }
-    }
-}
-
 pub(crate) fn focus_first_focusable(content_id: &str, focusable_selector: Option<&str>) {
     focus_first_focusable_with_options(content_id, focusable_selector, FocusOptions::default());
 }
@@ -407,183 +277,77 @@ pub(crate) fn focus_first_focusable_with_options(
     focusable_selector: Option<&str>,
     options: FocusOptions,
 ) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let selector = focusable_selector.unwrap_or(DEFAULT_FOCUSABLE_SELECTOR);
-        let Some(window) = web_sys::window() else {
-            return;
-        };
-        let Some(document) = window.document() else {
-            return;
-        };
-        let Some(root) = document.get_element_by_id(content_id) else {
-            return;
-        };
+    let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::dom::document);
+    let selector = focusable_selector.unwrap_or(DEFAULT_FOCUSABLE_SELECTOR);
 
-        let candidate = if root.matches(selector).unwrap_or(false) {
-            Some(root.clone())
+    if let Some(root) = doc.element_by_id(content_id) {
+        let target = if root.matches(selector) {
+            root.clone()
         } else {
-            root.query_selector(selector).ok().flatten()
+            root.query_selector(selector).unwrap_or_else(|| root.clone())
         };
-
-        if let Some(target) = candidate {
-            if target.id() == root.id() && !root.has_attribute("tabindex") {
-                let _ = root.set_attribute("tabindex", "-1");
-            }
-            let _ = oxidase::Element::from_web(target).focus_sync_with_options(options);
-            return;
+        if target.id() == root.id() && !root.has_attribute("tabindex") {
+            root.set_attribute("tabindex", "-1");
         }
-
-        if !root.has_attribute("tabindex") {
-            let _ = root.set_attribute("tabindex", "-1");
-        }
-        let _ = oxidase::Element::from_web(root).focus_sync_with_options(options);
+        let _ = target.focus_sync_with_options(options);
+        return;
     }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let selector = focusable_selector
-            .unwrap_or(DEFAULT_FOCUSABLE_SELECTOR)
-            .to_string();
-        let cid = content_id.to_string();
-        spawn_root_task(async move {
-            let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::dom::document);
-            if let Some(root) = doc.element_by_id(&cid) {
-                let target = if root.matches(&selector) {
-                    root
-                } else {
-                    root.query_selector(&selector).unwrap_or(root)
-                };
-                let _ = target.focus_with_options(options).await;
+
+    let selector = selector.to_string();
+    let cid = content_id.to_string();
+    spawn_root_task(async move {
+        let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::dom::document);
+        if let Some(root) = doc.element_by_id(&cid) {
+            let target = if root.matches(&selector) {
+                root.clone()
+            } else {
+                root.query_selector(&selector).unwrap_or_else(|| root.clone())
+            };
+            if target.id() == root.id() && !root.has_attribute("tabindex") {
+                root.set_attribute("tabindex", "-1");
             }
+            let _ = target.focus_with_options(options).await;
+        }
+    });
+}
+
+pub(crate) fn acquire_scroll_lock(lock_id: &str) {
+    oxidase::dom::acquire_scroll_lock(lock_id);
+}
+
+pub(crate) fn release_scroll_lock(lock_id: &str, restore_delay: Option<u64>) {
+    oxidase::dom::release_scroll_lock(lock_id, restore_delay);
+}
+
+pub(crate) fn scroll_element_into_view_nearest(element_id: &str) {
+    let doc = oxidase::dom::document();
+    if let Some(el) = doc.element_by_id(element_id) {
+        let _ = el.scroll_into_view_sync_with_options(oxidase::dom::ScrollIntoViewOptions {
+            behavior: oxidase::dom::ScrollBehavior::Auto,
+            block: oxidase::dom::ScrollLogicalPosition::Nearest,
+            inline: oxidase::dom::ScrollLogicalPosition::Nearest,
         });
     }
 }
 
-pub(crate) fn acquire_scroll_lock(lock_id: &str) {
-    #[cfg(target_arch = "wasm32")]
-    scroll_lock::acquire(lock_id);
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = lock_id;
-    }
-}
-
-pub(crate) fn release_scroll_lock(lock_id: &str, restore_delay: Option<u64>) {
-    #[cfg(target_arch = "wasm32")]
-    scroll_lock::release(lock_id, restore_delay);
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = lock_id;
-        let _ = restore_delay;
-    }
-}
-
-pub(crate) fn scroll_element_into_view_nearest(element_id: &str) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(window) = web_sys::window() {
-            if let Some(document) = window.document() {
-                if let Some(el) = document.get_element_by_id(element_id) {
-                    el.scroll_into_view();
-                }
-            }
-        }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        if let Some(el) = oxidase::dom::document().element_by_id(element_id) {
-            dioxus::prelude::spawn(async move {
-                let _ = el
-                    .scroll_into_view_with_options(oxidase::dom::ScrollIntoViewOptions {
-                        behavior: oxidase::dom::ScrollBehavior::Auto,
-                        block: oxidase::dom::ScrollLogicalPosition::Nearest,
-                        inline: oxidase::dom::ScrollLogicalPosition::Nearest,
-                    })
-                    .await;
-            });
-        }
-    }
-}
-
 pub(crate) fn set_body_user_select_none() {
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(window) = web_sys::window() {
-            if let Some(document) = window.document() {
-                if let Some(body) = document.body() {
-                    let style = body.style();
-                    let _ = style.set_property("user-select", "none");
-                    let _ = style.set_property("-webkit-user-select", "none");
-                }
-            }
-        }
-    }
+    let doc = oxidase::dom::document();
+    doc.set_body_user_select_none();
 }
 
 pub(crate) fn restore_body_user_select() {
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(window) = web_sys::window() {
-            if let Some(document) = window.document() {
-                if let Some(body) = document.body() {
-                    let style = body.style();
-                    let _ = style.remove_property("user-select");
-                    let _ = style.remove_property("-webkit-user-select");
-                }
-            }
-        }
-    }
+    let doc = oxidase::dom::document();
+    doc.restore_body_user_select();
 }
 
 pub(crate) fn teleport_element_to_host(element_id: &str, host_id: Option<&str>) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let Some(window) = web_sys::window() else {
-            return;
-        };
-        let Some(document) = window.document() else {
-            return;
-        };
-        let Some(el) = document.get_element_by_id(element_id) else {
-            return;
-        };
-
-        let host: Option<web_sys::Node> = match host_id.filter(|id| !id.is_empty()) {
-            Some(id) => document.get_element_by_id(id).map(|el| el.into()),
-            None => document
-                .get_element_by_id("main")
-                .map(|el| el.into())
-                .or_else(|| document.body().map(|b| b.into())),
-        };
-
-        if let Some(host) = host {
-            if el.parent_node() != Some(host.clone()) {
-                let _ = host.append_child(&el);
-            }
-        }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = element_id;
-        let _ = host_id;
-    }
+    let doc = oxidase::dom::document();
+    doc.teleport_portal_to_host(element_id, host_id);
 }
 
 pub(crate) fn remove_element_by_id(element_id: &str) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(window) = web_sys::window() {
-            if let Some(document) = window.document() {
-                if let Some(el) = document.get_element_by_id(element_id) {
-                    el.remove();
-                }
-            }
-        }
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = element_id;
-    }
+    let doc = oxidase::dom::document();
+    doc.remove_portal_element_by_id(element_id);
 }
 
 pub(crate) fn start_form_reset_monitor(
@@ -651,25 +415,9 @@ pub fn start_document_pointer_stream(
 }
 
 pub fn get_element_client_rect(id: &str) -> Option<Rect2D> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let window = web_sys::window()?;
-        let document = window.document()?;
-        let element = document.get_element_by_id(id)?;
-        let rect = element.get_bounding_client_rect();
-        Some(Rect2D::new(
-            rect.left(),
-            rect.top(),
-            rect.width(),
-            rect.height(),
-        ))
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let doc = oxidase::dom::document();
-        let rect = doc.measure_rect(id)?;
-        Some(Rect2D::new(rect.x, rect.y, rect.width, rect.height))
-    }
+    let doc = oxidase::dom::document();
+    doc.measure_rect(id)
+        .map(|rect| Rect2D::new(rect.x, rect.y, rect.width, rect.height))
 }
 
 pub fn query_descendant_order(

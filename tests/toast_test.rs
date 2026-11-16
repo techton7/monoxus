@@ -956,3 +956,925 @@ fn toast_action_and_close_event_handling_contract() {
     let mut dom = VirtualDom::new(ToastActionAndCloseTestComponent);
     dom.rebuild_in_place();
 }
+
+#[test]
+fn measured_variable_heights_publish_front_height_and_cumulative_offsets_test() {
+    let mut harness = blitz_test_harness::Harness::from_component(AutoMountViewportComponent);
+    harness.pump();
+
+    let (id1, id2, id3) = {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        {
+            let mut store = TOAST_STORE.write();
+            store.toasts.clear();
+            store.toast_heights.clear();
+            store.config = ToastConfig::default();
+            store.set_hovered(false);
+        }
+        let id1 = toast::message(
+            "Back card",
+            Some(ToastOptions {
+                duration: Some(Duration::from_secs(30)),
+                ..Default::default()
+            }),
+        );
+        let id2 = toast::success(
+            "Middle card",
+            Some(ToastOptions {
+                duration: Some(Duration::from_secs(30)),
+                ..Default::default()
+            }),
+        );
+        let id3 = toast::warning(
+            "Front card",
+            Some(ToastOptions {
+                duration: Some(Duration::from_secs(30)),
+                ..Default::default()
+            }),
+        );
+
+        let mut store = TOAST_STORE.write();
+        assert!(!store.set_toast_height(id3, 0.0), "Zero height must be rejected");
+        assert!(store.set_toast_height(id3, 52.0));
+        assert!(
+            !store.set_toast_height(id3, 52.3),
+            "Sub-0.5px jitter must not dirty store"
+        );
+        assert!(store.set_toast_height(id2, 84.0));
+        assert!(store.set_toast_height(id1, 116.0));
+        (id1, id2, id3)
+    };
+    harness.pump();
+
+    let vp_style = harness
+        .attr("#monoxus-toast-viewport", "style")
+        .unwrap_or_default();
+    assert!(
+        vp_style.contains("--front-toast-height: 52px;"),
+        "Viewport must publish --front-toast-height: 52px, got: {vp_style}"
+    );
+    assert!(
+        vp_style.contains("--gap: 14px;"),
+        "Viewport must publish --gap: 14px, got: {vp_style}"
+    );
+    assert!(
+        vp_style.contains("--width: 356px;"),
+        "Viewport must publish --width: 356px, got: {vp_style}"
+    );
+
+    let front_sel = format!("#monoxus-toast-{}", id3.0);
+    let mid_sel = format!("#monoxus-toast-{}", id2.0);
+    let back_sel = format!("#monoxus-toast-{}", id1.0);
+
+    let s_front_col = harness.attr(&front_sel, "style").unwrap_or_default();
+    let s_mid_col = harness.attr(&mid_sel, "style").unwrap_or_default();
+    let s_back_col = harness.attr(&back_sel, "style").unwrap_or_default();
+    assert!(s_front_col.contains("--height: 52px; --offset: 0px; --scale: 1.000;"));
+    assert!(s_mid_col.contains("--height: 84px; --offset: 14px; --scale: 0.950;"));
+    assert!(s_back_col.contains("--height: 116px; --offset: 28px; --scale: 0.900;"));
+
+    // Expand stack and verify cumulative offsets: 0, 52 + 14 = 66, 52 + 84 + 28 = 164
+    {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        TOAST_STORE.write().set_hovered(true);
+    }
+    harness.pump();
+
+    assert_eq!(
+        harness
+            .attr("#monoxus-toast-viewport", "data-expanded")
+            .as_deref(),
+        Some("true")
+    );
+    let s_front_exp = harness.attr(&front_sel, "style").unwrap_or_default();
+    let s_mid_exp = harness.attr(&mid_sel, "style").unwrap_or_default();
+    let s_back_exp = harness.attr(&back_sel, "style").unwrap_or_default();
+    assert!(
+        s_front_exp.contains("--height: 52px; --offset: 0px; --scale: 1.000;"),
+        "Front expanded style mismatch: {s_front_exp}"
+    );
+    assert!(
+        s_mid_exp.contains("--height: 84px; --offset: 66px; --scale: 1.000;"),
+        "Middle expanded style mismatch: {s_mid_exp}"
+    );
+    assert!(
+        s_back_exp.contains("--height: 116px; --offset: 164px; --scale: 1.000;"),
+        "Back expanded style mismatch: {s_back_exp}"
+    );
+
+    // Evicting toast must also evict its stored height entry
+    {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        let mut store = TOAST_STORE.write();
+        assert!(store.remove_toast(id2).is_some());
+        assert_eq!(store.toast_height(id2), None);
+    }
+}
+
+#[test]
+fn same_id_resurrection_within_200ms_unmount_window_race_test() {
+    let mut dom = VirtualDom::new(AutoMountViewportComponent);
+    dom.rebuild_in_place();
+
+    let target_id = ToastId(777);
+    dom.in_runtime(|| {
+        TOAST_STORE.write().toasts.clear();
+        let id = toast::message(
+            "Initial Notification",
+            Some(ToastOptions {
+                id: Some(target_id),
+                duration: Some(Duration::from_secs(30)),
+                ..Default::default()
+            }),
+        );
+        assert_eq!(id, target_id);
+
+        // Trigger dismiss -> schedules 200ms TIME_BEFORE_UNMOUNT removal task for generation 0
+        toast::dismiss(Some(target_id));
+        assert_eq!(TOAST_STORE.read().toasts[0].phase, ToastPhase::Dismissing);
+    });
+
+    // Advance ~50ms (strictly inside the 200ms exit window)
+    let start_wait = std::time::Instant::now();
+    while start_wait.elapsed() < Duration::from_millis(50) {
+        if block_on_with_timeout(dom.wait_for_work(), Duration::from_millis(15)) {
+            dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        }
+    }
+
+    // Resurrect the same ToastId before the 200ms timer expires
+    dom.in_runtime(|| {
+        let resurrected_id = toast::success(
+            "Resurrected Notification",
+            Some(ToastOptions {
+                id: Some(target_id),
+                duration: Some(Duration::from_secs(30)),
+                ..Default::default()
+            }),
+        );
+        assert_eq!(resurrected_id, target_id);
+        let store = TOAST_STORE.read();
+        assert_eq!(store.toasts.len(), 1);
+        assert_eq!(store.toasts[0].phase, ToastPhase::Active);
+        assert_eq!(store.toasts[0].generation, 1);
+    });
+
+    // Drive well past the original 200ms unmount deadline (320ms total)
+    let after_resurrect = std::time::Instant::now();
+    while after_resurrect.elapsed() < Duration::from_millis(280) {
+        if block_on_with_timeout(dom.wait_for_work(), Duration::from_millis(20)) {
+            dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        }
+    }
+
+    dom.in_runtime(|| {
+        let store = TOAST_STORE.read();
+        assert_eq!(
+            store.toasts.len(),
+            1,
+            "Stale 200ms unmount timer must NOT delete a resurrected toast with the same ToastId"
+        );
+        assert_eq!(store.toasts[0].id, target_id);
+        assert_eq!(store.toasts[0].phase, ToastPhase::Active);
+        assert_eq!(store.toasts[0].title, "Resurrected Notification");
+    });
+}
+
+#[test]
+fn cancel_button_rendering_and_click_dismissal_test() {
+    use std::rc::Rc;
+
+    let mut harness = blitz_test_harness::Harness::from_component(AutoMountViewportComponent);
+    harness.pump();
+
+    let cancel_clicked = Rc::new(AtomicBool::new(false));
+    let cancel_clicked_cb = cancel_clicked.clone();
+    let prevented_clicked = Rc::new(AtomicBool::new(false));
+    let prevented_clicked_cb = prevented_clicked.clone();
+
+    let id_dismiss = {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        TOAST_STORE.write().toasts.clear();
+        toast::message(
+            "Confirm deployment",
+            Some(ToastOptions {
+                duration: Some(Duration::from_secs(30)),
+                action: Some(ToastActionData::new("Deploy", "Deploy release")),
+                cancel: Some(
+                    ToastActionData::new("Cancel", "Cancel deployment").with_handler(move || {
+                        cancel_clicked_cb.store(true, Ordering::SeqCst);
+                    }),
+                ),
+                ..Default::default()
+            }),
+        )
+    };
+    harness.pump();
+
+    let action_sel = format!("#monoxus-toast-{} button[data-button]", id_dismiss.0);
+    let cancel_sel = format!("#monoxus-toast-{} button[data-cancel]", id_dismiss.0);
+    assert!(
+        harness.query(&action_sel).is_some(),
+        "Primary action button [data-button] must render"
+    );
+    assert!(
+        harness.query(&cancel_sel).is_some(),
+        "Secondary cancel button [data-cancel] must render"
+    );
+    assert_eq!(harness.attr(&cancel_sel, "data-button"), None);
+    assert_eq!(harness.attr(&action_sel, "data-cancel"), None);
+
+    harness.click(&cancel_sel);
+    harness.pump();
+
+    assert!(
+        cancel_clicked.load(Ordering::SeqCst),
+        "Clicking [data-cancel] must invoke cancel callback"
+    );
+    assert_eq!(
+        harness
+            .attr(&format!("#monoxus-toast-{}", id_dismiss.0), "data-state")
+            .as_deref(),
+        Some("closed"),
+        "Clicking [data-cancel] without prevent_default must dismiss the toast"
+    );
+
+    // Verify prevent_default() on cancel suppresses dismissal
+    let id_keep = {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        toast::message(
+            "Guarded cancel",
+            Some(ToastOptions {
+                duration: Some(Duration::from_secs(30)),
+                cancel: Some(
+                    ToastActionData::new("Hold", "Hold open").with_handler(
+                        move |ev: ToastActionEvent| {
+                            prevented_clicked_cb.store(true, Ordering::SeqCst);
+                            ev.prevent_default();
+                        },
+                    ),
+                ),
+                ..Default::default()
+            }),
+        )
+    };
+    harness.pump();
+
+    let keep_cancel_sel = format!("#monoxus-toast-{} button[data-cancel]", id_keep.0);
+    harness.click(&keep_cancel_sel);
+    harness.pump();
+
+    assert!(prevented_clicked.load(Ordering::SeqCst));
+    assert_eq!(
+        harness
+            .attr(&format!("#monoxus-toast-{}", id_keep.0), "data-state")
+            .as_deref(),
+        Some("open"),
+        "prevent_default() on cancel callback must keep toast Active"
+    );
+}
+
+#[test]
+fn close_button_config_and_provider_reactivity_test() {
+    #[component]
+    fn ProviderReactivityHarness() -> Element {
+        let mut show_close = use_signal(|| false);
+        let mut force_expand = use_signal(|| true);
+
+        rsx! {
+            button {
+                id: "toggle-provider-props",
+                onclick: move |_| {
+                    show_close.set(true);
+                    force_expand.set(false);
+                },
+                "Toggle"
+            }
+            ToastProvider {
+                close_button: show_close(),
+                expand: force_expand(),
+                ToastViewport {}
+            }
+        }
+    }
+
+    let mut harness = blitz_test_harness::Harness::from_component(ProviderReactivityHarness);
+    harness.pump();
+
+    let (id_default, id_override) = {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        TOAST_STORE.write().toasts.clear();
+        let id_default = toast::message(
+            "Default close policy",
+            Some(ToastOptions {
+                duration: Some(Duration::from_secs(30)),
+                ..Default::default()
+            }),
+        );
+        let id_override = toast::info(
+            "Explicit close button override",
+            Some(ToastOptions {
+                duration: Some(Duration::from_secs(30)),
+                close_button: Some(true),
+                ..Default::default()
+            }),
+        );
+        (id_default, id_override)
+    };
+    harness.pump();
+
+    assert_eq!(
+        harness
+            .attr("#monoxus-toast-viewport", "data-expanded")
+            .as_deref(),
+        Some("true"),
+        "ToastProvider expand=true must initialize viewport in expanded posture"
+    );
+    assert!(
+        harness
+            .query(&format!(
+                "#monoxus-toast-{} [data-close-button]",
+                id_default.0
+            ))
+            .is_none(),
+        "close_button=false on ToastProvider must hide ToastClose by default"
+    );
+    assert!(
+        harness
+            .query(&format!(
+                "#monoxus-toast-{} [data-close-button]",
+                id_override.0
+            ))
+            .is_some(),
+        "Per-toast ToastOptions.close_button=Some(true) must override global close_button=false"
+    );
+
+    // Dynamically flip ToastProvider props and verify reactive sync
+    harness.click("#toggle-provider-props");
+    harness.pump();
+    harness.pump();
+
+    assert_eq!(
+        harness
+            .attr("#monoxus-toast-viewport", "data-expanded")
+            .as_deref(),
+        Some("false"),
+        "ToastProvider expand=false update must reactively collapse viewport"
+    );
+    assert!(
+        harness
+            .query(&format!(
+                "#monoxus-toast-{} [data-close-button]",
+                id_default.0
+            ))
+            .is_some(),
+        "ToastProvider close_button=true update must reactively mount ToastClose"
+    );
+}
+
+#[test]
+fn onanimationend_ignores_active_toast_and_evicts_only_dismissing_toast_test() {
+    const ANIM_CSS: &str = r#"
+        @keyframes toast-enter-fade {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        @keyframes toast-exit-fade {
+            from { opacity: 1; }
+            to { opacity: 0; }
+        }
+        #monoxus-toast-viewport li[data-sonner-toast][data-state="open"] {
+            animation: toast-enter-fade 40ms linear forwards;
+        }
+        #monoxus-toast-viewport li[data-sonner-toast][data-state="closed"] {
+            animation: toast-exit-fade 40ms linear forwards;
+        }
+    "#;
+
+    #[component]
+    fn EntranceAnimatedToastScenario() -> Element {
+        rsx! {
+            style { "{ANIM_CSS}" }
+            ToastViewport {}
+        }
+    }
+
+    let mut harness = blitz_test_harness::Harness::from_component(EntranceAnimatedToastScenario);
+    harness.pump();
+
+    let id = {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        TOAST_STORE.write().toasts.clear();
+        toast::success(
+            "Entrance animated toast",
+            Some(ToastOptions {
+                duration: Some(Duration::from_secs(30)),
+                ..Default::default()
+            }),
+        )
+    };
+    harness.pump();
+
+    let sel = format!("#monoxus-toast-{}", id.0);
+    assert!(harness.query(&sel).is_some());
+
+    // Advance past the 40ms entrance keyframe animation and flush real AnimationEnd into Dioxus
+    harness.tick(0.06);
+    harness.doc.flush_animation_events();
+    harness.pump();
+
+    assert!(
+        harness.query(&sel).is_some(),
+        "onanimationend must NEVER evict a ToastPhase::Active toast after entrance animation"
+    );
+    assert_eq!(harness.attr(&sel, "data-state").as_deref(), Some("open"));
+
+    // Transition toast to Dismissing and advance past the 40ms exit keyframe animation
+    // (well before any 200ms TIME_BEFORE_UNMOUNT fallback timer) -> must evict via onanimationend.
+    {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        toast::dismiss(Some(id));
+    }
+    harness.pump();
+    assert_eq!(harness.attr(&sel, "data-state").as_deref(), Some("closed"));
+
+    harness.tick(0.06);
+    harness.doc.flush_animation_events();
+    harness.pump();
+
+    assert!(
+        harness.query(&sel).is_none(),
+        "onanimationend must evict toast once phase == ToastPhase::Dismissing"
+    );
+}
+
+#[test]
+fn concurrent_three_toast_countdown_and_pause_resume_test() {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
+
+    let mut dom = VirtualDom::new(AutoMountViewportComponent);
+    dom.rebuild_in_place();
+
+    let auto_closed = Arc::new(AtomicUsize::new(0));
+
+    // 1. Concurrent 3-toast auto-close within single-lifespan wall-clock bounds (not 3x serialized)
+    let dispatch_start = std::time::Instant::now();
+    dom.in_scope(dioxus::core::ScopeId::ROOT, || {
+        let mut store = TOAST_STORE.write();
+        store.toasts.clear();
+        store.toast_heights.clear();
+        store.config = ToastConfig::default();
+        store.set_hovered(false);
+        store.set_focused(false);
+        store.set_swiping(false);
+        store.set_page_hidden(false);
+        drop(store);
+
+        let lifespan = Duration::from_millis(120);
+        for title in ["Concurrent 1", "Concurrent 2", "Concurrent 3"] {
+            let counter = auto_closed.clone();
+            let cb = Callback::new(move |()| {
+                counter.fetch_add(1, Ordering::SeqCst);
+            });
+            toast::message(
+                title,
+                Some(ToastOptions {
+                    duration: Some(lifespan),
+                    on_auto_close: Some(cb),
+                    ..Default::default()
+                }),
+            );
+        }
+
+        let store = TOAST_STORE.read();
+        assert_eq!(store.toasts.len(), 3);
+        assert!(store.toasts.iter().all(|t| t.phase == ToastPhase::Active));
+    });
+
+    while dispatch_start.elapsed() < Duration::from_millis(1000) {
+        let any_active = dom.in_runtime(|| TOAST_STORE.read().has_active_toasts());
+        if !any_active {
+            break;
+        }
+        if block_on_with_timeout(dom.wait_for_work(), Duration::from_millis(15)) {
+            dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        }
+    }
+    let concurrent_elapsed = dispatch_start.elapsed();
+
+    assert_eq!(
+        auto_closed.load(Ordering::SeqCst),
+        3,
+        "All 3 stacked toasts must fire on_auto_close"
+    );
+    assert!(
+        !dom.in_runtime(|| TOAST_STORE.read().has_active_toasts()),
+        "All 3 stacked toasts must auto-close"
+    );
+    assert!(
+        concurrent_elapsed >= Duration::from_millis(100)
+            && concurrent_elapsed < Duration::from_millis(310),
+        "3 concurrent 120ms toasts must expire within single-lifespan bounds (<310ms, not >=360ms serialized), got {concurrent_elapsed:?}"
+    );
+
+    let unmount_start = std::time::Instant::now();
+    while unmount_start.elapsed() < Duration::from_millis(1000) {
+        if dom.in_runtime(|| TOAST_STORE.read().toasts.is_empty()) {
+            break;
+        }
+        if block_on_with_timeout(dom.wait_for_work(), Duration::from_millis(15)) {
+            dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        }
+    }
+    assert!(
+        dom.in_runtime(|| TOAST_STORE.read().toasts.is_empty()),
+        "All 3 dismissed toasts must be evicted after TIME_BEFORE_UNMOUNT"
+    );
+
+    // 2. Pause/resume preservation across 3 concurrent stacked toasts
+    auto_closed.store(0, Ordering::SeqCst);
+    dom.in_scope(dioxus::core::ScopeId::ROOT, || {
+        let lifespan = Duration::from_millis(160);
+        for title in ["Paused 1", "Paused 2", "Paused 3"] {
+            let counter = auto_closed.clone();
+            let cb = Callback::new(move |()| {
+                counter.fetch_add(1, Ordering::SeqCst);
+            });
+            toast::info(
+                title,
+                Some(ToastOptions {
+                    duration: Some(lifespan),
+                    on_auto_close: Some(cb),
+                    ..Default::default()
+                }),
+            );
+        }
+    });
+
+    let run_before_pause = std::time::Instant::now();
+    while run_before_pause.elapsed() < Duration::from_millis(60) {
+        if block_on_with_timeout(dom.wait_for_work(), Duration::from_millis(15)) {
+            dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        }
+    }
+
+    let rems_at_pause: Vec<Duration> = dom.in_runtime(|| {
+        TOAST_STORE.write().set_hovered(true);
+        let store = TOAST_STORE.read();
+        assert!(store.paused);
+        assert_eq!(store.toasts.len(), 3);
+        assert!(store.toasts.iter().all(|t| t.phase == ToastPhase::Active));
+        store.toasts.iter().map(|t| t.remaining_duration).collect()
+    });
+    for rem in &rems_at_pause {
+        assert!(
+            *rem < Duration::from_millis(150) && *rem > Duration::from_millis(30),
+            "Expected partial remaining duration at pause, got {rem:?}"
+        );
+    }
+
+    // Hold paused past full 160ms lifespan -> none may expire and remaining_duration stays frozen
+    let hold_paused = std::time::Instant::now();
+    while hold_paused.elapsed() < Duration::from_millis(180) {
+        if block_on_with_timeout(dom.wait_for_work(), Duration::from_millis(20)) {
+            dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        }
+    }
+    dom.in_runtime(|| {
+        let store = TOAST_STORE.read();
+        assert_eq!(auto_closed.load(Ordering::SeqCst), 0);
+        assert!(store.toasts.iter().all(|t| t.phase == ToastPhase::Active));
+        let rems_during_pause: Vec<Duration> =
+            store.toasts.iter().map(|t| t.remaining_duration).collect();
+        assert_eq!(
+            rems_during_pause, rems_at_pause,
+            "Remaining durations must stay frozen while paused"
+        );
+    });
+
+    // Resume and verify concurrent completion of remaining ~100ms window
+    let resume_start = std::time::Instant::now();
+    dom.in_runtime(|| {
+        TOAST_STORE.write().set_hovered(false);
+        assert!(!TOAST_STORE.read().paused);
+    });
+    while resume_start.elapsed() < Duration::from_millis(1000) {
+        if !dom.in_runtime(|| TOAST_STORE.read().has_active_toasts()) {
+            break;
+        }
+        if block_on_with_timeout(dom.wait_for_work(), Duration::from_millis(15)) {
+            dom.render_immediate(&mut dioxus_core::NoOpMutations);
+        }
+    }
+    let resume_elapsed = resume_start.elapsed();
+    assert_eq!(auto_closed.load(Ordering::SeqCst), 3);
+    assert!(
+        resume_elapsed < Duration::from_millis(260),
+        "Resumed 3-toast stack must complete remaining ~100ms concurrently (<260ms), got {resume_elapsed:?}"
+    );
+}
+
+#[test]
+fn pointer_close_and_action_keep_viewport_unfocused_collapse_on_mouseleave_and_expire_test() {
+    use std::rc::Rc;
+
+    const STACK_POINTER_CSS: &str = r#"
+        html, body { width: 800px; height: 800px; margin: 0; padding: 0; }
+        #monoxus-toast-viewport {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            width: 356px;
+            margin: 0;
+            padding: 0;
+            list-style: none;
+            outline: none;
+            pointer-events: none;
+        }
+        #monoxus-toast-viewport li[data-sonner-toast] {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            box-sizing: border-box;
+            pointer-events: auto;
+            padding: 14px 40px 14px 16px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            --lift: -1;
+            --y: translateY(calc(var(--lift, -1) * var(--gap, 14px) * var(--toasts-before, 0))) scale(var(--scale, 1));
+            transform: var(--y);
+        }
+        #monoxus-toast-viewport li[data-sonner-toast][data-expanded="true"] {
+            --y: translateY(calc(var(--lift, -1) * var(--offset, 0px)));
+            transform: var(--y);
+            height: var(--height, auto);
+        }
+        #monoxus-toast-viewport li[data-sonner-toast][data-state="closed"] {
+            pointer-events: none !important;
+            opacity: 0;
+        }
+        #monoxus-toast-viewport li[data-sonner-toast] [data-close-button] {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 24px;
+            height: 24px;
+        }
+        #monoxus-toast-viewport li[data-sonner-toast] [data-button] {
+            display: inline-block;
+            margin-top: 8px;
+            padding: 4px 10px;
+        }
+    "#;
+
+    #[component]
+    fn StackedPointerDismissScenario() -> Element {
+        rsx! {
+            style { "{STACK_POINTER_CSS}" }
+            button { id: "outside-anchor", "Outside" }
+            ToastViewport {}
+        }
+    }
+
+    struct DocResetGuard;
+    impl Drop for DocResetGuard {
+        fn drop(&mut self) {
+            reset_toast_watcher();
+            oxidase::dom::Document::set_current(None);
+        }
+    }
+    let _reset_guard = DocResetGuard;
+
+    let mut harness = blitz_test_harness::Harness::from_component(StackedPointerDismissScenario);
+    harness.set_viewport_size(800, 800);
+    let native_doc = oxidase::dom::Document::from_base(harness.doc.inner.clone());
+    native_doc.attach_engine_bridges();
+    oxidase::dom::Document::set_current(Some(native_doc.clone()));
+    harness.doc.vdom.in_scope(dioxus::core::ScopeId::ROOT, move || {
+        dioxus::prelude::provide_context(native_doc);
+    });
+    harness.pump();
+
+    let advance_frame =
+        |harness: &mut blitz_test_harness::Harness<dioxus_native_dom::DioxusDocument>, dt: f64| {
+            let doc = oxidase::dom::Document::from_base(harness.doc.inner.clone());
+            oxidase::dom::Document::set_current(Some(doc.clone()));
+            doc.resolve(harness.time() + dt);
+            harness.tick(dt);
+            harness.doc.flush_animation_events();
+            oxidase::frame::tick(Duration::from_secs_f64(dt));
+            harness.pump();
+        };
+
+    let action_fired = Rc::new(AtomicBool::new(false));
+    let action_fired_cb = action_fired.clone();
+
+    let (id_back, id_mid, id_front) = {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        toast::dismiss(None);
+        let mut store = TOAST_STORE.write();
+        store.toasts.clear();
+        store.toast_heights.clear();
+        store.config = ToastConfig::default();
+        store.set_page_hidden(false);
+        store.set_hovered(false);
+        store.set_focused(false);
+        store.set_swiping(false);
+        drop(store);
+
+        let b = toast::message(
+            "Back stacked toast",
+            Some(ToastOptions {
+                duration: Some(Duration::from_millis(350)),
+                ..Default::default()
+            }),
+        );
+        let m = toast::info(
+            "Middle actionable toast",
+            Some(ToastOptions {
+                duration: Some(Duration::from_millis(350)),
+                action: Some(
+                    ToastActionData::new("Apply", "Apply update").with_handler(move || {
+                        action_fired_cb.store(true, Ordering::SeqCst);
+                    }),
+                ),
+                ..Default::default()
+            }),
+        );
+        let f = toast::success(
+            "Front closeable toast",
+            Some(ToastOptions {
+                duration: Some(Duration::from_millis(350)),
+                ..Default::default()
+            }),
+        );
+        (b, m, f)
+    };
+    harness.pump();
+    advance_frame(&mut harness, 0.02);
+
+    let vp_nid = harness.node("#monoxus-toast-viewport");
+    let front_sel = format!("#monoxus-toast-{}", id_front.0);
+    let mid_sel = format!("#monoxus-toast-{}", id_mid.0);
+    let back_sel = format!("#monoxus-toast-{}", id_back.0);
+
+    // 1. Hover viewport over front toast -> stack expands and timers pause while focused remains false
+    let (fx, fy) = harness.center_of(&front_sel);
+    harness.move_mouse_to(fx, fy);
+    harness.pump();
+    advance_frame(&mut harness, 0.02);
+
+    assert_eq!(
+        harness
+            .attr("#monoxus-toast-viewport", "data-expanded")
+            .as_deref(),
+        Some("true")
+    );
+    {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        let store = TOAST_STORE.peek();
+        assert!(store.interaction_state.hovered);
+        assert!(!store.interaction_state.focused);
+        assert!(store.expanded);
+        assert!(store.paused);
+    }
+
+    // 2. Press [data-close-button] (x) on front toast, hold across multiple frames (>1 frame),
+    //    then release to verify pointer press suppression spans the entire press-and-release gesture.
+    let close_sel = format!("{front_sel} [data-close-button]");
+    let (cx, cy) = harness.center_of(&close_sel);
+    harness.mouse_down_at(cx, cy);
+    advance_frame(&mut harness, 0.05);
+    advance_frame(&mut harness, 0.05);
+    harness.mouse_up_at(cx, cy);
+    advance_frame(&mut harness, 0.02);
+
+    assert_eq!(
+        harness.attr(&front_sel, "data-state").as_deref(),
+        Some("closed"),
+        "Pointer click on [data-close-button] must dismiss front toast"
+    );
+    assert_eq!(harness.attr(&mid_sel, "data-state").as_deref(), Some("open"));
+    assert_eq!(harness.attr(&back_sel, "data-state").as_deref(), Some("open"));
+    assert_ne!(
+        harness.base().active_focus_node_id(),
+        Some(vp_nid),
+        "Pointer close must NOT move active DOM focus to #monoxus-toast-viewport"
+    );
+    assert_eq!(
+        harness.base().active_focus_node_id(),
+        None,
+        "Clicked close button inside dismissing toast must blur DOM focus cleanly"
+    );
+    {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        assert!(
+            !TOAST_STORE.peek().interaction_state.focused,
+            "Pointer click on [data-close-button] must leave interaction_state.focused == false"
+        );
+    }
+
+    // 3. Move pointer out (mouseleave) -> remaining 2-card stack collapses and unpauses
+    harness.move_mouse_to(10.0, 10.0);
+    harness.pump();
+    advance_frame(&mut harness, 0.02);
+
+    assert_eq!(
+        harness
+            .attr("#monoxus-toast-viewport", "data-expanded")
+            .as_deref(),
+        Some("false"),
+        "mouseleave after pointer close must collapse remaining stack"
+    );
+    {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        let store = TOAST_STORE.peek();
+        assert!(!store.expanded, "expanded must become false on mouseleave");
+        assert!(!store.paused, "paused must become false on mouseleave");
+        assert!(!store.interaction_state.focused);
+    }
+
+    // 4. Re-hover remaining 2-card stack and click [data-button] (Action) on id_mid with pointer
+    let mid_ty = harness
+        .base()
+        .get_node(harness.node(&mid_sel))
+        .and_then(|n| n.transform().as_ref())
+        .map(|aff| aff.as_coeffs()[5] as f32)
+        .unwrap_or(0.0);
+    let (mx, my_layout) = harness.center_of(&mid_sel);
+    harness.move_mouse_to(mx, my_layout + mid_ty);
+    harness.pump();
+    advance_frame(&mut harness, 0.02);
+
+    let mid_ty_expanded = harness
+        .base()
+        .get_node(harness.node(&mid_sel))
+        .and_then(|n| n.transform().as_ref())
+        .map(|aff| aff.as_coeffs()[5] as f32)
+        .unwrap_or(0.0);
+    let action_sel = format!("{mid_sel} [data-button]");
+    let (ax, ay_layout) = harness.center_of(&action_sel);
+    let ay = ay_layout + mid_ty_expanded;
+    harness.mouse_down_at(ax, ay);
+    advance_frame(&mut harness, 0.04);
+    harness.mouse_up_at(ax, ay);
+    advance_frame(&mut harness, 0.02);
+
+    assert!(action_fired.load(Ordering::SeqCst), "Action handler must fire");
+    assert_eq!(
+        harness.attr(&mid_sel, "data-state").as_deref(),
+        Some("closed"),
+        "Pointer click on [data-button] must dismiss actionable toast"
+    );
+    assert_eq!(harness.attr(&back_sel, "data-state").as_deref(), Some("open"));
+    assert_ne!(
+        harness.base().active_focus_node_id(),
+        Some(vp_nid),
+        "Pointer click on [data-button] must NOT move active DOM focus to #monoxus-toast-viewport"
+    );
+    assert_eq!(
+        harness.base().active_focus_node_id(),
+        None,
+        "Clicked action button inside dismissing toast must blur DOM focus cleanly"
+    );
+    {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        assert!(
+            !TOAST_STORE.peek().interaction_state.focused,
+            "Pointer click on [data-button] must leave interaction_state.focused == false"
+        );
+    }
+
+    // 5. Move pointer out (mouseleave) -> collapses, unpauses, and remaining toast expires & unmounts
+    harness.move_mouse_to(10.0, 10.0);
+    harness.pump();
+    advance_frame(&mut harness, 0.02);
+
+    assert_eq!(
+        harness
+            .attr("#monoxus-toast-viewport", "data-expanded")
+            .as_deref(),
+        Some("false")
+    );
+    {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        let store = TOAST_STORE.peek();
+        assert!(!store.expanded);
+        assert!(!store.paused);
+    }
+
+    // Advance past remaining duration (<350ms) and TIME_BEFORE_UNMOUNT (200ms)
+    advance_frame(&mut harness, 0.20);
+    advance_frame(&mut harness, 0.20);
+    advance_frame(&mut harness, 0.25);
+
+    assert!(
+        harness.query("#monoxus-toast-viewport li").is_none(),
+        "Remaining toast(s) must expire and unmount after mouseleave resumes countdown"
+    );
+    {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        assert!(TOAST_STORE.peek().toasts.is_empty());
+    }
+}

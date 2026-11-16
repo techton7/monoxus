@@ -16,7 +16,7 @@ impl ToastComputedStyle {
         let height_str = if self.height > 0.0 {
             format!("--height: {}px; ", self.height)
         } else {
-            String::new()
+            "--height: auto; ".to_string()
         };
         format!(
             "{height_str}--offset: {}px; --scale: {:.3}; --z-index: {}; --index: {}; --toasts-before: {};",

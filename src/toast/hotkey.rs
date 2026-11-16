@@ -1,5 +1,179 @@
 use crate::toast::runtime::TOAST_STORE;
+use crate::toast::types::ToastId;
 use dioxus::prelude::*;
+
+/// Checks whether active keyboard focus currently resides on or within `element_id`.
+pub(crate) fn is_focus_within_element(element_id: &str) -> bool {
+    oxidase::dom::Document::current().is_some_and(|doc| doc.is_focus_within(element_id))
+}
+
+fn is_focus_within_viewport_or_toast(viewport_id: &str) -> bool {
+    if is_focus_within_element(viewport_id) {
+        return true;
+    }
+    let Some(doc) = oxidase::dom::Document::current() else {
+        return false;
+    };
+    let Some(active) = doc.active_element() else {
+        return false;
+    };
+    if active
+        .id()
+        .or_else(|| active.get_attribute("id"))
+        .is_some_and(|id| id.starts_with("monoxus-toast-"))
+    {
+        return true;
+    }
+    active.closest("[data-sonner-toast]").is_some()
+        || active.closest("[data-sonner-toaster]").is_some()
+}
+
+/// Restores keyboard focus to the enclosing toast viewport landmark when a focused toast
+/// (or interactive control inside it) is dismissed, or exits focus cleanly when no active
+/// toasts remain.
+#[allow(dead_code)]
+pub(crate) fn restore_viewport_focus_if_within_toast(
+    toast_id: ToastId,
+    fallback_viewport_id: &str,
+) {
+    handle_post_dismiss_focus(Some(toast_id), fallback_viewport_id);
+}
+
+std::thread_local! {
+    static POST_DISMISS_SEQ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Reconciles focus and interaction state after a toast (or the entire toast queue) is dismissed.
+pub(crate) fn handle_post_dismiss_focus(
+    dismissed_toast_id: Option<ToastId>,
+    fallback_viewport_id: &str,
+) {
+    if dioxus::core::Runtime::try_current().is_none() {
+        return;
+    }
+
+    let has_active_toasts = TOAST_STORE.peek().has_active_toasts();
+    if has_active_toasts {
+        let Some(toast_id) = dismissed_toast_id else {
+            return;
+        };
+        let toast_dom_id = format!("monoxus-toast-{}", toast_id.0);
+        let keyboard_focused = TOAST_STORE.peek().interaction_state.focused;
+        if !keyboard_focused {
+            if is_focus_within_element(&toast_dom_id)
+                && let Some(doc) = oxidase::dom::Document::current()
+            {
+                let _ = doc.blur_active();
+            }
+            return;
+        }
+        if is_focus_within_element(&toast_dom_id) {
+            let viewport_id = resolve_enclosing_viewport_id(&toast_dom_id)
+                .unwrap_or_else(|| fallback_viewport_id.to_string());
+            focus_landmark_viewport(&viewport_id);
+        } else if oxidase::dom::Document::current()
+            .is_some_and(|doc| doc.element_by_id(fallback_viewport_id).is_none())
+        {
+            let fallback_vp = fallback_viewport_id.to_string();
+            crate::foundation::browser::spawn_root_task(async move {
+                let _ = oxidase::frame::next_frame().await;
+                if TOAST_STORE.peek().has_active_toasts()
+                    && is_focus_within_element(&toast_dom_id)
+                {
+                    let vp =
+                        resolve_enclosing_viewport_id(&toast_dom_id).unwrap_or(fallback_vp);
+                    let opts = crate::foundation::browser::FocusOptions::with_focus_visible(
+                        true,
+                        Some(true),
+                    );
+                    if let Some(doc) = oxidase::dom::Document::current() {
+                        if let Some(el) = doc.element_by_id(&vp) {
+                            let _ = el.focus_with_options(opts).await;
+                        } else {
+                            let _ = doc.set_focus_with_options(&vp, opts);
+                        }
+                    }
+                    if is_focus_within_element(&vp) {
+                        TOAST_STORE.write().set_focused(true);
+                    }
+                }
+            });
+        }
+        return;
+    }
+
+    TOAST_STORE.write().clear_interaction_if_queue_empty();
+
+    let viewport_id = dismissed_toast_id
+        .and_then(|tid| resolve_enclosing_viewport_id(&format!("monoxus-toast-{}", tid.0)))
+        .unwrap_or_else(|| fallback_viewport_id.to_string());
+
+    let seq = POST_DISMISS_SEQ.with(|c| {
+        let next = c.get().wrapping_add(1);
+        c.set(next);
+        next
+    });
+
+    if is_focus_within_viewport_or_toast(&viewport_id) {
+        let prev_id = TOAST_STORE.peek().last_focused_element_id.clone();
+        let mut restored_sync = false;
+        if let Some(doc) = oxidase::dom::Document::current() {
+            let focus_opts =
+                crate::foundation::browser::FocusOptions::with_focus_visible(false, Some(false));
+            if let Some(prev) = prev_id.as_deref()
+                && let Some(el) = doc.element_by_id(prev)
+            {
+                let _ = el.focus_sync_with_options(focus_opts);
+                restored_sync = doc.is_element_active(prev);
+            } else {
+                let _ = doc.blur_active();
+                restored_sync = !is_focus_within_viewport_or_toast(&viewport_id);
+            }
+        }
+        if restored_sync {
+            TOAST_STORE.write().last_focused_element_id = None;
+        }
+    }
+
+    let vp_id = viewport_id;
+    crate::foundation::browser::spawn_root_task(async move {
+        let _ = oxidase::frame::next_frame().await;
+        if POST_DISMISS_SEQ.with(|c| c.get()) != seq {
+            return;
+        }
+        if !TOAST_STORE.peek().has_active_toasts() {
+            TOAST_STORE.write().clear_interaction_if_queue_empty();
+            if is_focus_within_viewport_or_toast(&vp_id) {
+                let prev_id = TOAST_STORE.write().last_focused_element_id.take();
+                if let Some(doc) = oxidase::dom::Document::current() {
+                    let focus_opts = crate::foundation::browser::FocusOptions::with_focus_visible(
+                        false,
+                        Some(false),
+                    );
+                    if let Some(prev) = prev_id.as_deref()
+                        && let Some(el) = doc.element_by_id(prev)
+                    {
+                        let _ = el.focus_with_options(focus_opts).await;
+                    } else {
+                        let _ = doc.blur_active();
+                    }
+                }
+            } else {
+                TOAST_STORE.write().last_focused_element_id = None;
+            }
+        }
+    });
+}
+
+pub(crate) fn resolve_enclosing_viewport_id(toast_dom_id: &str) -> Option<String> {
+    let doc = oxidase::dom::Document::current()?;
+    let toast_el = doc.element_by_id(toast_dom_id)?;
+    let vp_el = toast_el.closest("[data-sonner-toaster]")?;
+    vp_el
+        .id()
+        .or_else(|| vp_el.get_attribute("id"))
+        .filter(|s| !s.is_empty())
+}
 
 /// Checks if a keyboard event key matches the configured landmark hotkey.
 ///
@@ -32,23 +206,45 @@ pub fn evaluate_landmark_hotkey(
 
 /// Focuses the landmark viewport container element by ID.
 ///
-/// Dispatches through `crate::foundation::browser::focus_element_by_id`, which handles
-/// immediate focus as well as next-frame retries for substrate resilience.
+/// Dispatches immediate focus where supported and schedules next-frame confirmation
+/// when running inside an active Dioxus runtime.
 pub fn focus_landmark_viewport(viewport_id: &str) -> bool {
-    crate::foundation::browser::focus_element_by_id(viewport_id);
+    let opts = crate::foundation::browser::FocusOptions::with_focus_visible(true, Some(true));
 
-    #[cfg(target_arch = "wasm32")]
-    {
-        if let Some(window) = web_sys::window() {
-            if let Some(doc) = window.document() {
-                if let Some(el) = doc.get_element_by_id(viewport_id) {
-                    use wasm_bindgen::JsCast;
-                    if let Ok(html_el) = el.dyn_into::<web_sys::HtmlElement>() {
-                        let _ = html_el.focus();
+    if dioxus::core::Runtime::try_current().is_some() {
+        TOAST_STORE.write().clear_viewport_pointer_press();
+    }
+
+    if let Some(doc) = oxidase::dom::Document::current() {
+        let _ = doc.set_focus_with_options(viewport_id, opts);
+    }
+
+    if dioxus::core::Runtime::try_current().is_some() {
+        if is_focus_within_element(viewport_id) && TOAST_STORE.peek().has_active_toasts() {
+            TOAST_STORE.write().set_focused(true);
+        }
+        let target_id = viewport_id.to_string();
+        crate::foundation::browser::spawn_root_task(async move {
+            for _ in 0..5 {
+                let _ = oxidase::frame::next_frame().await;
+                if !TOAST_STORE.peek().has_active_toasts()
+                    && !TOAST_STORE.peek().toasts.is_empty()
+                {
+                    break;
+                }
+                let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::document);
+                if let Some(el) = doc.element_by_id(&target_id)
+                    && el.focus_with_options(opts).await.is_ok()
+                {
+                    if is_focus_within_element(&target_id)
+                        && TOAST_STORE.peek().has_active_toasts()
+                    {
+                        TOAST_STORE.write().set_focused(true);
                     }
+                    break;
                 }
             }
-        }
+        });
     }
 
     true
@@ -63,7 +259,32 @@ pub fn handle_landmark_keydown(
     configured_hotkey: &str,
     viewport_id: &str,
 ) -> bool {
+    handle_landmark_keydown_with_origin(pressed_key, configured_hotkey, viewport_id, None, false)
+}
+
+pub(crate) fn handle_landmark_keydown_with_origin(
+    pressed_key: &str,
+    configured_hotkey: &str,
+    viewport_id: &str,
+    origin_target_id: Option<&str>,
+    origin_inside_viewport: bool,
+) -> bool {
     if evaluate_landmark_hotkey(pressed_key, configured_hotkey, viewport_id).is_some() {
+        if dioxus::core::Runtime::try_current().is_some()
+            && !origin_inside_viewport
+            && !is_focus_within_element(viewport_id)
+        {
+            let prev_focus_id = oxidase::dom::Document::current()
+                .and_then(|d| d.active_element())
+                .and_then(|el| el.id().or_else(|| el.get_attribute("id")))
+                .filter(|id| !id.is_empty())
+                .or_else(|| {
+                    origin_target_id.map(str::to_string).filter(|id| {
+                        !id.is_empty() && id != viewport_id && !id.starts_with("monoxus-toast-")
+                    })
+                });
+            TOAST_STORE.write().last_focused_element_id = prev_focus_id;
+        }
         focus_landmark_viewport(viewport_id);
         true
     } else {

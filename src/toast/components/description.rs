@@ -13,6 +13,7 @@ pub struct ToastDescriptionProps {
 pub fn ToastDescription(props: ToastDescriptionProps) -> Element {
     rsx! {
         div {
+            "data-description": "",
             class: props.class.as_deref().unwrap_or_default(),
             {props.children}
         }

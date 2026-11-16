@@ -13,6 +13,7 @@ pub struct ToastTitleProps {
 pub fn ToastTitle(props: ToastTitleProps) -> Element {
     rsx! {
         div {
+            "data-title": "",
             class: props.class.as_deref().unwrap_or_default(),
             {props.children}
         }

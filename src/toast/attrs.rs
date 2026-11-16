@@ -25,7 +25,24 @@ impl ToastViewportAttrs {
         dir: impl Into<String>,
         position: ToastPosition,
     ) -> Self {
+        Self::with_position_and_front_height(config, expanded, dir, position, None)
+    }
+
+    pub fn with_position_and_front_height(
+        config: &ToastConfig,
+        expanded: bool,
+        dir: impl Into<String>,
+        position: ToastPosition,
+        front_toast_height: Option<f64>,
+    ) -> Self {
         let mut styles = Vec::new();
+        if let Some(h) = front_toast_height.filter(|h| h.is_finite() && *h > 0.0) {
+            styles.push(format!("--front-toast-height: {h}px;"));
+        } else {
+            styles.push("--front-toast-height: auto;".to_string());
+        }
+        styles.push("--width: 356px;".to_string());
+        styles.push(format!("--gap: {}px;", config.gap));
         if let Some(ref top) = config.offset.top {
             styles.push(format!("--offset-top: {};", top));
         }
@@ -78,6 +95,7 @@ pub struct ToastRootAttrs {
     pub data_visible: &'static str,
     pub data_front: &'static str,
     pub data_expanded: &'static str,
+    pub data_dismissible: &'static str,
     pub data_position: &'static str,
     pub data_x_position: &'static str,
     pub data_y_position: &'static str,
@@ -143,6 +161,11 @@ impl ToastRootAttrs {
             },
             data_front: if index == 0 { "true" } else { "false" },
             data_expanded: if expanded { "true" } else { "false" },
+            data_dismissible: if toast_type == ToastType::Loading {
+                "false"
+            } else {
+                "true"
+            },
             data_position: position.as_str(),
             data_x_position: position.x_str(),
             data_y_position: position.y_str(),
@@ -154,6 +177,11 @@ impl ToastRootAttrs {
 
     pub fn with_expanded(mut self, expanded: bool) -> Self {
         self.data_expanded = if expanded { "true" } else { "false" };
+        self
+    }
+
+    pub fn with_dismissible(mut self, dismissible: bool) -> Self {
+        self.data_dismissible = if dismissible { "true" } else { "false" };
         self
     }
 }

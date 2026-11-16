@@ -3239,15 +3239,12 @@ dependencies = [
  "dioxus-native-dom",
  "futures-timer",
  "futures-util",
- "js-sys",
  "keyboard-types",
  "manganis",
  "oxidase",
  "oxidase-floating-ui",
  "serde",
  "serde_json",
- "wasm-bindgen",
- "web-sys",
 ]
 
 [[package]]

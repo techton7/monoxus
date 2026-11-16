@@ -11,6 +11,8 @@ pub struct ToastActionProps {
     #[props(default)]
     pub on_click: Option<Callback<ToastActionEvent>>,
     #[props(default)]
+    pub cancel: bool,
+    #[props(default)]
     pub class: Option<String>,
     #[props(default)]
     pub children: Element,
@@ -32,6 +34,10 @@ pub fn ToastAction(props: ToastActionProps) -> Element {
             .filter(|_| !action_evt.is_default_prevented())
         {
             toast::dismiss(Some(id));
+            crate::toast::hotkey::handle_post_dismiss_focus(
+                Some(id),
+                "monoxus-toast-viewport",
+            );
         }
     };
 
@@ -39,6 +45,8 @@ pub fn ToastAction(props: ToastActionProps) -> Element {
         button {
             r#type: "{attrs.r#type}",
             aria_label: "{attrs.aria_label}",
+            "data-button": if props.cancel { None } else { Some("") },
+            "data-cancel": if props.cancel { Some("") } else { None },
             class: props.class.as_deref().unwrap_or_default(),
             onclick: handle_click,
             {props.children}

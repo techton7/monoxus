@@ -47,13 +47,7 @@ pub fn SelectContentStatic(
             onkeydown: {
                 let runtime = ctx.runtime.clone();
                 move |evt| {
-                    #[cfg(target_arch = "wasm32")]
-                    let now_ms = js_sys::Date::now();
-                    #[cfg(not(target_arch = "wasm32"))]
-                    let now_ms = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs_f64() * 1000.0)
-                        .unwrap_or(0.0);
+                    let now_ms = oxidase::time::monotonic_now_ms();
 
                     runtime.handle_content_keydown(&evt, now_ms);
                 }

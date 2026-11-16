@@ -347,11 +347,17 @@ pub fn TooltipPlayground(props: TooltipPlaygroundProps) -> Element {
                                         "data-align": first_arrow.data_align(),
                                         style: first_arrow_style,
                                     }
-                                    strong { "Delayed provider open" }
+                                    strong {
+                                        style: "min-width: 0; overflow-wrap: anywhere;",
+                                        "Delayed provider open"
+                                    }
                                     p {
-                                        style: "margin: 0; color: #cffafe;",
+                                        style: "margin: 0; color: #cffafe; min-width: 0; overflow-wrap: anywhere;",
                                         "Shared provider id: "
-                                        code { "{first_trigger.provider_id().unwrap_or(\"none\")}" }
+                                        code {
+                                            style: "min-width: 0; overflow-wrap: anywhere;",
+                                            "{first_trigger.provider_id().unwrap_or(\"none\")}"
+                                        }
                                     }
                                 }
                             }
@@ -382,11 +388,17 @@ pub fn TooltipPlayground(props: TooltipPlaygroundProps) -> Element {
                                         "data-align": second_arrow.data_align(),
                                         style: second_arrow_style,
                                     }
-                                    strong { "Skip-delay instant handoff" }
+                                    strong {
+                                        style: "min-width: 0; overflow-wrap: anywhere;",
+                                        "Skip-delay instant handoff"
+                                    }
                                     p {
-                                        style: "margin: 0; color: #ccfbf1;",
+                                        style: "margin: 0; color: #ccfbf1; min-width: 0; overflow-wrap: anywhere;",
                                         "Move from the first trigger to this one within the skip-delay window to observe grouped-provider instant open. The content stays descriptive and unfocused while rendered through "
-                                        code { "aria-describedby" }
+                                        code {
+                                            style: "min-width: 0; overflow-wrap: anywhere;",
+                                            "aria-describedby"
+                                        }
                                         ", and Step 4 now keeps the closing lane mounted long enough for Step 5 animate-out proof."
                                     }
                                 }
@@ -406,7 +418,7 @@ fn tooltip_content_style(
     css_custom_properties: &str,
 ) -> String {
     let mut style = format!(
-        "position: relative; width: 184px; max-width: calc(100vw - 2rem); padding: 0.7rem 0.85rem; border-radius: 0.7rem; background-color: {background}; color: {foreground}; display: grid; gap: 0.45rem;"
+        "position: relative; width: 184px; max-width: calc(100vw - 2rem); padding: 0.7rem 0.85rem; border-radius: 0.7rem; background-color: {background}; color: {foreground}; box-sizing: border-box; display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.45rem;"
     );
 
     style.push_str(css_custom_properties);

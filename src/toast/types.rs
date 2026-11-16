@@ -238,17 +238,27 @@ impl IntoToastActionHandler<()> for Callback<ToastActionEvent> {
     }
 }
 
+fn make_root_action_callback<F: FnMut(ToastActionEvent) + 'static>(
+    f: F,
+) -> Callback<ToastActionEvent> {
+    if let Some(rt) = dioxus::core::Runtime::try_current() {
+        rt.in_scope(dioxus::core::ScopeId::ROOT, || Callback::new(f))
+    } else {
+        Callback::new(f)
+    }
+}
+
 pub struct ActionEventClosureMarker;
 impl<F: FnMut(ToastActionEvent) + 'static> IntoToastActionHandler<ActionEventClosureMarker> for F {
     fn into_handler(self) -> Callback<ToastActionEvent> {
-        Callback::new(self)
+        make_root_action_callback(self)
     }
 }
 
 pub struct UnitClosureMarker;
 impl<F: FnMut() + 'static> IntoToastActionHandler<UnitClosureMarker> for F {
     fn into_handler(mut self) -> Callback<ToastActionEvent> {
-        Callback::new(move |_| self())
+        make_root_action_callback(move |_| self())
     }
 }
 
@@ -291,6 +301,7 @@ pub struct ToastOptions {
     pub on_dismiss: Option<Callback<()>>,
     pub on_auto_close: Option<Callback<()>>,
     pub dismissible: Option<bool>,
+    pub close_button: Option<bool>,
     pub position: Option<ToastPosition>,
     pub test_id: Option<String>,
     pub custom_renderer: Option<ToastCustomRenderer>,
@@ -306,6 +317,8 @@ pub struct ToastConfig {
     pub visible_toasts: usize,
     pub gap: f64,
     pub pause_when_page_is_hidden: bool,
+    pub close_button: bool,
+    pub expand: bool,
     pub container_aria_label: String,
     pub close_button_aria_label: String,
     pub dir: ToastDirection,
@@ -332,6 +345,8 @@ impl Default for ToastConfig {
             visible_toasts: 3,
             gap: 14.0,
             pause_when_page_is_hidden: true,
+            close_button: true,
+            expand: false,
             container_aria_label: "Notifications ({hotkey})".to_string(),
             close_button_aria_label: "Close notification".to_string(),
             dir: ToastDirection::Auto,
@@ -343,40 +358,16 @@ impl Default for ToastConfig {
 }
 
 /// WASM-safe monotonic instant measuring real wall-clock durations without panicking on web targets.
-#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
-pub struct ToastInstant {
-    #[cfg(target_arch = "wasm32")]
-    millis: f64,
-    #[cfg(not(target_arch = "wasm32"))]
-    instant: std::time::Instant,
-}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ToastInstant(oxidase::time::MonotonicInstant);
 
 impl ToastInstant {
     pub fn now() -> Self {
-        #[cfg(target_arch = "wasm32")]
-        {
-            Self {
-                millis: js_sys::Date::now(),
-            }
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            Self {
-                instant: std::time::Instant::now(),
-            }
-        }
+        Self(oxidase::time::MonotonicInstant::now())
     }
 
     pub fn saturating_duration_since(&self, earlier: Self) -> Duration {
-        #[cfg(target_arch = "wasm32")]
-        {
-            let diff = (self.millis - earlier.millis).max(0.0);
-            Duration::from_secs_f64(diff / 1000.0)
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            self.instant.saturating_duration_since(earlier.instant)
-        }
+        self.0.saturating_duration_since(earlier.0)
     }
 }
 
@@ -384,6 +375,8 @@ impl ToastInstant {
 #[derive(Clone)]
 pub struct ToastItem {
     pub id: ToastId,
+    pub generation: u64,
+    pub content_generation: u64,
     pub toast_type: ToastType,
     pub title: String,
     pub description: Option<String>,
@@ -407,6 +400,8 @@ impl ToastItem {
         let now = ToastInstant::now();
         Self {
             id,
+            generation: 0,
+            content_generation: 0,
             toast_type,
             title: title.into(),
             description: options.description.clone(),
