@@ -80,7 +80,7 @@ mod native_presence_exit_test;
 mod native_select_test;
 
 #[test]
-fn all_integration_test_entrypoints_are_accounted_for() {
+fn all_test_files_are_included() {
     use std::collections::BTreeSet;
     use std::fs;
     use std::path::{Path, PathBuf};
