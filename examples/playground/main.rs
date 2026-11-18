@@ -3,13 +3,17 @@
 pub mod accordion;
 pub mod alert_dialog;
 pub mod button;
+pub mod checkbox;
 pub mod collapsible;
 pub mod dialog;
+pub mod form_1b;
 pub mod label;
 pub mod pages;
 pub mod popover;
+pub mod radio_group;
 pub mod scenarios;
 pub mod separator;
+pub mod switch;
 pub mod tabs;
 pub mod toggle;
 pub mod toggle_group;
@@ -17,9 +21,9 @@ pub mod tooltip;
 
 use dioxus::prelude::*;
 use pages::{
-    AccordionPage, AlertDialogPage, ButtonPage, CollapsiblePage, DialogPage, LabelPage,
-    PopoverPage, SelectPage, SeparatorPage, TabsPage, ToastPage, ToggleGroupPage, TogglePage,
-    TooltipPage,
+    AccordionPage, AlertDialogPage, ButtonPage, CheckboxPage, CollapsiblePage, DialogPage,
+    Form1bPage, LabelPage, PopoverPage, RadioGroupPage, SelectPage, SeparatorPage, SwitchPage,
+    TabsPage, ToastPage, ToggleGroupPage, TogglePage, TooltipPage,
 };
 
 #[component]
@@ -40,6 +44,53 @@ fn RootApp() -> Element {
     }
 }
 
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+#[component]
+fn NativeHostedApp() -> Element {
+    oxidase::launch::ensure_document_context();
+
+    let window = dioxus_native::use_window();
+    use_hook(|| {
+        let w = window.clone();
+        std::rc::Rc::new(oxidase::launch::bind_host_redraw_requester(move || {
+            w.request_redraw();
+        }))
+    });
+
+    dioxus_native::use_window_event(move |event, _target| match event {
+        dioxus_native::winit::event::WindowEvent::RedrawRequested => {
+            oxidase::launch::step_hosted_frame();
+        }
+        dioxus_native::winit::event::WindowEvent::Occluded(occluded) => {
+            oxidase::dom::document().set_document_hidden(*occluded);
+        }
+        _ => {}
+    });
+
+    rsx! {
+        oxidase::launch::HostedRootWrapper {
+            RootApp {}
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), feature = "native"))]
+fn main() {
+    let mut window_attributes = dioxus_native::WindowAttributes::default();
+    let hidden = std::env::var("BLITZ_HOST_HIDDEN").as_deref() == Ok("1")
+        || std::env::var("BLITZ_HEADLESS").as_deref() == Ok("1");
+    if hidden {
+        window_attributes = window_attributes.with_visible(false).with_active(false);
+    } else if std::env::var("BLITZ_HOST_NO_ACTIVATE").as_deref() == Ok("1") {
+        window_attributes = window_attributes.with_active(false);
+    }
+
+    let config = dioxus_native::Config::default().with_window_attributes(window_attributes);
+
+    dioxus_native::launch_cfg(NativeHostedApp, vec![], vec![Box::new(config)]);
+}
+
+#[cfg(not(all(not(target_arch = "wasm32"), feature = "native")))]
 #[oxidase::main]
 fn main() {
     dioxus::launch(RootApp);
@@ -52,6 +103,10 @@ pub enum ComponentPage {
     Label,
     Toggle,
     ToggleGroup,
+    Checkbox,
+    Switch,
+    RadioGroup,
+    Form1B,
     Select,
     Collapsible,
     Accordion,
@@ -71,6 +126,10 @@ impl ComponentPage {
             Self::Label => "Label",
             Self::Toggle => "Toggle",
             Self::ToggleGroup => "Toggle Group",
+            Self::Checkbox => "Checkbox",
+            Self::Switch => "Switch",
+            Self::RadioGroup => "Radio Group",
+            Self::Form1B => "Form (1B)",
             Self::Select => "Select",
             Self::Collapsible => "Collapsible",
             Self::Accordion => "Accordion",
@@ -90,6 +149,10 @@ impl ComponentPage {
             Self::Label => "¶",
             Self::Toggle => "◉",
             Self::ToggleGroup => "⊞",
+            Self::Checkbox => "☑",
+            Self::Switch => "⊸",
+            Self::RadioGroup => "◉",
+            Self::Form1B => "📝",
             Self::Select => "▾",
             Self::Collapsible => "◰",
             Self::Accordion => "≡",
@@ -109,6 +172,10 @@ impl ComponentPage {
             Self::Label => "Association",
             Self::Toggle => "2-State",
             Self::ToggleGroup => "Roving",
+            Self::Checkbox => "Tri-state",
+            Self::Switch => "Track/Thumb",
+            Self::RadioGroup => "Roving APG",
+            Self::Form1B => "FormData Reset",
             Self::Select => "7 Scenarios",
             Self::Collapsible => "Disclosure",
             Self::Accordion => "Interactive",
@@ -132,6 +199,10 @@ pub fn App() -> Element {
         ComponentPage::Label,
         ComponentPage::Toggle,
         ComponentPage::ToggleGroup,
+        ComponentPage::Checkbox,
+        ComponentPage::Switch,
+        ComponentPage::RadioGroup,
+        ComponentPage::Form1B,
         ComponentPage::Select,
         ComponentPage::Collapsible,
         ComponentPage::Accordion,
@@ -146,7 +217,7 @@ pub fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: asset!("/assets/tailwind.css") }
         style { {include_str!("../../assets/pretendard.css")} }
-        style { "{SW1A_PLAYGROUND_CSS}" }
+        style { "{SW1A_PLAYGROUND_CSS}\n{SW1B_PLAYGROUND_CSS}" }
         div {
             style: "min-height: 100vh; background-color: #f8fafc; display: flex; flex-direction: row; color: #0f172a; font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;",
 
@@ -194,10 +265,22 @@ pub fn App() -> Element {
                             } else {
                                 "background-color: transparent; color: #475569; font-weight: 500; border: 1px solid transparent;"
                             };
-                            let page_id = format!("nav-link-{}", page.title().to_lowercase().replace(' ', "-"));
+                            let page_id = match page {
+                                ComponentPage::Checkbox => "nav-checkbox",
+                                ComponentPage::Switch => "nav-switch",
+                                ComponentPage::RadioGroup => "nav-radio-group",
+                                ComponentPage::Form1B => "nav-form-1b",
+                                _ => "",
+                            };
+                            let legacy_id = format!("nav-link-{}", page.title().to_lowercase().replace(' ', "-").replace('(', "").replace(')', ""));
+                            let primary_id = if !page_id.is_empty() {
+                                page_id.to_string()
+                            } else {
+                                legacy_id.clone()
+                            };
                             rsx! {
                                 button {
-                                    id: "{page_id}",
+                                    id: "{primary_id}",
                                     style: "display: flex; align-items: center; justify-content: space-between; width: 100%; padding: 0.5rem 0.75rem; border-radius: 0.5rem; font-size: 0.875rem; cursor: pointer; text-align: left; transition: all 0.15s ease; outline: none; {active_style}",
                                     onclick: move |_| current_page.set(page),
                                     div {
@@ -211,6 +294,20 @@ pub fn App() -> Element {
                                     span {
                                         style: "font-size: 0.6875rem; padding: 0.125rem 0.375rem; border-radius: 0.25rem; background-color: rgba(147, 51, 234, 0.08); color: #7e22ce;",
                                         "{page.badge()}"
+                                    }
+                                }
+                                if page == ComponentPage::Form1B {
+                                    button {
+                                        id: "nav-sw1b-form",
+                                        style: "display: none;",
+                                        onclick: move |_| current_page.set(ComponentPage::Form1B),
+                                    }
+                                }
+                                if primary_id != legacy_id {
+                                    button {
+                                        id: "{legacy_id}",
+                                        style: "display: none;",
+                                        onclick: move |_| current_page.set(page),
                                     }
                                 }
                             }
@@ -241,6 +338,10 @@ pub fn App() -> Element {
                     ComponentPage::Label => rsx! { LabelPage {} },
                     ComponentPage::Toggle => rsx! { TogglePage {} },
                     ComponentPage::ToggleGroup => rsx! { ToggleGroupPage {} },
+                    ComponentPage::Checkbox => rsx! { CheckboxPage {} },
+                    ComponentPage::Switch => rsx! { SwitchPage {} },
+                    ComponentPage::RadioGroup => rsx! { RadioGroupPage {} },
+                    ComponentPage::Form1B => rsx! { Form1bPage {} },
                     ComponentPage::Select => rsx! { SelectPage {} },
                     ComponentPage::Collapsible => rsx! { CollapsiblePage {} },
                     ComponentPage::Accordion => rsx! { AccordionPage {} },
@@ -533,3 +634,186 @@ pub const SW1A_PLAYGROUND_CSS: &str = r#"
 }
 "#;
 
+pub const SW1B_PLAYGROUND_CSS: &str = r#"
+/* Checkbox Styles */
+[data-checkbox-root] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 4px;
+    border: 1px solid #cbd5e1;
+    background-color: #ffffff;
+    cursor: pointer;
+    padding: 0;
+    margin: 0;
+    user-select: none;
+    outline: none;
+    box-sizing: border-box;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+[data-checkbox-root]:hover:not([data-disabled]):not([data-readonly]) {
+    border-color: #7c3aed;
+    background-color: #f5f3ff;
+}
+
+[data-checkbox-root][data-state="checked"],
+[data-checkbox-root][data-state="indeterminate"] {
+    background-color: #7c3aed;
+    border-color: #6d28d9;
+    color: #ffffff;
+}
+
+[data-checkbox-root]:focus-visible {
+    outline: 2px solid #9333ea;
+    outline-offset: 2px;
+}
+
+[data-checkbox-root][data-disabled] {
+    background-color: #f1f5f9 !important;
+    border-color: #e2e8f0 !important;
+    color: #94a3b8 !important;
+    cursor: not-allowed !important;
+    opacity: 0.55;
+}
+
+[data-checkbox-root][data-readonly] {
+    border-color: #cbd5e1;
+    background-color: #f8fafc;
+    cursor: default;
+}
+
+[data-checkbox-indicator] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+    color: #ffffff;
+    pointer-events: none;
+}
+
+/* Switch Styles - Dual-host Taffy + Web flex track alignment */
+[data-switch-root] {
+    display: inline-flex;
+    align-items: center;
+    width: 38px;
+    height: 22px;
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-color: #cbd5e1;
+    padding: 1px;
+    cursor: pointer;
+    box-sizing: border-box;
+    outline: none;
+    transition: background-color 0.15s ease;
+}
+
+[data-switch-root][data-state="unchecked"] {
+    justify-content: flex-start;
+    background-color: #cbd5e1;
+}
+
+[data-switch-root][data-state="checked"] {
+    justify-content: flex-end;
+    background-color: #7c3aed;
+}
+
+[data-switch-root]:focus-visible {
+    outline: 2px solid #9333ea;
+    outline-offset: 2px;
+}
+
+[data-switch-root][data-disabled] {
+    opacity: 0.55;
+    cursor: not-allowed !important;
+    background-color: #e2e8f0 !important;
+}
+
+[data-switch-root][data-readonly] {
+    cursor: default;
+}
+
+[data-switch-thumb] {
+    display: block;
+    width: 16px;
+    height: 16px;
+    border-radius: 9999px;
+    background-color: #ffffff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    pointer-events: none;
+    flex-shrink: 0;
+}
+
+/* Radio Group Styles */
+[data-radio-group-root] {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+[data-radio-group-root][data-orientation="horizontal"] {
+    flex-direction: row;
+    align-items: center;
+}
+
+[data-radio-group-item] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 9999px;
+    border: 1px solid #cbd5e1;
+    background-color: #ffffff;
+    padding: 0;
+    margin: 0;
+    cursor: pointer;
+    box-sizing: border-box;
+    outline: none;
+    user-select: none;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+[data-radio-group-item]:hover:not([data-disabled]):not([data-readonly]) {
+    border-color: #7c3aed;
+    background-color: #f5f3ff;
+}
+
+[data-radio-group-item][data-state="checked"] {
+    border-color: #7c3aed;
+    background-color: #ffffff;
+}
+
+[data-radio-group-item]:focus-visible {
+    outline: 2px solid #9333ea;
+    outline-offset: 2px;
+}
+
+[data-radio-group-item][data-disabled] {
+    background-color: #f1f5f9 !important;
+    border-color: #e2e8f0 !important;
+    cursor: not-allowed !important;
+    opacity: 0.55;
+}
+
+[data-radio-group-item][data-readonly] {
+    cursor: default;
+}
+
+[data-radio-group-indicator] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 10px;
+    height: 10px;
+    border-radius: 9999px;
+    background-color: #7c3aed;
+    pointer-events: none;
+}
+"#;

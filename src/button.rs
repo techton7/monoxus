@@ -190,6 +190,8 @@ pub struct ButtonProps {
     #[props(default)]
     pub r#type: ButtonType,
     #[props(default)]
+    pub form: Option<String>,
+    #[props(default)]
     pub href: Option<String>,
     #[props(default)]
     pub target: Option<String>,
@@ -300,6 +302,7 @@ pub fn Button(props: ButtonProps) -> Element {
             button {
                 id: attrs.id,
                 r#type: attrs.r#type,
+                form: props.form.as_deref(),
                 disabled: props.disabled,
                 role: attrs.role,
                 tabindex: attrs.tabindex,

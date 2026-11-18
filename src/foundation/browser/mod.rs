@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 
 use crate::foundation::{compose::MountedHandle, overlay::PresenceCloseCycleId};
@@ -392,15 +395,67 @@ pub(crate) fn start_form_reset_monitor(
     form_id: Option<&str>,
     on_reset: impl FnMut() + 'static,
 ) -> WatcherGuard {
-    let mut on_reset = on_reset;
+    let runtime = dioxus::core::Runtime::try_current();
+    let scope_id = runtime.as_ref().and_then(|rt| rt.try_current_scope_id());
+    let on_reset = Rc::new(RefCell::new(on_reset));
     oxidase::watcher::watch_form_reset(
         element_id,
         form_id,
         move |_sig: oxidase::watcher::FormResetEvent| {
-            on_reset();
+            let reset = Rc::clone(&on_reset);
+            if let Some(rt) = &runtime {
+                let async_runtime = rt.clone();
+                let scope = scope_id.unwrap_or(dioxus::core::ScopeId::ROOT);
+                rt.in_scope(scope, || {
+                    spawn_root_task(async move {
+                        let _ = oxidase::frame::next_frame().await;
+                        async_runtime.in_scope(scope, || {
+                            if let Ok(mut reset) = reset.try_borrow_mut() {
+                                reset();
+                            }
+                        });
+                    });
+                });
+            } else {
+                spawn_root_task(async move {
+                    let _ = oxidase::frame::next_frame().await;
+                    if let Ok(mut reset) = reset.try_borrow_mut() {
+                        reset();
+                    }
+                });
+            }
         },
     )
     .unwrap_or_else(|_| WatcherGuard::noop())
+}
+
+pub(crate) fn probe_element_form_ancestor(element_id: &str) -> Option<bool> {
+    let doc = oxidase::dom::Document::current()?;
+    if !doc.is_authoritative() {
+        return None;
+    }
+    let el = doc.element_by_id(element_id)?;
+    Some(el.closest_tag("form").is_some())
+}
+
+pub(crate) fn focus_element_sync_or_defer(target_id: &str, options: FocusOptions) {
+    if let Some(doc) = oxidase::dom::Document::current()
+        && doc.set_focus_with_options(target_id, options).is_ok()
+    {
+        return;
+    }
+    focus_element_by_id_with_options(target_id, options);
+}
+
+pub fn collect_form_data(
+    form_element_id: &str,
+) -> Result<Vec<(String, String)>, oxidase::error::HostError> {
+    let Some(doc) = oxidase::dom::Document::current() else {
+        return Err(oxidase::error::HostError::Unsupported(
+            "No active document".into(),
+        ));
+    };
+    doc.collect_form_data(form_element_id)
 }
 
 pub struct DocumentPointerStreamGuard {
