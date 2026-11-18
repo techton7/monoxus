@@ -17,6 +17,7 @@ pub(crate) mod playground_dialog;
 #[path = "../examples/playground/popover.rs"]
 pub(crate) mod playground_popover;
 #[cfg(feature = "native")]
+#[allow(unused_imports, unused)]
 #[path = "../examples/playground/scenarios/select/mod.rs"]
 pub(crate) mod playground_select;
 #[cfg(feature = "native")]
