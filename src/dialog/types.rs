@@ -111,6 +111,7 @@ pub const DEFAULT_DIALOG_RESTORE_DELAY_MS: u64 = 200;
 pub struct DialogScrollLockPolicy {
     enabled: bool,
     restore_delay: Option<u64>,
+    prevent_body_pointer_events: bool,
 }
 
 impl DialogScrollLockPolicy {
@@ -122,6 +123,7 @@ impl DialogScrollLockPolicy {
             } else {
                 None
             },
+            prevent_body_pointer_events: true,
         }
     }
 
@@ -133,6 +135,7 @@ impl DialogScrollLockPolicy {
         Self {
             enabled: false,
             restore_delay: None,
+            prevent_body_pointer_events: false,
         }
     }
 
@@ -141,12 +144,28 @@ impl DialogScrollLockPolicy {
         self
     }
 
+    pub const fn with_prevent_body_pointer_events(
+        mut self,
+        prevent_body_pointer_events: bool,
+    ) -> Self {
+        self.prevent_body_pointer_events = prevent_body_pointer_events;
+        self
+    }
+
+    pub fn set_prevent_body_pointer_events(&mut self, prevent_body_pointer_events: bool) {
+        self.prevent_body_pointer_events = prevent_body_pointer_events;
+    }
+
     pub const fn is_enabled(&self) -> bool {
         self.enabled
     }
 
     pub const fn restore_delay(&self) -> Option<u64> {
         self.restore_delay
+    }
+
+    pub const fn prevent_body_pointer_events(&self) -> bool {
+        self.prevent_body_pointer_events
     }
 }
 

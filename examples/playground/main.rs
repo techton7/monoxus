@@ -2,18 +2,24 @@
 
 pub mod accordion;
 pub mod alert_dialog;
+pub mod button;
 pub mod collapsible;
 pub mod dialog;
+pub mod label;
 pub mod pages;
 pub mod popover;
 pub mod scenarios;
+pub mod separator;
 pub mod tabs;
+pub mod toggle;
+pub mod toggle_group;
 pub mod tooltip;
 
 use dioxus::prelude::*;
 use pages::{
-    AccordionPage, AlertDialogPage, CollapsiblePage, DialogPage, PopoverPage, SelectPage,
-    TabsPage, ToastPage, TooltipPage,
+    AccordionPage, AlertDialogPage, ButtonPage, CollapsiblePage, DialogPage, LabelPage,
+    PopoverPage, SelectPage, SeparatorPage, TabsPage, ToastPage, ToggleGroupPage, TogglePage,
+    TooltipPage,
 };
 
 #[component]
@@ -41,6 +47,11 @@ fn main() {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ComponentPage {
+    Button,
+    Separator,
+    Label,
+    Toggle,
+    ToggleGroup,
     Select,
     Collapsible,
     Accordion,
@@ -55,6 +66,11 @@ pub enum ComponentPage {
 impl ComponentPage {
     pub fn title(&self) -> &'static str {
         match self {
+            Self::Button => "Button",
+            Self::Separator => "Separator",
+            Self::Label => "Label",
+            Self::Toggle => "Toggle",
+            Self::ToggleGroup => "Toggle Group",
             Self::Select => "Select",
             Self::Collapsible => "Collapsible",
             Self::Accordion => "Accordion",
@@ -69,6 +85,11 @@ impl ComponentPage {
 
     pub fn icon(&self) -> &'static str {
         match self {
+            Self::Button => "▣",
+            Self::Separator => "―",
+            Self::Label => "¶",
+            Self::Toggle => "◉",
+            Self::ToggleGroup => "⊞",
             Self::Select => "▾",
             Self::Collapsible => "◰",
             Self::Accordion => "≡",
@@ -83,6 +104,11 @@ impl ComponentPage {
 
     pub fn badge(&self) -> &'static str {
         match self {
+            Self::Button => "Polymorphic",
+            Self::Separator => "Divider",
+            Self::Label => "Association",
+            Self::Toggle => "2-State",
+            Self::ToggleGroup => "Roving",
             Self::Select => "7 Scenarios",
             Self::Collapsible => "Disclosure",
             Self::Accordion => "Interactive",
@@ -101,6 +127,11 @@ pub fn App() -> Element {
     let mut current_page = use_signal(|| ComponentPage::Select);
 
     let pages = [
+        ComponentPage::Button,
+        ComponentPage::Separator,
+        ComponentPage::Label,
+        ComponentPage::Toggle,
+        ComponentPage::ToggleGroup,
         ComponentPage::Select,
         ComponentPage::Collapsible,
         ComponentPage::Accordion,
@@ -115,6 +146,7 @@ pub fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: asset!("/assets/tailwind.css") }
         style { {include_str!("../../assets/pretendard.css")} }
+        style { "{SW1A_PLAYGROUND_CSS}" }
         div {
             style: "min-height: 100vh; background-color: #f8fafc; display: flex; flex-direction: row; color: #0f172a; font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;",
 
@@ -204,6 +236,11 @@ pub fn App() -> Element {
 
                 // Active Page Rendered in Complete Isolation
                 match current_page() {
+                    ComponentPage::Button => rsx! { ButtonPage {} },
+                    ComponentPage::Separator => rsx! { SeparatorPage {} },
+                    ComponentPage::Label => rsx! { LabelPage {} },
+                    ComponentPage::Toggle => rsx! { TogglePage {} },
+                    ComponentPage::ToggleGroup => rsx! { ToggleGroupPage {} },
                     ComponentPage::Select => rsx! { SelectPage {} },
                     ComponentPage::Collapsible => rsx! { CollapsiblePage {} },
                     ComponentPage::Accordion => rsx! { AccordionPage {} },
@@ -229,4 +266,270 @@ fn MonoxusIcon() -> Element {
         }
     }
 }
+
+pub const SW1A_PLAYGROUND_CSS: &str = r#"
+.sw1a-btn-primary {
+    background-color: #7c3aed;
+    color: #ffffff;
+    border: 1px solid #6d28d9;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+    border-radius: 0.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.sw1a-btn-primary:hover:not(:disabled):not([data-disabled]) {
+    background-color: #6d28d9;
+}
+.sw1a-btn-primary:active:not(:disabled):not([data-disabled]) {
+    background-color: #5b21b6;
+}
+.sw1a-btn-primary:focus-visible {
+    outline: 2px solid #9333ea;
+    outline-offset: 2px;
+}
+
+.sw1a-btn-dark {
+    background-color: #0f172a;
+    color: #ffffff;
+    border: 1px solid #0f172a;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+    border-radius: 0.5rem;
+    padding: 0.375rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.sw1a-btn-dark:hover:not(:disabled):not([data-disabled]) {
+    background-color: #1e293b;
+}
+.sw1a-btn-dark:active:not(:disabled):not([data-disabled]) {
+    background-color: #334155;
+}
+.sw1a-btn-dark:focus-visible {
+    outline: 2px solid #9333ea;
+    outline-offset: 2px;
+}
+
+.sw1a-btn-secondary {
+    background-color: #ffffff;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+    border-radius: 0.5rem;
+    padding: 0.5rem 1rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    text-decoration: none;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.sw1a-btn-secondary:hover:not(:disabled):not([data-disabled]) {
+    background-color: #f8fafc;
+    border-color: #94a3b8;
+}
+.sw1a-btn-secondary:focus-visible {
+    outline: 2px solid #9333ea;
+    outline-offset: 2px;
+}
+
+[data-button-root][data-disabled],
+[data-button-root]:disabled {
+    background-color: #f1f5f9 !important;
+    color: #94a3b8 !important;
+    border: 1px solid #e2e8f0 !important;
+    opacity: 0.65;
+    cursor: not-allowed !important;
+    box-shadow: none !important;
+}
+
+[data-toggle-root],
+[data-toggle-group-item] {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: none;
+    user-select: none;
+    outline: none;
+    padding: 0.375rem 0.75rem;
+}
+
+[data-toggle-root],
+[data-toggle-group-item],
+[data-toggle-root][data-state="off"],
+[data-toggle-group-item][data-state="off"] {
+    background-color: #ffffff;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+[data-toggle-root]:hover:not([data-disabled]),
+[data-toggle-group-item]:hover:not([data-disabled]) {
+    background-color: #f5f3ff;
+    border-color: #c4b5fd;
+    color: #5b21b6;
+}
+
+[data-toggle-root][data-state="on"],
+[data-toggle-group-item][data-state="on"] {
+    background-color: #7c3aed !important;
+    color: #ffffff !important;
+    border-color: #6d28d9 !important;
+    box-shadow: 0 1px 3px rgba(124, 58, 237, 0.35);
+}
+
+[data-toggle-root][data-state="on"]:hover:not([data-disabled]),
+[data-toggle-group-item][data-state="on"]:hover:not([data-disabled]) {
+    background-color: #6d28d9 !important;
+    border-color: #5b21b6 !important;
+    color: #ffffff !important;
+}
+
+[data-toggle-root][data-disabled],
+[data-toggle-group-item][data-disabled] {
+    background-color: #f1f5f9 !important;
+    color: #94a3b8 !important;
+    border-color: #e2e8f0 !important;
+    opacity: 0.55;
+    cursor: not-allowed !important;
+    box-shadow: none !important;
+}
+
+[data-toggle-root][data-state="on"][data-disabled],
+[data-toggle-group-item][data-state="on"][data-disabled] {
+    background-color: #ede9fe !important;
+    color: #6d28d9 !important;
+    border-color: #c4b5fd !important;
+    opacity: 0.65;
+    cursor: not-allowed !important;
+    box-shadow: none !important;
+}
+
+/* Pills and Badges */
+.sw1a-pill-purple {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 0.375rem;
+    background-color: #f5f3ff;
+    color: #6d28d9;
+    border: 1px solid #ddd6fe;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    font-family: monospace;
+    font-weight: 500;
+}
+
+.sw1a-pill-amber {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 0.375rem;
+    background-color: #fffbeb;
+    color: #b45309;
+    border: 1px solid #fde68a;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    font-family: monospace;
+    font-weight: 500;
+}
+
+.sw1a-pill-slate {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 0.375rem;
+    background-color: #f8fafc;
+    color: #475569;
+    border: 1px solid #e2e8f0;
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    font-family: monospace;
+    font-weight: 500;
+}
+
+.sw1a-badge-on {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.25rem;
+    background-color: #ede9fe;
+    color: #6d28d9;
+    border: 1px solid #c4b5fd;
+    padding: 0.0625rem 0.375rem;
+    font-size: 0.625rem;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.sw1a-badge-off {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 0.25rem;
+    background-color: #f1f5f9;
+    color: #64748b;
+    border: 1px solid #e2e8f0;
+    padding: 0.0625rem 0.375rem;
+    font-size: 0.625rem;
+    font-weight: 600;
+    line-height: 1;
+}
+
+.sw1a-tg-vertical {
+    width: 11rem;
+}
+
+[data-toggle-root]:focus-visible,
+[data-toggle-group-item]:focus-visible {
+    outline: 2px solid #9333ea;
+    outline-offset: 2px;
+}
+
+[data-toggle-group-item][tabindex="0"]:not([data-disabled]) {
+    box-shadow: inset 0 -2px 0 #a855f7;
+}
+
+[data-toggle-group-item][data-state="on"][tabindex="0"]:not([data-disabled]) {
+    box-shadow: 0 1px 3px rgba(124, 58, 237, 0.35), inset 0 -2px 0 #ede9fe;
+}
+
+[data-separator-root][data-orientation="horizontal"] {
+    height: 2px;
+    width: 100%;
+    background-color: #cbd5e1;
+}
+
+[data-separator-root][data-orientation="vertical"] {
+    width: 2px;
+    height: 22px;
+    background-color: #cbd5e1;
+    flex-shrink: 0;
+    align-self: center;
+}
+
+#demo-input:focus,
+#nested-input:focus,
+#label-nested-input:focus {
+    border-color: #7c3aed;
+    outline: 2px solid rgba(124, 58, 237, 0.25);
+    outline-offset: 0px;
+}
+"#;
 

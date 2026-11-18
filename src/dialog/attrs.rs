@@ -20,8 +20,10 @@ impl DialogRootAttributes {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DialogTriggerAttributes {
     pub(crate) id: String,
-    pub(crate) aria_controls: String,
+    pub(crate) target_content_id: String,
+    pub(crate) aria_controls: Option<String>,
     pub(crate) aria_expanded: bool,
+    pub(crate) disabled: bool,
     pub(crate) data_state: DataState,
     pub(crate) open_request: DialogStateRequest,
 }
@@ -31,12 +33,24 @@ impl DialogTriggerAttributes {
         &self.id
     }
 
-    pub fn aria_controls(&self) -> &str {
-        &self.aria_controls
+    pub fn target_content_id(&self) -> &str {
+        &self.target_content_id
+    }
+
+    pub fn aria_controls(&self) -> Option<&str> {
+        self.aria_controls.as_deref()
     }
 
     pub const fn aria_expanded(&self) -> bool {
         self.aria_expanded
+    }
+
+    pub const fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    pub const fn data_disabled(&self) -> Option<&'static str> {
+        crate::foundation::shared::data_disabled_attr(self.disabled)
     }
 
     pub fn data_state(&self) -> &DataState {
@@ -136,6 +150,7 @@ impl DialogDescriptionAttributes {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DialogCloseAttributes {
     pub(crate) id: String,
+    pub(crate) disabled: bool,
     pub(crate) data_state: DataState,
     pub(crate) close_request: DialogStateRequest,
 }
@@ -143,6 +158,14 @@ pub struct DialogCloseAttributes {
 impl DialogCloseAttributes {
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    pub const fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    pub const fn data_disabled(&self) -> Option<&'static str> {
+        crate::foundation::shared::data_disabled_attr(self.disabled)
     }
 
     pub fn data_state(&self) -> &DataState {

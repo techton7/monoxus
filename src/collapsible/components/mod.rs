@@ -18,6 +18,7 @@ pub struct CollapsibleContext {
     pub open: Signal<bool>,
     pub disabled: Signal<bool>,
     pub content_id: Signal<Option<String>>,
+    pub content_mounted: Signal<bool>,
     pub on_open_change: Option<EventHandler<bool>>,
     pub relationships: CollapsibleRelationships,
 }

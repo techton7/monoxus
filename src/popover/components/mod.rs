@@ -32,4 +32,5 @@ pub struct PopoverContext {
     pub relationships: PopoverRelationships,
     pub title_id: Signal<Option<String>>,
     pub description_id: Signal<Option<String>>,
+    pub content_id: Signal<Option<String>>,
 }

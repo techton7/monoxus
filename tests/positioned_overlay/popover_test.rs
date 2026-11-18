@@ -71,12 +71,18 @@ fn popover_reuses_the_shared_state_composition_and_overlay_backbone() {
     assert_eq!(root.id(), relationships.root_id());
     assert_eq!(root.data_state(), &DataState::Open);
     assert_eq!(trigger.id(), relationships.trigger_id());
-    assert_eq!(trigger.aria_controls(), relationships.content_id());
+    assert_eq!(trigger.aria_controls(), Some(relationships.content_id()));
+    assert_eq!(trigger.target_content_id(), relationships.content_id());
+    assert_eq!(trigger.data_disabled(), None);
+    assert!(!trigger.is_disabled());
     assert!(trigger.aria_expanded());
     assert_eq!(trigger.data_state(), &DataState::Open);
     assert_eq!(trigger.open_request(), PopoverStateRequest::Toggle);
     assert!(!trigger.open_request().next_open(true));
     assert_eq!(trigger.open_request().data_state(true), DataState::Closed);
+
+    let closed_popover = Popover::new(scope.clone(), false);
+    assert_eq!(closed_popover.trigger().aria_controls(), None);
     assert_eq!(anchor.id(), relationships.anchor_id());
     assert_eq!(portal.host(), &PortalHost::named("layers"));
     assert_eq!(content.id(), relationships.content_id());

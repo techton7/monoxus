@@ -173,6 +173,15 @@ impl Accordion {
         )
     }
 
+    pub fn is_navigation_key_for_orientation(orientation: AccordionOrientation, key: &str) -> bool {
+        match key {
+            "Home" | "End" | "PageUp" | "PageDown" => true,
+            "ArrowLeft" | "ArrowRight" => matches!(orientation, AccordionOrientation::Horizontal),
+            "ArrowUp" | "ArrowDown" => matches!(orientation, AccordionOrientation::Vertical),
+            _ => false,
+        }
+    }
+
     pub fn resolve_key_navigation(
         &self,
         registered_items: &[AccordionItemRegistration],
@@ -237,6 +246,15 @@ impl Accordion {
     }
 
     pub fn header(&self, value: &str, item_disabled: bool) -> AccordionHeaderAttributes {
+        self.header_with_level(value, item_disabled, 3)
+    }
+
+    pub fn header_with_level(
+        &self,
+        value: &str,
+        item_disabled: bool,
+        level: u8,
+    ) -> AccordionHeaderAttributes {
         let is_open = self.is_open(value);
         let effective_disabled = self.disabled || item_disabled;
         let data_state = if is_open {
@@ -245,11 +263,13 @@ impl Accordion {
             DataState::Closed
         };
 
+        let clamped = level.clamp(1, 6) as u32;
+
         AccordionHeaderAttributes {
             id: self.relationships.header_id(value),
             role: "heading",
-            aria_level: 3,
-            data_heading_level: 3,
+            aria_level: clamped,
+            data_heading_level: clamped,
             data_state,
             data_orientation: self.orientation.as_str(),
             data_value: value.to_owned(),
@@ -281,12 +301,20 @@ impl Accordion {
             None
         };
 
+        let content_id = self.relationships.content_id(value);
+        let aria_controls = if is_open {
+            Some(content_id.clone())
+        } else {
+            None
+        };
+
         AccordionTriggerAttributes {
             id: self.relationships.trigger_id(value),
             role: "button",
             is_open,
             aria_expanded: if is_open { "true" } else { "false" },
-            aria_controls: self.relationships.content_id(value),
+            content_id,
+            aria_controls,
             aria_disabled,
             tabindex,
             data_state,

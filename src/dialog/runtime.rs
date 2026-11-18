@@ -8,10 +8,12 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        FocusOptions, PresenceMonitorEvent, WatcherGuard, acquire_scroll_lock, focus_element_by_id,
-        focus_first_focusable as foundation_focus_first_focusable, release_scroll_lock,
-        restore_focus_element_by_id, restore_focus_element_by_id_with_options,
-        start_presence_monitor,
+        DocumentDismissEvent, FocusOptions, ModalShieldGuard, PresenceMonitorEvent, WatcherGuard,
+        acquire_scroll_lock_with_options, focus_element_by_id,
+        focus_first_focusable as foundation_focus_first_focusable, is_body_pointer_events_locked,
+        release_scroll_lock, restore_focus_element_by_id, restore_focus_element_by_id_with_options,
+        start_document_dismiss_monitor_with_boundaries, start_presence_monitor,
+        suppress_external_dom,
     },
     overlay::{
         Presence, PresenceCloseCycleId, PresenceController, PresenceControllerUpdate, PresenceState,
@@ -44,10 +46,15 @@ struct DialogRuntimeState {
     last_open: Signal<bool>,
     pending_open_focus: Signal<bool>,
     scroll_lock_held: Signal<bool>,
+    modal_shield: Signal<Option<ModalShieldGuard>>,
+    dismiss_monitor: Signal<Option<WatcherGuard>>,
+    prevent_body_pointer_events_override: Signal<Option<bool>>,
     last_dismiss_was_pointer: Signal<bool>,
     overlay_id: Signal<Option<String>>,
     content_id: Signal<Option<String>>,
     trigger_id: Signal<Option<String>>,
+    branches: Signal<Vec<String>>,
+    open_focus_target: Signal<Option<String>>,
 }
 
 #[derive(Clone, Copy)]
@@ -130,13 +137,18 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         last_open: use_signal(|| dialog.is_open()),
         pending_open_focus: use_signal(|| dialog.is_open()),
         scroll_lock_held: use_signal(|| false),
+        modal_shield: use_signal(|| None),
+        dismiss_monitor: use_signal(|| None),
+        prevent_body_pointer_events_override: use_signal(|| None),
         last_dismiss_was_pointer: use_signal(|| false),
         overlay_id: use_signal(|| None),
         content_id: use_signal(|| None),
         trigger_id: use_signal(|| None),
+        branches: use_signal(Vec::new),
+        open_focus_target: use_signal(|| None),
     };
     let effect_state = state;
-    let cleanup_state = state;
+    let mut cleanup_state = state;
     let cleanup_key = dialog.relationships().root_id().to_owned();
     let cleanup_overlay_id = dialog.relationships().overlay_id().to_owned();
     let cleanup_content_id = dialog.relationships().content_id().to_owned();
@@ -148,13 +160,15 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
     dioxus::core::use_drop(move || {
         let overlay_id = cleanup_state
             .overlay_id
-            .peek()
-            .clone()
+            .try_peek()
+            .ok()
+            .and_then(|v| v.clone())
             .unwrap_or(cleanup_overlay_id);
         let content_id = cleanup_state
             .content_id
-            .peek()
-            .clone()
+            .try_peek()
+            .ok()
+            .and_then(|v| v.clone())
             .unwrap_or(cleanup_content_id);
         stop_dialog_presence_monitor(
             cleanup_state.overlay_presence_monitor,
@@ -166,7 +180,18 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
             "content",
             content_id.as_str(),
         );
-        if *cleanup_state.scroll_lock_held.peek() {
+        if let Ok(mut mon) = cleanup_state.dismiss_monitor.try_write() {
+            *mon = None;
+        }
+        if let Ok(mut shield) = cleanup_state.modal_shield.try_write() {
+            *shield = None;
+        }
+        if cleanup_state
+            .scroll_lock_held
+            .try_peek()
+            .map(|held| *held)
+            .unwrap_or(false)
+        {
             release_scroll_lock(&cleanup_key, None);
         }
     });
@@ -200,7 +225,20 @@ impl DialogRuntime {
     }
 
     pub fn trigger(&self) -> DialogTriggerAttributes {
-        self.dialog.trigger()
+        let mut attrs = self.dialog.trigger();
+        let content_id = self
+            .state
+            .content_id
+            .peek()
+            .clone()
+            .unwrap_or_else(|| self.relationships().content_id().to_string());
+        attrs.target_content_id = content_id.clone();
+        attrs.aria_controls = if self.is_open() || self.should_render_content() {
+            Some(content_id)
+        } else {
+            None
+        };
+        attrs
     }
 
     pub fn portal(&self) -> DialogPortalAttributes {
@@ -290,6 +328,224 @@ impl DialogRuntime {
         let id = id.into();
         if content_id.peek().as_deref() != Some(id.as_str()) {
             content_id.set(Some(id));
+        }
+    }
+
+    pub fn unregister_content_id(&self, id: &str) {
+        let mut content_id = self.state.content_id;
+        if let Ok(mut current) = content_id.try_write() {
+            if current.as_deref() == Some(id) {
+                *current = None;
+            }
+        }
+    }
+
+    pub fn set_open_focus_target(&self, target: impl Into<String>) {
+        let target = target.into();
+        let mut oft = self.state.open_focus_target;
+        if oft.peek().as_deref() != Some(target.as_str()) {
+            oft.set(Some(target));
+        }
+    }
+
+    pub fn register_branch(&self, id: impl Into<String>) {
+        let id = id.into();
+        let mut branches = self.state.branches;
+        let already_registered = branches.try_peek().is_ok_and(|b| b.contains(&id));
+        if !already_registered {
+            if let Ok(mut b) = branches.try_write() {
+                if !b.contains(&id) {
+                    b.push(id);
+                }
+            }
+        }
+    }
+
+    pub fn unregister_branch(&self, id: &str) {
+        let mut branches = self.state.branches;
+        let present = branches
+            .try_peek()
+            .is_ok_and(|b| b.iter().any(|candidate| candidate == id));
+        if present {
+            if let Ok(mut b) = branches.try_write() {
+                b.retain(|candidate| candidate != id);
+            }
+        }
+    }
+
+    pub fn branches(&self) -> Vec<String> {
+        self.state.branches.cloned()
+    }
+
+    pub(crate) fn branches_signal(&self) -> Signal<Vec<String>> {
+        self.state.branches
+    }
+
+    pub fn set_prevent_body_pointer_events_override(&self, override_value: Option<bool>) {
+        let mut sig = self.state.prevent_body_pointer_events_override;
+        if let Ok(mut current) = sig.try_write() {
+            if *current != override_value {
+                *current = override_value;
+            }
+        }
+    }
+
+    pub fn effective_prevent_body_pointer_events(&self) -> bool {
+        self.state
+            .prevent_body_pointer_events_override
+            .peek()
+            .unwrap_or_else(|| {
+                self.dialog
+                    .lifecycle()
+                    .scroll_lock_policy()
+                    .prevent_body_pointer_events()
+            })
+    }
+
+    pub fn should_force_pointer_events_auto(&self) -> bool {
+        (self.dialog.lifecycle().mode().is_modal()
+            && self.dialog.lifecycle().scroll_lock_policy().is_enabled()
+            && self.effective_prevent_body_pointer_events())
+            || is_body_pointer_events_locked()
+    }
+
+    pub(crate) fn sync_scroll_lock(&self) {
+        sync_dialog_scroll_lock(&self.dialog, self.state, self.dialog.is_open());
+    }
+
+    pub(crate) fn sync_modal_shield(&self) {
+        sync_dialog_modal_shield(&self.dialog, self.state);
+    }
+
+    pub(crate) fn stop_content_dismiss_monitor(&self) {
+        let mut mon = self.state.dismiss_monitor;
+        if let Ok(mut guard) = mon.try_write() {
+            *guard = None;
+        }
+    }
+
+    pub(crate) fn start_content_dismiss_monitor(
+        &self,
+        is_alert_dialog: bool,
+        mut on_request_close: impl FnMut(bool) + 'static,
+    ) {
+        self.stop_content_dismiss_monitor();
+        if !self.dialog.is_open() {
+            return;
+        }
+
+        let dialog = self.dialog.clone();
+        let state = self.state;
+        let content_id = self.content_element_id();
+        let trigger_id = self.trigger_element_id();
+        let mut initial_boundaries = vec![content_id, trigger_id];
+        initial_boundaries.extend(dialog.lifecycle().dismiss_layer().branches().iter().cloned());
+        initial_boundaries.extend(state.branches.peek().iter().cloned());
+        let boundary_refs: Vec<&str> = initial_boundaries.iter().map(String::as_str).collect();
+
+        let watcher = start_document_dismiss_monitor_with_boundaries(&boundary_refs, move |event| {
+            let outside_policy = *dialog.lifecycle().outside_interaction_policy();
+            let is_inside = |path_ids: &[String]| {
+                let current_cid = state
+                    .content_id
+                    .try_peek()
+                    .ok()
+                    .and_then(|v| v.clone())
+                    .unwrap_or_else(|| dialog.relationships().content_id().to_string());
+                let current_tid = state
+                    .trigger_id
+                    .try_peek()
+                    .ok()
+                    .and_then(|v| v.clone())
+                    .unwrap_or_else(|| dialog.relationships().trigger_id().to_string());
+                let dyn_branches = state
+                    .branches
+                    .try_peek()
+                    .map(|b| b.clone())
+                    .unwrap_or_default();
+                let focus_guards = dialog.lifecycle().focus_guards();
+                let static_branches = dialog.lifecycle().dismiss_layer().branches();
+
+                path_ids.iter().any(|id| {
+                    id == &current_cid
+                        || id == &current_tid
+                        || id == focus_guards.before()
+                        || id == focus_guards.after()
+                        || static_branches.iter().any(|b| b == id)
+                        || dyn_branches.iter().any(|b| b == id)
+                })
+            };
+
+            match event {
+                DocumentDismissEvent::PointerDown { path_ids }
+                | DocumentDismissEvent::Click { path_ids } => {
+                    if !is_inside(&path_ids)
+                        && !is_alert_dialog
+                        && outside_policy.pointer_down_outside().dismisses()
+                    {
+                        on_request_close(true);
+                    }
+                }
+                DocumentDismissEvent::FocusIn { path_ids } => {
+                    if !is_inside(&path_ids)
+                        && !is_alert_dialog
+                        && outside_policy.focus_outside().dismisses()
+                    {
+                        on_request_close(false);
+                    }
+                }
+                DocumentDismissEvent::Escape => {
+                    on_request_close(false);
+                }
+            }
+        });
+
+        let mut mon = self.state.dismiss_monitor;
+        mon.set(Some(watcher));
+    }
+
+    pub fn apply_open_focus_for_content(&self, content_id: &str) {
+        if !self.dialog.lifecycle().focus_scope().autofocus_enabled() {
+            return;
+        }
+
+        let target_policy = if let Some(target) = self.state.open_focus_target.peek().clone() {
+            DialogOpenFocusPolicy::Target(target)
+        } else {
+            self.dialog.lifecycle().open_focus_policy().clone()
+        };
+
+        let content_id = content_id.to_string();
+        match target_policy {
+            DialogOpenFocusPolicy::FirstFocusable => {
+                crate::foundation::browser::spawn_root_task(async move {
+                    for _ in 0..5 {
+                        let _ = oxidase::frame::next_frame().await;
+                        let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::dom::document);
+                        if let Some(el) = doc.element_by_id(&content_id) {
+                            if el.is_connected() {
+                                focus_first_focusable(&content_id);
+                                break;
+                            }
+                        }
+                    }
+                });
+            }
+            DialogOpenFocusPolicy::Target(target) => {
+                crate::foundation::browser::spawn_root_task(async move {
+                    for _ in 0..5 {
+                        let _ = oxidase::frame::next_frame().await;
+                        let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::dom::document);
+                        if let Some(el) = doc.element_by_id(&target) {
+                            if el.is_connected() {
+                                focus_element_by_id(&target);
+                                break;
+                            }
+                        }
+                    }
+                });
+            }
+            DialogOpenFocusPolicy::Suppress => {}
         }
     }
 
@@ -406,10 +662,6 @@ fn sync_dialog_runtime(dialog: &Dialog, mut state: DialogRuntimeState) {
 
     let is_open = dialog.is_open();
     let was_open = *state.last_open.peek();
-    let should_hold_scroll_lock = is_open
-        && dialog.lifecycle().mode().is_modal()
-        && dialog.lifecycle().scroll_lock_policy().is_enabled();
-    let is_holding_scroll_lock = *state.scroll_lock_held.peek();
 
     if is_open && !was_open {
         let mut ptr = state.last_dismiss_was_pointer;
@@ -420,20 +672,8 @@ fn sync_dialog_runtime(dialog: &Dialog, mut state: DialogRuntimeState) {
         }
     }
 
-    if should_hold_scroll_lock && !is_holding_scroll_lock {
-        acquire_scroll_lock(dialog.relationships().root_id());
-        let mut scroll_lock_held = state.scroll_lock_held;
-        scroll_lock_held.set(true);
-    } else if !should_hold_scroll_lock && is_holding_scroll_lock {
-        let restore_delay = if was_open && !is_open {
-            dialog.lifecycle().scroll_lock_policy().restore_delay()
-        } else {
-            None
-        };
-        release_scroll_lock(dialog.relationships().root_id(), restore_delay);
-        let mut scroll_lock_held = state.scroll_lock_held;
-        scroll_lock_held.set(false);
-    }
+    sync_dialog_scroll_lock(dialog, state, was_open);
+    sync_dialog_modal_shield(dialog, state);
 
     if is_open {
         if *state.pending_open_focus.peek() && apply_open_focus(dialog, state) {
@@ -441,6 +681,10 @@ fn sync_dialog_runtime(dialog: &Dialog, mut state: DialogRuntimeState) {
             pending_open_focus.set(false);
         }
     } else {
+        let mut dismiss_mon = state.dismiss_monitor;
+        if let Ok(mut guard) = dismiss_mon.try_write() {
+            *guard = None;
+        }
         if was_open {
             restore_close_focus(dialog, state, None);
         }
@@ -457,12 +701,94 @@ fn sync_dialog_runtime(dialog: &Dialog, mut state: DialogRuntimeState) {
     }
 }
 
+fn sync_dialog_scroll_lock(dialog: &Dialog, state: DialogRuntimeState, was_open: bool) {
+    let is_open = dialog.is_open();
+    let should_hold_scroll_lock = is_open
+        && dialog.lifecycle().mode().is_modal()
+        && dialog.lifecycle().scroll_lock_policy().is_enabled();
+    let is_holding_scroll_lock = *state.scroll_lock_held.peek();
+    let prevent_body_pointer_events = state
+        .prevent_body_pointer_events_override
+        .peek()
+        .unwrap_or_else(|| {
+            dialog
+                .lifecycle()
+                .scroll_lock_policy()
+                .prevent_body_pointer_events()
+        });
+
+    if should_hold_scroll_lock {
+        acquire_scroll_lock_with_options(
+            dialog.relationships().root_id(),
+            prevent_body_pointer_events,
+        );
+        if !is_holding_scroll_lock {
+            let mut scroll_lock_held = state.scroll_lock_held;
+            scroll_lock_held.set(true);
+        }
+    } else if is_holding_scroll_lock {
+        let restore_delay = if was_open && !is_open {
+            dialog.lifecycle().scroll_lock_policy().restore_delay()
+        } else {
+            None
+        };
+        release_scroll_lock(dialog.relationships().root_id(), restore_delay);
+        let mut scroll_lock_held = state.scroll_lock_held;
+        scroll_lock_held.set(false);
+    }
+}
+
+fn sync_dialog_modal_shield(dialog: &Dialog, state: DialogRuntimeState) {
+    let should_shield = dialog.is_open() && dialog.lifecycle().mode().is_modal();
+    let mut modal_shield = state.modal_shield;
+
+    if !should_shield {
+        if let Ok(mut guard) = modal_shield.try_write() {
+            *guard = None;
+        }
+        return;
+    }
+
+    let content_id = state
+        .content_id
+        .peek()
+        .clone()
+        .unwrap_or_else(|| dialog.relationships().content_id().to_string());
+    let overlay_id = state
+        .overlay_id
+        .peek()
+        .clone()
+        .unwrap_or_else(|| dialog.relationships().overlay_id().to_string());
+
+    let mut keep_ids = vec![content_id, overlay_id];
+    for branch in dialog.lifecycle().dismiss_layer().branches() {
+        if !keep_ids.contains(branch) {
+            keep_ids.push(branch.clone());
+        }
+    }
+    for branch in state.branches.peek().iter() {
+        if !keep_ids.contains(branch) {
+            keep_ids.push(branch.clone());
+        }
+    }
+
+    let keep_refs: Vec<&str> = keep_ids.iter().map(String::as_str).collect();
+    let next_guard = suppress_external_dom(&keep_refs);
+    modal_shield.set(Some(next_guard));
+}
+
 fn apply_open_focus(dialog: &Dialog, state: DialogRuntimeState) -> bool {
     if !dialog.lifecycle().focus_scope().autofocus_enabled() {
         return true;
     }
 
-    match dialog.lifecycle().open_focus_policy() {
+    let policy = if let Some(target) = state.open_focus_target.peek().clone() {
+        DialogOpenFocusPolicy::Target(target)
+    } else {
+        dialog.lifecycle().open_focus_policy().clone()
+    };
+
+    match policy {
         DialogOpenFocusPolicy::FirstFocusable => {
             let content_id = state
                 .content_id
@@ -473,7 +799,7 @@ fn apply_open_focus(dialog: &Dialog, state: DialogRuntimeState) -> bool {
             true
         }
         DialogOpenFocusPolicy::Target(target) => {
-            focus_element_by_id(target);
+            focus_element_by_id(&target);
             true
         }
         DialogOpenFocusPolicy::Suppress => true,
@@ -486,7 +812,7 @@ fn restore_close_focus(
     fallback_trigger_id: Option<&str>,
 ) {
     let was_pointer = *state.last_dismiss_was_pointer.peek();
-    let pointer_options = FocusOptions::with_focus_visible(false, Some(false));
+    let pointer_options = FocusOptions::with_focus_visible(true, Some(false));
     let trigger_id = state
         .trigger_id
         .peek()

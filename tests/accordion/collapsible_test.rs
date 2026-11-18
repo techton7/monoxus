@@ -38,7 +38,8 @@ fn collapsible_attributes_publish_wai_aria_and_data_attributes() {
 
     let trigger_attrs = collapsible.trigger();
     assert_eq!(trigger_attrs.id(), scope.qualify("trigger"));
-    assert_eq!(trigger_attrs.aria_controls(), scope.qualify("content"));
+    assert_eq!(trigger_attrs.aria_controls(), None);
+    assert_eq!(trigger_attrs.target_content_id(), scope.qualify("content"));
     assert_eq!(trigger_attrs.aria_expanded(), "false");
     assert_eq!(trigger_attrs.data_state(), DataState::Closed);
     assert_eq!(trigger_attrs.data_state_str(), "closed");
@@ -57,6 +58,7 @@ fn collapsible_attributes_publish_wai_aria_and_data_attributes() {
     assert!(collapsible.is_open());
 
     let trigger_open = collapsible.trigger();
+    assert_eq!(trigger_open.aria_controls(), Some(scope.qualify("content").as_str()));
     assert_eq!(trigger_open.aria_expanded(), "true");
     assert_eq!(trigger_open.data_state(), DataState::Open);
     assert_eq!(trigger_open.data_state_str(), "open");

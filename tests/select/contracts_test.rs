@@ -62,16 +62,26 @@ fn select_attributes_publish_wai_aria_and_data_state() {
     assert_eq!(root_attrs.data_state(), DataState::Open);
     assert_eq!(root_attrs.data_state_str(), "open");
     assert!(!root_attrs.is_disabled());
+    assert_eq!(root_attrs.data_disabled(), None);
 
     let trigger_attrs = select.trigger_attributes();
     assert_eq!(trigger_attrs.id(), scope.qualify("trigger"));
     assert_eq!(trigger_attrs.role(), "combobox");
     assert_eq!(trigger_attrs.aria_haspopup(), "listbox");
     assert_eq!(trigger_attrs.aria_expanded(), "true");
-    assert_eq!(trigger_attrs.aria_controls(), scope.qualify("content"));
+    assert_eq!(trigger_attrs.aria_controls(), Some(scope.qualify("content").as_str()));
+    assert_eq!(trigger_attrs.target_content_id(), scope.qualify("content"));
     assert_eq!(trigger_attrs.data_state_str(), "open");
     assert_eq!(trigger_attrs.tabindex(), 0);
     assert_eq!(trigger_attrs.aria_disabled(), None);
+    assert_eq!(trigger_attrs.data_disabled(), None);
+
+    let closed_select = Select::new(scope.clone())
+        .with_value(Some("banana".to_owned()))
+        .with_open(false);
+    let closed_trigger = closed_select.trigger_attributes();
+    assert_eq!(closed_trigger.aria_controls(), None);
+    assert_eq!(closed_trigger.target_content_id(), scope.qualify("content"));
 
     let candidate_id = scope.qualify("item-banana");
     let content_attrs = select.content_attributes(Some(candidate_id.clone()));
@@ -99,6 +109,13 @@ fn select_attributes_publish_wai_aria_and_data_state() {
     assert_eq!(item_apple.data_state(), "unchecked");
     assert!(!item_apple.is_highlighted());
     assert!(!item_apple.is_disabled());
+    assert_eq!(item_banana.data_disabled(), None);
+    assert_eq!(item_apple.data_disabled(), None);
+
+    let disabled_select = select.clone().with_disabled(true);
+    assert_eq!(disabled_select.root_attributes().data_disabled(), Some(""));
+    assert_eq!(disabled_select.trigger_attributes().data_disabled(), Some(""));
+    assert_eq!(disabled_select.item_attributes("banana", false, false).data_disabled(), Some(""));
 }
 
 #[test]

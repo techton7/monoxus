@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::foundation::shared::data_disabled_attr;
 use crate::tooltip::components::TooltipRootContext;
 
 #[derive(Props, Clone, PartialEq)]
@@ -31,7 +32,7 @@ pub fn TooltipTrigger(props: TooltipTriggerProps) -> Element {
             disabled: props.disabled,
             aria_describedby: trigger.aria_describedby(),
             "data-state": trigger.data_state().as_str(),
-            "data-disabled": if props.disabled { "true" } else { "false" },
+            "data-disabled": data_disabled_attr(props.disabled),
             onmounted: runtime.mount_trigger(),
             onpointerdown: runtime.trigger_pointer_down(),
             onmouseenter: runtime.trigger_pointer_enter(),

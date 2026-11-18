@@ -11,7 +11,8 @@ pub use oxidase::watcher::{
 
 pub use crate::foundation::overlay::{Point2D, Rect2D};
 pub use oxidase::WatcherGuard;
-pub use oxidase::dom::FocusOptions;
+#[allow(unused_imports)]
+pub use oxidase::dom::{FocusOptions, ModalShieldGuard, ModalShieldMode, ScrollLockOptions};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PresenceMonitorEvent {
@@ -133,6 +134,7 @@ pub(crate) fn start_floating_auto_update_monitor(
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum DocumentDismissEvent {
     PointerDown { path_ids: Vec<String> },
+    Click { path_ids: Vec<String> },
     FocusIn { path_ids: Vec<String> },
     Escape,
 }
@@ -159,6 +161,9 @@ pub(crate) fn start_document_dismiss_monitor_with_boundaries(
                 oxidase::watcher::DismissEvent::PointerDown { path_ids } => {
                     DocumentDismissEvent::PointerDown { path_ids }
                 }
+                oxidase::watcher::DismissEvent::Click { path_ids } => {
+                    DocumentDismissEvent::Click { path_ids }
+                }
                 oxidase::watcher::DismissEvent::FocusIn { path_ids } => {
                     DocumentDismissEvent::FocusIn { path_ids }
                 }
@@ -180,7 +185,7 @@ pub fn spawn_root_task<F: std::future::Future<Output = ()> + 'static>(
 }
 
 pub(crate) fn focus_mounted_handle(handle: Option<MountedHandle>) -> bool {
-    focus_mounted_handle_with_options(handle, FocusOptions::default())
+    focus_mounted_handle_with_options(handle, FocusOptions::new(true))
 }
 
 #[allow(dead_code)]
@@ -225,7 +230,7 @@ pub(crate) async fn is_reference_hidden(anchor_ids: &[&str]) -> Result<bool, Str
 }
 
 pub(crate) fn focus_element_by_id(target_id: &str) {
-    focus_element_by_id_with_options(target_id, FocusOptions::default());
+    focus_element_by_id_with_options(target_id, FocusOptions::new(true));
 }
 
 pub(crate) fn focus_element_by_id_with_options(target_id: &str, options: FocusOptions) {
@@ -268,8 +273,18 @@ pub(crate) fn is_element_focus_visible_by_id(target_id: &str) -> Option<bool> {
     Some(el.matches_focus_visible())
 }
 
+pub(crate) fn is_element_focused_by_id(target_id: &str) -> bool {
+    let Some(doc) = oxidase::dom::Document::current() else {
+        return false;
+    };
+    let Some(el) = doc.element_by_id(target_id) else {
+        return false;
+    };
+    el.has_focus()
+}
+
 pub(crate) fn focus_first_focusable(content_id: &str, focusable_selector: Option<&str>) {
-    focus_first_focusable_with_options(content_id, focusable_selector, FocusOptions::default());
+    focus_first_focusable_with_options(content_id, focusable_selector, FocusOptions::new(true));
 }
 
 pub(crate) fn focus_first_focusable_with_options(
@@ -311,14 +326,36 @@ pub(crate) fn focus_first_focusable_with_options(
     });
 }
 
+pub(crate) fn suppress_external_dom(keep_ids: &[&str]) -> ModalShieldGuard {
+    oxidase::dom::suppress_others(keep_ids)
+}
+
+#[allow(dead_code)]
 pub(crate) fn acquire_scroll_lock(lock_id: &str) {
     oxidase::dom::acquire_scroll_lock(lock_id);
+}
+
+pub(crate) fn acquire_scroll_lock_with_options(
+    lock_id: &str,
+    prevent_body_pointer_events: bool,
+) {
+    oxidase::dom::acquire_scroll_lock_with_options(
+        lock_id,
+        ScrollLockOptions {
+            prevent_body_pointer_events,
+        },
+    );
+}
+
+pub(crate) fn is_body_pointer_events_locked() -> bool {
+    oxidase::dom::is_body_pointer_events_locked()
 }
 
 pub(crate) fn release_scroll_lock(lock_id: &str, restore_delay: Option<u64>) {
     oxidase::dom::release_scroll_lock(lock_id, restore_delay);
 }
 
+#[allow(dead_code)]
 pub(crate) fn scroll_element_into_view_nearest(element_id: &str) {
     let doc = oxidase::dom::document();
     if let Some(el) = doc.element_by_id(element_id) {
@@ -451,6 +488,15 @@ mod tests {
             payload,
             DocumentDismissEventPayload::FocusIn {
                 path_ids: vec!["content".to_string()]
+            }
+        );
+
+        let json = r#"{"kind":"click","pathIds":["outside-btn"]}"#;
+        let payload: DocumentDismissEventPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            payload,
+            DocumentDismissEventPayload::Click {
+                path_ids: vec!["outside-btn".to_string()]
             }
         );
 

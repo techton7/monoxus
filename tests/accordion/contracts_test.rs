@@ -50,6 +50,23 @@ fn accordion_header_and_content_semantics() {
     assert_eq!(header.aria_level(), 3);
     assert_eq!(header.data_heading_level(), 3);
     assert_eq!(header.data_state_str(), "open");
+    assert_eq!(header.data_disabled(), None);
+
+    let header_h1 = accordion.header_with_level("item-1", false, 1);
+    assert_eq!(header_h1.aria_level(), 1);
+    assert_eq!(header_h1.data_heading_level(), 1);
+
+    let header_clamped = accordion.header_with_level("item-1", false, 10);
+    assert_eq!(header_clamped.aria_level(), 6);
+    assert_eq!(header_clamped.data_heading_level(), 6);
+
+    let trigger_open = accordion.trigger("item-1", false);
+    assert_eq!(trigger_open.aria_controls(), Some(scope.qualify("content-item-1").as_str()));
+    assert_eq!(trigger_open.target_content_id(), scope.qualify("content-item-1"));
+
+    let trigger_closed = accordion.trigger("item-2", false);
+    assert_eq!(trigger_closed.aria_controls(), None);
+    assert_eq!(trigger_closed.target_content_id(), scope.qualify("content-item-2"));
 
     let content = accordion.content("item-1");
     assert_eq!(content.id(), scope.qualify("content-item-1"));
@@ -61,4 +78,22 @@ fn accordion_header_and_content_semantics() {
     let content_closed = accordion.content("item-2");
     assert!(content_closed.is_hidden());
     assert_eq!(content_closed.data_state_str(), "closed");
+}
+
+#[test]
+fn accordion_orientation_aware_navigation_keys() {
+    use monoxus::accordion::AccordionOrientation;
+
+    assert!(Accordion::is_navigation_key_for_orientation(AccordionOrientation::Horizontal, "ArrowLeft"));
+    assert!(Accordion::is_navigation_key_for_orientation(AccordionOrientation::Horizontal, "ArrowRight"));
+    assert!(!Accordion::is_navigation_key_for_orientation(AccordionOrientation::Horizontal, "ArrowUp"));
+    assert!(!Accordion::is_navigation_key_for_orientation(AccordionOrientation::Horizontal, "ArrowDown"));
+
+    assert!(!Accordion::is_navigation_key_for_orientation(AccordionOrientation::Vertical, "ArrowLeft"));
+    assert!(!Accordion::is_navigation_key_for_orientation(AccordionOrientation::Vertical, "ArrowRight"));
+    assert!(Accordion::is_navigation_key_for_orientation(AccordionOrientation::Vertical, "ArrowUp"));
+    assert!(Accordion::is_navigation_key_for_orientation(AccordionOrientation::Vertical, "ArrowDown"));
+
+    assert!(Accordion::is_navigation_key_for_orientation(AccordionOrientation::Horizontal, "Home"));
+    assert!(Accordion::is_navigation_key_for_orientation(AccordionOrientation::Vertical, "End"));
 }

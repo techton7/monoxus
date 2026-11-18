@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 use crate::foundation::{
     browser::{start_presence_monitor, PresenceMonitorEvent, WatcherGuard},
     overlay::PresenceController,
-    shared::ScopeHandle,
+    shared::{data_disabled_attr, use_direction_context, use_mount_animation_guard, ScopeHandle},
 };
 
 use super::{
@@ -25,7 +25,7 @@ pub fn AccordionRoot(
     #[props(default)] style: Option<String>,
     #[props(default)] mode: AccordionMode,
     #[props(default)] orientation: AccordionOrientation,
-    #[props(default)] dir: AccordionDirection,
+    #[props(default)] dir: Option<AccordionDirection>,
     #[props(default = true)] loop_focus: bool,
     #[props(default = false)] disabled: bool,
     #[props(default)] default_value: Option<String>,
@@ -33,12 +33,14 @@ pub fn AccordionRoot(
     #[props(default)] on_value_change: Option<EventHandler<Vec<String>>>,
     children: Element,
 ) -> Element {
+    let resolved_dir = use_direction_context(dir.map(Into::into));
+    let accordion_dir = AccordionDirection::from(resolved_dir);
     let scope_id = id.clone().unwrap_or_else(|| "accordion".to_string());
     let scope = ScopeHandle::root("accordion").child(scope_id);
 
     let mut accordion = Accordion::new(scope, mode)
         .with_orientation(orientation)
-        .with_direction(dir)
+        .with_direction(accordion_dir)
         .with_loop_focus(loop_focus)
         .with_disabled(disabled);
 
@@ -62,8 +64,9 @@ pub fn AccordionRoot(
             id: "{attrs.id()}",
             class: class.as_deref().unwrap_or_default(),
             style: style.as_deref().unwrap_or_default(),
+            dir: "{resolved_dir.as_str()}",
             "data-orientation": "{attrs.data_orientation()}",
-            "data-disabled": if attrs.is_disabled() { "true" } else { "false" },
+            "data-disabled": data_disabled_attr(attrs.is_disabled()),
             {children}
         }
     }
@@ -98,6 +101,12 @@ pub fn AccordionItem(
         }
     }));
 
+    let drop_val = value.clone();
+    let drop_runtime = ctx.runtime.clone();
+    use_drop(move || {
+        drop_runtime.unregister_item(&drop_val);
+    });
+
     let attrs = ctx.runtime.item(&value, disabled);
 
     rsx! {
@@ -108,7 +117,7 @@ pub fn AccordionItem(
             "data-state": "{attrs.data_state_str()}",
             "data-orientation": "{attrs.data_orientation()}",
             "data-value": "{attrs.data_value()}",
-            "data-disabled": if attrs.is_disabled() { "true" } else { "false" },
+            "data-disabled": data_disabled_attr(attrs.is_disabled()),
             {children}
         }
     }
@@ -116,28 +125,107 @@ pub fn AccordionItem(
 
 #[component]
 pub fn AccordionHeader(
+    #[props(default = 3)] level: u8,
     #[props(default)] class: Option<String>,
     #[props(default)] style: Option<String>,
     children: Element,
 ) -> Element {
     let ctx = use_context::<AccordionContext>();
     let item_ctx = use_context::<AccordionItemContext>();
-    let attrs = ctx.runtime.header(&item_ctx.value, item_ctx.disabled);
+    let clamped = level.clamp(1, 6);
+    let attrs = ctx.runtime.header_with_level(&item_ctx.value, item_ctx.disabled, clamped);
 
-    rsx! {
-        h3 {
-            id: "{attrs.id()}",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
-            role: "{attrs.role()}",
-            "aria-level": "{attrs.aria_level()}",
-            "data-heading-level": "{attrs.data_heading_level()}",
-            "data-state": "{attrs.data_state_str()}",
-            "data-orientation": "{attrs.data_orientation()}",
-            "data-value": "{attrs.data_value()}",
-            "data-disabled": if attrs.is_disabled() { "true" } else { "false" },
-            {children}
-        }
+    match clamped {
+        1 => rsx! {
+            h1 {
+                id: "{attrs.id()}",
+                class: class.as_deref().unwrap_or_default(),
+                style: style.as_deref().unwrap_or_default(),
+                role: "{attrs.role()}",
+                "aria-level": "{clamped}",
+                "data-heading-level": "{clamped}",
+                "data-state": "{attrs.data_state_str()}",
+                "data-orientation": "{attrs.data_orientation()}",
+                "data-value": "{attrs.data_value()}",
+                "data-disabled": data_disabled_attr(attrs.is_disabled()),
+                {children}
+            }
+        },
+        2 => rsx! {
+            h2 {
+                id: "{attrs.id()}",
+                class: class.as_deref().unwrap_or_default(),
+                style: style.as_deref().unwrap_or_default(),
+                role: "{attrs.role()}",
+                "aria-level": "{clamped}",
+                "data-heading-level": "{clamped}",
+                "data-state": "{attrs.data_state_str()}",
+                "data-orientation": "{attrs.data_orientation()}",
+                "data-value": "{attrs.data_value()}",
+                "data-disabled": data_disabled_attr(attrs.is_disabled()),
+                {children}
+            }
+        },
+        3 => rsx! {
+            h3 {
+                id: "{attrs.id()}",
+                class: class.as_deref().unwrap_or_default(),
+                style: style.as_deref().unwrap_or_default(),
+                role: "{attrs.role()}",
+                "aria-level": "{clamped}",
+                "data-heading-level": "{clamped}",
+                "data-state": "{attrs.data_state_str()}",
+                "data-orientation": "{attrs.data_orientation()}",
+                "data-value": "{attrs.data_value()}",
+                "data-disabled": data_disabled_attr(attrs.is_disabled()),
+                {children}
+            }
+        },
+        4 => rsx! {
+            h4 {
+                id: "{attrs.id()}",
+                class: class.as_deref().unwrap_or_default(),
+                style: style.as_deref().unwrap_or_default(),
+                role: "{attrs.role()}",
+                "aria-level": "{clamped}",
+                "data-heading-level": "{clamped}",
+                "data-state": "{attrs.data_state_str()}",
+                "data-orientation": "{attrs.data_orientation()}",
+                "data-value": "{attrs.data_value()}",
+                "data-disabled": data_disabled_attr(attrs.is_disabled()),
+                {children}
+            }
+        },
+        5 => rsx! {
+            h5 {
+                id: "{attrs.id()}",
+                class: class.as_deref().unwrap_or_default(),
+                style: style.as_deref().unwrap_or_default(),
+                role: "{attrs.role()}",
+                "aria-level": "{clamped}",
+                "data-heading-level": "{clamped}",
+                "data-state": "{attrs.data_state_str()}",
+                "data-orientation": "{attrs.data_orientation()}",
+                "data-value": "{attrs.data_value()}",
+                "data-disabled": data_disabled_attr(attrs.is_disabled()),
+                {children}
+            }
+        },
+        _ => rsx! {
+            h6 {
+                id: "{attrs.id()}",
+                class: class.as_deref().unwrap_or_default(),
+                style: style.as_deref().unwrap_or_default(),
+                role: "{attrs.role()}",
+                "aria-level": "{clamped}",
+                "data-heading-level": "{clamped}",
+                "data-state": "{attrs.data_state_str()}",
+                "data-orientation": "{attrs.data_orientation()}",
+                "data-value": "{attrs.data_value()}",
+                "data-disabled": data_disabled_attr(attrs.is_disabled()),
+                {children}
+            }
+        },
     }
 }
 
@@ -174,21 +262,23 @@ pub fn AccordionTrigger(
             class: class.as_deref().unwrap_or_default(),
             style: style.as_deref().unwrap_or_default(),
             "aria-expanded": "{attrs.aria_expanded()}",
-            "aria-controls": "{attrs.aria_controls()}",
-            "aria-disabled": attrs.aria_disabled().unwrap_or_default(),
+            "aria-controls": attrs.aria_controls(),
+            "aria-disabled": attrs.aria_disabled(),
             tabindex: attrs.tabindex(),
             disabled: attrs.is_disabled(),
             "data-state": "{attrs.data_state_str()}",
             "data-orientation": "{attrs.data_orientation()}",
             "data-value": "{attrs.data_value()}",
+            "data-disabled": data_disabled_attr(attrs.is_disabled()),
             onclick: move |_| {
                 click_runtime.toggle_item(&click_val);
             },
             onkeydown: move |evt: KeyboardEvent| {
                 let key = evt.key();
                 let key_str = key.to_string();
-                if Accordion::is_navigation_key(&key_str) {
+                if Accordion::is_navigation_key_for_orientation(key_runtime.accordion().orientation(), &key_str) {
                     evt.prevent_default();
+                    evt.stop_propagation();
                     key_runtime.navigate_key(&key_str);
                 }
             },
@@ -201,6 +291,7 @@ pub fn AccordionTrigger(
 pub fn AccordionContent(
     #[props(default)] class: Option<String>,
     #[props(default)] style: Option<String>,
+    #[props(default = false)] force_mount: bool,
     children: Element,
 ) -> Element {
     let ctx = use_context::<AccordionContext>();
@@ -208,8 +299,25 @@ pub fn AccordionContent(
     let attrs = ctx.runtime.content(&item_ctx.value);
 
     let is_open = ctx.runtime.is_open(&item_ctx.value);
+    let guard_style = use_mount_animation_guard(is_open);
+
     let mut presence = use_signal(|| PresenceController::new(is_open).with_retained_mount(true));
     let mut monitor = use_signal(|| None::<WatcherGuard>);
+
+    let should_render = is_open || presence.read().should_render() || force_mount;
+    if should_render {
+        ctx.runtime.register_content_mounted(&item_ctx.value);
+    } else {
+        ctx.runtime.unregister_content_mounted(&item_ctx.value);
+    }
+
+    use_drop({
+        let runtime = ctx.runtime.clone();
+        let drop_val = item_ctx.value.clone();
+        move || {
+            runtime.unregister_content_mounted(&drop_val);
+        }
+    });
 
     use_effect(use_reactive((&is_open,), {
         let content_id = attrs.id().to_string();
@@ -253,19 +361,26 @@ pub fn AccordionContent(
         }
     }));
 
-    let hidden = (!presence.read().should_render()).then_some(true);
+    let hidden = (!should_render).then_some(true);
+    let effective_style = match (style.as_deref(), guard_style) {
+        (Some(s), Some(g)) => Some(format!("{s}; {g}")),
+        (Some(s), None) => Some(s.to_string()),
+        (None, Some(g)) => Some(g.to_string()),
+        (None, None) => None,
+    };
 
     rsx! {
         div {
             id: "{attrs.id()}",
             class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            style: effective_style.as_deref().unwrap_or_default(),
             role: "{attrs.role()}",
             "aria-labelledby": "{attrs.aria_labelledby()}",
             hidden: hidden,
             "data-state": "{attrs.data_state_str()}",
             "data-orientation": "{attrs.data_orientation()}",
             "data-value": "{attrs.data_value()}",
+            "data-disabled": data_disabled_attr(item_ctx.disabled),
             ontransitionend: move |_evt: Event<TransitionData>| {
                 let cycle = presence.read().active_close_cycle();
                 if let Some(cycle) = cycle {
@@ -278,7 +393,7 @@ pub fn AccordionContent(
                     presence.write().complete_close_cycle(cycle);
                 }
             },
-            {children}
+            {should_render.then_some(children)}
         }
     }
 }

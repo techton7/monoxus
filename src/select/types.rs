@@ -121,6 +121,13 @@ impl SelectItemData {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct PressedSelectItem {
+    pub value: String,
+    pub client_x: f64,
+    pub client_y: f64,
+}
+
 #[derive(Clone)]
 pub struct SelectContext {
     pub runtime: SelectRuntime,

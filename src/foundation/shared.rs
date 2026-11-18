@@ -3,7 +3,16 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use dioxus::prelude::use_hook;
+use dioxus::prelude::*;
+
+#[inline]
+pub const fn data_disabled_attr(disabled: bool) -> Option<&'static str> {
+    if disabled {
+        Some("")
+    } else {
+        None
+    }
+}
 
 static NEXT_STABLE_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -129,6 +138,17 @@ where
     pub fn iter(&self) -> impl Iterator<Item = &CollectionEntry<K, V>> {
         self.entries.iter()
     }
+
+    pub fn reorder_by_keys(&mut self, ordered_keys: &[K]) {
+        let mut reordered = Vec::with_capacity(self.entries.len());
+        for key in ordered_keys {
+            if let Some(pos) = self.entries.iter().position(|entry| entry.key.eq(key)) {
+                reordered.push(self.entries.remove(pos));
+            }
+        }
+        reordered.append(&mut self.entries);
+        self.entries = reordered;
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -139,6 +159,13 @@ pub enum Direction {
 }
 
 impl Direction {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Ltr => "ltr",
+            Self::Rtl => "rtl",
+        }
+    }
+
     pub const fn resolve(
         override_direction: Option<Self>,
         inherited_direction: Option<Self>,
@@ -150,6 +177,54 @@ impl Direction {
                 None => Self::Ltr,
             },
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct DirectionContext(pub Signal<Direction>);
+
+#[component]
+pub fn DirectionProvider(dir: Direction, children: Element) -> Element {
+    let mut signal = use_signal(|| dir);
+    if *signal.peek() != dir {
+        signal.set(dir);
+    }
+    use_context_provider(|| DirectionContext(signal));
+    children
+}
+
+pub fn use_direction_context(override_direction: Option<Direction>) -> Direction {
+    let inherited = try_consume_context::<DirectionContext>();
+    if let Some(dir) = override_direction {
+        return dir;
+    }
+    if let Some(ctx) = inherited {
+        return (ctx.0)();
+    }
+    Direction::Ltr
+}
+
+pub fn use_mount_animation_guard(current_active: bool) -> Option<&'static str> {
+    let initial_active = use_hook(|| current_active);
+    let mut guard_active = use_signal(|| initial_active);
+
+    if *guard_active.peek() && current_active != initial_active {
+        guard_active.set(false);
+    }
+
+    use_effect(move || {
+        if *guard_active.peek() {
+            crate::foundation::browser::spawn_root_task(async move {
+                let _ = oxidase::frame::next_frame().await;
+                guard_active.set(false);
+            });
+        }
+    });
+
+    if *guard_active.read() {
+        Some("animation-name: none; animation-duration: 0s; transition-duration: 0s;")
+    } else {
+        None
     }
 }
 
@@ -284,7 +359,7 @@ impl RovingFocusController {
         self.navigate(registry, current, intent, is_focusable)
     }
 
-    fn intent_for_key(&self, key: RovingFocusKey) -> Option<RovingFocusIntent> {
+    pub const fn intent_for_key(&self, key: RovingFocusKey) -> Option<RovingFocusIntent> {
         match key {
             RovingFocusKey::Home => Some(RovingFocusIntent::First),
             RovingFocusKey::End => Some(RovingFocusIntent::Last),
@@ -461,6 +536,36 @@ mod tests {
             ),
             Some("first"),
         );
+    }
+
+    #[test]
+    fn data_disabled_attr_omits_when_enabled() {
+        assert_eq!(super::data_disabled_attr(false), None);
+        assert_eq!(super::data_disabled_attr(true), Some(""));
+    }
+
+    #[test]
+    fn direction_as_str_returns_ltr_and_rtl() {
+        assert_eq!(Direction::Ltr.as_str(), "ltr");
+        assert_eq!(Direction::Rtl.as_str(), "rtl");
+    }
+
+    #[test]
+    fn collection_registry_reorders_only_matching_keys_and_preserves_tail() {
+        let mut registry = CollectionRegistry::new();
+        registry.register("a", 1);
+        registry.register("b", 2);
+        registry.register("c", 3);
+        registry.register("d", 4);
+
+        registry.reorder_by_keys(&["c", "absent", "a"]);
+
+        let keys: Vec<_> = registry.iter().map(|e| *e.key()).collect();
+        assert_eq!(keys, vec!["c", "a", "b", "d"]);
+        assert_eq!(registry.get(&"c"), Some(&3));
+        assert_eq!(registry.get(&"a"), Some(&1));
+        assert_eq!(registry.get(&"b"), Some(&2));
+        assert_eq!(registry.get(&"d"), Some(&4));
     }
 
     #[test]

@@ -102,7 +102,8 @@ impl SelectRuntime {
                     runtime.clear_pointer_dismiss();
                     runtime.close_dropdown();
                 }
-                DocumentDismissEvent::PointerDown { path_ids } => {
+                DocumentDismissEvent::PointerDown { path_ids }
+                | DocumentDismissEvent::Click { path_ids } => {
                     let is_inside = path_ids
                         .iter()
                         .any(|id| id == &trigger_id_clone || id == &content_id_clone);

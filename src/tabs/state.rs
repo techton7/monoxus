@@ -1,5 +1,9 @@
 use crate::foundation::{
-    shared::{CollectionRegistry, RovingFocusController, RovingFocusKey, ScopeHandle},
+    roving_focus::{
+        self, Direction, Orientation, RovingCandidate, RovingFocusConfig, RovingModifiers,
+        compute_tab_index,
+    },
+    shared::ScopeHandle,
     state::DataState,
 };
 
@@ -75,6 +79,20 @@ impl Tabs {
         &self.current_tab_stop
     }
 
+    pub const fn roving_config(&self) -> RovingFocusConfig {
+        RovingFocusConfig::new()
+            .with_orientation(match self.orientation {
+                TabsOrientation::Horizontal => Orientation::Horizontal,
+                TabsOrientation::Vertical => Orientation::Vertical,
+            })
+            .with_direction(match self.dir {
+                TabsDirection::Ltr => Direction::Ltr,
+                TabsDirection::Rtl => Direction::Rtl,
+            })
+            .with_loop_focus(self.loop_focus)
+            .with_enabled(true)
+    }
+
     pub fn with_orientation(mut self, orientation: TabsOrientation) -> Self {
         self.orientation = orientation;
         self
@@ -113,17 +131,11 @@ impl Tabs {
     }
 
     pub fn is_navigation_key(key: &str) -> bool {
-        matches!(
-            key,
-            "ArrowLeft"
-                | "ArrowRight"
-                | "ArrowUp"
-                | "ArrowDown"
-                | "Home"
-                | "End"
-                | "PageUp"
-                | "PageDown"
-        )
+        roving_focus::is_navigation_key(key)
+    }
+
+    pub fn is_navigation_key_for_orientation(orientation: TabsOrientation, key: &str) -> bool {
+        roving_focus::is_navigation_key_for_orientation(orientation.into(), key)
     }
 
     pub fn resolve_key_navigation(
@@ -136,30 +148,24 @@ impl Tabs {
             return None;
         }
 
-        let roving_key = match key {
-            "ArrowLeft" => Some(RovingFocusKey::ArrowLeft),
-            "ArrowRight" => Some(RovingFocusKey::ArrowRight),
-            "ArrowUp" => Some(RovingFocusKey::ArrowUp),
-            "ArrowDown" => Some(RovingFocusKey::ArrowDown),
-            "Home" | "PageUp" => Some(RovingFocusKey::Home),
-            "End" | "PageDown" => Some(RovingFocusKey::End),
-            _ => None,
-        }?;
+        let candidates: Vec<RovingCandidate> = registered_triggers
+            .iter()
+            .map(|trigger| {
+                RovingCandidate::new(
+                    trigger.value.clone(),
+                    self.relationships.trigger_id(&trigger.value),
+                    !(self.disabled || trigger.disabled),
+                    self.active_value == trigger.value,
+                )
+            })
+            .collect();
 
-        let mut registry = CollectionRegistry::new();
-        for trigger in registered_triggers {
-            registry.register(trigger.value.clone(), trigger.disabled);
-        }
-
-        let controller = RovingFocusController::new(self.dir.into())
-            .with_orientation(self.orientation.into())
-            .with_looping(self.loop_focus);
-
-        controller.navigate_by_key(
-            &registry,
-            Some(&current_tab_stop.to_string()),
-            roving_key,
-            |&disabled| !disabled,
+        roving_focus::resolve_next_stop(
+            &self.roving_config(),
+            &candidates,
+            Some(current_tab_stop),
+            key,
+            RovingModifiers::none(),
         )
     }
 
@@ -182,17 +188,24 @@ impl Tabs {
 
     pub fn trigger(&self, value: &str, trigger_disabled: bool) -> TabsTriggerAttributes {
         let is_selected = self.active_value == value;
-        let is_tab_stop = self.current_tab_stop == value;
         let effective_disabled = self.disabled || trigger_disabled;
-        let tabindex = if is_tab_stop && !effective_disabled {
-            0
-        } else {
-            -1
-        };
+        let tabindex = compute_tab_index(
+            &self.roving_config(),
+            value,
+            !effective_disabled,
+            Some(self.current_tab_stop.as_str()),
+        );
         let data_state = if is_selected {
             DataState::Active
         } else {
             DataState::Inactive
+        };
+
+        let content_id = self.relationships.content_id(value);
+        let aria_controls = if is_selected {
+            Some(content_id.clone())
+        } else {
+            None
         };
 
         TabsTriggerAttributes {
@@ -200,7 +213,8 @@ impl Tabs {
             role: "tab",
             is_selected,
             aria_selected: if is_selected { "true" } else { "false" },
-            aria_controls: self.relationships.content_id(value),
+            content_id,
+            aria_controls,
             tabindex,
             data_state,
             data_orientation: self.orientation.as_str(),

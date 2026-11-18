@@ -234,7 +234,7 @@ impl AlertDialogRuntime {
     }
 
     pub fn trigger(&self) -> DialogTriggerAttributes {
-        self.alert.trigger()
+        self.dialog_runtime.trigger()
     }
 
     pub fn portal(&self) -> DialogPortalAttributes {
@@ -392,6 +392,7 @@ pub fn AlertDialogRoot(
     #[props(default)] default_open: Option<bool>,
     #[props(default)] on_open_change: Option<EventHandler<bool>>,
     #[props(default)] portal_host: Option<PortalHost>,
+    #[props(default)] prevent_body_pointer_events: Option<bool>,
     children: Element,
 ) -> Element {
     let fallback_open = use_signal(|| default_open.unwrap_or(false));
@@ -403,6 +404,13 @@ pub fn AlertDialogRoot(
     if let Some(ph) = portal_host {
         alert = alert.with_portal_host(ph);
     }
+    if let Some(pbpe) = prevent_body_pointer_events {
+        alert
+            .dialog_mut()
+            .lifecycle_mut()
+            .scroll_lock_policy_mut()
+            .set_prevent_body_pointer_events(pbpe);
+    }
 
     let alert_runtime = use_alert_dialog_runtime(alert);
     let mut runtime_sig = use_signal(|| alert_runtime.dialog_runtime().clone());
@@ -411,6 +419,8 @@ pub fn AlertDialogRoot(
     }
 
     let trigger_id = use_signal(|| None);
+    let title_id = use_signal(|| None);
+    let description_id = use_signal(|| None);
 
     use_context_provider(|| crate::dialog::DialogContext {
         runtime: runtime_sig,
@@ -418,6 +428,8 @@ pub fn AlertDialogRoot(
         on_open_change,
         is_alert_dialog: true,
         trigger_id,
+        title_id,
+        description_id,
     });
 
     let mut was_open_sig = use_signal(|| open_signal());

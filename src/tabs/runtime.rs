@@ -7,21 +7,23 @@ pub use crate::foundation::compose::{
 };
 pub use crate::foundation::state::{ControllableStateProps, use_controllable_state};
 
-use crate::foundation::browser::focus_element_by_id;
+use crate::foundation::{
+    browser::focus_element_by_id,
+    roving_focus::{RovingFocusRuntime, RovingItemMeta, RovingModifiers},
+};
 
 use super::{
     attrs::{TabsContentAttributes, TabsListAttributes, TabsRootAttributes, TabsTriggerAttributes},
     state::Tabs,
-    types::{TabsValueChangeHandler, TriggerRegistration},
+    types::TabsValueChangeHandler,
 };
 
 #[derive(Clone)]
 pub struct TabsRuntimeState {
     pub active_value: Signal<String>,
-    pub current_tab_stop: Signal<String>,
-    pub registered_triggers: Signal<Vec<TriggerRegistration>>,
-    pub trigger_ids: Signal<Vec<(String, String)>>,
+    pub roving: RovingFocusRuntime,
     pub content_ids: Signal<Vec<(String, String)>>,
+    pub mounted_content_ids: Signal<Vec<String>>,
 }
 
 #[derive(Clone)]
@@ -38,14 +40,23 @@ where
     let synced_value_change: Option<TabsValueChangeHandler> =
         on_value_change.map(|f| Rc::new(f) as TabsValueChangeHandler);
     let initial_active = tabs.active_value().to_owned();
-    let initial_tab_stop = tabs.current_tab_stop().to_owned();
+    let initial_tab_stop = (!tabs.current_tab_stop().is_empty())
+        .then(|| tabs.current_tab_stop().to_owned());
+
+    let roving = RovingFocusRuntime::new(
+        tabs.roving_config(),
+        initial_tab_stop,
+        tabs.relationships().root_id(),
+    );
+    roving.set_orientation(tabs.orientation().into());
+    roving.set_direction(tabs.dir().into());
+    roving.set_root_dom_id(tabs.relationships().root_id());
 
     let state = TabsRuntimeState {
         active_value: use_signal(|| initial_active),
-        current_tab_stop: use_signal(|| initial_tab_stop),
-        registered_triggers: use_signal(Vec::new),
-        trigger_ids: use_signal(Vec::new),
+        roving,
         content_ids: use_signal(Vec::new),
+        mounted_content_ids: use_signal(Vec::new),
     };
 
     let effect_state = state.clone();
@@ -55,10 +66,9 @@ where
         if *active.peek() != tabs.active_value() {
             active.set(tabs.active_value().to_owned());
         }
-        let mut tab_stop = effect_state.current_tab_stop;
-        if *tab_stop.peek() != tabs.current_tab_stop() {
-            tab_stop.set(tabs.current_tab_stop().to_owned());
-        }
+        let desired_stop = (!tabs.current_tab_stop().is_empty())
+            .then(|| tabs.current_tab_stop().to_owned());
+        effect_state.roving.set_current_tab_stop(desired_stop);
     }));
 
     TabsRuntime {
@@ -69,20 +79,47 @@ where
 }
 
 impl TabsRuntime {
+    pub fn roving(&self) -> RovingFocusRuntime {
+        self.state.roving
+    }
+
     pub fn tabs(&self) -> Tabs {
         let mut updated = self.tabs.clone();
         updated.select_tab(self.state.active_value.read().clone());
-        let tab_stop = self.state.current_tab_stop.read().clone();
-        updated.set_tab_stop(tab_stop);
-        updated
+        updated.set_tab_stop(self.current_tab_stop());
+        let loop_focus = self.state.roving.config.read().loop_focus;
+        updated.with_loop_focus(loop_focus)
+    }
+
+    pub fn set_loop_focus(&self, loop_focus: bool) {
+        self.state.roving.set_loop_focus(loop_focus);
     }
 
     pub fn active_value(&self) -> String {
         self.state.active_value.read().clone()
     }
 
+    pub fn resolve_tab_stop(&self) -> Option<String> {
+        if self.tabs.is_disabled() {
+            return None;
+        }
+        let active = self.state.active_value.read().clone();
+        self.state
+            .roving
+            .resolve_tab_stop_with(|key, _meta| key == active)
+    }
+
     pub fn current_tab_stop(&self) -> String {
-        self.state.current_tab_stop.read().clone()
+        if self.state.roving.registry.read().is_empty() {
+            self.state
+                .roving
+                .current_tab_stop
+                .read()
+                .clone()
+                .unwrap_or_default()
+        } else {
+            self.resolve_tab_stop().unwrap_or_default()
+        }
     }
 
     pub fn root(&self) -> TabsRootAttributes {
@@ -94,7 +131,50 @@ impl TabsRuntime {
     }
 
     pub fn trigger(&self, value: &str, disabled: bool) -> TabsTriggerAttributes {
-        self.tabs().trigger(value, disabled)
+        let mut attrs = self.tabs().trigger(value, disabled);
+        if !self.state.roving.registry.read().is_empty() {
+            let active = self.state.active_value.read().clone();
+            attrs.tabindex = self.state.roving.tab_index_for_with(
+                value,
+                !attrs.disabled,
+                |key, _meta| key == active,
+            );
+        }
+        let is_active = self.active_value() == value;
+        let is_mounted = self
+            .state
+            .mounted_content_ids
+            .read()
+            .contains(&value.to_string());
+        if is_active || is_mounted {
+            attrs.aria_controls = Some(self.tabs.relationships().content_id(value));
+        } else {
+            attrs.aria_controls = None;
+        }
+        attrs
+    }
+
+    pub fn register_content_mounted(&self, value: &str) {
+        let mut mounted_sig = self.state.mounted_content_ids;
+        if let Ok(mut list) = mounted_sig.try_write()
+            && !list.iter().any(|v| v == value)
+        {
+            list.push(value.to_string());
+        }
+    }
+
+    pub fn unregister_content_mounted(&self, value: &str) {
+        let mut mounted_sig = self.state.mounted_content_ids;
+        if let Ok(mut list) = mounted_sig.try_write() {
+            list.retain(|v| v != value);
+        }
+    }
+
+    pub fn unregister_content_id(&self, value: &str) {
+        let mut cids_sig = self.state.content_ids;
+        if let Ok(mut list) = cids_sig.try_write() {
+            list.retain(|(v, _)| v != value);
+        }
     }
 
     pub fn content(&self, value: &str) -> TabsContentAttributes {
@@ -110,15 +190,15 @@ impl TabsRuntime {
                 callback(value.to_string());
             }
         }
-        let mut tab_stop = self.state.current_tab_stop;
-        tab_stop.set(value.to_string());
+        self.state
+            .roving
+            .set_current_tab_stop(Some(value.to_string()));
     }
 
     pub fn trigger_element_id(&self, value: &str) -> String {
-        let map = self.state.trigger_ids.read();
-        map.iter()
-            .find(|(val, _)| val == value)
-            .map(|(_, id)| id.clone())
+        self.state
+            .roving
+            .item_dom_id(value)
             .unwrap_or_else(|| self.tabs.relationships().trigger_id(value))
     }
 
@@ -131,14 +211,21 @@ impl TabsRuntime {
     }
 
     pub fn register_trigger_id(&self, value: &str, id: &str) {
-        let mut list = self.state.trigger_ids;
-        list.with_mut(|ids| {
-            if let Some(existing) = ids.iter_mut().find(|(v, _)| v == value) {
-                existing.1 = id.to_string();
-            } else {
-                ids.push((value.to_string(), id.to_string()));
-            }
-        });
+        let existing = self
+            .state
+            .roving
+            .registry
+            .peek()
+            .get(&value.to_string())
+            .cloned();
+        let focusable = existing
+            .as_ref()
+            .map(|m| m.focusable)
+            .unwrap_or(!self.tabs.is_disabled());
+        let active = *self.state.active_value.peek() == value;
+        self.state
+            .roving
+            .register_item(value, RovingItemMeta::new(id, focusable, active));
     }
 
     pub fn register_content_id(&self, value: &str, id: &str) {
@@ -153,11 +240,10 @@ impl TabsRuntime {
     }
 
     pub fn move_tab_stop(&self, value: &str) {
-        let mut tab_stop = self.state.current_tab_stop;
-        tab_stop.set(value.to_string());
-
-        let target_id = self.trigger_element_id(value);
-        focus_element_by_id(&target_id);
+        if !self.state.roving.focus_item(value) {
+            let target_id = self.trigger_element_id(value);
+            focus_element_by_id(&target_id);
+        }
 
         if self.tabs.activation_mode().is_automatic() {
             self.select_tab(value);
@@ -165,39 +251,40 @@ impl TabsRuntime {
     }
 
     pub fn register_trigger(&self, value: &str, disabled: bool) {
-        let mut list = self.state.registered_triggers;
-        list.with_mut(|triggers| {
-            if let Some(existing) = triggers.iter_mut().find(|t| t.value == value) {
-                existing.disabled = disabled;
-            } else {
-                triggers.push(TriggerRegistration {
-                    value: value.to_string(),
-                    disabled,
-                });
-            }
-        });
+        let dom_id = self
+            .state
+            .roving
+            .registry
+            .peek()
+            .get(&value.to_string())
+            .map(|m| m.dom_id.clone())
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| self.tabs.relationships().trigger_id(value));
+        let focusable = !(self.tabs.is_disabled() || disabled);
+        let active = *self.state.active_value.peek() == value;
+        self.state
+            .roving
+            .register_item(value, RovingItemMeta::new(dom_id, focusable, active));
     }
 
     pub fn unregister_trigger(&self, value: &str) {
-        let mut list = self.state.registered_triggers;
-        list.with_mut(|triggers| {
-            triggers.retain(|t| t.value != value);
-        });
-        let mut trigger_ids = self.state.trigger_ids;
-        trigger_ids.with_mut(|ids| {
-            ids.retain(|(v, _)| v != value);
-        });
-        let mut content_ids = self.state.content_ids;
-        content_ids.with_mut(|ids| {
-            ids.retain(|(v, _)| v != value);
-        });
+        self.state.roving.unregister_item(value);
+    }
+
+    pub fn reconcile_order(&self) {
+        self.state.roving.sync_dom_order();
     }
 
     pub fn navigate_key(&self, key: &str) -> Option<String> {
-        let triggers = self.state.registered_triggers.read();
-        let current = self.state.current_tab_stop.read().clone();
-        let next_tab = self.tabs.resolve_key_navigation(&triggers, &current, key);
-        drop(triggers);
+        if self.tabs.is_disabled() {
+            return None;
+        }
+        let current = self.current_tab_stop();
+        let current_opt = (!current.is_empty()).then_some(current.as_str());
+        let next_tab = self
+            .state
+            .roving
+            .navigate_key(current_opt, key, RovingModifiers::none());
 
         if let Some(ref target) = next_tab {
             self.move_tab_stop(target);

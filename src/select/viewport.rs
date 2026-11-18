@@ -15,6 +15,11 @@ pub fn apply_document_order(items: &mut Vec<SelectItemData>, order: &[String]) {
 
 impl SelectRuntime {
     pub fn item_label(&self, val: &str) -> Option<String> {
+        if let Ok(labels) = self.state.selected_labels.try_read() {
+            if let Some(lbl) = labels.get(val) {
+                return Some(lbl.clone());
+            }
+        }
         let reg = self.state.registry.read();
         if let Some(item) = reg.active_items().find(|i| i.value == val) {
             return Some(item.label.clone());
@@ -191,16 +196,49 @@ impl SelectRuntime {
     }
 }
 
+pub fn scroll_item_within_viewport(viewport_id: &str, item_id: &str) {
+    if let (Some(item_rect), Some(vp_rect)) = (
+        crate::foundation::browser::get_element_client_rect(item_id),
+        crate::foundation::browser::get_element_client_rect(viewport_id),
+    ) {
+        let delta_y = if item_rect.top() < vp_rect.top() {
+            Some(item_rect.top() - vp_rect.top())
+        } else if item_rect.bottom() > vp_rect.bottom() {
+            Some(item_rect.bottom() - vp_rect.bottom())
+        } else {
+            None
+        };
+
+        if let Some(dy) = delta_y {
+            let doc = oxidase::dom::document();
+            if let Some(vp_el) = doc.element_by_id(viewport_id) {
+                crate::foundation::browser::spawn_root_task(async move {
+                    let _ = vp_el.scroll_by(0.0, dy).await;
+                });
+            }
+        }
+    }
+}
+
 #[component]
 pub fn SelectViewport(
+    #[props(default)] id: Option<String>,
     #[props(default)] class: Option<String>,
     #[props(default)] style: Option<String>,
     children: Element,
 ) -> Element {
+    let ctx = use_context::<super::types::SelectContext>();
+    let vp_id = id.unwrap_or_else(|| ctx.runtime.relationships().viewport_id());
+    let default_style = "overflow-x: hidden; overflow-y: auto;";
+    let combined_style = match style {
+        Some(s) => format!("{default_style} {s}"),
+        None => default_style.to_string(),
+    };
     rsx! {
         div {
+            id: "{vp_id}",
             class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or("overflow-y: auto;"),
+            style: "{combined_style}",
             {children}
         }
     }

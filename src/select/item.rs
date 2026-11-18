@@ -123,16 +123,40 @@ pub fn SelectItem(
             style: style.as_deref().unwrap_or_default(),
             "data-state": if is_sel { "checked" } else { "unchecked" },
             "data-highlighted": if is_hl { "true" } else { "false" },
-            "data-disabled": if attrs.is_disabled() { "true" } else { "false" },
+            "data-disabled": attrs.data_disabled(),
             "data-value": "{value}",
             "data-label": "{label_str}",
             "data-selected": if is_sel { "true" } else { "false" },
             onpointerdown: {
                 let runtime = ctx.runtime.clone();
                 let is_dis = attrs.is_disabled();
-                move |_| {
+                let v = value.clone();
+                move |evt| {
                     if !is_dis {
                         runtime.mark_pointer_dismiss();
+                        let coords = evt.client_coordinates();
+                        runtime.record_pressed_item(&v, coords.x, coords.y);
+                    }
+                }
+            },
+            onpointerup: {
+                let runtime = ctx.runtime.clone();
+                let is_dis = attrs.is_disabled();
+                let v = value.clone();
+                move |evt| {
+                    if is_dis {
+                        return;
+                    }
+                    if let Some(press) = runtime.take_pressed_item() {
+                        if press.value != v {
+                            let coords = evt.client_coordinates();
+                            let dx = coords.x - press.client_x;
+                            let dy = coords.y - press.client_y;
+                            if dx.hypot(dy) < 4.0 {
+                                evt.prevent_default();
+                                runtime.select_item(&press.value);
+                            }
+                        }
                     }
                 }
             },

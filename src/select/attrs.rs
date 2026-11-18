@@ -29,6 +29,10 @@ impl SelectRootAttributes {
     pub fn is_disabled(&self) -> bool {
         self.disabled
     }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        crate::foundation::shared::data_disabled_attr(self.disabled)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -37,7 +41,8 @@ pub struct SelectTriggerAttributes {
     pub role: &'static str,
     pub aria_haspopup: &'static str,
     pub aria_expanded: &'static str,
-    pub aria_controls: String,
+    pub aria_controls: Option<String>,
+    pub content_id: String,
     pub aria_disabled: Option<&'static str>,
     pub aria_required: Option<&'static str>,
     pub data_state: DataState,
@@ -63,8 +68,12 @@ impl SelectTriggerAttributes {
         self.aria_expanded
     }
 
-    pub fn aria_controls(&self) -> &str {
-        &self.aria_controls
+    pub fn aria_controls(&self) -> Option<&str> {
+        self.aria_controls.as_deref()
+    }
+
+    pub fn target_content_id(&self) -> &str {
+        &self.content_id
     }
 
     pub fn aria_disabled(&self) -> Option<&'static str> {
@@ -84,6 +93,10 @@ impl SelectTriggerAttributes {
 
     pub fn is_disabled(&self) -> bool {
         self.disabled
+    }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        crate::foundation::shared::data_disabled_attr(self.disabled)
     }
 
     pub fn is_placeholder(&self) -> bool {
@@ -223,6 +236,10 @@ impl SelectItemAttributes {
 
     pub fn is_disabled(&self) -> bool {
         self.disabled
+    }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        crate::foundation::shared::data_disabled_attr(self.disabled)
     }
 
     pub fn value(&self) -> &str {

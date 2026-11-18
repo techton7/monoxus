@@ -17,9 +17,6 @@ pub fn TooltipPortal(props: TooltipPortalProps) -> Element {
     let ctx = use_context::<TooltipRootContext>();
     let runtime = ctx.runtime.read();
     let should_render = props.force_mount || runtime.should_render_portal();
-    if !should_render {
-        return rsx! {};
-    }
 
     let resolved_host = props
         .host
@@ -53,6 +50,10 @@ pub fn TooltipPortal(props: TooltipPortalProps) -> Element {
             crate::foundation::browser::remove_element_by_id(&pid_cleanup);
         }
     });
+
+    if !should_render {
+        return rsx! {};
+    }
 
     rsx! {
         div {

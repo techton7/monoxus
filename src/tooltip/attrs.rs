@@ -22,6 +22,7 @@ pub struct TooltipTriggerAttributes {
     pub(crate) id: String,
     pub(crate) aria_describedby: Option<String>,
     pub(crate) provider_id: Option<String>,
+    pub(crate) disabled: bool,
     pub(crate) data_state: DataState,
     pub(crate) open_request: TooltipStateRequest,
     pub(crate) close_request: TooltipStateRequest,
@@ -38,6 +39,14 @@ impl TooltipTriggerAttributes {
 
     pub fn provider_id(&self) -> Option<&str> {
         self.provider_id.as_deref()
+    }
+
+    pub const fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    pub const fn data_disabled(&self) -> Option<&'static str> {
+        crate::foundation::shared::data_disabled_attr(self.disabled)
     }
 
     pub fn data_state(&self) -> &DataState {

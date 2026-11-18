@@ -85,6 +85,8 @@ pub struct SelectRuntimeState {
     pub content_readiness: Signal<FloatingReadiness>,
     pub trigger_handle: Signal<Option<Rc<MountedData>>>,
     pub content_handle: Signal<Option<Rc<MountedData>>>,
+    pub selected_labels: Signal<std::collections::BTreeMap<String, String>>,
+    pub pressed_item: Signal<Option<super::types::PressedSelectItem>>,
 }
 
 #[derive(Clone)]
@@ -149,6 +151,10 @@ where
     let initial_def_vals = select.default_values().to_vec();
     let initial_open = select.is_open();
     let initial_registry = select.registry();
+    let mut initial_labels = std::collections::BTreeMap::new();
+    for item in select.items() {
+        initial_labels.insert(item.value.clone(), item.text.clone());
+    }
 
     let state = SelectRuntimeState {
         value: use_signal(|| initial_val),
@@ -197,6 +203,8 @@ where
         content_readiness: use_signal(FloatingReadiness::default),
         trigger_handle: use_signal(|| None),
         content_handle: use_signal(|| None),
+        selected_labels: use_signal(|| initial_labels),
+        pressed_item: use_signal(|| None),
     };
 
     let cleanup_state = state;
@@ -274,6 +282,10 @@ impl SelectRuntime {
         let initial_def_vals = select.default_values().to_vec();
         let initial_open = select.is_open();
         let initial_registry = select.registry();
+        let mut initial_labels = std::collections::BTreeMap::new();
+        for item in select.items() {
+            initial_labels.insert(item.value.clone(), item.text.clone());
+        }
 
         let state = SelectRuntimeState {
             value: Signal::new(initial_val),
@@ -322,6 +334,8 @@ impl SelectRuntime {
             content_readiness: Signal::new(FloatingReadiness::default()),
             trigger_handle: Signal::new(None),
             content_handle: Signal::new(None),
+            selected_labels: Signal::new(initial_labels),
+            pressed_item: Signal::new(None),
         };
 
         Self {
@@ -401,7 +415,8 @@ impl SelectRuntime {
                 && self.placement().is_some()
             {
                 let item_id = self.relationships().item_id(v);
-                scroll_element_into_view_nearest(&item_id);
+                let vp_id = self.relationships().viewport_id();
+                super::viewport::scroll_item_within_viewport(&vp_id, &item_id);
             }
         }
     }
@@ -727,6 +742,11 @@ impl SelectRuntime {
         let val = item.value.clone();
         let disabled = item.disabled;
 
+        let mut labels_sig = self.state.selected_labels;
+        if let Ok(mut labels) = labels_sig.try_write() {
+            labels.insert(item.value.clone(), item.label.clone());
+        }
+
         let mut reg_sig = self.state.registry;
         reg_sig.write().register(item);
 
@@ -757,6 +777,10 @@ impl SelectRuntime {
     }
 
     pub fn register_item_data(&self, val: &str, text: &str, disabled: bool) {
+        let mut labels_sig = self.state.selected_labels;
+        if let Ok(mut labels) = labels_sig.try_write() {
+            labels.insert(val.to_string(), text.to_string());
+        }
         let id = self.relationships().item_id(val);
         self.register_item(SelectItemRegistration::new(id, val, text, disabled));
     }
@@ -879,6 +903,8 @@ impl SelectRuntime {
         let mut ch_sig = self.state.content_handle;
         ch_sig.set(None);
 
+        self.clear_pressed_item();
+
         if restore_focus {
             self.trigger_close_auto_focus();
         } else if let Some(cb) = self.state.on_close_auto_focus.read().clone() {
@@ -916,13 +942,19 @@ impl SelectRuntime {
             }
             SelectMode::Multiple => self.values().is_empty(),
         };
+        let should_emit = self.is_open() || self.should_render_content();
 
         SelectTriggerAttributes {
             id: self.relationships().trigger_id().to_owned(),
             role: "combobox",
             aria_haspopup: "listbox",
             aria_expanded: if self.is_open() { "true" } else { "false" },
-            aria_controls: self.relationships().content_id().to_owned(),
+            aria_controls: if should_emit {
+                Some(self.relationships().content_id().to_owned())
+            } else {
+                None
+            },
+            content_id: self.relationships().content_id().to_owned(),
             aria_disabled: if self.is_disabled() {
                 Some("true")
             } else {
@@ -941,6 +973,33 @@ impl SelectRuntime {
             data_placeholder: is_placeholder,
             disabled: self.is_disabled(),
             tabindex: if self.is_disabled() { -1 } else { 0 },
+        }
+    }
+
+    pub fn record_pressed_item(&self, value: &str, client_x: f64, client_y: f64) {
+        let mut sig = self.state.pressed_item;
+        if let Ok(mut w) = sig.try_write() {
+            *w = Some(super::types::PressedSelectItem {
+                value: value.to_owned(),
+                client_x,
+                client_y,
+            });
+        }
+    }
+
+    pub fn take_pressed_item(&self) -> Option<super::types::PressedSelectItem> {
+        let mut sig = self.state.pressed_item;
+        if let Ok(mut w) = sig.try_write() {
+            w.take()
+        } else {
+            None
+        }
+    }
+
+    pub fn clear_pressed_item(&self) {
+        let mut sig = self.state.pressed_item;
+        if let Ok(mut w) = sig.try_write() {
+            *w = None;
         }
     }
 

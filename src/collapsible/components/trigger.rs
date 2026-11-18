@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::collapsible::components::CollapsibleContext;
+use crate::foundation::shared::data_disabled_attr;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct CollapsibleTriggerProps {
@@ -28,10 +29,17 @@ pub fn CollapsibleTrigger(props: CollapsibleTriggerProps) -> Element {
 
     let is_disabled = props.disabled || runtime.is_disabled();
     let aria_expanded = trigger.aria_expanded();
-    let aria_controls = props
+    let is_mounted = (ctx.content_mounted)();
+    let should_emit_controls = runtime.is_open() || is_mounted;
+    let target_id = props
         .aria_controls
         .or_else(|| ctx.content_id.read().clone())
-        .unwrap_or_else(|| trigger.aria_controls().to_string());
+        .unwrap_or_else(|| trigger.target_content_id().to_string());
+    let aria_controls = if should_emit_controls {
+        Some(target_id)
+    } else {
+        None
+    };
 
     let click_runtime = runtime.clone();
     let onclick_handler = props.onclick;
@@ -53,9 +61,9 @@ pub fn CollapsibleTrigger(props: CollapsibleTriggerProps) -> Element {
             style: props.style.as_deref().unwrap_or_default(),
             disabled: is_disabled,
             aria_expanded: "{aria_expanded}",
-            aria_controls: "{aria_controls}",
+            aria_controls: aria_controls.as_deref(),
             "data-state": trigger.data_state_str(),
-            "data-disabled": if is_disabled { "true" } else { "false" },
+            "data-disabled": data_disabled_attr(is_disabled),
             onclick: on_click,
             {props.children}
         }

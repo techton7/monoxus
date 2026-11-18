@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::collapsible::components::CollapsibleContext;
+use crate::foundation::shared::{data_disabled_attr, use_mount_animation_guard};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct CollapsibleContentProps {
@@ -35,18 +36,44 @@ pub fn CollapsibleContent(props: CollapsibleContentProps) -> Element {
         }
     }));
 
-    if !is_open && !props.force_mount {
+    let guard_style = use_mount_animation_guard(is_open);
+    let should_render = is_open || props.force_mount;
+
+    {
+        let mut mounted_sig = ctx.content_mounted;
+        if *mounted_sig.peek() != should_render {
+            mounted_sig.set(should_render);
+        }
+    }
+
+    use_drop({
+        let mut mounted_sig = ctx.content_mounted;
+        move || {
+            if let Ok(mut m) = mounted_sig.try_write() {
+                *m = false;
+            }
+        }
+    });
+
+    if !should_render {
         return rsx! {};
     }
+
+    let effective_style = match (props.style.as_deref(), guard_style) {
+        (Some(custom), Some(guard)) => Some(format!("{custom}; {guard}")),
+        (Some(custom), None) => Some(custom.to_string()),
+        (None, Some(guard)) => Some(guard.to_string()),
+        (None, None) => None,
+    };
 
     rsx! {
         div {
             id: "{content_id}",
             class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            style: effective_style.as_deref().unwrap_or_default(),
             hidden: (!is_open).then_some(true),
             "data-state": content.data_state_str(),
-            "data-disabled": if content.is_disabled() { "true" } else { "false" },
+            "data-disabled": data_disabled_attr(content.is_disabled()),
             {props.children}
         }
     }

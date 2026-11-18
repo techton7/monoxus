@@ -2,8 +2,8 @@ use dioxus::prelude::*;
 use monoxus::{
     foundation::shared::ScopeHandle,
     select::{
-        Select, SelectContent, SelectItem, SelectMode, SelectRoot, SelectTrigger, SelectValue,
-        SelectViewport, use_select_runtime,
+        Select, SelectContent, SelectItem, SelectItemData, SelectMode, SelectRoot, SelectTrigger,
+        SelectValue, SelectViewport, use_select_runtime_full,
     },
 };
 
@@ -12,21 +12,33 @@ use super::shared::{BADGE_STYLE, ItemRow, MUTED_STYLE};
 #[component]
 pub fn MultipleSelectSection() -> Element {
     let scope = ScopeHandle::root("playground").child("select-multiple");
-    let selected_vals = use_signal(|| vec!["apple".to_string(), "cherry".to_string()]);
+    let selected_vals = use_signal(|| vec!["apple".to_string(), "japan".to_string()]);
     let is_open = use_signal(|| false);
 
     let def = Select::new(scope.clone())
+        .with_trigger_id("select-multiple-trigger")
+        .with_content_id("select-multiple-content")
         .with_mode(SelectMode::Multiple)
+        .with_items(vec![
+            SelectItemData::new("apple", "Fresh Red Apple", false),
+            SelectItemData::new("banana", "Golden Cavendish Banana", false),
+            SelectItemData::new("japan", "Japan (Tokyo)", false),
+        ])
         .with_values(selected_vals())
         .with_open(is_open());
 
-    let runtime = use_select_runtime(
+    let runtime = use_select_runtime_full(
         def,
         None::<fn(Option<String>)>,
+        Some(move |vals: Vec<String>| {
+            let mut s = selected_vals;
+            s.set(vals);
+        }),
         Some(move |open: bool| {
             let mut s = is_open;
             s.set(open);
         }),
+        None::<fn(bool)>,
     );
 
     let count = runtime.values().len();
@@ -38,30 +50,34 @@ pub fn MultipleSelectSection() -> Element {
 
     rsx! {
         div {
+            id: "select-multiple-section",
             style: "border: 1px solid #e9d5ff; border-radius: 0.5rem; padding: 1.25rem; background-color: #faf5ff;",
             div {
                 style: "display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;",
                 h3 {
                     style: "margin: 0; font-size: 1rem; color: #581c87;",
-                    "6. Multiple Selection (Repeated Hidden Inputs)"
+                    "6. Multiple Selection & Closed Custom Label Retention (SL-1)"
                 }
-                span { style: BADGE_STYLE, "Selected ({count}): {display_str}" }
+                span { id: "select-multiple-badge", style: BADGE_STYLE, "Selected ({count}): {display_str}" }
             }
             p {
                 style: MUTED_STYLE,
-                "Multiple mode toggles selection on click without closing dropdown, and emits repeated hidden inputs for form submission."
+                "Multiple mode toggles selection on click without closing dropdown, preserves exact custom item labels across menu unmount, and emits repeated hidden inputs for form submission."
             }
 
             div {
-                style: "position: relative; width: 260px; margin-top: 1rem;",
+                style: "position: relative; width: 320px; margin-top: 1rem;",
                 SelectRoot {
                     runtime: runtime.clone(),
                     name: "fruits".to_string(),
                     SelectTrigger {
                         class: "select-trigger-multiple".to_string(),
                         style: "display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d8b4fe; border-radius: 0.375rem; background: white; font-size: 0.875rem; cursor: pointer; outline: none;",
-                        SelectValue {
-                            placeholder: "Choose multiple fruits...".to_string(),
+                        span {
+                            id: "select-multiple-value",
+                            SelectValue {
+                                placeholder: "Choose multiple items...".to_string(),
+                            }
                         }
                         span { style: "color: #9333ea; font-size: 0.75rem;", "▼" }
                     }
@@ -71,21 +87,21 @@ pub fn MultipleSelectSection() -> Element {
                         SelectViewport {
                             SelectItem {
                                 value: "apple".to_string(),
-                                text: "Apple".to_string(),
+                                text: "Fresh Red Apple".to_string(),
                                 class: "select-item".to_string(),
-                                ItemRow { text: "Apple", is_selected: runtime.is_selected("apple") }
+                                ItemRow { text: "Fresh Red Apple", is_selected: runtime.is_selected("apple") }
                             }
                             SelectItem {
                                 value: "banana".to_string(),
-                                text: "Banana".to_string(),
+                                text: "Golden Cavendish Banana".to_string(),
                                 class: "select-item".to_string(),
-                                ItemRow { text: "Banana", is_selected: runtime.is_selected("banana") }
+                                ItemRow { text: "Golden Cavendish Banana", is_selected: runtime.is_selected("banana") }
                             }
                             SelectItem {
-                                value: "cherry".to_string(),
-                                text: "Cherry".to_string(),
+                                value: "japan".to_string(),
+                                text: "Japan (Tokyo)".to_string(),
                                 class: "select-item".to_string(),
-                                ItemRow { text: "Cherry", is_selected: runtime.is_selected("cherry") }
+                                ItemRow { text: "Japan (Tokyo)", is_selected: runtime.is_selected("japan") }
                             }
                         }
                     }

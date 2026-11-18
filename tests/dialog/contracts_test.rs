@@ -56,10 +56,16 @@ fn dialog_family_publishes_stable_relationships_and_wrapper_safe_attributes() {
 
     let trigger = dialog.trigger();
     assert_eq!(trigger.id(), relationships.trigger_id());
-    assert_eq!(trigger.aria_controls(), relationships.content_id());
+    assert_eq!(trigger.aria_controls(), Some(relationships.content_id()));
+    assert_eq!(trigger.target_content_id(), relationships.content_id());
+    assert_eq!(trigger.data_disabled(), None);
+    assert!(!trigger.is_disabled());
     assert!(trigger.aria_expanded());
     assert_eq!(trigger.open_request(), DialogStateRequest::Open);
     assert_eq!(trigger.data_state(), &DataState::Open);
+
+    let closed_dialog = Dialog::new(scope.clone(), false);
+    assert_eq!(closed_dialog.trigger().aria_controls(), None);
 
     let portal = dialog.portal();
     assert_eq!(portal.host(), &PortalHost::default_host());

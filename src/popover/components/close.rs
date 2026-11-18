@@ -30,7 +30,7 @@ pub fn PopoverClose(props: PopoverCloseProps) -> Element {
             style: props.style.as_deref().unwrap_or_default(),
             disabled: props.disabled,
             "data-state": close.data_state().as_str(),
-            "data-disabled": if props.disabled { "true" } else { "false" },
+            "data-disabled": crate::foundation::shared::data_disabled_attr(props.disabled),
             onmounted: runtime.mount_close(),
             onpointerdown: runtime.close_pointer_down(),
             onclick: runtime.close_click(),

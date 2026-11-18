@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 
 use crate::foundation::{
-    browser::{restore_focus_element_by_id, scroll_element_into_view_nearest},
+    browser::restore_focus_element_by_id,
     overlay::{PlacementAlign, PlacementSide},
 };
 
@@ -86,7 +86,8 @@ pub fn SelectContent(
                 restore_focus_element_by_id(&cid);
                 if let Some(ref v) = rt.highlighted_value() {
                     let item_id = rt.relationships().item_id(v);
-                    scroll_element_into_view_nearest(&item_id);
+                    let vp_id = rt.relationships().viewport_id();
+                    super::viewport::scroll_item_within_viewport(&vp_id, &item_id);
                 }
             }
         }
@@ -186,8 +187,16 @@ pub fn SelectContent(
 
     let arrow_pad_style = format!("--bits-select-arrow-padding: {}px;", arrow_padding);
 
+    let pointer_events_style = if !is_open {
+        "pointer-events: none;"
+    } else if prevent_scroll || crate::foundation::browser::is_body_pointer_events_locked() {
+        "pointer-events: auto;"
+    } else {
+        ""
+    };
+
     let inner_style = format!(
-        "{width_style} {css_vars} {arrow_pad_style} {force_mount_style} {}",
+        "{width_style} {css_vars} {arrow_pad_style} {force_mount_style} {pointer_events_style} {}",
         style.as_deref().unwrap_or_default()
     );
 

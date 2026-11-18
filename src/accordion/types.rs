@@ -93,6 +93,15 @@ impl From<AccordionDirection> for Direction {
     }
 }
 
+impl From<Direction> for AccordionDirection {
+    fn from(direction: Direction) -> Self {
+        match direction {
+            Direction::Ltr => Self::Ltr,
+            Direction::Rtl => Self::Rtl,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AccordionMode {
     Single { collapsible: bool },

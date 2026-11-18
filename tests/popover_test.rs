@@ -107,7 +107,7 @@ fn PopoverAriaProbe(results: Rc<RefCell<PopoverAriaProbeResults>>) -> Element {
     *results.borrow_mut() = PopoverAriaProbeResults {
         trigger_haspopup: Some("dialog".to_string()),
         trigger_expanded: Some(trigger.aria_expanded()),
-        trigger_controls: Some(trigger.aria_controls().to_string()),
+        trigger_controls: trigger.aria_controls().map(str::to_string),
         trigger_state: Some(trigger.data_state().as_str().to_string()),
         content_role: Some(content.role().to_string()),
         content_modal: Some(content.aria_modal()),
@@ -190,11 +190,8 @@ fn test_popover_aria_contract_and_labelledby_describedby_linkage_when_open() {
     assert_eq!(res.close_state.as_deref(), Some("open"));
     assert_eq!(res.arrow_state.as_deref(), Some("open"));
 
-    // aria-controls matches content id
-    let expected_content_id = monoxus::foundation::shared::ScopeHandle::root("popover")
-        .child("aria-test")
-        .qualify("content");
-    assert_eq!(res.trigger_controls.as_deref(), Some(expected_content_id.as_str()));
+    // aria-controls matches custom mounted PopoverContent id (MF-6)
+    assert_eq!(res.trigger_controls.as_deref(), Some("aria-content"));
 
     // Title and Description registration:
     assert_eq!(res.title_id.as_deref(), Some("aria-title"));
@@ -415,4 +412,30 @@ fn test_popover_escape_key_dismiss_behavior() {
 
     assert!(*dismiss_result.borrow(), "dismiss_escape() should return true when popover is open");
     assert!(*closed_fired.borrow(), "on_open_change should receive false on escape");
+}
+
+#[test]
+fn test_popover_role_override_and_disabled_contracts() {
+    use monoxus::{foundation::shared::ScopeHandle, popover::Popover};
+    let scope = ScopeHandle::root("popover-contracts");
+    let open_popover = Popover::new(scope.clone(), true);
+    let trigger_open = open_popover.trigger();
+    assert_eq!(
+        trigger_open.aria_controls(),
+        Some(open_popover.relationships().content_id())
+    );
+    assert_eq!(trigger_open.data_disabled(), None);
+
+    let closed_popover = Popover::new(scope, false);
+    let trigger_closed = closed_popover.trigger();
+    assert_eq!(trigger_closed.aria_controls(), None);
+
+    let disabled_trigger = open_popover.trigger().with_disabled(true);
+    assert_eq!(disabled_trigger.data_disabled(), Some(""));
+    assert!(disabled_trigger.is_disabled());
+
+    let close = open_popover.close();
+    assert_eq!(close.data_disabled(), None);
+    let close_disabled = close.with_disabled(true);
+    assert_eq!(close_disabled.data_disabled(), Some(""));
 }

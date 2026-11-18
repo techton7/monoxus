@@ -267,6 +267,7 @@ impl Tooltip {
                 None
             },
             provider_id: self.provider().map(|provider| provider.id().to_owned()),
+            disabled: false,
             data_state: self.data_state(),
             open_request: TooltipStateRequest::Open,
             close_request: TooltipStateRequest::Close,

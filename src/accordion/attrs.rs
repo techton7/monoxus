@@ -1,4 +1,4 @@
-use crate::foundation::state::DataState;
+use crate::foundation::{shared::data_disabled_attr, state::DataState};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccordionRootAttributes {
@@ -18,6 +18,10 @@ impl AccordionRootAttributes {
 
     pub fn is_disabled(&self) -> bool {
         self.disabled
+    }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        data_disabled_attr(self.disabled)
     }
 }
 
@@ -56,6 +60,10 @@ impl AccordionItemAttributes {
 
     pub fn is_disabled(&self) -> bool {
         self.disabled
+    }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        data_disabled_attr(self.disabled)
     }
 }
 
@@ -110,6 +118,10 @@ impl AccordionHeaderAttributes {
     pub fn is_disabled(&self) -> bool {
         self.disabled
     }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        data_disabled_attr(self.disabled)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -118,7 +130,8 @@ pub struct AccordionTriggerAttributes {
     pub(crate) role: &'static str,
     pub(crate) is_open: bool,
     pub(crate) aria_expanded: &'static str,
-    pub(crate) aria_controls: String,
+    pub(crate) content_id: String,
+    pub(crate) aria_controls: Option<String>,
     pub(crate) aria_disabled: Option<&'static str>,
     pub(crate) tabindex: i32,
     pub(crate) data_state: DataState,
@@ -144,8 +157,12 @@ impl AccordionTriggerAttributes {
         self.aria_expanded
     }
 
-    pub fn aria_controls(&self) -> &str {
-        &self.aria_controls
+    pub fn target_content_id(&self) -> &str {
+        &self.content_id
+    }
+
+    pub fn aria_controls(&self) -> Option<&str> {
+        self.aria_controls.as_deref()
     }
 
     pub fn aria_disabled(&self) -> Option<&'static str> {
@@ -177,6 +194,10 @@ impl AccordionTriggerAttributes {
 
     pub fn is_disabled(&self) -> bool {
         self.disabled
+    }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        data_disabled_attr(self.disabled)
     }
 }
 

@@ -118,6 +118,7 @@ pub fn PopoverRoot(props: PopoverRootProps) -> Element {
 
     let title_id = use_signal(|| None);
     let description_id = use_signal(|| None);
+    let content_id = use_signal(|| None);
 
     use_context_provider(|| PopoverContext {
         runtime: runtime_sig,
@@ -126,6 +127,7 @@ pub fn PopoverRoot(props: PopoverRootProps) -> Element {
         relationships: relationships.clone(),
         title_id,
         description_id,
+        content_id,
     });
 
     let attrs = runtime.root();

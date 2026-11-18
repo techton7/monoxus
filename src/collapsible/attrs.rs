@@ -1,4 +1,4 @@
-use crate::foundation::state::DataState;
+use crate::foundation::{shared::data_disabled_attr, state::DataState};
 
 use super::types::CollapsibleStateRequest;
 
@@ -28,12 +28,17 @@ impl CollapsibleRootAttributes {
     pub fn is_disabled(&self) -> bool {
         self.disabled
     }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        data_disabled_attr(self.disabled)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CollapsibleTriggerAttributes {
     pub(crate) id: String,
-    pub(crate) aria_controls: String,
+    pub(crate) content_id: String,
+    pub(crate) aria_controls: Option<String>,
     pub(crate) aria_expanded: &'static str,
     pub(crate) data_state: DataState,
     pub(crate) disabled: bool,
@@ -45,8 +50,12 @@ impl CollapsibleTriggerAttributes {
         &self.id
     }
 
-    pub fn aria_controls(&self) -> &str {
-        &self.aria_controls
+    pub fn target_content_id(&self) -> &str {
+        &self.content_id
+    }
+
+    pub fn aria_controls(&self) -> Option<&str> {
+        self.aria_controls.as_deref()
     }
 
     pub fn aria_expanded(&self) -> &'static str {
@@ -66,6 +75,10 @@ impl CollapsibleTriggerAttributes {
 
     pub fn is_disabled(&self) -> bool {
         self.disabled
+    }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        data_disabled_attr(self.disabled)
     }
 
     pub const fn state_request(&self) -> CollapsibleStateRequest {
@@ -103,5 +116,9 @@ impl CollapsibleContentAttributes {
 
     pub fn is_disabled(&self) -> bool {
         self.disabled
+    }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        data_disabled_attr(self.disabled)
     }
 }

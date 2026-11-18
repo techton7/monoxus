@@ -1,4 +1,4 @@
-use crate::foundation::state::DataState;
+use crate::foundation::{shared::data_disabled_attr, state::DataState};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TabsRootAttributes {
@@ -13,6 +13,10 @@ impl TabsRootAttributes {
 
     pub fn data_orientation(&self) -> &'static str {
         self.data_orientation
+    }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        None
     }
 }
 
@@ -45,6 +49,10 @@ impl TabsListAttributes {
     pub fn is_disabled(&self) -> bool {
         self.disabled
     }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        data_disabled_attr(self.disabled)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -53,7 +61,8 @@ pub struct TabsTriggerAttributes {
     pub(crate) role: &'static str,
     pub(crate) is_selected: bool,
     pub(crate) aria_selected: &'static str,
-    pub(crate) aria_controls: String,
+    pub(crate) content_id: String,
+    pub(crate) aria_controls: Option<String>,
     pub(crate) tabindex: i32,
     pub(crate) data_state: DataState,
     pub(crate) data_orientation: &'static str,
@@ -78,8 +87,12 @@ impl TabsTriggerAttributes {
         self.aria_selected
     }
 
-    pub fn aria_controls(&self) -> &str {
-        &self.aria_controls
+    pub fn target_content_id(&self) -> &str {
+        &self.content_id
+    }
+
+    pub fn aria_controls(&self) -> Option<&str> {
+        self.aria_controls.as_deref()
     }
 
     pub fn tabindex(&self) -> i32 {
@@ -107,6 +120,10 @@ impl TabsTriggerAttributes {
 
     pub fn is_disabled(&self) -> bool {
         self.disabled
+    }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        data_disabled_attr(self.disabled)
     }
 }
 
@@ -160,5 +177,9 @@ impl TabsContentAttributes {
 
     pub fn data_value(&self) -> &str {
         &self.data_value
+    }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        None
     }
 }

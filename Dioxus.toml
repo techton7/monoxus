@@ -1,0 +1,5 @@
+[application]
+name = "monoxus"
+asset_dir = "assets"
+tailwind_input = "assets/input.css"
+tailwind_output = "assets/tailwind.css"

@@ -178,8 +178,11 @@ pub fn PopoverPlayground() -> Element {
             "false",
         )
     };
-    let content_style =
-        popover_content_style(content.data_state(), content_css_custom_properties.as_str());
+    let content_style = popover_content_style(
+        content.data_state(),
+        content_css_custom_properties.as_str(),
+        popover.should_force_pointer_events_auto(),
+    );
     let arrow_style = popover_arrow_style(placement.as_ref());
 
     rsx! {
@@ -382,7 +385,11 @@ fn outside_behavior_label(dismisses: bool) -> &'static str {
     }
 }
 
-fn popover_content_style(state: &DataState, css_custom_properties: &str) -> String {
+fn popover_content_style(
+    state: &DataState,
+    css_custom_properties: &str,
+    force_pointer_events_auto: bool,
+) -> String {
     let mut style = String::from(
         "position: relative; width: 250px; max-width: calc(100vw - 2rem); padding: 1rem; border-radius: 0.85rem; border: 1px solid #c084fc; background-color: white; box-shadow: 0 18px 40px rgba(88, 28, 135, 0.18); display: grid; gap: 0.75rem;",
     );
@@ -393,6 +400,8 @@ fn popover_content_style(state: &DataState, css_custom_properties: &str) -> Stri
     );
     if let DataState::Closed = state {
         style.push_str(" pointer-events: none;");
+    } else if force_pointer_events_auto {
+        style.push_str(" pointer-events: auto;");
     }
 
     style

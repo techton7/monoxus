@@ -166,3 +166,46 @@ fn positioned_overlay_lane_publishes_wrapper_safe_overlay_hooks_and_geometry() {
         Some(0.0)
     );
 }
+
+#[test]
+fn foundation_remediation_f1_to_f6_contracts() {
+    use monoxus::foundation::{
+        overlay::OverlayBranchContext,
+        shared::{data_disabled_attr, Direction},
+    };
+
+    // F-1: Direction as_str and data_disabled_attr
+    assert_eq!(data_disabled_attr(false), None);
+    assert_eq!(data_disabled_attr(true), Some(""));
+    assert_eq!(Direction::Ltr.as_str(), "ltr");
+    assert_eq!(Direction::Rtl.as_str(), "rtl");
+
+    // F-3: CollectionRegistry::reorder_by_keys
+    let mut registry = CollectionRegistry::new();
+    registry.register("item-1", 10);
+    registry.register("item-2", 20);
+    registry.register("item-3", 30);
+    registry.register("item-4", 40);
+
+    registry.reorder_by_keys(&["item-3", "unknown-key", "item-1"]);
+    let ordered_keys: Vec<_> = registry.iter().map(|entry| *entry.key()).collect();
+    assert_eq!(ordered_keys, vec!["item-3", "item-1", "item-2", "item-4"]);
+
+    // F-5: OverlayBranchContext
+    let registered = Rc::new(RefCell::new(Vec::new()));
+    let reg_clone = Rc::clone(&registered);
+    let unreg_clone = Rc::clone(&registered);
+    let ctx = OverlayBranchContext::new(
+        move |id: String| {
+            reg_clone.borrow_mut().push(id);
+        },
+        move |id: String| {
+            unreg_clone.borrow_mut().retain(|x| x != &id);
+        },
+    );
+
+    ctx.register_branch("tooltip-1");
+    assert_eq!(*registered.borrow(), vec!["tooltip-1"]);
+    ctx.unregister_branch("tooltip-1");
+    assert!((*registered.borrow()).is_empty());
+}

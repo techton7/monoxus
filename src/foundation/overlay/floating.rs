@@ -891,8 +891,18 @@ pub fn compute_overlay_position(config: &OverlayPositionConfig) -> Option<Floati
     }
 
     if config.hide_when_detached {
+        let mut hide_overflow = oxidase_floating_ui::detect_overflow::DetectOverflowOptions::default();
+        if let Some(bid) = config.boundary_id {
+            hide_overflow = hide_overflow
+                .boundary(oxidase_floating_ui::types::Boundary::Element(bid.to_string()))
+                .padding(oxidase_floating_ui::geometry::Padding::All(config.collision_padding as f64));
+        } else {
+            hide_overflow = hide_overflow
+                .boundary(oxidase_floating_ui::types::Boundary::ClippingAncestors)
+                .padding(oxidase_floating_ui::geometry::Padding::All(0.0));
+        }
         middlewares.push(Box::new(oxidase_floating_ui::middleware::Hide::new(
-            oxidase_floating_ui::middleware::HideOptions::default(),
+            oxidase_floating_ui::middleware::HideOptions::default().detect_overflow(hide_overflow),
         )));
     }
 

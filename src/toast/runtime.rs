@@ -241,7 +241,7 @@ pub fn start_toast_browser_monitor(
                         }
                     }
                 }
-                CaptureEventKind::PointerDown => {
+                CaptureEventKind::PointerDown { .. } => {
                     if dioxus::core::Runtime::try_current().is_none() {
                         return;
                     }
@@ -273,6 +273,7 @@ pub fn start_toast_browser_monitor(
                         }
                     }
                 }
+                CaptureEventKind::Click { .. } => {}
             };
 
             if let Some(rt) = runtime_weak.as_ref().and_then(|w| w.upgrade()) {

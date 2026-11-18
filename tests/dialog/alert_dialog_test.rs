@@ -65,6 +65,9 @@ fn alert_dialog_extends_the_same_modal_lane_with_alert_specific_restrictions() {
         alert.lifecycle().scroll_lock_policy(),
         &DialogScrollLockPolicy::enabled(),
     );
+    assert!(alert.lifecycle().scroll_lock_policy().prevent_body_pointer_events());
+    let custom_lock = DialogScrollLockPolicy::enabled().with_prevent_body_pointer_events(false);
+    assert!(!custom_lock.prevent_body_pointer_events());
     assert!(alert.lifecycle().focus_scope().loops_focus());
     assert_eq!(
         alert.lifecycle().outside_interaction_policy(),

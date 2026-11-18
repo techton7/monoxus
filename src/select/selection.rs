@@ -26,6 +26,13 @@ impl SelectRuntime {
             return;
         }
 
+        if let Some(lbl) = self.item_label(val) {
+            let mut labels_sig = self.state.selected_labels;
+            if let Ok(mut labels) = labels_sig.try_write() {
+                labels.insert(val.to_string(), lbl);
+            }
+        }
+
         match self.select.mode() {
             SelectMode::Single { allow_deselect } => {
                 let is_current = self.value().as_deref() == Some(val);

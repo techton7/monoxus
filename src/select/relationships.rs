@@ -44,6 +44,10 @@ impl SelectRelationships {
         &self.content_id
     }
 
+    pub fn viewport_id(&self) -> String {
+        self.scope.qualify("viewport")
+    }
+
     pub fn item_id(&self, value: &str) -> String {
         self.scope.qualify(&format!("item-{value}"))
     }

@@ -141,6 +141,10 @@ impl DialogLifecycle {
         &self.scroll_lock_policy
     }
 
+    pub fn scroll_lock_policy_mut(&mut self) -> &mut DialogScrollLockPolicy {
+        &mut self.scroll_lock_policy
+    }
+
     pub const fn outside_interaction_policy(&self) -> &DialogOutsideInteractionPolicy {
         &self.outside_interaction_policy
     }
@@ -165,6 +169,13 @@ impl DialogLifecycle {
         let dismiss_registered = self.dismiss_layer.register_branch(branch);
         debug_assert_eq!(focus_registered, dismiss_registered);
         focus_registered && dismiss_registered
+    }
+
+    pub fn unregister_branch(&mut self, branch: &str) -> bool {
+        let branch_str = branch.to_string();
+        let focus_unregistered = self.focus_scope.unregister_branch(&branch_str);
+        let dismiss_unregistered = self.dismiss_layer.unregister_branch(&branch_str);
+        focus_unregistered || dismiss_unregistered
     }
 
     pub(crate) fn set_mode(&mut self, mode: DialogMode) {
@@ -346,8 +357,14 @@ impl Dialog {
     pub fn trigger(&self) -> DialogTriggerAttributes {
         DialogTriggerAttributes {
             id: self.relationships.trigger_id().to_owned(),
-            aria_controls: self.relationships.content_id().to_owned(),
+            target_content_id: self.relationships.content_id().to_owned(),
+            aria_controls: if self.is_open() {
+                Some(self.relationships.content_id().to_owned())
+            } else {
+                None
+            },
             aria_expanded: self.is_open(),
+            disabled: false,
             data_state: self.data_state(),
             open_request: DialogStateRequest::Open,
         }
@@ -396,6 +413,7 @@ impl Dialog {
     pub fn close(&self) -> DialogCloseAttributes {
         DialogCloseAttributes {
             id: self.relationships.close_id().to_owned(),
+            disabled: false,
             data_state: self.data_state(),
             close_request: DialogStateRequest::Close,
         }

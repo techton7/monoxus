@@ -83,7 +83,7 @@ fn CollapsibleProbe(results: Rc<RefCell<CollapsibleProbeResults>>) -> Element {
         root_state: Some(root.data_state_str().to_string()),
         root_disabled: Some(root.is_disabled()),
         trigger_expanded: Some(trigger.aria_expanded().to_string()),
-        trigger_controls: Some(trigger.aria_controls().to_string()),
+        trigger_controls: trigger.aria_controls().map(ToString::to_string),
         trigger_state: Some(trigger.data_state_str().to_string()),
         trigger_disabled: Some(trigger.is_disabled()),
         content_state: Some(content.data_state_str().to_string()),
@@ -142,7 +142,7 @@ fn test_collapsible_aria_and_data_state_when_open() {
     assert_eq!(res.content_hidden, Some(false));
     assert_eq!(res.content_disabled, Some(false));
 
-    // ARIA controls links trigger to content ID
+    // ARIA controls links trigger to content ID when open
     assert_eq!(res.trigger_controls, res.content_id);
 }
 
@@ -169,8 +169,8 @@ fn test_collapsible_aria_and_data_state_when_closed() {
     assert_eq!(res.content_hidden, Some(true));
     assert_eq!(res.content_disabled, Some(false));
 
-    // ARIA controls links trigger to content ID
-    assert_eq!(res.trigger_controls, res.content_id);
+    // ARIA controls is omitted when closed and unmounted
+    assert_eq!(res.trigger_controls, None);
 }
 
 #[component]

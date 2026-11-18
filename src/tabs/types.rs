@@ -90,6 +90,15 @@ impl From<TabsDirection> for Direction {
     }
 }
 
+impl From<Direction> for TabsDirection {
+    fn from(direction: Direction) -> Self {
+        match direction {
+            Direction::Ltr => Self::Ltr,
+            Direction::Rtl => Self::Rtl,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum TabsActivationMode {
     #[default]

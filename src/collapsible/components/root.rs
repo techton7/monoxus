@@ -6,7 +6,7 @@ use crate::collapsible::{
     runtime::use_collapsible_runtime,
     state::Collapsible,
 };
-use crate::foundation::shared::ScopeHandle;
+use crate::foundation::shared::{data_disabled_attr, ScopeHandle};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct CollapsibleRootProps {
@@ -61,12 +61,14 @@ pub fn CollapsibleRoot(props: CollapsibleRootProps) -> Element {
     runtime_sig.set(runtime.clone());
 
     let content_id = use_signal(|| None);
+    let content_mounted = use_signal(|| false);
 
     use_context_provider(|| CollapsibleContext {
         runtime: runtime_sig,
         open: open_signal,
         disabled: disabled_signal,
         content_id,
+        content_mounted,
         on_open_change,
         relationships: relationships.clone(),
     });
@@ -79,7 +81,7 @@ pub fn CollapsibleRoot(props: CollapsibleRootProps) -> Element {
             class: props.class.as_deref().unwrap_or_default(),
             style: props.style.as_deref().unwrap_or_default(),
             "data-state": attrs.data_state_str(),
-            "data-disabled": if attrs.is_disabled() { "true" } else { "false" },
+            "data-disabled": data_disabled_attr(attrs.is_disabled()),
             {props.children}
         }
     }

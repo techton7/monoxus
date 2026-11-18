@@ -310,7 +310,12 @@ impl Select {
             role: "combobox",
             aria_haspopup: "listbox",
             aria_expanded: if self.open { "true" } else { "false" },
-            aria_controls: self.relationships.content_id().to_owned(),
+            aria_controls: if self.open {
+                Some(self.relationships.content_id().to_owned())
+            } else {
+                None
+            },
+            content_id: self.relationships.content_id().to_owned(),
             aria_disabled: if self.disabled { Some("true") } else { None },
             aria_required: if self.required { Some("true") } else { None },
             data_state: if self.open {

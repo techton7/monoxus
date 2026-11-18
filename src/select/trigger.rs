@@ -34,6 +34,7 @@ pub fn SelectRoot(
     #[props(default)] autocomplete: Option<String>,
     #[props(default)] items: Option<Vec<SelectItemData>>,
     #[props(default = false)] loop_selection: bool,
+    #[props(default)] dir: Option<crate::foundation::shared::Direction>,
     children: Element,
 ) -> Element {
     let fallback_scope_id = id.clone().unwrap_or_else(|| "select".to_string());
@@ -98,6 +99,7 @@ pub fn SelectRoot(
     });
 
     let attrs = runtime.root_attributes();
+    let resolved_dir = crate::foundation::shared::use_direction_context(dir);
     let eff_req = runtime.select().is_required() || required;
     let eff_form = form.or_else(|| runtime.select().form().map(str::to_owned));
     let eff_auto = autocomplete.or_else(|| runtime.select().autocomplete().map(str::to_owned));
@@ -107,8 +109,9 @@ pub fn SelectRoot(
             id: "{attrs.id()}",
             class: class.as_deref().unwrap_or_default(),
             style: style.as_deref().unwrap_or_default(),
+            dir: "{resolved_dir.as_str()}",
             "data-state": "{attrs.data_state_str()}",
-            "data-disabled": if attrs.is_disabled() { "true" } else { "false" },
+            "data-disabled": attrs.data_disabled(),
             {children}
             if let Some(input_name) = name.or_else(|| runtime.select().name().map(str::to_owned)) {
                 SelectHiddenInput {
@@ -141,7 +144,7 @@ pub fn SelectTrigger(
             role: "{attrs.role()}",
             aria_haspopup: "{attrs.aria_haspopup()}",
             aria_expanded: "{attrs.aria_expanded()}",
-            aria_controls: "{attrs.aria_controls()}",
+            aria_controls: attrs.aria_controls(),
             aria_disabled: attrs.aria_disabled(),
             aria_required: attrs.aria_required(),
             tabindex: "{attrs.tabindex()}",
@@ -149,7 +152,7 @@ pub fn SelectTrigger(
             class: class.as_deref().unwrap_or_default(),
             style: style.as_deref().unwrap_or_default(),
             "data-state": "{attrs.data_state_str()}",
-            "data-disabled": if attrs.is_disabled() { "true" } else { "false" },
+            "data-disabled": attrs.data_disabled(),
             "data-placeholder": attrs.data_placeholder_str(),
             onpointerdown: {
                 let runtime = ctx.runtime.clone();

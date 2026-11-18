@@ -66,6 +66,10 @@ fn tabs_attributes_publish_wai_aria_and_data_attributes() {
     assert_eq!(active_trigger.aria_selected(), "true");
     assert_eq!(
         active_trigger.aria_controls(),
+        Some(scope.qualify("content-account").as_str())
+    );
+    assert_eq!(
+        active_trigger.target_content_id(),
         scope.qualify("content-account")
     );
     assert_eq!(active_trigger.tabindex(), 0);
@@ -83,6 +87,10 @@ fn tabs_attributes_publish_wai_aria_and_data_attributes() {
     assert_eq!(inactive_trigger.aria_selected(), "false");
     assert_eq!(
         inactive_trigger.aria_controls(),
+        None
+    );
+    assert_eq!(
+        inactive_trigger.target_content_id(),
         scope.qualify("content-password")
     );
     assert_eq!(inactive_trigger.tabindex(), -1);
@@ -135,4 +143,20 @@ fn tabs_root_level_disabled_cascades_to_list_and_triggers() {
     assert!(!normal_tabs.list().is_disabled());
     assert!(!normal_tabs.trigger("account", false).is_disabled());
     assert!(normal_tabs.trigger("password", true).is_disabled());
+}
+
+#[test]
+fn tabs_orientation_aware_navigation_keys() {
+    assert!(Tabs::is_navigation_key_for_orientation(TabsOrientation::Horizontal, "ArrowLeft"));
+    assert!(Tabs::is_navigation_key_for_orientation(TabsOrientation::Horizontal, "ArrowRight"));
+    assert!(!Tabs::is_navigation_key_for_orientation(TabsOrientation::Horizontal, "ArrowUp"));
+    assert!(!Tabs::is_navigation_key_for_orientation(TabsOrientation::Horizontal, "ArrowDown"));
+
+    assert!(!Tabs::is_navigation_key_for_orientation(TabsOrientation::Vertical, "ArrowLeft"));
+    assert!(!Tabs::is_navigation_key_for_orientation(TabsOrientation::Vertical, "ArrowRight"));
+    assert!(Tabs::is_navigation_key_for_orientation(TabsOrientation::Vertical, "ArrowUp"));
+    assert!(Tabs::is_navigation_key_for_orientation(TabsOrientation::Vertical, "ArrowDown"));
+
+    assert!(Tabs::is_navigation_key_for_orientation(TabsOrientation::Horizontal, "Home"));
+    assert!(Tabs::is_navigation_key_for_orientation(TabsOrientation::Vertical, "End"));
 }

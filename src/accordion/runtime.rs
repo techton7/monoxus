@@ -24,6 +24,7 @@ pub struct AccordionRuntimeState {
     pub current_tab_stop: Signal<String>,
     pub registered_items: Signal<Vec<AccordionItemRegistration>>,
     pub trigger_ids: Signal<Vec<(String, String)>>,
+    pub mounted_content_ids: Signal<Vec<String>>,
 }
 
 #[derive(Clone)]
@@ -50,6 +51,7 @@ where
         current_tab_stop: use_signal(|| initial_tab_stop),
         registered_items: use_signal(Vec::new),
         trigger_ids: use_signal(Vec::new),
+        mounted_content_ids: use_signal(Vec::new),
     };
 
     let effect_state = state.clone();
@@ -106,8 +108,41 @@ impl AccordionRuntime {
         self.accordion().header(value, disabled)
     }
 
+    pub fn header_with_level(&self, value: &str, disabled: bool, level: u8) -> AccordionHeaderAttributes {
+        self.accordion().header_with_level(value, disabled, level)
+    }
+
     pub fn trigger(&self, value: &str, disabled: bool) -> AccordionTriggerAttributes {
-        self.accordion().trigger(value, disabled)
+        let mut attrs = self.accordion().trigger(value, disabled);
+        let is_open = self.is_open(value);
+        let is_mounted = self
+            .state
+            .mounted_content_ids
+            .read()
+            .iter()
+            .any(|v| v == value);
+        if is_open || is_mounted {
+            attrs.aria_controls = Some(self.accordion.relationships().content_id(value));
+        } else {
+            attrs.aria_controls = None;
+        }
+        attrs
+    }
+
+    pub fn register_content_mounted(&self, value: &str) {
+        let mut mounted_sig = self.state.mounted_content_ids;
+        if let Ok(mut list) = mounted_sig.try_write() {
+            if !list.iter().any(|v| v == value) {
+                list.push(value.to_string());
+            }
+        }
+    }
+
+    pub fn unregister_content_mounted(&self, value: &str) {
+        let mut mounted_sig = self.state.mounted_content_ids;
+        if let Ok(mut list) = mounted_sig.try_write() {
+            list.retain(|v| v != value);
+        }
     }
 
     pub fn content(&self, value: &str) -> AccordionContentAttributes {
@@ -179,13 +214,75 @@ impl AccordionRuntime {
     }
 
     pub fn unregister_item(&self, value: &str) {
-        let mut list = self.state.registered_items;
-        list.with_mut(|items| {
-            items.retain(|i| i.value != value);
-        });
+        let mut reg_sig = self.state.registered_items;
+        if let Ok(mut list) = reg_sig.try_write() {
+            list.retain(|i| i.value != value);
+        }
+        let mut trig_sig = self.state.trigger_ids;
+        if let Ok(mut list) = trig_sig.try_write() {
+            list.retain(|(v, _)| v != value);
+        }
+        let mut mounted_sig = self.state.mounted_content_ids;
+        if let Ok(mut mounted) = mounted_sig.try_write() {
+            mounted.retain(|v| v != value);
+        }
+        let matches_current = self
+            .state
+            .current_tab_stop
+            .try_peek()
+            .map(|curr| *curr == value)
+            .unwrap_or(false);
+        if matches_current {
+            let next_stop = self
+                .state
+                .registered_items
+                .try_peek()
+                .ok()
+                .and_then(|items| {
+                    items
+                        .iter()
+                        .find(|i| !i.disabled)
+                        .or_else(|| items.first())
+                        .map(|i| i.value.clone())
+                })
+                .unwrap_or_default();
+            let mut tab_stop_sig = self.state.current_tab_stop;
+            if let Ok(mut tab_stop) = tab_stop_sig.try_write() {
+                *tab_stop = next_stop;
+            }
+        }
+    }
+
+    pub fn reconcile_order(&self) {
+        let root_id = self.accordion.relationships().root_id();
+        let trigger_ids = self.state.trigger_ids.peek().clone();
+        if trigger_ids.len() <= 1 {
+            return;
+        }
+        let candidate_ids: Vec<&str> = trigger_ids.iter().map(|(_, id)| id.as_str()).collect();
+        if let Ok(ordered) = crate::foundation::browser::query_descendant_order(root_id, &candidate_ids) {
+            let mut ordered_values = Vec::new();
+            for el_id in ordered {
+                if let Some((val, _)) = trigger_ids.iter().find(|(_, id)| id == &el_id) {
+                    ordered_values.push(val.clone());
+                }
+            }
+            if !ordered_values.is_empty() {
+                let mut reg_sig = self.state.registered_items;
+                if let Ok(mut items) = reg_sig.try_write() {
+                    items.sort_by_key(|item| {
+                        ordered_values
+                            .iter()
+                            .position(|v| v == &item.value)
+                            .unwrap_or(usize::MAX)
+                    });
+                }
+            }
+        }
     }
 
     pub fn navigate_key(&self, key: &str) -> Option<String> {
+        self.reconcile_order();
         let items = self.state.registered_items.read();
         let current = self.state.current_tab_stop.read().clone();
         let next_item = self.accordion.resolve_key_navigation(&items, &current, key);

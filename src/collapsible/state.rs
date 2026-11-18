@@ -85,9 +85,17 @@ impl Collapsible {
             DataState::Closed
         };
 
+        let content_id = self.relationships.content_id().to_owned();
+        let aria_controls = if self.open {
+            Some(content_id.clone())
+        } else {
+            None
+        };
+
         CollapsibleTriggerAttributes {
             id: self.relationships.trigger_id().to_owned(),
-            aria_controls: self.relationships.content_id().to_owned(),
+            content_id,
+            aria_controls,
             aria_expanded: if self.open { "true" } else { "false" },
             data_state,
             disabled: self.disabled,

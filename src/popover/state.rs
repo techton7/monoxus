@@ -192,6 +192,13 @@ impl PopoverLifecycle {
         focus_registered && dismiss_registered
     }
 
+    pub fn unregister_branch(&mut self, branch: &str) -> bool {
+        let branch_str = branch.to_string();
+        let focus_unregistered = self.focus_scope.unregister_branch(&branch_str);
+        let dismiss_unregistered = self.dismiss_layer.unregister_branch(&branch_str);
+        focus_unregistered || dismiss_unregistered
+    }
+
     pub(crate) fn set_modal(&mut self, modal: bool) {
         let previous_modal = self.modal;
         self.modal = modal;
@@ -415,8 +422,14 @@ impl Popover {
     pub fn trigger(&self) -> PopoverTriggerAttributes {
         PopoverTriggerAttributes {
             id: self.relationships.trigger_id().to_owned(),
-            aria_controls: self.relationships.content_id().to_owned(),
+            target_content_id: self.relationships.content_id().to_owned(),
+            aria_controls: if self.is_open() {
+                Some(self.relationships.content_id().to_owned())
+            } else {
+                None
+            },
             aria_expanded: self.is_open(),
+            disabled: false,
             data_state: self.data_state(),
             open_request: PopoverStateRequest::Toggle,
         }
@@ -457,6 +470,7 @@ impl Popover {
     pub fn close(&self) -> PopoverCloseAttributes {
         PopoverCloseAttributes {
             id: self.relationships.close_id().to_owned(),
+            disabled: false,
             data_state: self.data_state(),
             close_request: PopoverStateRequest::Close,
         }

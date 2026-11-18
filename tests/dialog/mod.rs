@@ -3,5 +3,6 @@ pub mod components_test;
 pub mod contracts_test;
 pub mod fixtures;
 pub mod lifecycle_test;
+pub mod modal_shield_scroll_lock_test;
 pub mod policy_test;
 

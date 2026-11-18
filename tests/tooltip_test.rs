@@ -387,4 +387,81 @@ fn test_tooltip_provider_unmount_during_skip_delay_no_panic() {
     dom.render_immediate(&mut dioxus::core::NoOpMutations);
 }
 
+#[component]
+fn TooltipBranchRegistrationSample(
+    registered: Rc<RefCell<Vec<String>>>,
+    unregistered: Rc<RefCell<Vec<String>>>,
+) -> Element {
+    let reg_c = registered.clone();
+    let unreg_c = unregistered.clone();
+    use_context_provider(|| {
+        monoxus::foundation::overlay::OverlayBranchContext::new(
+            move |branch: String| {
+                reg_c.borrow_mut().push(branch);
+            },
+            move |branch: String| {
+                unreg_c.borrow_mut().push(branch);
+            },
+        )
+    });
+
+    rsx! {
+        TooltipRoot {
+            default_open: true,
+            TooltipTrigger { "Trigger" }
+            TooltipPortal {
+                TooltipContent {
+                    id: "nested-tooltip-content",
+                    "Tooltip info"
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_tooltip_registers_in_overlay_branch_context() {
+    let registered = Rc::new(RefCell::new(Vec::new()));
+    let unregistered = Rc::new(RefCell::new(Vec::new()));
+
+    let mut dom = VirtualDom::new_with_props(
+        TooltipBranchRegistrationSample,
+        TooltipBranchRegistrationSampleProps {
+            registered: registered.clone(),
+            unregistered: unregistered.clone(),
+        },
+    );
+    dom.rebuild_in_place();
+
+    assert!(registered.borrow().contains(&"nested-tooltip-content".to_string()));
+}
+
+#[component]
+fn TooltipAriaLabelSample() -> Element {
+    rsx! {
+        TooltipRoot {
+            default_open: true,
+            TooltipTrigger {
+                disabled: true,
+                "Trigger"
+            }
+            TooltipPortal {
+                TooltipContent {
+                    id: "custom-tooltip-id",
+                    aria_label: "Accessible description".to_string(),
+                    collision_boundary: "boundary-root".to_string(),
+                    collision_padding: 8.0,
+                    "Visual content"
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_tooltip_aria_label_sample_renders() {
+    let mut dom = VirtualDom::new(TooltipAriaLabelSample);
+    dom.rebuild_in_place();
+}
+
 
