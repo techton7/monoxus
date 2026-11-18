@@ -9,7 +9,7 @@ use monoxus::label::{
 };
 
 #[cfg(feature = "native")]
-mod common;
+use crate::common;
 
 #[component]
 fn LabelExplicitForScenario(clicked: Rc<Cell<u32>>) -> Element {
@@ -118,6 +118,7 @@ mod native_tests {
 
     #[test]
     fn test_native_label_attributes_and_click_forwarding() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(NativeLabelExplicitForApp);
 
         let label_id = harness.query("#explicit-label").expect("Label mounted in DOM");
@@ -140,6 +141,7 @@ mod native_tests {
 
     #[test]
     fn test_native_nested_label_renders_root_marker() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let harness = mount_native_scenario(LabelNestedControlScenario);
 
         let label_id = harness.query("#nested-label").expect("Nested label mounted");

@@ -6,7 +6,7 @@ use monoxus::foundation::form::{
 };
 
 #[cfg(feature = "native")]
-mod common;
+use crate::common;
 
 #[test]
 fn test_hidden_input_pure_contract() {
@@ -131,6 +131,7 @@ mod native_tests {
 
     #[test]
     fn test_native_hidden_form_input_attributes_label_order_and_focus_forwarding() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(SiblingOrderAndFocusApp);
 
         let btn_id = harness.node("#ctrl-btn");
@@ -313,6 +314,7 @@ mod native_tests {
 
     #[test]
     fn test_native_form_reset_runtime_guard_button_reset_and_collect_form_data() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(FormResetAndCollectApp);
         // Pump effects so `use_form_control_sync` registers observers and detects ancestor `<form>`
         advance_frame_and_pump(&mut harness, 0.016);
@@ -484,6 +486,7 @@ mod native_tests {
 
     #[test]
     fn test_native_unmutated_and_mutated_default_checked_controls_survive_dom_clobber_on_reset() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(ResetEpochClobberScenarioApp);
         advance_frame_and_pump(&mut harness, 0.016);
 

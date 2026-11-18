@@ -5,8 +5,7 @@ use dioxus::prelude::*;
 use monoxus::checkbox::{Checkbox, CheckboxIndicator, CheckedState};
 
 #[cfg(feature = "native")]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 #[component]
 fn UncontrolledCheckboxInteractionApp() -> Element {
@@ -88,6 +87,7 @@ mod native_tests {
 
     #[test]
     fn test_native_checkbox_click_toggle_and_from_indeterminate() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(UncontrolledCheckboxInteractionApp);
         advance_frame_and_pump(&mut harness, 0.016);
 
@@ -149,6 +149,7 @@ mod native_tests {
 
     #[test]
     fn test_native_checkbox_enter_suppression_vs_space_toggle() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(UncontrolledCheckboxInteractionApp);
         advance_frame_and_pump(&mut harness, 0.016);
 
@@ -189,6 +190,7 @@ mod native_tests {
 
     #[test]
     fn test_native_checkbox_disabled_and_readonly_guard() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(UncontrolledCheckboxInteractionApp);
         advance_frame_and_pump(&mut harness, 0.016);
 
@@ -237,6 +239,7 @@ mod native_tests {
 
     #[test]
     fn test_native_checkbox_label_focus_forwarding() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(LabelForwardingApp);
         advance_frame_and_pump(&mut harness, 0.016);
 
@@ -264,6 +267,7 @@ mod native_tests {
 
     #[test]
     fn test_native_checkbox_consumer_on_click_cancellation() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(OnClickCancellationApp);
         advance_frame_and_pump(&mut harness, 0.016);
 

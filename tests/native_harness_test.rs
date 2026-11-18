@@ -4,15 +4,14 @@
 //! dispatching synthetic pointer and keyboard interactions, and asserting
 //! relational geometry and focus contracts.
 
-mod common;
+use crate::common;
 use common::native_fixture::*;
 use dioxus::prelude::*;
+use crate::playground_fixtures::{playground_collapsible};
 use keyboard_types::{Code, Key, NamedKey};
 use monoxus::collapsible::{CollapsibleContent, CollapsibleRoot, CollapsibleTrigger};
 
 // Include the playground scenario directly to demonstrate mounting playground components
-#[path = "../examples/playground/collapsible.rs"]
-mod playground_collapsible;
 
 /// Standalone scenario with explicit dimensions for strict relational alignment testing.
 #[component]
@@ -45,6 +44,7 @@ fn NativeRelationalTestScenario() -> Element {
 
 #[test]
 fn test_native_harness_playground_collapsible_scenario() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut harness = mount_native_scenario(playground_collapsible::BasicCollapsibleScenario);
 
     // Initial state: trigger must exist with non-empty rect
@@ -81,6 +81,7 @@ fn test_native_harness_playground_collapsible_scenario() {
 
 #[test]
 fn test_native_harness_relational_geometry_and_keyboard() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut harness = mount_native_scenario(NativeRelationalTestScenario);
 
     // Initial layout assertions

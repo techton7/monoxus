@@ -7,8 +7,7 @@ use monoxus::{
 };
 
 #[cfg(feature = "native")]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 #[component]
 fn AriaDefaultApp() -> Element {
@@ -72,6 +71,7 @@ mod native_tests {
 
     #[test]
     fn test_native_aria_default_attributes() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let harness = mount_native_scenario(AriaDefaultApp);
 
         let root_id = harness.node("#rg-default");
@@ -110,6 +110,7 @@ mod native_tests {
 
     #[test]
     fn test_native_aria_configured_attributes_and_indicators() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let harness = mount_native_scenario(AriaConfiguredApp);
 
         let root_id = harness.node("#rg-configured");

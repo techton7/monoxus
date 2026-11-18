@@ -3,24 +3,16 @@
 //! Validates floating and overlay primitives (Popover, Tooltip, Dialog, AlertDialog)
 //! using Blitz test harness over shared scenarios directly from `examples/playground/`.
 
-mod common;
+use crate::common;
 use common::native_fixture::*;
 use dioxus::prelude::*;
+use crate::playground_fixtures::{playground_popover, playground_tooltip, playground_dialog, playground_alert_dialog};
 use keyboard_types::{Code, Key, NamedKey};
 
-#[path = "../examples/playground/popover.rs"]
-mod playground_popover;
 
-#[path = "../examples/playground/tooltip.rs"]
-mod playground_tooltip;
 
-#[path = "../examples/playground/dialog.rs"]
-mod playground_dialog;
 
-#[path = "../examples/playground/alert_dialog.rs"]
-mod playground_alert_dialog;
 
-static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Test 1: Popover floating and dismissal lifecycle
 ///
@@ -28,7 +20,7 @@ static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// placement below anchor, and multiple dismissal paths (close button, Escape key, and outside click).
 #[test]
 fn test_native_popover_floating_and_dismiss() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut harness = mount_native_scenario(playground_popover::PopoverPlayground);
 
     // Initial state: trigger exists, content not mounted
@@ -106,7 +98,7 @@ fn test_native_popover_floating_and_dismiss() {
 /// arrow mounting, relative vertical/horizontal alignment, and unmount on pointer leave.
 #[test]
 fn test_native_tooltip_trigger_and_arrow() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     fn tooltip_test_scenario() -> Element {
         rsx! {
@@ -183,7 +175,7 @@ fn test_native_tooltip_trigger_and_arrow() {
 /// and Escape key handling.
 #[test]
 fn test_native_dialog_and_alert_dialog_lifecycle() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     // -------------------------------------------------------------------------
     // 1. Dialog Playground Lifecycle
@@ -312,7 +304,7 @@ fn test_native_dialog_and_alert_dialog_lifecycle() {
 /// 2) `NativeFloatingPlatform::get_element_rects` produces `floating.x == 0.0` and `floating.y == 0.0` for `Strategy::Fixed`.
 #[test]
 fn test_native_double_correction_invariants() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     use oxidase_floating_ui::compute_coords_from_placement;
     use oxidase_floating_ui::geometry::{ElementOrVirtual, ElementRects, Placement, Rect, Strategy};
     use oxidase_floating_ui::platform::NativeFloatingPlatform;
@@ -457,7 +449,7 @@ fn test_native_double_correction_invariants() {
 /// Test 6: Popover Keyboard Activation and Descendant Input Space Typing
 #[test]
 fn test_native_popover_keyboard_activation_and_descendant_input() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut harness = mount_native_scenario(playground_popover::PopoverPlayground);
 
     assert_rect_non_empty(&harness, "#popover-trigger");
@@ -495,7 +487,7 @@ fn test_native_popover_keyboard_activation_and_descendant_input() {
 /// Test 7: Dialog & AlertDialog Keyboard Activation, Descendant Input, and Action/Cancel
 #[test]
 fn test_native_dialog_and_alert_dialog_keyboard_activation() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     // -------------------------------------------------------------------------
     // Part 1: Dialog with Descendant Input
@@ -577,7 +569,7 @@ fn test_native_dialog_and_alert_dialog_keyboard_activation() {
 /// Test 8: Tooltip Trigger Dismiss Upon Space and Enter
 #[test]
 fn test_native_tooltip_space_enter_dismiss() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     fn tooltip_dismiss_scenario() -> Element {
         rsx! {
@@ -636,7 +628,7 @@ fn test_native_tooltip_space_enter_dismiss() {
 /// Test 9: Popover & Dialog :focus-visible modality and pointer-dismiss focus restoration
 #[test]
 fn test_native_popover_and_dialog_focus_visible_modality_and_pointer_dismiss_restoration() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     // -------------------------------------------------------------------------
     // Part 1: PopoverPlayground (explicit Target open/close focus policies)
@@ -736,9 +728,8 @@ fn test_native_popover_and_dialog_focus_visible_modality_and_pointer_dismiss_res
 /// Test 10: Tooltip :focus-visible modality gating and passive grace corridor without pointer capture
 #[test]
 fn test_native_tooltip_focus_visible_gating_and_passive_grace_corridor() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     use blitz_traits::events::BlitzPointerId;
-
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     #[component]
     fn TooltipModalityScenario() -> Element {
@@ -875,7 +866,7 @@ fn test_native_tooltip_focus_visible_gating_and_passive_grace_corridor() {
 /// the waking task aborts cleanly without panicking with ValueDroppedError.
 #[test]
 fn test_native_tooltip_unmount_during_skip_delay_no_panic() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     fn unmount_tooltip_scenario() -> Element {
         let mut mounted = use_signal(|| true);

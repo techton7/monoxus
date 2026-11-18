@@ -1577,7 +1577,12 @@ fn concurrent_three_toast_countdown_and_pause_resume_test() {
 
 #[test]
 fn pointer_close_and_action_keep_viewport_unfocused_collapse_on_mouseleave_and_expire_test() {
+    #[cfg(feature = "native")]
+    use crate::common::native_fixture::NATIVE_TEST_LOCK;
     use std::rc::Rc;
+
+    #[cfg(feature = "native")]
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     const STACK_POINTER_CSS: &str = r#"
         html, body { width: 800px; height: 800px; margin: 0; padding: 0; }

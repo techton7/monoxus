@@ -3,20 +3,15 @@
 //! Validates non-floating primitives (Collapsible, Accordion, Tabs) using
 //! Blitz test harness over shared scenarios directly from `examples/playground/`.
 
-mod common;
+use crate::common;
 use common::native_fixture::*;
 use blitz_test_harness::Harness;
 use dioxus::prelude::*;
+use crate::playground_fixtures::{playground_collapsible, playground_accordion, playground_tabs};
 use keyboard_types::{Code, Key, NamedKey};
 
-#[path = "../examples/playground/collapsible.rs"]
-mod playground_collapsible;
 
-#[path = "../examples/playground/accordion.rs"]
-mod playground_accordion;
 
-#[path = "../examples/playground/tabs.rs"]
-mod playground_tabs;
 
 /// Test 1: Collapsible Live Layout and Toggle
 ///
@@ -24,6 +19,7 @@ mod playground_tabs;
 /// relational alignment (content positioned below trigger), and closing toggle.
 #[test]
 fn test_native_collapsible_live_layout_and_toggle() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut harness = mount_native_scenario(playground_collapsible::BasicCollapsibleScenario);
 
     // Initial state: trigger exists with non-empty rect, closed state, content unmounted
@@ -72,6 +68,7 @@ fn test_native_collapsible_live_layout_and_toggle() {
 /// 2. Multiple selection mode allows simultaneous item expansion.
 #[test]
 fn test_native_accordion_single_and_multiple_expansion() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     // -------------------------------------------------------------------------
     // 1. Single Collapsible Mode: Mutual Exclusion
     // -------------------------------------------------------------------------
@@ -187,6 +184,7 @@ fn test_native_accordion_single_and_multiple_expansion() {
 /// navigation (Home / End).
 #[test]
 fn test_native_tabs_arrow_navigation_and_roving_focus() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut harness = mount_native_scenario(playground_tabs::TabsPlayground);
 
     // Default state: #tabs-trigger-1 active, content 1 rendered, content 2 unmounted
@@ -363,6 +361,7 @@ fn NativeCollapsibleCallbackApp() -> Element {
 /// Test 4: Collapsible Single-Fire MouseEvent and Space+Escape Abort
 #[test]
 fn test_native_collapsible_single_fire_mouse_event_and_space_escape_abort() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     CB_CALL_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
     let mut harness = mount_native_scenario(NativeCollapsibleCallbackApp);
 
@@ -452,6 +451,7 @@ fn test_native_collapsible_single_fire_mouse_event_and_space_escape_abort() {
 /// Test 5: Accordion Roving Focus + Enter & Space Expansion Without Double-Toggle
 #[test]
 fn test_native_accordion_roving_and_enter_space_toggle() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut harness = mount_native_scenario(playground_accordion::SingleCollapsibleSection);
 
     // Initial state: Item 1 closed
@@ -539,6 +539,7 @@ fn NativeTabsManualScenario() -> Element {
 /// Test 6: Tabs Manual Activation Mode with Space & Enter
 #[test]
 fn test_native_tabs_manual_activation_mode_space_and_enter() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut harness = mount_native_scenario(NativeTabsManualScenario);
 
     // Initial state: profile active
@@ -643,6 +644,7 @@ fn UnguardedInputTabsApp() -> Element {
 /// Test 7: Unguarded <input type="text"> Space Key in TabsContent Does Not Switch Tabs
 #[test]
 fn test_native_tabs_unguarded_descendant_input_space() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut harness = mount_native_scenario(UnguardedInputTabsApp);
 
     assert_eq!(

@@ -13,6 +13,8 @@ use dioxus::prelude::Element;
 use dioxus_native_dom::DioxusDocument;
 use keyboard_types::{Code, Key, Location, Modifiers};
 
+pub static NATIVE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Mounts a Dioxus scenario component headlessly into a Blitz document harness.
 ///
 /// Constructs `Harness::from_component(app)` and performs initial layout/style pump.

@@ -6,22 +6,16 @@
 #![allow(unused_imports, dead_code)]
 
 use dioxus::prelude::*;
-mod common;
+use crate::playground_fixtures::{playground_select, playground_toast, playground_tooltip};
+use crate::common;
 use common::native_fixture::*;
 use keyboard_types::{Code, Key, Modifiers, NamedKey};
 use monoxus::toast::{TOAST_STORE, ToastOptions, toast};
 use std::time::Duration;
 
-#[path = "../examples/playground/scenarios/select/mod.rs"]
-mod playground_select;
 
-#[path = "../examples/playground/pages/toast_page.rs"]
-mod playground_toast;
 
-#[path = "../examples/playground/tooltip.rs"]
-mod playground_tooltip;
 
-static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Test 1: Select document order, roving focus, and synchronous/closed typeahead
 ///
@@ -32,7 +26,7 @@ static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// closed-state typeahead commit ('p' -> pineapple).
 #[test]
 fn test_native_select_document_order_and_roving_focus() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut harness = mount_native_scenario(playground_select::BasicFruitSelectSection);
 
     // Initial state: trigger exists with valid non-empty rect, content is unmounted
@@ -202,7 +196,7 @@ fn test_native_select_document_order_and_roving_focus() {
 /// and verifying unmount from viewport.
 #[test]
 fn test_native_toast_swipe_dismiss_gesture() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut harness = mount_native_scenario(playground_toast::ToastPage);
     harness.set_viewport_size(800, 1400);
@@ -311,7 +305,7 @@ fn test_native_toast_swipe_dismiss_gesture() {
 /// and are evicted from the DOM without any pointer interaction.
 #[test]
 fn test_native_toast_timer_auto_close_lifecycle() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut harness = mount_native_scenario(playground_toast::ToastPage);
 
@@ -373,7 +367,7 @@ fn test_native_toast_timer_auto_close_lifecycle() {
 /// and content unmounts completely from the DOM without panicking.
 #[test]
 fn test_native_select_outside_click_dismissal() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut harness = mount_native_scenario(playground_select::BasicFruitSelectSection);
 
     // Initial state: trigger collapsed
@@ -426,7 +420,7 @@ fn test_native_select_outside_click_dismissal() {
 /// and content unmounts completely from the DOM without panicking.
 #[test]
 fn test_native_select_escape_dismissal() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut harness = mount_native_scenario(playground_select::BasicFruitSelectSection);
 
     // Initial state: trigger collapsed
@@ -484,7 +478,7 @@ fn test_native_select_escape_dismissal() {
 /// keeping SelectContent anchored to SelectTrigger with side_offset (4.0px) preserved.
 #[test]
 fn test_native_select_wheel_scroll_alignment() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     #[component]
     fn ScrollTestContainer() -> Element {
@@ -581,7 +575,7 @@ fn test_native_select_wheel_scroll_alignment() {
 /// the fixed content stays anchored to the in-flow trigger with constant side-offset gap (4.0px).
 #[test]
 fn test_native_select_window_viewport_scroll_alignment() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     #[component]
     fn WindowScrollScenario() -> Element {
@@ -684,7 +678,7 @@ fn test_native_select_window_viewport_scroll_alignment() {
 /// and reaches FloatingReadiness::Ready without any mouse wheel or scroll events.
 #[test]
 fn test_native_select_bottom_collision_flips_to_top_without_wheel_scroll() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     #[component]
     fn BottomCollisionScenario() -> Element {
@@ -765,13 +759,12 @@ fn test_native_select_bottom_collision_flips_to_top_without_wheel_scroll() {
 /// Test 5: Toast W3C Pointer Capture out-of-bounds release, interactive button guard, and lostpointercapture recovery
 #[test]
 fn test_native_toast_pointer_capture_out_of_bounds_release_button_guard_and_lost_capture() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     use blitz_traits::events::{
         BlitzPointerEvent, BlitzPointerId, MouseEventButton, MouseEventButtons, PointerCoords,
         PointerDetails, UiEvent,
     };
     use monoxus::toast::ToastActionData;
-
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mouse_pid = BlitzPointerId::Mouse.to_dom_pointer_id();
 
     let drag_move_to = |harness: &mut blitz_test_harness::Harness<dioxus_native_dom::DioxusDocument>,
@@ -975,7 +968,7 @@ fn visual_y_bounds(
 /// `::after` gap-bridge hover continuity, `[data-close-button]` 24x24 geometry, and timer pause.
 #[test]
 fn test_native_toast_stack_collapsed_clamp_hover_expand_gap_bridge_and_timer_pause() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut harness = mount_native_scenario(playground_toast::ToastPage);
     harness.set_viewport_size(800, 1400);
@@ -1200,7 +1193,7 @@ fn test_native_toast_stack_collapsed_clamp_hover_expand_gap_bridge_and_timer_pau
 /// Test 10: Swipe immunity for `ToastType::Loading` and `dismissible: Some(false)`.
 #[test]
 fn test_native_toast_loading_and_non_dismissible_swipe_immunity() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut harness = mount_native_scenario(playground_toast::ToastPage);
     harness.set_viewport_size(800, 1400);
@@ -1302,7 +1295,7 @@ fn test_native_toast_loading_and_non_dismissible_swipe_immunity() {
 /// and focus restoration to `#monoxus-toast-viewport`.
 #[test]
 fn test_native_toast_f8_landmark_focus_and_escape_dismissal() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut harness = mount_native_scenario(playground_toast::ToastPage);
     harness.set_viewport_size(800, 1400);
@@ -1439,7 +1432,7 @@ fn test_native_toast_f8_landmark_focus_and_escape_dismissal() {
 /// Test 12: Tooltip 184px grid layout wraps unbroken tokens cleanly without horizontal overflow.
 #[test]
 fn test_native_tooltip_184px_grid_long_token_no_horizontal_overflow() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     #[component]
     fn ZeroDelayTooltipScenario() -> Element {
@@ -1512,7 +1505,7 @@ fn test_native_tooltip_184px_grid_long_token_no_horizontal_overflow() {
 /// while collapsed background cards clamp to `--front-toast-height` and restore on hover expand.
 #[test]
 fn test_native_toast_three_card_distinct_heights_collapsed_clamp_and_hover_expand() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut harness = mount_native_scenario(playground_toast::ToastPage);
     harness.set_viewport_size(800, 1400);
@@ -1637,7 +1630,7 @@ fn test_native_toast_three_card_distinct_heights_collapsed_clamp_and_hover_expan
 /// background card and the frontmost card (updating `--front-toast-height`).
 #[test]
 fn test_native_toast_in_place_content_update_remeasures_clamped_and_front_height() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut harness = mount_native_scenario(playground_toast::ToastPage);
     harness.set_viewport_size(800, 1400);
@@ -1771,7 +1764,7 @@ fn test_native_toast_in_place_content_update_remeasures_clamped_and_front_height
 /// queue-empty interaction reset, and `F8` -> `Escape` pre-hotkey focus restoration.
 #[test]
 fn test_native_toast_pointer_snapback_loading_click_and_clear_all_focus_hover_reset() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut harness = mount_native_scenario(playground_toast::ToastPage);
     harness.set_viewport_size(800, 1400);
@@ -1924,7 +1917,7 @@ fn test_native_toast_pointer_snapback_loading_click_and_clear_all_focus_hover_re
 /// document becomes hidden/occluded (`Document::set_document_hidden(true)`) and resumes on restore.
 #[test]
 fn test_native_toast_document_visibility_occlusion_pauses_and_resumes_timers() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut harness = mount_native_scenario(playground_toast::ToastPage);
     harness.set_viewport_size(800, 1400);
@@ -2031,10 +2024,9 @@ fn test_native_toast_document_visibility_occlusion_pauses_and_resumes_timers() {
 /// with identical duration in the exact same virtual-frame batch (never serialized 3x).
 #[test]
 fn test_native_toast_concurrent_three_toast_countdown_same_frame_batch() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut harness = mount_native_scenario(playground_toast::ToastPage);
     harness.set_viewport_size(800, 1400);
@@ -2153,11 +2145,10 @@ fn test_native_toast_concurrent_three_toast_countdown_same_frame_batch() {
 /// and expires/unmounts remaining stacked toasts.
 #[test]
 fn test_native_toast_pointer_close_and_action_keep_viewport_unfocused_and_collapse_on_mouseleave() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     use monoxus::toast::ToastActionData;
     use std::rc::Rc;
     use std::sync::atomic::{AtomicBool, Ordering};
-
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     let mut harness = mount_native_scenario(playground_toast::ToastPage);
     harness.set_viewport_size(800, 1400);

@@ -9,7 +9,7 @@ use monoxus::{
 };
 
 #[cfg(feature = "native")]
-mod common;
+use crate::common;
 
 #[test]
 fn test_toggle_state_pure_matrix() {
@@ -157,6 +157,7 @@ mod native_tests {
 
     #[test]
     fn test_native_toggle_click_and_disabled() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(NativeToggleClickApp);
 
         let id = harness.query("#native-toggle").expect("Toggle mounted");

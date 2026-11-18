@@ -6,7 +6,7 @@ use monoxus::separator::{
 };
 
 #[cfg(feature = "native")]
-mod common;
+use crate::common;
 
 #[component]
 fn SeparatorAllVariantsScenario() -> Element {
@@ -84,6 +84,7 @@ mod native_tests {
 
     #[test]
     fn test_native_separator_matrix_attributes() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let harness = mount_native_scenario(SeparatorAllVariantsScenario);
 
         // 1. Semantic Horizontal

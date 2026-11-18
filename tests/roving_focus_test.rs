@@ -12,7 +12,7 @@ use monoxus::foundation::{
 };
 
 #[cfg(feature = "native")]
-mod common;
+use crate::common;
 
 #[test]
 fn foundation_shared_and_roving_focus_public_exports_coexist() {
@@ -215,6 +215,7 @@ mod native_tests {
 
     #[test]
     fn native_toggle_group_syncs_dynamic_dom_order_and_preserves_direct_button_children() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(DynamicDomOrderToggleGroupScenario);
 
         // Active item "middle" initially receives tabindex=0; no wrapper <span> exists
@@ -262,6 +263,7 @@ mod native_tests {
 
     #[test]
     fn native_toggle_group_roving_focus_false_keeps_tabindex_zero_and_ignores_arrows() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(OptOutRovingToggleGroupScenario);
 
         assert_eq!(harness.attr("#tg-opt-1", "tabindex").as_deref(), Some("0"));
@@ -312,6 +314,7 @@ mod native_tests {
 
     #[test]
     fn native_tabs_preserves_dom_structure_and_recovers_tab_stop_on_unmount() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(TabsNoWrapperSpanAndUnmountScenario);
 
         assert!(

@@ -8,8 +8,7 @@ use monoxus::{
 };
 
 #[cfg(feature = "native")]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 fn create_sample_registry() -> CollectionRegistry<String, ToggleGroupItemRegistration> {
     let mut reg = CollectionRegistry::new();
@@ -236,6 +235,7 @@ mod native_tests {
 
     #[test]
     fn test_native_toggle_group_mount() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let harness = mount_native_scenario(|| {
             rsx! {
                 ToggleGroupRoot {

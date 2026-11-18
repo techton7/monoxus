@@ -3,16 +3,15 @@
 //! Verifies that Monoxus overlay presence unmount is driven directly by native
 //! CSS AnimationEvent (onanimationend) in Blitz Native without thread::sleep fallbacks.
 
-mod common;
+use crate::common;
 use common::native_fixture::*;
 use dioxus::prelude::*;
 use monoxus::foundation::overlay::{Presence, PresenceState};
 
-static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
 fn test_native_presence_exit_animation_unmount() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     fn presence_scenario() -> Element {
         let mut presence = use_signal(|| Presence::new(true).with_retained_mount(true));

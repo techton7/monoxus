@@ -9,7 +9,7 @@ use monoxus::button::{
 };
 
 #[cfg(feature = "native")]
-mod common;
+use crate::common;
 
 #[component]
 fn EnabledButtonScenario(clicked: Rc<Cell<u32>>) -> Element {
@@ -199,6 +199,7 @@ mod native_tests {
 
     #[test]
     fn test_native_button_enabled_attributes_and_click() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(NativeEnabledButtonApp);
 
         let node_id = harness.query("#test-btn").expect("Button mounted in DOM");
@@ -221,6 +222,7 @@ mod native_tests {
 
     #[test]
     fn test_native_button_disabled_attributes_and_suppression() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(NativeDisabledButtonApp);
 
         let node_id = harness.query("#disabled-btn").expect("Disabled button mounted in DOM");
@@ -243,6 +245,7 @@ mod native_tests {
 
     #[test]
     fn test_native_anchor_enabled_vs_disabled_attributes() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(NativeAnchorsApp);
 
         // Enabled anchor

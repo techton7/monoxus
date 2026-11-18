@@ -248,9 +248,6 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
 
     let on_key_down = {
         let on_key_down = props.on_key_down.clone();
-        let button_type = props.r#type;
-        let disabled = effective_disabled;
-        let read_only = effective_read_only;
         move |evt: KeyboardEvent| {
             if let Some(ref handler) = on_key_down {
                 handler.call(evt.clone());
@@ -258,15 +255,6 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
             if evt.key() == Key::Named(NamedKey::Enter) {
                 // Per WAI-ARIA 1.2 Checkbox Pattern, Enter must NOT toggle checkbox.
                 evt.prevent_default();
-                if button_type == ButtonType::Submit && !disabled && !read_only {
-                    #[cfg(feature = "native")]
-                    {
-                        if let Some(doc) = oxidase::dom::Document::current() {
-                            // Native submit if in form
-                            let _ = doc;
-                        }
-                    }
-                }
             }
             // Space is left uncancelled so native <button> synthesizes Click on KeyUp with zero double-fire.
         }

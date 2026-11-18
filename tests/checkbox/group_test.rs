@@ -5,8 +5,7 @@ use monoxus::checkbox::{
 };
 
 #[cfg(feature = "native")]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 #[component]
 fn CheckboxGroupScenarioApp(show_label: Signal<bool>) -> Element {
@@ -107,6 +106,7 @@ mod native_tests {
 
     #[test]
     fn test_native_checkbox_group_multi_value_sync_and_conditional_labelledby() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(CheckboxGroupScenarioWrapper);
         advance_frame_and_pump(&mut harness, 0.016);
 
@@ -182,6 +182,7 @@ mod native_tests {
 
     #[test]
     fn test_native_checkbox_group_cascading_attributes() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(CascadingGroupApp);
         advance_frame_and_pump(&mut harness, 0.016);
 

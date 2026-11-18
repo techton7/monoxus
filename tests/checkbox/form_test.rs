@@ -3,8 +3,7 @@ use monoxus::button::{Button, ButtonType};
 use monoxus::checkbox::{Checkbox, CheckboxIndicator, CheckedState};
 
 #[cfg(feature = "native")]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 #[component]
 fn CheckboxFormScenarioApp() -> Element {
@@ -77,6 +76,7 @@ mod native_tests {
 
     #[test]
     fn test_native_checkbox_form_serialization_and_reset() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(CheckboxFormScenarioApp);
         advance_frame_and_pump(&mut harness, 0.016);
 

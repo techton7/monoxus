@@ -6,20 +6,18 @@
 
 #![allow(unused_imports, dead_code)]
 
-mod common;
+use crate::common;
 use common::native_fixture::*;
 use dioxus::prelude::*;
+use crate::playground_fixtures::{playground_select};
 use keyboard_types::{Code, Key, NamedKey};
 
-#[path = "../examples/playground/scenarios/select/mod.rs"]
-mod scenarios_select;
 
-static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
 fn test_native_select_click_immediate_ready_without_wheel_scroll() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut harness = mount_native_scenario(scenarios_select::BasicFruitSelectSection);
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(playground_select::BasicFruitSelectSection);
 
     // Initial state: trigger exists, content not mounted
     assert_rect_non_empty(&harness, "#select-trigger");
@@ -68,8 +66,8 @@ fn test_native_select_click_immediate_ready_without_wheel_scroll() {
 /// Test 2: SelectTrigger Space and Enter Zero Double-Fire
 #[test]
 fn test_native_select_trigger_zero_double_fire() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut harness = mount_native_scenario(scenarios_select::BasicFruitSelectSection);
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(playground_select::BasicFruitSelectSection);
 
     // Initial state: closed
     assert_eq!(
@@ -118,8 +116,8 @@ fn test_native_select_trigger_zero_double_fire() {
 /// Test 3: Select Content Multi-Word Typeahead with Space
 #[test]
 fn test_native_select_multi_word_space_typeahead() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut harness = mount_native_scenario(scenarios_select::BasicFruitSelectSection);
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(playground_select::BasicFruitSelectSection);
 
     // Open via Enter
     focus_node(&mut harness, "#select-trigger");
@@ -151,8 +149,8 @@ fn test_native_select_multi_word_space_typeahead() {
 /// Test 4: Select :focus-visible restoration parity (keyboard close vs mouse item click & outside pointer dismiss)
 #[test]
 fn test_native_select_focus_visible_keyboard_vs_pointer_restoration() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let mut harness = mount_native_scenario(scenarios_select::BasicFruitSelectSection);
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(playground_select::BasicFruitSelectSection);
 
     // 1. Open via keyboard (Enter) + close via Escape -> #select-trigger HAS :focus-visible=true
     focus_node(&mut harness, "#select-trigger");

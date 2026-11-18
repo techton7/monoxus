@@ -8,8 +8,7 @@ use monoxus::{
 };
 
 #[cfg(feature = "native")]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 fn create_sample_registry() -> CollectionRegistry<String, RadioGroupItemRegistration> {
     let mut reg = CollectionRegistry::new();
@@ -215,6 +214,7 @@ mod native_tests {
 
     #[test]
     fn test_native_keyboard_interactions() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(InteractiveKeyboardApp);
 
         let item_a_id = harness.node("#item-a");
@@ -338,6 +338,7 @@ mod native_tests {
 
     #[test]
     fn test_native_read_only_keyboard_navigation_does_not_change_selection() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(ReadOnlyKeyboardApp);
 
         let item_x_id = harness.node("#ro-x");

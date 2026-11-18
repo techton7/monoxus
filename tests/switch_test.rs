@@ -5,7 +5,7 @@ use monoxus::switch::{
 };
 
 #[cfg(feature = "native")]
-mod common;
+use crate::common;
 
 #[test]
 fn test_switch_part_inventory() {
@@ -87,6 +87,7 @@ mod native_tests {
 
     #[test]
     fn test_native_switch_attributes_and_permanent_thumb_mount() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(SwitchScenarioApp);
         advance_frame_and_pump(&mut harness, 0.016);
 
@@ -142,6 +143,7 @@ mod native_tests {
 
     #[test]
     fn test_native_switch_both_space_and_enter_toggle() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(SwitchScenarioApp);
         advance_frame_and_pump(&mut harness, 0.016);
 
@@ -183,6 +185,7 @@ mod native_tests {
 
     #[test]
     fn test_native_switch_disabled_readonly_and_label_forwarding() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(SwitchScenarioApp);
         advance_frame_and_pump(&mut harness, 0.016);
 
@@ -212,6 +215,7 @@ mod native_tests {
 
     #[test]
     fn test_native_switch_form_serialization_and_reset() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(SwitchScenarioApp);
         advance_frame_and_pump(&mut harness, 0.016);
 

@@ -5,10 +5,10 @@ use monoxus::dialog::{
 };
 
 #[cfg(feature = "native")]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
-static SCROLL_LOCK_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+#[cfg(not(feature = "native"))]
+static DEFAULT_SCROLL_LOCK_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[component]
 fn ControlledLockDialog(open: Signal<bool>, prevent_body_pointer_events: bool) -> Element {
@@ -32,7 +32,12 @@ fn ControlledLockDialog(open: Signal<bool>, prevent_body_pointer_events: bool) -
 
 #[test]
 fn test_dialog_scroll_lock_prevent_body_pointer_events_and_synchronous_unlock() {
-    let _guard = SCROLL_LOCK_TEST_MUTEX
+    #[cfg(feature = "native")]
+    let _guard = common::native_fixture::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    #[cfg(not(feature = "native"))]
+    let _guard = DEFAULT_SCROLL_LOCK_TEST_MUTEX
         .lock()
         .unwrap_or_else(|e| e.into_inner());
 
@@ -123,9 +128,7 @@ mod native_tests {
 
     #[test]
     fn test_native_dialog_modal_shield_aria_live_exemption_and_uncontrolled_restore() {
-        let _guard = SCROLL_LOCK_TEST_MUTEX
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(ModalShieldScenario);
 
         let ext_id = harness.node("#external-sibling");
@@ -198,9 +201,7 @@ mod native_tests {
 
     #[test]
     fn test_native_body_cssom_scroll_lock_non_destructive_restore() {
-        let _guard = SCROLL_LOCK_TEST_MUTEX
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(ModalShieldScenario);
 
         // Pre-populate <body> inline style with priority declarations
@@ -333,9 +334,7 @@ mod native_tests {
 
     #[test]
     fn test_native_modal_popover_shield_and_select_prevent_scroll_pointer_events() {
-        let _guard = SCROLL_LOCK_TEST_MUTEX
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(ModalPopoverAndScrollLockedSelectScenario);
 
         let ext_id = harness.node("#popover-external-sibling");

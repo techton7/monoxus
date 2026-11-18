@@ -8,8 +8,7 @@ use monoxus::{
 use monoxus::foundation::form::collect_form_data;
 
 #[cfg(feature = "native")]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 #[component]
 fn RadioGroupFormApp() -> Element {
@@ -66,6 +65,7 @@ mod native_tests {
 
     #[test]
     fn test_native_radio_group_form_submission_and_reset() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(RadioGroupFormApp);
         // Pump frame to allow effects to run and forms to associate
         advance_frame_and_pump(&mut harness, 0.016);

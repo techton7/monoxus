@@ -7,6 +7,7 @@ readme = "README.md"
 license = "MIT"
 repository = "https://github.com/techton7/monoxus"
 exclude = ["tests/gui/**"]
+autotests = false
 
 [dependencies]
 dioxus = { version = "0.8.0-alpha.3", default-features = false, features = ["devtools", "document", "hooks", "html", "mounted", "signals", "macro", "asset"] }
@@ -26,24 +27,13 @@ native = ["oxidase/native"]
 manganis-embedded = []
 
 [[test]]
-name = "native_overlay_test"
-required-features = ["native"]
+name = "all"
+path = "tests/all.rs"
 
 [[test]]
-name = "native_data_gesture_test"
-required-features = ["native"]
-
-[[test]]
-name = "native_presence_exit_test"
-required-features = ["native"]
-
-[[test]]
-name = "native_accordion_test"
-required-features = ["native"]
-
-[[test]]
-name = "native_select_test"
-required-features = ["native"]
+name = "standalone_asset_test"
+path = "tests/standalone_asset_test.rs"
+required-features = ["manganis-embedded"]
 
 [dev-dependencies]
 dioxus = { version = "0.8.0-alpha.3", default-features = false, features = ["minimal"] }
@@ -60,7 +50,11 @@ dioxus-native = { version = "0.7.0", git = "https://github.com/techton7/blitz.gi
 blitz-traits = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.3" }
 keyboard-types = "0.8"
 
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.dev.package."*"]
 opt-level = 3
+debug = false
 
 

@@ -4,16 +4,15 @@
 //! during CSS height transition, and only applies `hidden: true` when
 //! Oxidase / Blitz Native dispatches the TransitionEnd event without wall-clock sleeps.
 
-mod common;
+use crate::common;
 use common::native_fixture::*;
 use dioxus::prelude::*;
 use monoxus::accordion::*;
 
-static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 #[test]
 fn test_native_accordion_height_transition_lifecycle() {
-    let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     fn accordion_scenario() -> Element {
         rsx! {

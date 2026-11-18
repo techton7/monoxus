@@ -7,8 +7,7 @@ use monoxus::{
 };
 
 #[cfg(feature = "native")]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 #[test]
 fn test_checkbox_part_inventory() {
@@ -95,6 +94,7 @@ mod native_tests {
 
     #[test]
     fn test_native_checkbox_aria_attributes_and_indicator_presence() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(CheckboxAriaVdomApp);
         advance_frame_and_pump(&mut harness, 0.016);
 

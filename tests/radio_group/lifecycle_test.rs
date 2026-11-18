@@ -3,8 +3,7 @@ use monoxus::foundation::shared::Direction;
 use monoxus::radio_group::{RadioGroupIndicator, RadioGroupItem, RadioGroupRoot};
 
 #[cfg(feature = "native")]
-#[path = "../common/mod.rs"]
-mod common;
+use crate::common;
 
 #[component]
 fn LifecycleUnmountApp() -> Element {
@@ -221,6 +220,7 @@ mod native_tests {
 
     #[test]
     fn test_native_active_item_unmount_tabstop_recovery() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(LifecycleUnmountApp);
 
         let item_first_id = harness.node("#item-first");
@@ -252,6 +252,7 @@ mod native_tests {
 
     #[test]
     fn test_native_controlled_value_prop_syncs_tabindex_and_checkedness() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(ControlledPropSyncApp);
 
         let ctrl_1_id = harness.node("#ctrl-1");
@@ -285,6 +286,7 @@ mod native_tests {
 
     #[test]
     fn test_native_controlled_empty_string_unselected_to_selected_to_unselected_cycle() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let mut harness = mount_native_scenario(ControlledEmptyStringCycleApp);
         advance_frame_and_pump(&mut harness, 0.016);
 
@@ -347,6 +349,7 @@ mod native_tests {
 
     #[test]
     fn test_native_dynamic_root_props_propagate_to_mounted_items_and_indicators() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         use keyboard_types::{Code, Key, NamedKey};
 
         let mut harness = mount_native_scenario(DynamicRootPropsApp);
@@ -413,6 +416,7 @@ mod native_tests {
 
     #[test]
     fn test_native_two_auto_id_radio_groups_distinct_ids_and_finite_renders() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         use std::collections::HashSet;
         use std::sync::atomic::Ordering;
 
