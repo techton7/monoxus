@@ -243,11 +243,11 @@ pub fn RadioGroupPlayground() -> Element {
                     class: "space-y-1",
                     h3 {
                         class: "text-base font-semibold text-slate-900",
-                        "3. Dynamic Item Unmount Recovery (SW1B-7)"
+                        "3. Roving Tab-Stop Unmount Recovery (SW1B-7)"
                     }
                     p {
                         class: "text-xs text-slate-500",
-                        "When active roving tab-stop is unmounted, roving focus unregisters cleanly and fallback tabindex=\"0\" recovery passes to the first remaining enabled item."
+                        "Unmounting a checked item intentionally leaves remaining radios unchecked (matches Radix/Bits behavior with no silent selection change), while roving tabindex=\"0\" recovers onto the first remaining enabled item (\"free\") so Tab entry remains reachable."
                     }
                 }
 
@@ -260,11 +260,11 @@ pub fn RadioGroupPlayground() -> Element {
                             r#type: ButtonType::Button,
                             class: "sw1a-btn-secondary text-xs".to_string(),
                             on_click: move |_| show_pro.set(false),
-                            "Remove Active Radio (\"pro\")"
+                            "Unmount Checked Item (\"pro\")"
                         }
                         span {
                             class: "text-xs text-slate-500",
-                            if show_pro() { "Item \"pro\" is mounted" } else { "Item \"pro\" unmounted" }
+                            if show_pro() { "Mounted: free, pro (checked, tabindex=\"0\"), team" } else { "\"pro\" unmounted — checked: none | fallback tabindex=\"0\" -> \"free\"" }
                         }
                     }
 

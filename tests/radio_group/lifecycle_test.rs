@@ -143,6 +143,35 @@ fn DynamicRootPropsApp() -> Element {
     }
 }
 
+#[component]
+fn AnimatedRadioPresenceApp() -> Element {
+    let mut value = use_signal(|| Some("selected".to_string()));
+    rsx! {
+        style {
+            "@keyframes radio-exit {{ from {{ opacity: 1; }} to {{ opacity: 0; }} }}"
+            "#radio-animated-indicator[data-state=\"unchecked\"] {{ animation: radio-exit 200ms linear; }}"
+        }
+        button {
+            id: "clear-radio",
+            onclick: move |_| value.set(Some(String::new())),
+            "Clear"
+        }
+        RadioGroupRoot {
+            id: "radio-animated-group",
+            value: value(),
+            on_value_change: move |next: String| value.set(Some(next)),
+            RadioGroupItem {
+                id: "radio-animated-item",
+                value: "selected",
+                RadioGroupIndicator {
+                    id: "radio-animated-indicator",
+                    "●"
+                }
+            }
+        }
+    }
+}
+
 #[test]
 fn test_lifecycle_vdom_mounts_cleanly() {
     let mut dom = VirtualDom::new(LifecycleUnmountApp);
@@ -217,6 +246,27 @@ fn test_auto_id_radio_groups_converge_without_render_loop() {
 mod native_tests {
     use super::*;
     use common::native_fixture::*;
+
+    #[test]
+    fn test_native_radio_real_keyframe_exit_retains_until_animation_end() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(AnimatedRadioPresenceApp);
+        advance_frame_and_pump(&mut harness, 0.0);
+
+        click_and_pump(&mut harness, "#clear-radio");
+        advance_frame_and_pump(&mut harness, 0.0);
+        advance_frame_and_pump(&mut harness, 0.05);
+        assert!(
+            harness.query("#radio-animated-indicator").is_some(),
+            "radio indicator must remain mounted at 50ms of a 200ms native keyframe exit"
+        );
+
+        advance_frame_and_pump(&mut harness, 0.21);
+        assert!(
+            harness.query("#radio-animated-indicator").is_none(),
+            "radio indicator must unmount after the real 200ms animation completes"
+        );
+    }
 
     #[test]
     fn test_native_active_item_unmount_tabstop_recovery() {
@@ -317,19 +367,7 @@ mod native_tests {
 
         // 3. Parent resets `value: Some("")` -> returns to unselected cleanly with zero panic!
         click_and_pump(&mut harness, "#reset-ctrl-empty-btn");
-        let ind_pro_id = harness
-            .query("#ind-pro")
-            .expect("#ind-pro retained during exit transition");
-        assert_eq!(
-            harness
-                .base()
-                .get_node(ind_pro_id)
-                .unwrap()
-                .attr("data-state".into()),
-            Some("unchecked")
-        );
-        std::thread::sleep(std::time::Duration::from_millis(550));
-        harness.pump();
+        advance_frame_and_pump(&mut harness, 0.016);
         assert!(harness.query("#ind-pro").is_none(), "#ind-pro must unmount after controlled clear");
         {
             let base = harness.base();

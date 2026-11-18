@@ -73,6 +73,24 @@ fn ControlledCheckboxTestWrapper() -> Element {
     }
 }
 
+#[component]
+fn AnimatedCheckboxPresenceApp() -> Element {
+    rsx! {
+        style {
+            "@keyframes checkbox-exit {{ from {{ opacity: 1; }} to {{ opacity: 0; }} }}"
+            "#checkbox-animated-indicator[data-state=\"unchecked\"] {{ animation: checkbox-exit 200ms linear; }}"
+        }
+        Checkbox {
+            id: "checkbox-animated",
+            default_checked: CheckedState::Unchecked,
+            CheckboxIndicator {
+                id: "checkbox-animated-indicator",
+                "✓"
+            }
+        }
+    }
+}
+
 #[test]
 fn test_controlled_checkbox_vdom_mounts() {
     let mut dom = VirtualDom::new(ControlledCheckboxTestWrapper);
@@ -84,6 +102,28 @@ mod native_tests {
     use super::*;
     use common::native_fixture::*;
     use keyboard_types::{Code, Key, NamedKey};
+
+    #[test]
+    fn test_native_checkbox_real_keyframe_exit_retains_until_animation_end() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(AnimatedCheckboxPresenceApp);
+        advance_frame_and_pump(&mut harness, 0.0);
+
+        click_and_pump(&mut harness, "#checkbox-animated");
+        click_and_pump(&mut harness, "#checkbox-animated");
+        advance_frame_and_pump(&mut harness, 0.0);
+        advance_frame_and_pump(&mut harness, 0.05);
+        assert!(
+            harness.query("#checkbox-animated-indicator").is_some(),
+            "indicator must remain mounted at 50ms of a 200ms native keyframe exit"
+        );
+
+        advance_frame_and_pump(&mut harness, 0.21);
+        assert!(
+            harness.query("#checkbox-animated-indicator").is_none(),
+            "indicator must unmount after the real 200ms animation completes"
+        );
+    }
 
     #[test]
     fn test_native_checkbox_click_toggle_and_from_indeterminate() {
@@ -111,16 +151,8 @@ mod native_tests {
             harness.base().get_node(cb_id).unwrap().attr("aria-checked".into()),
             Some("false")
         );
-        // Indicator is retained in Suspended state with data-state="unchecked" during exit animation
-        let ind_node_id = harness.query("#ind-uncontrolled").expect("Indicator retained during exit animation");
-        assert_eq!(
-            harness.base().get_node(ind_node_id).unwrap().attr("data-state".into()),
-            Some("unchecked")
-        );
-
-        // After exit animation / fallback timeout completes, indicator unmounts
-        std::thread::sleep(std::time::Duration::from_millis(550));
-        harness.pump();
+        // With no exit animation, the next resolved frame completes the close cycle immediately.
+        advance_frame_and_pump(&mut harness, 0.016);
         assert!(harness.query("#ind-uncontrolled").is_none(), "Indicator unmounted after exit animation");
 
         // 2. From Indeterminate -> click -> Checked -> click -> Unchecked
@@ -142,8 +174,7 @@ mod native_tests {
             harness.base().get_node(ind_cb_id).unwrap().attr("aria-checked".into()),
             Some("false")
         );
-        std::thread::sleep(std::time::Duration::from_millis(550));
-        harness.pump();
+        advance_frame_and_pump(&mut harness, 0.016);
         assert!(harness.query("#ind-from-ind").is_none());
     }
 

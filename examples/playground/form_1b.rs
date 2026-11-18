@@ -303,7 +303,7 @@ pub fn Form1bPlayground() -> Element {
                                     form_entries.set(serde_json::to_string(&entries).unwrap_or_default());
                                 }
                             },
-                            "Inspect FormData"
+                            "Submit Form"
                         }
                     }
                 }
@@ -386,7 +386,7 @@ pub fn Form1bPlayground() -> Element {
                                     ext_entries.set(serde_json::to_string(&entries).unwrap_or_default());
                                 }
                             },
-                            "Inspect External FormData"
+                            "Submit External Form"
                         }
                     }
                 }

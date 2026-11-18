@@ -44,6 +44,8 @@ pub(crate) enum PresenceMonitorEvent {
     },
 }
 
+/// Starts an event-driven presence monitor; resolved `Missing`, `Hidden`, and
+/// `NoAnimation` states complete immediately without a wall-clock fallback.
 pub(crate) fn start_presence_monitor(
     root_id: &str,
     cycle_id: PresenceCloseCycleId,
