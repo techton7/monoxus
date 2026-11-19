@@ -1,11 +1,49 @@
 use dioxus::prelude::*;
+use monoxus::foundation::shared::ScopeHandle;
+use monoxus::progress::state::Progress as ProgressModel;
+use monoxus::progress::types::ProgressState;
 use monoxus::progress::{Indicator, Progress};
 
 const CARD_STYLE: &str = "display: grid; gap: 0.75rem; padding: 1rem; border: 1px solid #e2e8f0; border-radius: 0.75rem; background: white;";
 const TRACK_STYLE: &str =
     "overflow: hidden; min-height: 0.75rem; border-radius: 9999px; background: #e2e8f0;";
-const INDICATOR_STYLE: &str = "height: 0.75rem; border-radius: inherit; background: #7c3aed;";
+const INDICATOR_BASE_STYLE: &str = "height: 0.75rem; border-radius: inherit;";
 const BUTTON_STYLE: &str = "padding: 0.375rem 0.75rem; border: 1px solid #cbd5e1; border-radius: 0.375rem; background: white; color: #334155; cursor: pointer;";
+
+fn indicator_style(value: Option<f64>, max: f64) -> String {
+    let model = ProgressModel::new(ScopeHandle::root("playground"), value, max);
+    match model.state() {
+        ProgressState::Indeterminate => {
+            format!("{INDICATOR_BASE_STYLE} width: 30%; margin-left: 35%; background: #a78bfa;")
+        }
+        ProgressState::Complete => {
+            format!("{INDICATOR_BASE_STYLE} width: 100%; margin-left: 0%; background: #16a34a;")
+        }
+        ProgressState::Loading => {
+            let pct = model.percentage().unwrap_or(0.0).clamp(0.0, 100.0);
+            format!(
+                "{INDICATOR_BASE_STYLE} width: {pct:.2}%; margin-left: 0%; background: #7c3aed;"
+            )
+        }
+    }
+}
+
+fn progress_summary(value: Option<f64>, max: f64) -> String {
+    let model = ProgressModel::new(ScopeHandle::root("playground"), value, max);
+    let state = model.state().as_str();
+    match (model.value(), model.percentage()) {
+        (Some(v), Some(pct)) => {
+            format!(
+                "Normalized: state={state} · {v}/{:.0} ({pct:.0}%)",
+                model.max()
+            )
+        }
+        _ => format!(
+            "Normalized: state={state} · indeterminate (max={})",
+            model.max()
+        ),
+    }
+}
 
 #[component]
 pub fn ProgressPlayground() -> Element {
@@ -43,8 +81,12 @@ pub fn ProgressPlayground() -> Element {
                     style: TRACK_STYLE.to_string(),
                     Indicator {
                         id: "progress-default-indicator".to_string(),
-                        style: INDICATOR_STYLE.to_string(),
+                        style: indicator_style(None, 100.0),
                     }
+                }
+                p {
+                    class: "text-xs font-mono text-slate-600",
+                    "{progress_summary(None, 100.0)}"
                 }
             }
 
@@ -59,8 +101,12 @@ pub fn ProgressPlayground() -> Element {
                     style: TRACK_STYLE.to_string(),
                     Indicator {
                         id: "progress-loading-indicator".to_string(),
-                        style: INDICATOR_STYLE.to_string(),
+                        style: indicator_style(Some(35.0), 100.0),
                     }
+                }
+                p {
+                    class: "text-xs font-mono text-slate-600",
+                    "{progress_summary(Some(35.0), 100.0)}"
                 }
             }
 
@@ -75,8 +121,12 @@ pub fn ProgressPlayground() -> Element {
                     style: TRACK_STYLE.to_string(),
                     Indicator {
                         id: "progress-complete-indicator".to_string(),
-                        style: INDICATOR_STYLE.to_string(),
+                        style: indicator_style(Some(100.0), 100.0),
                     }
+                }
+                p {
+                    class: "text-xs font-mono text-slate-600",
+                    "{progress_summary(Some(100.0), 100.0)}"
                 }
             }
 
@@ -92,8 +142,12 @@ pub fn ProgressPlayground() -> Element {
                     style: TRACK_STYLE.to_string(),
                     Indicator {
                         id: "progress-indeterminate-indicator".to_string(),
-                        style: INDICATOR_STYLE.to_string(),
+                        style: indicator_style(None, 80.0),
                     }
+                }
+                p {
+                    class: "text-xs font-mono text-slate-600",
+                    "{progress_summary(None, 80.0)}"
                 }
             }
 
@@ -114,8 +168,13 @@ pub fn ProgressPlayground() -> Element {
                     style: TRACK_STYLE.to_string(),
                     Indicator {
                         id: "progress-reactive-indicator".to_string(),
-                        style: INDICATOR_STYLE.to_string(),
+                        style: indicator_style(reactive_value(), reactive_max()),
                     }
+                }
+                p {
+                    id: "progress-reactive-normalized",
+                    class: "text-xs font-mono text-slate-600",
+                    "{progress_summary(reactive_value(), reactive_max())}"
                 }
                 div {
                     class: "flex flex-wrap gap-2",
@@ -201,8 +260,12 @@ pub fn ProgressPlayground() -> Element {
                     style: TRACK_STYLE.to_string(),
                     Indicator {
                         id: "progress-custom-label-indicator".to_string(),
-                        style: INDICATOR_STYLE.to_string(),
+                        style: indicator_style(Some(32.0), 80.0),
                     }
+                }
+                p {
+                    class: "text-xs font-mono text-slate-600",
+                    "{progress_summary(Some(32.0), 80.0)}"
                 }
             }
         }

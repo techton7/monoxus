@@ -1,6 +1,64 @@
 use dioxus::prelude::*;
 use monoxus::meter::MeterRoot;
 
+struct MeterVisual {
+    width_pct: f64,
+    color: &'static str,
+    opacity: f64,
+    status: &'static str,
+}
+
+fn meter_visual_state(min: f64, value: f64, max: f64) -> MeterVisual {
+    if !min.is_finite() || !value.is_finite() || !max.is_finite() {
+        return MeterVisual {
+            width_pct: 100.0,
+            color: "#d97706",
+            opacity: 0.55,
+            status: "non-finite (raw ARIA/data preserved)",
+        };
+    }
+    if max <= min {
+        return MeterVisual {
+            width_pct: 100.0,
+            color: "#dc2626",
+            opacity: 0.55,
+            status: "inverted range (raw ARIA/data preserved)",
+        };
+    }
+    let width_pct = (((value - min) / (max - min)) * 100.0).clamp(0.0, 100.0);
+    if (min..=max).contains(&value) {
+        MeterVisual {
+            width_pct,
+            color: "#0284c7",
+            opacity: 1.0,
+            status: "in-range",
+        }
+    } else {
+        MeterVisual {
+            width_pct,
+            color: "#d97706",
+            opacity: 1.0,
+            status: "out-of-range (visual clamped, raw ARIA/data preserved)",
+        }
+    }
+}
+
+fn meter_fill_style(min: f64, value: f64, max: f64) -> String {
+    let visual = meter_visual_state(min, value, max);
+    format!(
+        "height: 100%; width: {:.2}%; border-radius: inherit; background: {}; opacity: {:.2};",
+        visual.width_pct, visual.color, visual.opacity
+    )
+}
+
+fn meter_visual_summary(min: f64, value: f64, max: f64) -> String {
+    let visual = meter_visual_state(min, value, max);
+    format!(
+        "Visual bar: {:.0}% · state: {}",
+        visual.width_pct, visual.status
+    )
+}
+
 #[component]
 pub fn MeterPlayground() -> Element {
     let mut min = use_signal(|| 0.0_f64);
@@ -41,11 +99,15 @@ pub fn MeterPlayground() -> Element {
                 MeterRoot {
                     id: "meter-defaults".to_string(),
                     aria_label: Some("Default meter".to_string()),
-                    class: Some("block h-4 rounded bg-slate-100".to_string()),
+                    class: Some("block h-4 overflow-hidden rounded bg-slate-100".to_string()),
+                    div {
+                        id: "meter-defaults-fill",
+                        style: "height: 100%; width: 0.00%; border-radius: inherit; background: #0284c7;",
+                    }
                 }
                 div {
                     class: "text-xs font-mono text-slate-600",
-                    "Expected: role=meter, aria-valuemin=0, aria-valuenow=0, aria-valuemax=100"
+                    "Visual fill: 0% | Expected ARIA/data: role=meter, aria-valuemin=0, aria-valuenow=0, aria-valuemax=100"
                 }
             }
 
@@ -72,11 +134,15 @@ pub fn MeterPlayground() -> Element {
                     max: max(),
                     aria_label: Some("Reactive meter".to_string()),
                     aria_valuetext: Some(format!("{} between {} and {}", value(), min(), max())),
-                    class: Some("block h-4 rounded bg-slate-100".to_string()),
+                    class: Some("block h-4 overflow-hidden rounded bg-slate-100".to_string()),
+                    div {
+                        id: "meter-reactive-fill",
+                        style: meter_fill_style(min(), value(), max()),
+                    }
                 }
 
                 div {
-                    class: "grid gap-4 sm:grid-cols-3",
+                    class: "grid grid-cols-1 gap-4 sm:grid-cols-3",
                     label {
                         class: "space-y-1 text-xs font-medium text-slate-700",
                         "Minimum"
@@ -173,6 +239,12 @@ pub fn MeterPlayground() -> Element {
                         },
                         "Non-finite -Infinity / NaN / Infinity"
                     }
+                }
+
+                p {
+                    id: "meter-visual-state",
+                    class: "text-xs font-mono text-slate-600",
+                    "{meter_visual_summary(min(), value(), max())}"
                 }
 
                 output {
