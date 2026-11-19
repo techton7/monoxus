@@ -49,14 +49,18 @@ mod tabs;
 mod toggle_group;
 mod web_driver;
 
+mod aspect_ratio_test;
+mod avatar_test;
 mod button_test;
 mod collapsible_test;
 mod form_hidden_input_test;
 mod foundation_phase_2_4_handoff;
 mod foundation_phase_3_7_handoff;
 mod label_test;
+mod meter_test;
 mod overlay_presence_phase_3_7_step_4;
 mod popover_test;
+mod progress_test;
 mod roving_focus_test;
 mod separator_test;
 mod switch_test;
@@ -86,12 +90,15 @@ fn all_test_files_are_included() {
     use std::path::{Path, PathBuf};
 
     const ROOT_TESTS: &[&str] = &[
+        "aspect_ratio_test.rs",
+        "avatar_test.rs",
         "button_test.rs",
         "collapsible_test.rs",
         "form_hidden_input_test.rs",
         "foundation_phase_2_4_handoff.rs",
         "foundation_phase_3_7_handoff.rs",
         "label_test.rs",
+        "meter_test.rs",
         "native_accordion_test.rs",
         "native_data_gesture_test.rs",
         "native_harness_test.rs",
@@ -101,6 +108,7 @@ fn all_test_files_are_included() {
         "native_select_test.rs",
         "overlay_presence_phase_3_7_step_4.rs",
         "popover_test.rs",
+        "progress_test.rs",
         "roving_focus_test.rs",
         "separator_test.rs",
         "switch_test.rs",

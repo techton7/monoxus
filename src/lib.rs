@@ -1,12 +1,16 @@
 pub mod accordion;
 pub mod alert_dialog;
+pub mod aspect_ratio;
+pub mod avatar;
 pub mod button;
 pub mod checkbox;
 pub mod collapsible;
 pub mod dialog;
 pub mod foundation;
 pub mod label;
+pub mod meter;
 pub mod popover;
+pub mod progress;
 pub mod radio_group;
 pub mod select;
 pub mod separator;

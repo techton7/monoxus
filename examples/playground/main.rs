@@ -2,14 +2,18 @@
 
 pub mod accordion;
 pub mod alert_dialog;
+pub mod aspect_ratio;
+pub mod avatar;
 pub mod button;
 pub mod checkbox;
 pub mod collapsible;
 pub mod dialog;
 pub mod form_1b;
 pub mod label;
+pub mod meter;
 pub mod pages;
 pub mod popover;
+pub mod progress;
 pub mod radio_group;
 pub mod scenarios;
 pub mod separator;
@@ -21,9 +25,10 @@ pub mod tooltip;
 
 use dioxus::prelude::*;
 use pages::{
-    AccordionPage, AlertDialogPage, ButtonPage, CheckboxPage, CollapsiblePage, DialogPage,
-    Form1bPage, LabelPage, PopoverPage, RadioGroupPage, SelectPage, SeparatorPage, SwitchPage,
-    TabsPage, ToastPage, ToggleGroupPage, TogglePage, TooltipPage,
+    AccordionPage, AlertDialogPage, AspectRatioPage, AvatarPage, ButtonPage, CheckboxPage,
+    CollapsiblePage, DialogPage, Form1bPage, LabelPage, MeterPage, PopoverPage, ProgressPage,
+    RadioGroupPage, SelectPage, SeparatorPage, SwitchPage, TabsPage, ToastPage, ToggleGroupPage,
+    TogglePage, TooltipPage,
 };
 
 #[component]
@@ -106,6 +111,10 @@ pub enum ComponentPage {
     Checkbox,
     Switch,
     RadioGroup,
+    Progress,
+    Meter,
+    AspectRatio,
+    Avatar,
     Form1B,
     Select,
     Collapsible,
@@ -129,6 +138,10 @@ impl ComponentPage {
             Self::Checkbox => "Checkbox",
             Self::Switch => "Switch",
             Self::RadioGroup => "Radio Group",
+            Self::Progress => "Progress",
+            Self::Meter => "Meter",
+            Self::AspectRatio => "Aspect Ratio",
+            Self::Avatar => "Avatar",
             Self::Form1B => "Form (1B)",
             Self::Select => "Select",
             Self::Collapsible => "Collapsible",
@@ -152,6 +165,10 @@ impl ComponentPage {
             Self::Checkbox => "☑",
             Self::Switch => "⊸",
             Self::RadioGroup => "◉",
+            Self::Progress => "▰",
+            Self::Meter => "▱",
+            Self::AspectRatio => "▭",
+            Self::Avatar => "◉",
             Self::Form1B => "📝",
             Self::Select => "▾",
             Self::Collapsible => "◰",
@@ -175,6 +192,10 @@ impl ComponentPage {
             Self::Checkbox => "Tri-state",
             Self::Switch => "Track/Thumb",
             Self::RadioGroup => "Roving APG",
+            Self::Progress => "WAI-ARIA",
+            Self::Meter => "ARIA Meter",
+            Self::AspectRatio => "Live Ratio",
+            Self::Avatar => "Image Status",
             Self::Form1B => "FormData Reset",
             Self::Select => "7 Scenarios",
             Self::Collapsible => "Disclosure",
@@ -202,6 +223,10 @@ pub fn App() -> Element {
         ComponentPage::Checkbox,
         ComponentPage::Switch,
         ComponentPage::RadioGroup,
+        ComponentPage::Progress,
+        ComponentPage::Meter,
+        ComponentPage::AspectRatio,
+        ComponentPage::Avatar,
         ComponentPage::Form1B,
         ComponentPage::Select,
         ComponentPage::Collapsible,
@@ -341,6 +366,10 @@ pub fn App() -> Element {
                     ComponentPage::Checkbox => rsx! { CheckboxPage {} },
                     ComponentPage::Switch => rsx! { SwitchPage {} },
                     ComponentPage::RadioGroup => rsx! { RadioGroupPage {} },
+                    ComponentPage::Progress => rsx! { ProgressPage {} },
+                    ComponentPage::Meter => rsx! { MeterPage {} },
+                    ComponentPage::AspectRatio => rsx! { AspectRatioPage {} },
+                    ComponentPage::Avatar => rsx! { AvatarPage {} },
                     ComponentPage::Form1B => rsx! { Form1bPage {} },
                     ComponentPage::Select => rsx! { SelectPage {} },
                     ComponentPage::Collapsible => rsx! { CollapsiblePage {} },
