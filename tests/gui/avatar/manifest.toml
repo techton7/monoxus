@@ -1,0 +1,24 @@
+[[scenarios]]
+name = "avatar-valid-sources"
+description = "Verify Avatar raster PNG and vector SVG loaded rendering"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-avatar"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 500
+
+[[scenarios.targets]]
+id = "avatar-valid-png-root"
+selector = "#avatar-valid-png-root"
+part = "root"
+state = "loaded-png"
+
+[[scenarios.targets]]
+id = "avatar-valid-svg-root"
+selector = "#avatar-valid-svg-root"
+part = "root"
+state = "loaded-svg"

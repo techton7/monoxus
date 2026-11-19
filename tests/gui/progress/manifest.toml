@@ -1,0 +1,26 @@
+[[scenarios]]
+name = "progress-states"
+description = "Verify initial Progress determinate, indeterminate, and complete states"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-progress"
+
+[[scenarios.targets]]
+id = "progress-default-root"
+selector = "#progress-default-root"
+part = "root"
+state = "indeterminate"
+
+[[scenarios.targets]]
+id = "progress-loading-root"
+selector = "#progress-loading-root"
+part = "root"
+state = "loading"
+
+[[scenarios.targets]]
+id = "progress-complete-root"
+selector = "#progress-complete-root"
+part = "root"
+state = "complete"

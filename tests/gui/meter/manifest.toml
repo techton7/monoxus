@@ -1,0 +1,45 @@
+[[scenarios]]
+name = "meter-initial"
+description = "Verify Meter default, reactive bar, and Section 2 grid layout"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-meter"
+
+[[scenarios.targets]]
+id = "meter-defaults"
+selector = "#meter-defaults"
+part = "root"
+state = "default"
+
+[[scenarios.targets]]
+id = "meter-reactive"
+selector = "#meter-reactive"
+part = "root"
+state = "in-range"
+
+[[scenarios.targets]]
+id = "meter-reactive-scenario"
+selector = "#meter-reactive-scenario"
+part = "scenario"
+state = "initial"
+
+[[scenarios]]
+name = "meter-inverted"
+description = "Verify Meter inverted range warning fill while preserving raw ARIA values"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-meter"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#meter-preset-inverted"
+
+[[scenarios.targets]]
+id = "meter-reactive"
+selector = "#meter-reactive"
+part = "root"
+state = "inverted"

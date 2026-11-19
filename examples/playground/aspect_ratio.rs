@@ -66,6 +66,7 @@ pub fn AspectRatioPlayground() -> Element {
                                 ratio: 1.0,
                                 class: "overflow-hidden rounded-lg bg-violet-100",
                                 "aria-label": "Square aspect ratio root",
+                                "data-gui-test-id": "aspect-ratio-root-1",
                                 div {
                                     id: "aspect-ratio-child-1",
                                     style: "width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;",

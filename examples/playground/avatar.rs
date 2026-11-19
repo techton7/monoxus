@@ -53,6 +53,7 @@ fn ValidSourcesScenario() -> Element {
                     Avatar {
                         id: "avatar-valid-png-root".to_string(),
                         style: AVATAR_STYLE.to_string(),
+                        "data-gui-test-id": "avatar-valid-png-root",
                         on_loading_status_change: move |status| {
                             png_status.set(status);
                             png_callbacks += 1;
@@ -82,6 +83,7 @@ fn ValidSourcesScenario() -> Element {
                     Avatar {
                         id: "avatar-valid-svg-root".to_string(),
                         style: AVATAR_STYLE.to_string(),
+                        "data-gui-test-id": "avatar-valid-svg-root",
                         on_loading_status_change: move |status| {
                             svg_status.set(status);
                             svg_callbacks += 1;

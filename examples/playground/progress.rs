@@ -79,6 +79,7 @@ pub fn ProgressPlayground() -> Element {
                     id: "progress-default-root".to_string(),
                     class: "progress-root".to_string(),
                     style: TRACK_STYLE.to_string(),
+                    "data-gui-test-id": "progress-default-root",
                     Indicator {
                         id: "progress-default-indicator".to_string(),
                         style: indicator_style(None, 100.0),
@@ -99,6 +100,7 @@ pub fn ProgressPlayground() -> Element {
                     id: "progress-loading-root".to_string(),
                     value: 35.0,
                     style: TRACK_STYLE.to_string(),
+                    "data-gui-test-id": "progress-loading-root",
                     Indicator {
                         id: "progress-loading-indicator".to_string(),
                         style: indicator_style(Some(35.0), 100.0),
@@ -119,6 +121,7 @@ pub fn ProgressPlayground() -> Element {
                     id: "progress-complete-root".to_string(),
                     value: 100.0,
                     style: TRACK_STYLE.to_string(),
+                    "data-gui-test-id": "progress-complete-root",
                     Indicator {
                         id: "progress-complete-indicator".to_string(),
                         style: indicator_style(Some(100.0), 100.0),

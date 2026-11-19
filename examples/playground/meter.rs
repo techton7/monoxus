@@ -100,6 +100,7 @@ pub fn MeterPlayground() -> Element {
                     id: "meter-defaults".to_string(),
                     aria_label: Some("Default meter".to_string()),
                     class: Some("block h-4 overflow-hidden rounded bg-slate-100".to_string()),
+                    "data-gui-test-id": "meter-defaults",
                     div {
                         id: "meter-defaults-fill",
                         style: "height: 100%; width: 0.00%; border-radius: inherit; background: #0284c7;",
@@ -114,6 +115,7 @@ pub fn MeterPlayground() -> Element {
             section {
                 id: "meter-reactive-scenario",
                 "data-scenario": "SW2A-3-reactive",
+                "data-gui-test-id": "meter-reactive-scenario",
                 class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-5",
                 div {
                     class: "space-y-1",
@@ -135,6 +137,7 @@ pub fn MeterPlayground() -> Element {
                     aria_label: Some("Reactive meter".to_string()),
                     aria_valuetext: Some(format!("{} between {} and {}", value(), min(), max())),
                     class: Some("block h-4 overflow-hidden rounded bg-slate-100".to_string()),
+                    "data-gui-test-id": "meter-reactive",
                     div {
                         id: "meter-reactive-fill",
                         style: meter_fill_style(min(), value(), max()),

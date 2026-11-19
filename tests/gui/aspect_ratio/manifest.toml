@@ -1,0 +1,14 @@
+[[scenarios]]
+name = "aspect-ratio-live"
+description = "Verify AspectRatio 1:1 visual geometry and styles"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-aspect-ratio"
+
+[[scenarios.targets]]
+id = "aspect-ratio-root-1"
+selector = "#aspect-ratio-root-1"
+part = "root"
+state = "ratio-1"
