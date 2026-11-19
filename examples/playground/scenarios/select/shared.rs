@@ -20,7 +20,7 @@ pub const SELECT_PLAYGROUND_CSS: &str = r#"
     background-color: #f3e8ff !important;
     color: #7e22ce !important;
 }
-.select-item[data-disabled="true"], [role="option"][data-disabled="true"] {
+.select-item[data-disabled], [role="option"][data-disabled] {
     opacity: 0.45 !important;
     cursor: not-allowed !important;
     pointer-events: none !important;

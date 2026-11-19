@@ -177,10 +177,11 @@ pub fn SelectItem(
                 let v = value.clone();
                 let is_dis = attrs.is_disabled();
                 move |_| {
+                    runtime.clear_initial_highlight_pending();
                     if is_dis {
                         return;
                     }
-                    runtime.set_highlighted(Some(v.clone()));
+                    runtime.set_highlighted_with_scroll(Some(v.clone()), false);
                 }
             },
             {children}

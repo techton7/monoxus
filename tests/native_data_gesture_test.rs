@@ -122,6 +122,11 @@ fn test_native_select_document_order_and_roving_focus() {
         "Select content should mount for typeahead testing"
     );
     focus_node(&mut harness, "#select-content");
+    let after_reopen = harness.attr("#select-content", "aria-activedescendant");
+    assert!(
+        after_reopen.as_deref().unwrap_or("").contains("banana"),
+        "Reopened select should restore active banana, got {after_reopen:?}"
+    );
 
     // b. Dispatch character 'b' key event.
     // Assert aria-activedescendant matches "banana" and option text matches.
@@ -566,6 +571,190 @@ fn test_native_select_wheel_scroll_alignment() {
     assert!(
         (scrolled_gap - 4.0).abs() <= 1.0,
         "Scrolled gap between trigger bottom and content top should remain ~4.0px, got {scrolled_gap}"
+    );
+}
+
+/// Select dismissal and wheel anchoring survive scrollable-item keyboard auto-scroll
+///
+/// Mounts the scrollable-viewport Select (Section 3) and the basic Select (Section 1)
+/// inside an outer `overflow-y: auto` container. Verifies that:
+/// 1. ArrowDown navigation scrolls the inner viewport (non-vacuous `scroll_item_within_container`)
+///    without scrolling the outer container or root viewport.
+/// 2. An outer wheel scroll moves the trigger while floating content stays anchored (gap preserved).
+/// 3. Escape still dismisses and unmounts Section 3 afterwards.
+/// 4. Section 1 opens independently and an outside click collapses it (no cross-component contagion).
+#[test]
+fn test_native_select_dismiss_and_wheel_anchor_survive_scrollable_item_autoscroll() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    #[component]
+    fn AutoscrollAnchorScenario() -> Element {
+        rsx! {
+            style { "{playground_select::SELECT_PLAYGROUND_CSS}" }
+            div {
+                id: "outside-target",
+                style: "width: 600px; height: 40px; background: #eeeeee;",
+                "Outside target"
+            }
+            div {
+                id: "autoscroll-container",
+                style: "width: 600px; height: 450px; overflow-y: auto; padding: 20px;",
+                div { style: "height: 20px;", "Top spacer" }
+                playground_select::ScrollableViewportSection {}
+                playground_select::BasicFruitSelectSection {}
+                div { style: "height: 800px;", "Bottom spacer" }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(AutoscrollAnchorScenario);
+
+    let s3_trigger = ".select-trigger-scrollable";
+    let s3_content = "[role='listbox']";
+    let s3_viewport = "[id$='viewport']";
+    let s1_trigger = "#select-trigger";
+    let s1_content = "#select-content";
+
+    // Initial state: both selects collapsed, no content mounted
+    assert_eq!(harness.attr(s3_trigger, "aria-expanded").as_deref(), Some("false"));
+    assert_eq!(harness.attr(s1_trigger, "aria-expanded").as_deref(), Some("false"));
+    assert!(harness.query(s3_content).is_none(), "No listbox should be mounted initially");
+
+    // Open Section 3
+    click_and_pump(&mut harness, s3_trigger);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert_eq!(
+        harness.attr(s3_trigger, "aria-expanded").as_deref(),
+        Some("true"),
+        "Section 3 trigger should be expanded"
+    );
+    assert!(harness.query(s3_content).is_some(), "Section 3 content should be mounted");
+
+    // ArrowDown through the enabled items so the inner viewport auto-scrolls
+    focus_node(&mut harness, s3_content);
+    for _ in 0..6 {
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowDown), Code::ArrowDown);
+    }
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    let viewport_node = harness.node(s3_viewport);
+    let viewport_scroll_y = harness
+        .base()
+        .get_node(viewport_node)
+        .expect("Scrollable viewport node should exist")
+        .scroll_offset()
+        .y;
+    assert!(
+        viewport_scroll_y > 0.0,
+        "ArrowDown navigation must scroll the inner select viewport (scroll_y={viewport_scroll_y})"
+    );
+
+    let container_node = harness.node("#autoscroll-container");
+    let container_scroll_before = harness
+        .base()
+        .get_node(container_node)
+        .unwrap()
+        .scroll_offset()
+        .y;
+    assert_eq!(
+        container_scroll_before, 0.0,
+        "Item auto-scroll must not scroll the outer container"
+    );
+    assert_eq!(
+        harness.base().viewport_scroll().y,
+        0.0,
+        "Item auto-scroll must not scroll the root viewport"
+    );
+    assert_eq!(
+        harness.attr(s3_trigger, "aria-expanded").as_deref(),
+        Some("true"),
+        "Section 3 must remain open after keyboard auto-scroll"
+    );
+
+    let initial_trigger_rect = harness.layout_rect(s3_trigger);
+    let initial_content_rect = harness.layout_rect(s3_content);
+    let initial_gap = initial_content_rect.y - (initial_trigger_rect.y + initial_trigger_rect.height);
+
+    // Wheel over the outer container, away from the 280px-wide trigger/content column
+    wheel_at_and_pump(&mut harness, 550.0, 150.0, 0.0, -50.0);
+
+    let scrolled_trigger_rect = harness.layout_rect(s3_trigger);
+    let scrolled_content_rect = harness.layout_rect(s3_content);
+    assert!(
+        scrolled_trigger_rect.y < initial_trigger_rect.y - 20.0,
+        "Outer wheel scroll must move the trigger upward (initial y={}, scrolled y={})",
+        initial_trigger_rect.y,
+        scrolled_trigger_rect.y
+    );
+    let container_scroll_after = harness
+        .base()
+        .get_node(container_node)
+        .unwrap()
+        .scroll_offset()
+        .y;
+    assert!(
+        container_scroll_after > 20.0,
+        "Outer container scroll offset should advance, got {container_scroll_after}"
+    );
+
+    let scrolled_gap = scrolled_content_rect.y - (scrolled_trigger_rect.y + scrolled_trigger_rect.height);
+    assert!(
+        (scrolled_gap - initial_gap).abs() <= 2.0,
+        "Content must stay anchored to trigger after outer scroll (initial gap={initial_gap}, scrolled gap={scrolled_gap})"
+    );
+    let trigger_delta = scrolled_trigger_rect.y - initial_trigger_rect.y;
+    let content_delta = scrolled_content_rect.y - initial_content_rect.y;
+    assert!(
+        (trigger_delta - content_delta).abs() <= 2.0,
+        "Content must move with trigger (trigger delta={trigger_delta}, content delta={content_delta})"
+    );
+
+    // Escape dismisses Section 3
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+    assert_eq!(
+        harness.attr(s3_trigger, "aria-expanded").as_deref(),
+        Some("false"),
+        "Section 3 trigger should collapse on Escape after autoscroll and wheel"
+    );
+    advance_frame_and_pump(&mut harness, 0.25);
+    assert!(
+        harness.query(s3_content).is_none(),
+        "Section 3 content should unmount after Escape"
+    );
+
+    // Section 1 opens independently, then collapses on outside click
+    click_and_pump(&mut harness, s1_trigger);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert_eq!(
+        harness.attr(s1_trigger, "aria-expanded").as_deref(),
+        Some("true"),
+        "Section 1 trigger should be expanded"
+    );
+    assert!(harness.query(s1_content).is_some(), "Section 1 content should be mounted");
+    assert_eq!(
+        harness.attr(s3_trigger, "aria-expanded").as_deref(),
+        Some("false"),
+        "Section 3 must stay closed while Section 1 is open"
+    );
+
+    click_and_pump(&mut harness, "#outside-target");
+    assert_eq!(
+        harness.attr(s1_trigger, "aria-expanded").as_deref(),
+        Some("false"),
+        "Section 1 trigger should collapse on outside click"
+    );
+    advance_frame_and_pump(&mut harness, 0.25);
+    assert!(
+        harness.query(s1_content).is_none(),
+        "Section 1 content should unmount after outside click"
+    );
+    assert_eq!(
+        harness.attr(s3_trigger, "aria-expanded").as_deref(),
+        Some("false"),
+        "Section 3 must remain closed after Section 1 dismissal"
     );
 }
 

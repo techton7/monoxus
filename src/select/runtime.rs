@@ -48,6 +48,7 @@ pub struct SelectRuntimeState {
     pub default_values: Signal<Vec<String>>,
     pub open: Signal<bool>,
     pub highlighted_value: Signal<Option<String>>,
+    pub initial_highlight_pending: Signal<bool>,
     pub items: Signal<Vec<SelectItemData>>,
     pub registry: Signal<MountedOptionRegistry>,
     pub typeahead_buffer: Signal<String>,
@@ -163,6 +164,7 @@ where
         default_values: use_signal(|| initial_def_vals),
         open: use_signal(|| initial_open),
         highlighted_value: use_signal(|| None),
+        initial_highlight_pending: use_signal(|| false),
         items: use_signal(|| select.items().to_vec()),
         registry: use_signal(|| initial_registry),
         typeahead_buffer: use_signal(String::new),
@@ -294,6 +296,7 @@ impl SelectRuntime {
             default_values: Signal::new(initial_def_vals),
             open: Signal::new(initial_open),
             highlighted_value: Signal::new(None),
+            initial_highlight_pending: Signal::new(false),
             items: Signal::new(select.items().to_vec()),
             registry: Signal::new(initial_registry),
             typeahead_buffer: Signal::new(String::new()),
@@ -406,19 +409,92 @@ impl SelectRuntime {
     }
 
     pub fn set_highlighted(&self, val: Option<String>) {
+        self.set_highlighted_with_scroll(val, true);
+    }
+
+    pub fn set_highlighted_with_scroll(&self, val: Option<String>, should_scroll: bool) {
         let mut hl_sig = self.state.highlighted_value;
         if *hl_sig.peek() != val {
             hl_sig.set(val.clone());
             if let Some(ref v) = val
+                && should_scroll
                 && self.is_open()
                 && self.content_readiness() == FloatingReadiness::Ready
-                && self.placement().is_some()
             {
                 let item_id = self.relationships().item_id(v);
                 let vp_id = self.relationships().viewport_id();
-                super::viewport::scroll_item_within_viewport(&vp_id, &item_id);
+                super::viewport::scroll_item_within_container(
+                    &vp_id,
+                    self.relationships().content_id(),
+                    &item_id,
+                );
             }
         }
+    }
+
+    pub(crate) fn clear_initial_highlight_pending(&self) {
+        let mut pending_sig = self.state.initial_highlight_pending;
+        if *pending_sig.peek() {
+            pending_sig.set(false);
+        }
+    }
+
+    fn resolve_pending_initial_highlight(&self) {
+        if !self.is_open()
+            || !*self.state.initial_highlight_pending.peek()
+            || self.state.registry.read().ordered_item_ids.is_empty()
+        {
+            return;
+        }
+
+        let current_val = match self.select.mode() {
+            SelectMode::Single { .. } => self.value(),
+            SelectMode::Multiple => self.values().first().cloned(),
+        };
+        let resolved = self.resolve_initial_highlight();
+        self.set_highlighted(resolved.clone());
+        if current_val.is_none() || resolved == current_val {
+            self.clear_initial_highlight_pending();
+        }
+    }
+
+    pub(crate) fn resolve_initial_highlight(&self) -> Option<String> {
+        let current_val = match self.select.mode() {
+            SelectMode::Single { .. } => self.value(),
+            SelectMode::Multiple => self.values().first().cloned(),
+        };
+        let reg = self.state.registry.read();
+
+        if !reg.ordered_item_ids.is_empty() {
+            return current_val
+                .as_ref()
+                .and_then(|value| {
+                    reg.active_items()
+                        .find(|item| item.value == value.as_str() && !item.disabled)
+                        .map(|item| item.value.clone())
+                })
+                .or_else(|| {
+                    reg.active_items()
+                        .find(|item| !item.disabled)
+                        .map(|item| item.value.clone())
+                });
+        }
+
+        let items = self.state.items.read();
+        current_val
+            .as_ref()
+            .and_then(|value| {
+                items
+                    .iter()
+                    .find(|item| item.value == value.as_str() && !item.disabled)
+                    .map(|item| item.value.clone())
+            })
+            .or_else(|| {
+                items
+                    .iter()
+                    .find(|item| !item.disabled)
+                    .map(|item| item.value.clone())
+            })
     }
 
     pub fn preferred_side(&self) -> PlacementSide {
@@ -692,37 +768,10 @@ impl SelectRuntime {
             cb(true);
         }
 
-        let reg = self.state.registry.read();
-        let current_val = match self.select.mode() {
-            SelectMode::Single { .. } => self.value(),
-            SelectMode::Multiple => self.values().first().cloned(),
-        };
-        let init_highlight = current_val
-            .as_ref()
-            .and_then(|v| {
-                reg.active_items()
-                    .find(|i| &i.value == v && !i.disabled)
-                    .map(|i| i.value.clone())
-            })
-            .or_else(|| {
-                reg.active_items()
-                    .find(|i| !i.disabled)
-                    .map(|i| i.value.clone())
-            })
-            .or_else(|| {
-                let items = self.state.items.read();
-                current_val
-                    .as_ref()
-                    .and_then(|v| {
-                        items
-                            .iter()
-                            .find(|i| &i.value == v && !i.disabled)
-                            .map(|i| i.value.clone())
-                    })
-                    .or_else(|| items.iter().find(|i| !i.disabled).map(|i| i.value.clone()))
-            });
-
+        let init_highlight = self.resolve_initial_highlight();
         self.set_highlighted(init_highlight);
+        let mut pending_sig = self.state.initial_highlight_pending;
+        pending_sig.set(self.state.registry.read().ordered_item_ids.is_empty());
 
         self.start_dismiss_monitor();
     }
@@ -732,47 +781,36 @@ impl SelectRuntime {
     }
 
     pub fn register_item(&self, item: SelectItemRegistration) {
-        {
-            let reg = self.state.registry.read();
-            if reg.items_by_id.get(&item.id) == Some(&item) {
-                return;
-            }
-        }
-
-        let val = item.value.clone();
-        let disabled = item.disabled;
-
         let mut labels_sig = self.state.selected_labels;
         if let Ok(mut labels) = labels_sig.try_write() {
             labels.insert(item.value.clone(), item.label.clone());
         }
 
         let mut reg_sig = self.state.registry;
-        reg_sig.write().register(item);
-
-        // Keep items synchronized in pure Rust
-        let active: Vec<SelectItemData> = reg_sig
-            .read()
-            .active_items()
-            .map(|i| SelectItemData {
-                value: i.value.clone(),
-                text: i.label.clone(),
-                disabled: i.disabled,
-            })
-            .collect();
-        let mut items_sig = self.state.items;
-        items_sig.set(active);
-
-        if self.is_open() && !disabled && self.highlighted_value().is_none() {
-            let current_val = match self.select.mode() {
-                SelectMode::Single { .. } => self.value(),
-                SelectMode::Multiple => self.values().first().cloned(),
-            };
-            if current_val.as_deref() == Some(&val) {
-                self.set_highlighted(Some(val));
-            } else {
-                self.set_highlighted(Some(val));
+        let (active, has_order): (Vec<SelectItemData>, bool) = {
+            let mut reg = reg_sig.write();
+            if reg.items_by_id.get(&item.id) != Some(&item) {
+                reg.register(item);
             }
+            let active = reg
+                .active_items()
+                .map(|i| SelectItemData {
+                    value: i.value.clone(),
+                    text: i.label.clone(),
+                    disabled: i.disabled,
+                })
+                .collect();
+            (active, !reg.ordered_item_ids.is_empty())
+        };
+
+        if has_order || !active.is_empty() {
+            let mut items_sig = self.state.items;
+            items_sig.set(active);
+        }
+
+        if self.is_open() && *self.state.initial_highlight_pending.peek() {
+            self.sync_dom_order(self.relationships().content_id());
+            self.resolve_pending_initial_highlight();
         }
     }
 
@@ -828,22 +866,25 @@ impl SelectRuntime {
 
     pub fn set_ordered_items(&self, ordered_ids: Vec<String>) {
         let mut reg_sig = self.state.registry;
-        reg_sig.write().set_tree_order(ordered_ids);
-        let active: Vec<SelectItemData> = reg_sig
-            .read()
-            .active_items()
-            .map(|i| SelectItemData {
-                value: i.value.clone(),
-                text: i.label.clone(),
-                disabled: i.disabled,
-            })
-            .collect();
+        let active: Vec<SelectItemData> = {
+            let mut reg = reg_sig.write();
+            reg.set_tree_order(ordered_ids);
+            reg.active_items()
+                .map(|i| SelectItemData {
+                    value: i.value.clone(),
+                    text: i.label.clone(),
+                    disabled: i.disabled,
+                })
+                .collect()
+        };
         let mut items_sig = self.state.items;
         items_sig.set(active);
+
+        self.resolve_pending_initial_highlight();
     }
 
     pub fn sync_dom_order(&self, content_id: &str) {
-        let candidate_keys: Vec<String> = self
+        let mut candidate_keys: Vec<String> = self
             .state
             .registry
             .read()
@@ -851,14 +892,64 @@ impl SelectRuntime {
             .keys()
             .cloned()
             .collect();
+        let current_val = match self.select.mode() {
+            SelectMode::Single { .. } => self.value(),
+            SelectMode::Multiple => self.values().first().cloned(),
+        };
+        let current_id = current_val
+            .as_deref()
+            .map(|value| self.relationships().item_id(value));
+        if let Some(ref id) = current_id
+            && !candidate_keys.contains(id)
+        {
+            candidate_keys.push(id.clone());
+        }
         let candidate_refs: Vec<&str> = candidate_keys.iter().map(|s| s.as_str()).collect();
 
         if let Ok(new_order) =
             crate::foundation::browser::query_descendant_order(content_id, &candidate_refs)
         {
-            let current_order = self.state.registry.read().ordered_item_ids.clone();
-            if new_order != current_order {
-                self.set_ordered_items(new_order);
+            let dom_first_value = if current_val.is_none() {
+                oxidase::dom::document()
+                    .element_by_id(content_id)
+                    .and_then(|content| {
+                        content.query_selector("[role='option']:not([aria-disabled='true'])")
+                    })
+                    .and_then(|item| item.get_attribute("data-value"))
+            } else {
+                None
+            };
+            let selected_is_in_dom_order = current_id
+                .as_ref()
+                .is_some_and(|id| new_order.contains(id));
+            let selected_is_enabled = current_id.as_ref().is_some_and(|id| {
+                oxidase::dom::document()
+                    .element_by_id(id)
+                    .and_then(|element| element.get_attribute("aria-disabled"))
+                    .as_deref()
+                    != Some("true")
+            });
+            let enabled_selected_value = if selected_is_in_dom_order && selected_is_enabled {
+                current_val.clone()
+            } else {
+                None
+            };
+            if self.is_open() && *self.state.initial_highlight_pending.peek() {
+                if let Some(value) = enabled_selected_value.or(dom_first_value) {
+                    self.set_highlighted(Some(value));
+                    self.clear_initial_highlight_pending();
+                }
+            }
+
+            let registered_order: Vec<String> = {
+                let reg = self.state.registry.read();
+                new_order
+                    .into_iter()
+                    .filter(|id| reg.items_by_id.contains_key(id))
+                    .collect()
+            };
+            if self.state.registry.read().ordered_item_ids != registered_order {
+                self.set_ordered_items(registered_order);
             }
         }
     }
@@ -872,6 +963,7 @@ impl SelectRuntime {
     }
 
     pub fn close_dropdown_with_options(&self, restore_focus: bool) {
+        self.clear_initial_highlight_pending();
         if !self.is_open() {
             return;
         }

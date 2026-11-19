@@ -14,6 +14,7 @@ impl SelectRuntime {
     }
 
     pub fn handle_typeahead(&self, ch: char, now_ms: f64) {
+        self.clear_initial_highlight_pending();
         let last_time = *self.state.last_key_timestamp_ms.read();
         let mut buf = self.state.typeahead_buffer.read().clone();
 

@@ -87,7 +87,7 @@ pub fn SelectContent(
                 if let Some(ref v) = rt.highlighted_value() {
                     let item_id = rt.relationships().item_id(v);
                     let vp_id = rt.relationships().viewport_id();
-                    super::viewport::scroll_item_within_viewport(&vp_id, &item_id);
+                    super::viewport::scroll_item_within_container(&vp_id, &cid, &item_id);
                 }
             }
         }
@@ -196,7 +196,7 @@ pub fn SelectContent(
     };
 
     let inner_style = format!(
-        "{width_style} {css_vars} {arrow_pad_style} {force_mount_style} {pointer_events_style} {}",
+        "display: flex; flex-direction: column; box-sizing: border-box; {width_style} {css_vars} {arrow_pad_style} {force_mount_style} {pointer_events_style} {}",
         style.as_deref().unwrap_or_default()
     );
 

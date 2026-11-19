@@ -74,6 +74,36 @@ fn select_uncontrolled_and_controlled_open_contract() {
 }
 
 #[test]
+fn select_initial_highlight_waits_for_pending_document_order_contract() {
+    let mut dom = VirtualDom::new(|| rsx! {});
+    dom.rebuild_in_place();
+    dom.in_scope(ScopeId::APP, || {
+        for value in [Some("fast".to_string()), None] {
+            let scope = ScopeHandle::root("select-test").child("pending-document-order");
+            let select = Select::new(scope).with_value(value);
+            let runtime = SelectRuntime::new(select);
+
+            runtime.open_dropdown();
+            runtime.register_item(SelectItemRegistration::new(
+                "item-faster",
+                "faster",
+                "Faster",
+                false,
+            ));
+            runtime.register_item(SelectItemRegistration::new(
+                "item-fast",
+                "fast",
+                "Fast",
+                false,
+            ));
+            runtime.set_ordered_items(vec!["item-fast".to_string(), "item-faster".to_string()]);
+
+            assert_eq!(runtime.highlighted_value(), Some("fast".to_string()));
+        }
+    });
+}
+
+#[test]
 fn select_presence_lifecycle_and_retained_mount_contract() {
     use monoxus::foundation::overlay::{Presence, PresenceState};
 

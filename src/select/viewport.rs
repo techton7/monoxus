@@ -33,6 +33,7 @@ impl SelectRuntime {
     }
 
     pub fn highlight_next(&self) {
+        self.clear_initial_highlight_pending();
         let reg = self.state.registry.read();
         let enabled: Vec<String> = if !reg.ordered_item_ids.is_empty() {
             reg.active_items()
@@ -75,6 +76,7 @@ impl SelectRuntime {
     }
 
     pub fn highlight_prev(&self) {
+        self.clear_initial_highlight_pending();
         let reg = self.state.registry.read();
         let enabled: Vec<String> = if !reg.ordered_item_ids.is_empty() {
             reg.active_items()
@@ -116,6 +118,7 @@ impl SelectRuntime {
     }
 
     pub fn highlight_first(&self) {
+        self.clear_initial_highlight_pending();
         let reg = self.state.registry.read();
         if let Some(first) = reg.active_items().find(|i| !i.disabled) {
             self.set_highlighted(Some(first.value.clone()));
@@ -128,6 +131,7 @@ impl SelectRuntime {
     }
 
     pub fn highlight_last(&self) {
+        self.clear_initial_highlight_pending();
         let reg = self.state.registry.read();
         let active: Vec<_> = reg.active_items().filter(|i| !i.disabled).collect();
         if let Some(last) = active.last() {
@@ -197,27 +201,74 @@ impl SelectRuntime {
 }
 
 pub fn scroll_item_within_viewport(viewport_id: &str, item_id: &str) {
-    if let (Some(item_rect), Some(vp_rect)) = (
-        crate::foundation::browser::get_element_client_rect(item_id),
-        crate::foundation::browser::get_element_client_rect(viewport_id),
-    ) {
-        let delta_y = if item_rect.top() < vp_rect.top() {
-            Some(item_rect.top() - vp_rect.top())
-        } else if item_rect.bottom() > vp_rect.bottom() {
-            Some(item_rect.bottom() - vp_rect.bottom())
-        } else {
-            None
-        };
+    scroll_item_within_container(viewport_id, viewport_id, item_id);
+}
 
-        if let Some(dy) = delta_y {
-            let doc = oxidase::dom::document();
-            if let Some(vp_el) = doc.element_by_id(viewport_id) {
-                crate::foundation::browser::spawn_root_task(async move {
-                    let _ = vp_el.scroll_by(0.0, dy).await;
-                });
+async fn try_scroll_item_within_container(
+    viewport_id: &str,
+    fallback_content_id: &str,
+    item_id: &str,
+) -> bool {
+    let doc = oxidase::dom::document();
+
+    let has_viewport_geometry =
+        crate::foundation::browser::get_element_client_rect(viewport_id).is_some();
+    let container_id = if has_viewport_geometry {
+        viewport_id
+    } else {
+        fallback_content_id
+    };
+    let Some(container_rect) = crate::foundation::browser::get_element_client_rect(container_id)
+    else {
+        return false;
+    };
+    let Some(item_rect) = crate::foundation::browser::get_element_client_rect(item_id) else {
+        return false;
+    };
+    if item_rect.height <= 0.0 || container_rect.height <= 0.0 {
+        return false;
+    }
+
+    const EDGE_INSET: f64 = 1.0;
+    let visible_bottom = container_rect.bottom() - EDGE_INSET;
+    let delta_y = if item_rect.top() < container_rect.top() {
+        item_rect.top() - container_rect.top()
+    } else if item_rect.bottom() > visible_bottom {
+        item_rect.bottom() - visible_bottom
+    } else {
+        return true;
+    };
+
+    let Some(container_el) = doc.element_by_id(container_id) else {
+        return false;
+    };
+    container_el.scroll_by(0.0, delta_y).await.is_ok()
+}
+
+pub(crate) fn scroll_item_within_container(
+    viewport_id: &str,
+    fallback_content_id: &str,
+    item_id: &str,
+) {
+    let viewport_id = viewport_id.to_owned();
+    let fallback_content_id = fallback_content_id.to_owned();
+    let item_id = item_id.to_owned();
+    crate::foundation::browser::spawn_root_task(async move {
+        for attempt in 0..3 {
+            if try_scroll_item_within_container(
+                &viewport_id,
+                &fallback_content_id,
+                &item_id,
+            )
+            .await
+            {
+                break;
+            }
+            if attempt < 2 {
+                let _ = oxidase::frame::next_frame().await;
             }
         }
-    }
+    });
 }
 
 #[component]
@@ -229,7 +280,8 @@ pub fn SelectViewport(
 ) -> Element {
     let ctx = use_context::<super::types::SelectContext>();
     let vp_id = id.unwrap_or_else(|| ctx.runtime.relationships().viewport_id());
-    let default_style = "overflow-x: hidden; overflow-y: auto;";
+    let default_style =
+        "position: relative; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto;";
     let combined_style = match style {
         Some(s) => format!("{default_style} {s}"),
         None => default_style.to_string(),
