@@ -1,7 +1,3 @@
-[settle]
-double_raf = true
-idle_frames = 2
-
 [[scenarios]]
 name = "tabs-initial"
 description = "Verify Tabs renders its initial active trigger and content"
@@ -13,7 +9,7 @@ target = "#nav-link-tabs"
 
 [[scenarios.targets]]
 id = "tabs-horizontal-auto"
-selector = "#tabs-horizontal-auto"
+selector = '[id*="tabs-horizontal-auto"]'
 part = "root"
 state = "initial"
 

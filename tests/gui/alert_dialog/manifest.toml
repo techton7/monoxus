@@ -1,7 +1,3 @@
-[settle]
-double_raf = true
-idle_frames = 2
-
 [[scenarios]]
 name = "alert-dialog-open"
 description = "Verify Alert Dialog modal opening, overlay backdrop, and content dialog panel"

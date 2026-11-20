@@ -72,25 +72,6 @@ fn NativeHostedApp() -> Element {
         _ => {}
     });
 
-    #[cfg(all(not(target_arch = "wasm32"), target_os = "macos"))]
-    use_hook(|| {
-        std::thread::spawn(|| {
-            unsafe extern "C" {
-                fn CFRunLoopGetMain() -> *mut std::ffi::c_void;
-                fn CFRunLoopWakeUp(rl: *mut std::ffi::c_void);
-            }
-            loop {
-                std::thread::sleep(std::time::Duration::from_millis(25));
-                unsafe {
-                    let main_rl = CFRunLoopGetMain();
-                    if !main_rl.is_null() {
-                        CFRunLoopWakeUp(main_rl);
-                    }
-                }
-            }
-        });
-    });
-
     rsx! {
         oxidase::launch::HostedRootWrapper {
             RootApp {}

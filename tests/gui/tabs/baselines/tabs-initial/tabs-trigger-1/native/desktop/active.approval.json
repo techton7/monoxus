@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "tabs-initial",
+    "target": "tabs-trigger-1",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "active"
+  },
+  "source_run_id": "run-20261120T140624Z",
+  "baseline_path": "tests/gui/tabs/baselines/tabs-initial/tabs-trigger-1/native/desktop/active.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T140624Z/actual/monoxus/tabs-initial/tabs-trigger-1/native/desktop/active.png",
+  "approved_at": "2026-11-20T14:17:15.730245Z"
+}
