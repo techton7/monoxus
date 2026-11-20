@@ -695,6 +695,13 @@ pub const SW1B_PLAYGROUND_CSS: &str = r#"
     color: #ffffff;
 }
 
+[data-checkbox-root][data-state="checked"]:hover:not([data-disabled]):not([data-readonly]),
+[data-checkbox-root][data-state="indeterminate"]:hover:not([data-disabled]):not([data-readonly]) {
+    background-color: #6d28d9;
+    border-color: #5b21b6;
+    color: #ffffff;
+}
+
 [data-checkbox-root]:focus-visible {
     outline: 2px solid #9333ea;
     outline-offset: 2px;
