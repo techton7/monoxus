@@ -1,6 +1,6 @@
 [package]
 name = "monoxus"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Headless Dioxus primitives and shared foundations for accessible, composable component systems."
 readme = "README.md"
