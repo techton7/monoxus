@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "checkbox-initial",
+    "target": "cb-tristate",
+    "host": "web",
+    "viewport": "desktop",
+    "state": "indeterminate"
+  },
+  "source_run_id": "run-20261120T123141Z",
+  "baseline_path": "tests/gui/checkbox/baselines/checkbox-initial/cb-tristate/web/desktop/indeterminate.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T123141Z/actual/monoxus/checkbox-initial/cb-tristate/web/desktop/indeterminate.png",
+  "approved_at": "2026-11-20T12:31:59.347409Z"
+}

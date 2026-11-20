@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "meter-inverted",
+    "target": "meter-reactive",
+    "host": "web",
+    "viewport": "desktop",
+    "state": "inverted"
+  },
+  "source_run_id": "run-20261120T124217Z",
+  "baseline_path": "tests/gui/meter/baselines/meter-inverted/meter-reactive/web/desktop/inverted.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T124217Z/actual/monoxus/meter-inverted/meter-reactive/web/desktop/inverted.png",
+  "approved_at": "2026-11-20T12:42:21.687722Z"
+}

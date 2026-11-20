@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "tabs-switch",
+    "target": "tabs-content-2",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "active"
+  },
+  "source_run_id": "run-20261120T123355Z",
+  "baseline_path": "tests/gui/tabs/baselines/tabs-switch/tabs-content-2/native/desktop/active.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T123355Z/actual/monoxus/tabs-switch/tabs-content-2/native/desktop/active.png",
+  "approved_at": "2026-11-20T12:33:57.576868Z"
+}

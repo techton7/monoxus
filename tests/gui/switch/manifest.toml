@@ -37,9 +37,3 @@ id = "sw-airplane"
 selector = "#sw-airplane"
 part = "root"
 state = "checked"
-
-[[scenarios.targets]]
-id = "sw-status"
-selector = "#sw-status"
-part = "status"
-state = "checked"

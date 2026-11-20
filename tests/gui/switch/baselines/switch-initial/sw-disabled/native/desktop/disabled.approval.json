@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "switch-initial",
+    "target": "sw-disabled",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "disabled"
+  },
+  "source_run_id": "run-20261120T123203Z",
+  "baseline_path": "tests/gui/switch/baselines/switch-initial/sw-disabled/native/desktop/disabled.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T123203Z/actual/monoxus/switch-initial/sw-disabled/native/desktop/disabled.png",
+  "approved_at": "2026-11-20T12:32:05.050477Z"
+}

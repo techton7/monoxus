@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "toggle-initial",
+    "target": "toggle-bold",
+    "host": "web",
+    "viewport": "desktop",
+    "state": "off"
+  },
+  "source_run_id": "run-20261120T122920Z",
+  "baseline_path": "tests/gui/toggle/baselines/toggle-initial/toggle-bold/web/desktop/off.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T122920Z/actual/monoxus/toggle-initial/toggle-bold/web/desktop/off.png",
+  "approved_at": "2026-11-20T12:31:06.678266Z"
+}

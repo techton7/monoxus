@@ -1,3 +1,7 @@
+[settle]
+double_raf = true
+idle_frames = 2
+
 [[scenarios]]
 name = "tabs-initial"
 description = "Verify Tabs renders its initial active trigger and content"

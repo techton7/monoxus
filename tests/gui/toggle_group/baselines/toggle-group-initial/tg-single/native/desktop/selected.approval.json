@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "toggle-group-initial",
+    "target": "tg-single",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "selected"
+  },
+  "source_run_id": "run-20261120T122925Z",
+  "baseline_path": "tests/gui/toggle_group/baselines/toggle-group-initial/tg-single/native/desktop/selected.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T122925Z/actual/monoxus/toggle-group-initial/tg-single/native/desktop/selected.png",
+  "approved_at": "2026-11-20T12:31:11.861068Z"
+}

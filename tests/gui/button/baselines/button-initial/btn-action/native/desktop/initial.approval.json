@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "button-initial",
+    "target": "btn-action",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "initial"
+  },
+  "source_run_id": "run-20261120T122908Z",
+  "baseline_path": "tests/gui/button/baselines/button-initial/btn-action/native/desktop/initial.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T122908Z/actual/monoxus/button-initial/btn-action/native/desktop/initial.png",
+  "approved_at": "2026-11-20T12:30:20.176509Z"
+}

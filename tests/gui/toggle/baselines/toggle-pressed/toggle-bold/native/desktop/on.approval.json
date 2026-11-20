@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "toggle-pressed",
+    "target": "toggle-bold",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "on"
+  },
+  "source_run_id": "run-20261120T122923Z",
+  "baseline_path": "tests/gui/toggle/baselines/toggle-pressed/toggle-bold/native/desktop/on.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T122923Z/actual/monoxus/toggle-pressed/toggle-bold/native/desktop/on.png",
+  "approved_at": "2026-11-20T12:31:08.301282Z"
+}
