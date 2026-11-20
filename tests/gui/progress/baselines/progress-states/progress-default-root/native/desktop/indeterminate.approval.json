@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "progress-states",
+    "target": "progress-default-root",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "indeterminate"
+  },
+  "source_run_id": "v7-progress-b",
+  "baseline_path": "tests/gui/progress/baselines/progress-states/progress-default-root/native/desktop/indeterminate.png",
+  "source_actual_path": "test-results/gui/runs/v7-progress-b/actual/monoxus/progress-states/progress-default-root/native/desktop/indeterminate.png",
+  "approved_at": "2026-11-20T06:11:40.203682Z"
+}

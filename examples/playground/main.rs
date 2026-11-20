@@ -242,7 +242,7 @@ pub fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: asset!("/assets/tailwind.css") }
         style { {include_str!("../../assets/pretendard.css")} }
-        style { "{SW1A_PLAYGROUND_CSS}\n{SW1B_PLAYGROUND_CSS}" }
+        style { "{SW1A_PLAYGROUND_CSS}\n{SW1B_PLAYGROUND_CSS}\n{SW2A_PLAYGROUND_CSS}" }
         div {
             style: "min-height: 100vh; background-color: #f8fafc; display: flex; flex-direction: row; color: #0f172a; font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;",
 
@@ -844,5 +844,32 @@ pub const SW1B_PLAYGROUND_CSS: &str = r#"
     border-radius: 9999px;
     background-color: #7c3aed;
     pointer-events: none;
+}
+"#;
+
+pub const SW2A_PLAYGROUND_CSS: &str = r#"
+[data-progress-root] {
+    height: 0.75rem;
+    overflow: hidden;
+    border-radius: 9999px;
+    background-color: #e2e8f0;
+}
+
+[data-progress-indicator] {
+    height: 100%;
+    border-radius: inherit;
+    transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+[data-progress-indicator][data-state="loading"] {
+    background-color: #7c3aed;
+}
+
+[data-progress-indicator][data-state="complete"] {
+    background-color: #16a34a;
+}
+
+[data-progress-indicator][data-state="indeterminate"] {
+    background-color: #a78bfa;
 }
 "#;

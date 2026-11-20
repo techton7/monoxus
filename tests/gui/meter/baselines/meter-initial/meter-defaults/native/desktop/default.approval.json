@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "meter-initial",
+    "target": "meter-defaults",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "default"
+  },
+  "source_run_id": "v7-meter-initial-b",
+  "baseline_path": "tests/gui/meter/baselines/meter-initial/meter-defaults/native/desktop/default.png",
+  "source_actual_path": "test-results/gui/runs/v7-meter-initial-b/actual/monoxus/meter-initial/meter-defaults/native/desktop/default.png",
+  "approved_at": "2026-11-20T06:11:40.330924Z"
+}
