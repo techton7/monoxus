@@ -50,6 +50,7 @@ pub fn ButtonPlayground() -> Element {
                         class: "flex items-center gap-2",
                         Button {
                             id: "btn-action".to_string(),
+                            "data-gui-test-id": "btn-action",
                             class: "sw1a-btn-primary".to_string(),
                             on_click: move |_| action_count += 1,
                             "Primary Action"
@@ -64,6 +65,7 @@ pub fn ButtonPlayground() -> Element {
                         class: "flex items-center gap-2",
                         Button {
                             id: "btn-anchor".to_string(),
+                            "data-gui-test-id": "btn-anchor",
                             href: "#button-anchor-target".to_string(),
                             class: "sw1a-btn-secondary".to_string(),
                             on_click: move |evt: MouseEvent| {
@@ -85,7 +87,11 @@ pub fn ButtonPlayground() -> Element {
                     span {
                         class: "inline-flex items-center gap-1 rounded bg-slate-100 px-2.5 py-1 font-mono",
                         "Button clicks: "
-                        strong { id: "btn-action-count", "{action_count()}" }
+                        strong {
+                            id: "btn-action-count",
+                            "data-gui-test-id": "btn-action-count",
+                            "{action_count()}"
+                        }
                     }
                     span {
                         class: "inline-flex items-center gap-1 rounded bg-slate-100 px-2.5 py-1 font-mono",

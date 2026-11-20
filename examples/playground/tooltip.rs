@@ -285,6 +285,7 @@ pub fn TooltipPlayground(props: TooltipPlaygroundProps) -> Element {
                             style: "position: absolute; left: 24px; top: 72px;",
                             button {
                                 id: first_trigger.id(),
+                                "data-gui-test-id": "tooltip-trigger",
                                 r#type: "button",
                                 aria_describedby: first_trigger.aria_describedby(),
                                 "data-state": first_trigger.data_state().as_str(),
@@ -330,6 +331,7 @@ pub fn TooltipPlayground(props: TooltipPlaygroundProps) -> Element {
 
                                 div {
                                     id: first_content.id(),
+                                    "data-gui-test-id": "tooltip-content",
                                     role: first_content.role(),
                                     "data-state": first_content.data_state().as_str(),
                                     "data-side": first_content.data_side(),
@@ -342,6 +344,7 @@ pub fn TooltipPlayground(props: TooltipPlaygroundProps) -> Element {
                                     style: first_content_style.clone(),
                                     div {
                                         id: first_arrow.id(),
+                                        "data-gui-test-id": "tooltip-arrow",
                                         "data-state": first_arrow.data_state().as_str(),
                                         "data-side": first_arrow.data_side(),
                                         "data-align": first_arrow.data_align(),

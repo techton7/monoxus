@@ -45,6 +45,7 @@ pub fn RadioGroupPlayground() -> Element {
                     class: "flex flex-col gap-3 p-4 bg-slate-50 rounded-lg border border-slate-100",
                     RadioGroupRoot {
                         id: "rg-unselected".to_string(),
+                        "data-gui-test-id": "rg-unselected",
                         default_value: None,
                         on_value_change: move |v| unselected_val.set(Some(v)),
                         div {
@@ -53,6 +54,7 @@ pub fn RadioGroupPlayground() -> Element {
                                 class: "inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none",
                                 RadioGroupItem {
                                     id: "rg-unselected-a".to_string(),
+                                    "data-gui-test-id": "rg-unselected-a",
                                     value: "a".to_string(),
                                     RadioGroupIndicator {
                                         id: "rg-unselected-a-ind".to_string(),
@@ -64,6 +66,7 @@ pub fn RadioGroupPlayground() -> Element {
                                 class: "inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer select-none",
                                 RadioGroupItem {
                                     id: "rg-unselected-b".to_string(),
+                                    "data-gui-test-id": "rg-unselected-b",
                                     value: "b".to_string(),
                                     RadioGroupIndicator {
                                         id: "rg-unselected-b-ind".to_string(),

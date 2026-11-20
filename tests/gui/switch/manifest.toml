@@ -1,0 +1,45 @@
+[[scenarios]]
+name = "switch-initial"
+description = "Verify Switch renders its interactive and disabled states above the fold"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-switch"
+
+[[scenarios.targets]]
+id = "sw-airplane"
+selector = "#sw-airplane"
+part = "root"
+state = "unchecked"
+
+[[scenarios.targets]]
+id = "sw-disabled"
+selector = "#sw-disabled"
+part = "root"
+state = "disabled"
+
+[[scenarios]]
+name = "switch-checked"
+description = "Verify Switch toggles its checked state and updates the status"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-switch"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw-airplane"
+
+[[scenarios.targets]]
+id = "sw-airplane"
+selector = "#sw-airplane"
+part = "root"
+state = "checked"
+
+[[scenarios.targets]]
+id = "sw-status"
+selector = "#sw-status"
+part = "status"
+state = "checked"

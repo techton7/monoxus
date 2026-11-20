@@ -60,6 +60,7 @@ pub fn CheckboxPlayground() -> Element {
                         class: "flex items-center gap-3",
                         Checkbox {
                             id: "cb-tristate".to_string(),
+                            "data-gui-test-id": "cb-tristate",
                             default_checked: CheckedState::Indeterminate,
                             checked: tristate(),
                             on_checked_change: move |next| tristate.set(next),
@@ -87,6 +88,7 @@ pub fn CheckboxPlayground() -> Element {
                         "State: "
                         strong {
                             id: "cb-tristate-status",
+                            "data-gui-test-id": "cb-tristate-status",
                             "{tristate().data_state_str()}"
                         }
                     }

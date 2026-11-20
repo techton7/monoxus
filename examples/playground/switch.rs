@@ -50,6 +50,7 @@ pub fn SwitchPlayground() -> Element {
                                 class: "flex items-center gap-3",
                                 SwitchRoot {
                                     id: "sw-airplane".to_string(),
+                                    "data-gui-test-id": "sw-airplane",
                                     checked: airplane_checked(),
                                     on_checked_change: move |next| airplane_checked.set(next),
                                     SwitchThumb {
@@ -66,6 +67,7 @@ pub fn SwitchPlayground() -> Element {
                                 "Status: "
                                 strong {
                                     id: "sw-status",
+                                    "data-gui-test-id": "sw-status",
                                     if airplane_checked() { "checked" } else { "unchecked" }
                                 }
                             }
@@ -97,6 +99,7 @@ pub fn SwitchPlayground() -> Element {
                             class: "flex items-center gap-3",
                             SwitchRoot {
                                 id: "sw-disabled".to_string(),
+                                "data-gui-test-id": "sw-disabled",
                                 disabled: true,
                                 default_checked: false,
                                 SwitchThumb {

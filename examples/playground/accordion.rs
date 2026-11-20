@@ -201,6 +201,7 @@ pub fn SingleCollapsibleSection() -> Element {
 
                                     button {
                                         id: "{trig_id}",
+                                        "data-gui-test-id": "{trig_id}",
                                         r#type: "button",
                                         aria_expanded: trig_attrs.aria_expanded(),
                                         aria_controls: "{content_id}",
@@ -225,6 +226,7 @@ pub fn SingleCollapsibleSection() -> Element {
 
                                 div {
                                     id: "{content_id}",
+                                    "data-gui-test-id": "{content_id}",
                                     role: content_attrs.role(),
                                     aria_labelledby: "{trig_id}",
                                     hidden: (!is_open).then_some(true),

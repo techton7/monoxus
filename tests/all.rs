@@ -171,3 +171,97 @@ fn all_test_files_are_included() {
         "every non-common test-suite mod.rs must be routed by tests/all.rs"
     );
 }
+
+#[test]
+fn all_primitives_have_gui_test_manifests() {
+    use std::collections::BTreeSet;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    const PRIMITIVES: &[&str] = &[
+        "accordion",
+        "alert_dialog",
+        "aspect_ratio",
+        "avatar",
+        "button",
+        "checkbox",
+        "collapsible",
+        "dialog",
+        "label",
+        "meter",
+        "popover",
+        "progress",
+        "radio_group",
+        "select",
+        "separator",
+        "switch",
+        "tabs",
+        "toast",
+        "toggle",
+        "toggle_group",
+        "tooltip",
+    ];
+
+    let expected_primitives: BTreeSet<_> = PRIMITIVES.iter().map(PathBuf::from).collect();
+    assert_eq!(
+        expected_primitives.len(),
+        21,
+        "the primitive coverage guard must enumerate all 21 primitives"
+    );
+
+    let src_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let actual_primitives: BTreeSet<_> = fs::read_dir(&src_dir)
+        .expect("read source directory")
+        .map(|entry| entry.expect("read source entry"))
+        .filter_map(|entry| {
+            let path = entry.path();
+            let name: PathBuf = entry.file_name().into();
+            if path.is_dir() {
+                if name == Path::new("foundation") {
+                    None
+                } else {
+                    Some(name)
+                }
+            } else if path.is_file()
+                && path.extension().is_some_and(|extension| extension == "rs")
+                && name != Path::new("lib.rs")
+            {
+                Some(path.file_stem().unwrap().into())
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(
+        actual_primitives, expected_primitives,
+        "the GUI manifest registry must exactly cover all primitive modules"
+    );
+
+    let gui_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("gui");
+    let mut manifest_primitives = BTreeSet::new();
+    let mut unregistered_non_manifest_dirs = BTreeSet::new();
+    for entry in fs::read_dir(&gui_dir).expect("read GUI test directory") {
+        let entry = entry.expect("read GUI test entry");
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+
+        let name: PathBuf = entry.file_name().into();
+        if path.join("manifest.toml").is_file() {
+            manifest_primitives.insert(name);
+        } else if !expected_primitives.contains(&name) {
+            unregistered_non_manifest_dirs.insert(name);
+        }
+    }
+    assert_eq!(
+        manifest_primitives, expected_primitives,
+        "every primitive must have exactly one direct GUI test manifest directory"
+    );
+    assert!(
+        unregistered_non_manifest_dirs.is_empty(),
+        "every direct tests/gui subdirectory must be registered: {unregistered_non_manifest_dirs:?}"
+    );
+}

@@ -64,17 +64,20 @@ pub fn ToggleGroupPlayground() -> Element {
                     class: "space-y-3",
                     ToggleGroupRoot {
                         id: "tg-single".to_string(),
+                        "data-gui-test-id": "tg-single",
                         r#type: ToggleGroupMode::Single,
                         default_value: "center".to_string(),
                         on_value_change: move |v| single_val.set(v),
                         class: "inline-flex items-center gap-1.5 rounded-lg bg-slate-100 p-1".to_string(),
                         ToggleGroupItem {
                             id: "tg-align-left".to_string(),
+                            "data-gui-test-id": "tg-align-left",
                             value: "left".to_string(),
                             "Left"
                         }
                         ToggleGroupItem {
                             id: "tg-align-center".to_string(),
+                            "data-gui-test-id": "tg-align-center",
                             value: "center".to_string(),
                             "Center"
                         }

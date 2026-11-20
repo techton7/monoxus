@@ -43,6 +43,7 @@ pub fn TogglePlayground() -> Element {
                     class: "flex flex-wrap items-center gap-3",
                     Toggle {
                         id: "toggle-bold".to_string(),
+                        "data-gui-test-id": "toggle-bold",
                         pressed: bold(),
                         on_pressed_change: move |next| bold.set(next),
                         "Bold"
@@ -50,6 +51,7 @@ pub fn TogglePlayground() -> Element {
 
                     Toggle {
                         id: "toggle-italic".to_string(),
+                        "data-gui-test-id": "toggle-italic",
                         pressed: italic(),
                         on_pressed_change: move |next| italic.set(next),
                         "Italic"
@@ -57,6 +59,7 @@ pub fn TogglePlayground() -> Element {
 
                     Toggle {
                         id: "toggle-disabled-off".to_string(),
+                        "data-gui-test-id": "toggle-disabled-off",
                         disabled: true,
                         default_pressed: false,
                         "Disabled (Off)"
@@ -92,6 +95,7 @@ pub fn TogglePlayground() -> Element {
                         "Bold state: "
                         strong {
                             id: "toggle-bold-state",
+                            "data-gui-test-id": "toggle-bold-state",
                             if bold() { "true" } else { "false" }
                         }
                         span {

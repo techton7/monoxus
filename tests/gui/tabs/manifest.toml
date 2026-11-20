@@ -1,0 +1,51 @@
+[[scenarios]]
+name = "tabs-initial"
+description = "Verify Tabs renders its initial active trigger and content"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-tabs"
+
+[[scenarios.targets]]
+id = "tabs-horizontal-auto"
+selector = "#tabs-horizontal-auto"
+part = "root"
+state = "initial"
+
+[[scenarios.targets]]
+id = "tabs-trigger-1"
+selector = "#tabs-trigger-1"
+part = "trigger"
+state = "active"
+
+[[scenarios.targets]]
+id = "tabs-content-1"
+selector = "#tabs-content-1"
+part = "content"
+state = "active"
+
+[[scenarios]]
+name = "tabs-switch"
+description = "Verify Tabs switches its active trigger and content"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-tabs"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#tabs-trigger-2"
+
+[[scenarios.targets]]
+id = "tabs-trigger-2"
+selector = "#tabs-trigger-2"
+part = "trigger"
+state = "active"
+
+[[scenarios.targets]]
+id = "tabs-content-2"
+selector = "#tabs-content-2"
+part = "content"
+state = "active"

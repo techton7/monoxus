@@ -1,0 +1,45 @@
+[[scenarios]]
+name = "radio-group-initial"
+description = "Verify Radio Group renders above the fold with no option selected"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-radio-group"
+
+[[scenarios.targets]]
+id = "rg-unselected"
+selector = "#rg-unselected"
+part = "root"
+state = "unselected"
+
+[[scenarios.targets]]
+id = "rg-unselected-a"
+selector = "#rg-unselected-a"
+part = "item"
+state = "unchecked"
+
+[[scenarios]]
+name = "radio-group-selected"
+description = "Verify Radio Group renders Option B as selected after interaction"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-radio-group"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#rg-unselected-b"
+
+[[scenarios.targets]]
+id = "rg-unselected"
+selector = "#rg-unselected"
+part = "root"
+state = "selected"
+
+[[scenarios.targets]]
+id = "rg-unselected-b"
+selector = "#rg-unselected-b"
+part = "item"
+state = "checked"

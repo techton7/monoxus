@@ -1,0 +1,45 @@
+[[scenarios]]
+name = "checkbox-initial"
+description = "Verify initial indeterminate state and status of Checkbox"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-checkbox"
+
+[[scenarios.targets]]
+id = "cb-tristate"
+selector = "#cb-tristate"
+part = "root"
+state = "indeterminate"
+
+[[scenarios.targets]]
+id = "cb-tristate-status"
+selector = "#cb-tristate-status"
+part = "status"
+state = "indeterminate"
+
+[[scenarios]]
+name = "checkbox-checked"
+description = "Verify Checkbox click transitions the tri-state control and status to checked"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-checkbox"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#cb-tristate"
+
+[[scenarios.targets]]
+id = "cb-tristate"
+selector = "#cb-tristate"
+part = "root"
+state = "checked"
+
+[[scenarios.targets]]
+id = "cb-tristate-status"
+selector = "#cb-tristate-status"
+part = "status"
+state = "checked"

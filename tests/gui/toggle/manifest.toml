@@ -1,0 +1,51 @@
+[[scenarios]]
+name = "toggle-initial"
+description = "Verify Toggle initial off, on, and disabled states"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-toggle"
+
+[[scenarios.targets]]
+id = "toggle-bold"
+selector = "#toggle-bold"
+part = "root"
+state = "off"
+
+[[scenarios.targets]]
+id = "toggle-italic"
+selector = "#toggle-italic"
+part = "root"
+state = "on"
+
+[[scenarios.targets]]
+id = "toggle-disabled-off"
+selector = "#toggle-disabled-off"
+part = "root"
+state = "disabled-off"
+
+[[scenarios]]
+name = "toggle-pressed"
+description = "Verify Toggle press updates the root and state readout"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-toggle"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#toggle-bold"
+
+[[scenarios.targets]]
+id = "toggle-bold"
+selector = "#toggle-bold"
+part = "root"
+state = "on"
+
+[[scenarios.targets]]
+id = "toggle-bold-state"
+selector = "#toggle-bold-state"
+part = "state"
+state = "true"

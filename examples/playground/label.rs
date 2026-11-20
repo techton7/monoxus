@@ -50,6 +50,7 @@ pub fn LabelPlayground() -> Element {
                             id: "label-for-input".to_string(),
                             r#for: "demo-input".to_string(),
                             class: "block text-sm font-medium text-slate-800 cursor-pointer".to_string(),
+                            "data-gui-test-id": "label-for-input",
                             "Workspace Handle"
                         }
                         span {
@@ -91,10 +92,12 @@ pub fn LabelPlayground() -> Element {
                         id: "label-for-checkbox".to_string(),
                         r#for: "demo-checkbox".to_string(),
                         class: "text-sm font-medium text-slate-700 cursor-pointer".to_string(),
+                        "data-gui-test-id": "label-for-checkbox",
                         "Accept telemetry & crash diagnostics"
                     }
                     span {
                         id: "label-checkbox-state",
+                        "data-gui-test-id": "label-checkbox-state",
                         style: if accepted() {
                             "background-color: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-family: monospace; font-size: 0.75rem; font-weight: 600;"
                         } else {

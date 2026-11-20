@@ -1,0 +1,45 @@
+[[scenarios]]
+name = "toggle-group-initial"
+description = "Verify Toggle Group single-selection root and initial Center item above the fold"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-toggle-group"
+
+[[scenarios.targets]]
+id = "tg-single"
+selector = "#tg-single"
+part = "root"
+state = "selected"
+
+[[scenarios.targets]]
+id = "tg-align-center"
+selector = "#tg-align-center"
+part = "item"
+state = "checked"
+
+[[scenarios]]
+name = "toggle-group-selected"
+description = "Verify Left becomes selected after Toggle Group interaction"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-toggle-group"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#tg-align-left"
+
+[[scenarios.targets]]
+id = "tg-single"
+selector = "#tg-single"
+part = "root"
+state = "selected"
+
+[[scenarios.targets]]
+id = "tg-align-left"
+selector = "#tg-align-left"
+part = "item"
+state = "checked"

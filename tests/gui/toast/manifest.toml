@@ -1,0 +1,28 @@
+[[scenarios]]
+name = "toast-open"
+description = "Verify the toast viewport and info toast open after dispatch"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-toast"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#dispatch-info"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 450
+
+[[scenarios.targets]]
+id = "monoxus-toast-viewport"
+selector = "#monoxus-toast-viewport"
+part = "viewport"
+state = "open"
+
+[[scenarios.targets]]
+id = "toast-item-info"
+selector = '#monoxus-toast-viewport li[data-sonner-toast]'
+part = "item"
+state = "open"

@@ -1,0 +1,45 @@
+[[scenarios]]
+name = "button-initial"
+description = "Verify the enabled native button and anchor initial presentation"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-button"
+
+[[scenarios.targets]]
+id = "btn-action"
+selector = "#btn-action"
+part = "button"
+state = "initial"
+
+[[scenarios.targets]]
+id = "btn-anchor"
+selector = "#btn-anchor"
+part = "anchor"
+state = "initial"
+
+[[scenarios]]
+name = "button-clicked"
+description = "Verify button activation updates its count"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-button"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#btn-action"
+
+[[scenarios.targets]]
+id = "btn-action"
+selector = "#btn-action"
+part = "button"
+state = "clicked"
+
+[[scenarios.targets]]
+id = "btn-action-count"
+selector = "#btn-action-count"
+part = "count"
+state = "clicked"

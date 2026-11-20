@@ -1,0 +1,34 @@
+[[scenarios]]
+name = "tooltip-open"
+description = "Verify Tooltip opens on hover with trigger, content, and arrow"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-tooltip"
+
+[[scenarios.actions]]
+kind = "hover"
+target = "#tooltip-trigger"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 650
+
+[[scenarios.targets]]
+id = "tooltip-trigger"
+selector = "#tooltip-trigger"
+part = "trigger"
+state = "open"
+
+[[scenarios.targets]]
+id = "tooltip-content"
+selector = "#tooltip-content"
+part = "content"
+state = "open"
+
+[[scenarios.targets]]
+id = "tooltip-arrow"
+selector = "#tooltip-arrow"
+part = "arrow"
+state = "open"

@@ -1,0 +1,39 @@
+[[scenarios]]
+name = "accordion-initial"
+description = "Verify the first single collapsible accordion item starts closed"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-accordion"
+
+[[scenarios.targets]]
+id = "accordion-trigger-1"
+selector = "#accordion-trigger-1"
+part = "trigger"
+state = "closed"
+
+[[scenarios]]
+name = "accordion-open"
+description = "Verify the first single collapsible accordion item opens"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-accordion"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#accordion-trigger-1"
+
+[[scenarios.targets]]
+id = "accordion-trigger-1"
+selector = "#accordion-trigger-1"
+part = "trigger"
+state = "open"
+
+[[scenarios.targets]]
+id = "accordion-content-1"
+selector = "#accordion-content-1"
+part = "content"
+state = "open"
