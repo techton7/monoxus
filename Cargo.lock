@@ -3272,10 +3272,18 @@ dependencies = [
  "futures-util",
  "keyboard-types",
  "manganis",
+ "monoxus-core",
  "oxidase",
  "oxidase-floating-ui",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "monoxus-core"
+version = "0.1.0"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

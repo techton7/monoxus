@@ -96,7 +96,7 @@ where
 {
     watch_image_load(src, options, move |status: ImageLoadStatus| {
         if alive.get() && owns_generation() {
-            on_status(generation, status.into());
+            on_status(generation, super::types::image_load_status_to_avatar(status));
         }
     })
 }

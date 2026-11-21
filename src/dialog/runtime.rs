@@ -232,12 +232,12 @@ impl DialogRuntime {
             .peek()
             .clone()
             .unwrap_or_else(|| self.relationships().content_id().to_string());
-        attrs.target_content_id = content_id.clone();
-        attrs.aria_controls = if self.is_open() || self.should_render_content() {
+        attrs.set_target_content_id(content_id.clone());
+        attrs.set_aria_controls(if self.is_open() || self.should_render_content() {
             Some(content_id)
         } else {
             None
-        };
+        });
         attrs
     }
 

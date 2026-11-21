@@ -4,14 +4,12 @@ use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     roving_focus::{RovingFocusConfig, RovingItemMeta, use_roving_focus_item},
     shared::{Direction, ScopeHandle, use_direction_context},
     state::{ControllableStateProps, use_controllable_state},
 };
 
 use super::{
-    attrs::{ToggleGroupItemAttributes, ToggleGroupRootAttributes},
     runtime::ToggleGroupRuntime,
     types::{
         ToggleGroupMode, ToggleGroupMultipleChangeHandler, ToggleGroupOrientation,
@@ -22,24 +20,6 @@ use super::{
 #[derive(Clone)]
 pub struct ToggleGroupContext {
     pub runtime: ToggleGroupRuntime,
-}
-
-pub fn project_toggle_group_root_as_child<T, C>(
-    attrs: &ToggleGroupRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ToggleGroupRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_toggle_group_item_as_child<T, C>(
-    attrs: &ToggleGroupItemAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ToggleGroupItemAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
 }
 
 #[derive(Props, Clone, PartialEq)]

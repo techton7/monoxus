@@ -7,7 +7,6 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{PresenceMonitorEvent, WatcherGuard, start_presence_monitor},
-    compose::{Slottable, project_as_child},
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
     overlay::PresenceController,
     roving_focus::{Orientation, RovingFocusConfig, RovingItemMeta, use_roving_focus_item},
@@ -16,7 +15,6 @@ use crate::foundation::{
 };
 
 use super::{
-    attrs::{RadioGroupIndicatorAttributes, RadioGroupItemAttributes, RadioGroupRootAttributes},
     relationships::RadioGroupRelationships,
     runtime::RadioGroupRuntime,
     types::{RadioGroupOrientation, RadioGroupValueChangeHandler},
@@ -63,33 +61,6 @@ pub fn use_radio_group_item_context() -> RadioGroupItemContext {
 
 pub fn try_use_radio_group_item_context() -> Option<RadioGroupItemContext> {
     try_consume_context::<RadioGroupItemContext>()
-}
-
-pub fn project_radio_group_root_as_child<T, C>(
-    attrs: &RadioGroupRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, RadioGroupRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_radio_group_item_as_child<T, C>(
-    attrs: &RadioGroupItemAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, RadioGroupItemAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_radio_group_indicator_as_child<T, C>(
-    attrs: &RadioGroupIndicatorAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, RadioGroupIndicatorAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
 }
 
 #[derive(Props, Clone, PartialEq)]

@@ -8,7 +8,6 @@ use dioxus::prelude::*;
 use crate::button::ButtonType;
 use crate::foundation::{
     browser::{start_presence_monitor, PresenceMonitorEvent, WatcherGuard},
-    compose::{project_as_child, Slottable},
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
     overlay::PresenceController,
     shared::{ScopeHandle, use_stable_id},
@@ -29,42 +28,6 @@ use super::{
         CheckboxCheckedChangeHandler, CheckboxGroupValuesChangeHandler, CheckedState,
     },
 };
-
-pub fn project_checkbox_root_as_child<T, C>(
-    attrs: &CheckboxRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, CheckboxRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_checkbox_indicator_as_child<T, C>(
-    attrs: &CheckboxIndicatorAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, CheckboxIndicatorAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_checkbox_group_as_child<T, C>(
-    attrs: &CheckboxGroupAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, CheckboxGroupAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_checkbox_group_label_as_child<T, C>(
-    attrs: &CheckboxGroupLabelAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, CheckboxGroupLabelAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
 
 /// Props for [`CheckboxRoot`].
 #[derive(Props, Clone, PartialEq)]

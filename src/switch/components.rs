@@ -5,7 +5,6 @@ use dioxus::prelude::*;
 
 use crate::button::ButtonType;
 use crate::foundation::{
-    compose::{project_as_child, Slottable},
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
     shared::{ScopeHandle, use_stable_id},
     state::{use_controllable_state, ControllableStateProps},
@@ -17,24 +16,6 @@ use super::{
     runtime::{use_switch_context, SwitchContext},
     types::SwitchCheckedChangeHandler,
 };
-
-pub fn project_switch_root_as_child<T, C>(
-    attrs: &SwitchRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, SwitchRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_switch_thumb_as_child<T, C>(
-    attrs: &SwitchThumbAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, SwitchThumbAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
 
 /// Props for [`SwitchRoot`].
 #[derive(Props, Clone, PartialEq)]

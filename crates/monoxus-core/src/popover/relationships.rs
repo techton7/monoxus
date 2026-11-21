@@ -1,0 +1,91 @@
+use crate::foundation::shared::ScopeHandle;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PopoverRelationships {
+    scope: ScopeHandle,
+    root_id: String,
+    trigger_id: String,
+    anchor_id: String,
+    content_id: String,
+    arrow_id: String,
+    close_id: String,
+    title_id: String,
+    description_id: String,
+}
+
+impl PopoverRelationships {
+    pub fn new(scope: ScopeHandle) -> Self {
+        Self {
+            root_id: scope.token(),
+            trigger_id: scope.qualify("trigger"),
+            anchor_id: scope.qualify("anchor"),
+            content_id: scope.qualify("content"),
+            arrow_id: scope.qualify("arrow"),
+            close_id: scope.qualify("close"),
+            title_id: scope.qualify("title"),
+            description_id: scope.qualify("description"),
+            scope,
+        }
+    }
+
+    pub fn with_trigger_id(mut self, trigger_id: impl Into<String>) -> Self {
+        self.trigger_id = trigger_id.into();
+        self
+    }
+
+    pub fn with_content_id(mut self, content_id: impl Into<String>) -> Self {
+        self.content_id = content_id.into();
+        self
+    }
+
+    pub fn with_anchor_id(mut self, anchor_id: impl Into<String>) -> Self {
+        self.anchor_id = anchor_id.into();
+        self
+    }
+
+    pub fn with_arrow_id(mut self, arrow_id: impl Into<String>) -> Self {
+        self.arrow_id = arrow_id.into();
+        self
+    }
+
+    pub fn with_close_id(mut self, close_id: impl Into<String>) -> Self {
+        self.close_id = close_id.into();
+        self
+    }
+
+    pub fn scope(&self) -> &ScopeHandle {
+        &self.scope
+    }
+
+    pub fn root_id(&self) -> &str {
+        &self.root_id
+    }
+
+    pub fn trigger_id(&self) -> &str {
+        &self.trigger_id
+    }
+
+    pub fn anchor_id(&self) -> &str {
+        &self.anchor_id
+    }
+
+    pub fn content_id(&self) -> &str {
+        &self.content_id
+    }
+
+    pub fn arrow_id(&self) -> &str {
+        &self.arrow_id
+    }
+
+    pub fn close_id(&self) -> &str {
+        &self.close_id
+    }
+
+    pub fn title_id(&self) -> &str {
+        &self.title_id
+    }
+
+    pub fn description_id(&self) -> &str {
+        &self.description_id
+    }
+}

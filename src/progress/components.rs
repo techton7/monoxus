@@ -2,34 +2,13 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
-use crate::foundation::{
-    compose::{Slottable, project_as_child},
-    shared::{ScopeHandle, use_stable_id},
-};
+use crate::foundation::shared::{ScopeHandle, use_stable_id};
 
 use super::{
     attrs::{ProgressIndicatorAttributes, ProgressRootAttributes},
     runtime::{ProgressContext, use_progress_context, use_progress_runtime},
     state::Progress as ProgressDefinition,
 };
-
-pub fn project_progress_root_as_child<T, C>(
-    attrs: &ProgressRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ProgressRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_progress_indicator_as_child<T, C>(
-    attrs: &ProgressIndicatorAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ProgressIndicatorAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
 
 #[derive(Clone)]
 pub struct ProgressRootRenderChildProps {

@@ -3,10 +3,7 @@ use std::{borrow::Cow, cell::Cell, rc::Rc, time::Duration};
 use dioxus::prelude::*;
 use futures_timer::Delay;
 
-use crate::foundation::{
-    compose::{Slottable, project_as_child},
-    shared::{ScopeHandle, use_stable_id},
-};
+use crate::foundation::shared::{ScopeHandle, use_stable_id};
 
 use super::{
     attrs::{AvatarFallbackAttributes, AvatarImageAttributes, AvatarRootAttributes},
@@ -14,33 +11,6 @@ use super::{
     runtime::{AvatarContext, AvatarImageProbe, use_avatar_context, watch_avatar_image},
     types::AvatarImageLoadingStatus,
 };
-
-pub fn project_avatar_root_as_child<T, C>(
-    attrs: &AvatarRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, AvatarRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_avatar_image_as_child<T, C>(
-    attrs: &AvatarImageAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, AvatarImageAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_avatar_fallback_as_child<T, C>(
-    attrs: &AvatarFallbackAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, AvatarFallbackAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
 
 #[derive(Clone)]
 pub struct AvatarRootRenderChildProps {
