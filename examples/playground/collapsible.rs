@@ -24,6 +24,7 @@ pub fn CollapsiblePlayground() -> Element {
             BasicCollapsibleScenario {}
             DisabledCollapsibleScenario {}
             ControlledCollapsibleScenario {}
+            AnimatedDimensionsCollapsibleScenario {}
         }
     }
 }
@@ -188,6 +189,75 @@ pub fn ControlledCollapsibleScenario() -> Element {
                     div {
                         class: "rounded-lg border border-indigo-100 bg-indigo-50 p-4",
                         p { class: "font-medium text-indigo-900", "Controlled content is currently visible." }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario 4: SW2B Dynamic Dimensions & Exit Animation
+// ---------------------------------------------------------------------------
+#[component]
+pub fn AnimatedDimensionsCollapsibleScenario() -> Element {
+    let mut is_open = use_signal(|| false);
+
+    rsx! {
+        div {
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
+            div {
+                class: "space-y-1",
+                h3 { class: "text-base font-semibold text-slate-900", "4. SW2B Dynamic Dimensions & Exit Animation" }
+                p { class: "text-xs text-slate-500",
+                    "Dynamic --radix/--monoxus dimensions and CSS presence exit animation."
+                }
+            }
+
+            CollapsibleRoot {
+                id: "sw2b-collapsible-root".to_string(),
+                default_open: false,
+                on_open_change: move |open| is_open.set(open),
+                div {
+                    style: "width: 320px;",
+                    div {
+                        class: "flex items-center justify-between pb-3 border-b border-slate-100",
+                        span {
+                            class: "text-sm font-medium text-slate-700",
+                            "SW2B Measured Dimensions"
+                        }
+                        CollapsibleTrigger {
+                            id: "sw2b-collapsible-trigger".to_string(),
+                            class: "sw1a-btn-primary inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors cursor-pointer",
+                            span { if is_open() { "Hide Panel" } else { "Show Panel" } }
+                        }
+                    }
+
+                    div {
+                        class: "pt-3 flex items-center gap-2",
+                        span {
+                            class: "text-xs text-slate-400 font-semibold uppercase",
+                            "State:"
+                        }
+                        span {
+                            id: "sw2b-collapsible-state",
+                            "data-state": if is_open() { "open" } else { "closed" },
+                            class: "inline-flex items-center rounded px-2 py-0.5 text-xs font-mono font-medium bg-slate-100 text-slate-700",
+                            if is_open() { "open" } else { "closed" }
+                        }
+                    }
+
+                    CollapsibleContent {
+                        id: "sw2b-collapsible-content".to_string(),
+                        class: "sw2b-collapsible-animated".to_string(),
+                        style: "width: 320px; box-sizing: border-box;".to_string(),
+                        div {
+                            style: "height: 120px; width: 320px; padding: 14px; box-sizing: border-box; background: #eff6ff; border: 1px solid #93c5fd; border-radius: 0.5rem;",
+                            p {
+                                class: "text-sm text-blue-900 font-medium",
+                                "Dynamic --radix/--monoxus dimensions & presence exit animation."
+                            }
+                        }
                     }
                 }
             }

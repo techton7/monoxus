@@ -53,6 +53,7 @@ mod aspect_ratio_test;
 mod avatar_test;
 mod button_test;
 mod collapsible_test;
+mod disclosure_dimensions_test;
 mod form_hidden_input_test;
 mod foundation_phase_2_4_handoff;
 mod foundation_phase_3_7_handoff;
@@ -62,7 +63,9 @@ mod overlay_presence_phase_3_7_step_4;
 mod popover_test;
 mod progress_test;
 mod roving_focus_test;
+mod scroll_area_test;
 mod separator_test;
+mod slider_test;
 mod switch_test;
 mod toast_test;
 mod toggle_test;
@@ -94,6 +97,7 @@ fn all_test_files_are_included() {
         "avatar_test.rs",
         "button_test.rs",
         "collapsible_test.rs",
+        "disclosure_dimensions_test.rs",
         "form_hidden_input_test.rs",
         "foundation_phase_2_4_handoff.rs",
         "foundation_phase_3_7_handoff.rs",
@@ -110,7 +114,9 @@ fn all_test_files_are_included() {
         "popover_test.rs",
         "progress_test.rs",
         "roving_focus_test.rs",
+        "scroll_area_test.rs",
         "separator_test.rs",
+        "slider_test.rs",
         "switch_test.rs",
         "toast_test.rs",
         "toggle_test.rs",

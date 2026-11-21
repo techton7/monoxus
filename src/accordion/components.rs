@@ -1,14 +1,23 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use dioxus::html::{AnimationData, TransitionData};
 use dioxus::prelude::*;
 
+use crate::accordion::attrs::format_accordion_css_vars;
+use crate::collapsible::attrs::merge_disclosure_styles;
 use crate::foundation::{
-    browser::{start_presence_monitor, PresenceMonitorEvent, WatcherGuard},
+    browser::{
+        ElementSize, PresenceMonitorEvent, ResizeObserverBox, WatcherGuard,
+        get_element_client_rect, is_element_animating, measure_element_without_animation,
+        start_presence_monitor, start_resize_monitor,
+    },
     overlay::PresenceController,
-    shared::{data_disabled_attr, use_direction_context, use_mount_animation_guard, ScopeHandle},
+    shared::{ScopeHandle, data_disabled_attr, use_direction_context, use_mount_animation_guard},
 };
 
 use super::{
-    runtime::{use_accordion_runtime, AccordionRuntime},
+    runtime::{AccordionRuntime, use_accordion_runtime},
     state::Accordion,
     types::{AccordionDirection, AccordionMode, AccordionOrientation},
 };
@@ -133,7 +142,9 @@ pub fn AccordionHeader(
     let ctx = use_context::<AccordionContext>();
     let item_ctx = use_context::<AccordionItemContext>();
     let clamped = level.clamp(1, 6);
-    let attrs = ctx.runtime.header_with_level(&item_ctx.value, item_ctx.disabled, clamped);
+    let attrs = ctx
+        .runtime
+        .header_with_level(&item_ctx.value, item_ctx.disabled, clamped);
 
     match clamped {
         1 => rsx! {
@@ -302,7 +313,10 @@ pub fn AccordionContent(
     let guard_style = use_mount_animation_guard(is_open);
 
     let mut presence = use_signal(|| PresenceController::new(is_open).with_retained_mount(true));
-    let mut monitor = use_signal(|| None::<WatcherGuard>);
+    let monitor = use_hook(|| Rc::new(RefCell::new(None::<WatcherGuard>)));
+    let resize_guard = use_hook(|| Rc::new(RefCell::new(None::<WatcherGuard>)));
+    let mut content_size = use_signal(|| None::<ElementSize>);
+    let mut mounted_rev = use_signal(|| 0u64);
 
     let should_render = is_open || presence.read().should_render() || force_mount;
     if should_render {
@@ -314,60 +328,95 @@ pub fn AccordionContent(
     use_drop({
         let runtime = ctx.runtime.clone();
         let drop_val = item_ctx.value.clone();
+        let monitor = monitor.clone();
+        let resize_guard = resize_guard.clone();
         move || {
             runtime.unregister_content_mounted(&drop_val);
+            *monitor.borrow_mut() = None;
+            *resize_guard.borrow_mut() = None;
         }
     });
 
-    use_effect(use_reactive((&is_open,), {
+    use_effect(use_reactive((&is_open, &mounted_rev()), {
         let content_id = attrs.id().to_string();
-        move |(open,)| {
+        let monitor = monitor.clone();
+        let resize_guard = resize_guard.clone();
+        move |(open, _rev)| {
             let update = presence.write().sync(open);
-            if let Some(cycle_id) = update.started_close_cycle() {
+            if open {
+                *monitor.borrow_mut() = None;
+
+                if content_size.peek().is_none() {
+                    if let Some(size) = measure_element_without_animation(content_id.as_str())
+                        && (size.width > 0.0 || size.height > 0.0)
+                    {
+                        content_size.set(Some(size));
+                    }
+                }
+
+                let cid = content_id.clone();
+                let cid_check = content_id.clone();
                 let watcher =
-                    start_presence_monitor(
-                        content_id.as_str(),
-                        cycle_id,
-                        move |event| match event {
-                            PresenceMonitorEvent::TransitionEnd {
-                                cycle_id: event_cycle,
-                                ..
+                    start_resize_monitor(&cid, ResizeObserverBox::BorderBox, move |new_size| {
+                        if is_element_animating(&cid_check) {
+                            return;
+                        }
+                        if new_size.width <= 0.0 && new_size.height <= 0.0 {
+                            return;
+                        }
+                        if content_size.peek().as_ref() != Some(&new_size) {
+                            content_size.set(Some(new_size));
+                        }
+                    });
+                *resize_guard.borrow_mut() = Some(watcher);
+            } else {
+                *resize_guard.borrow_mut() = None;
+
+                if let Some(cycle_id) = update.started_close_cycle() {
+                    let watcher =
+                        start_presence_monitor(content_id.as_str(), cycle_id, move |event| {
+                            match event {
+                                PresenceMonitorEvent::TransitionEnd {
+                                    cycle_id: event_cycle,
+                                    ..
+                                }
+                                | PresenceMonitorEvent::TransitionCancel {
+                                    cycle_id: event_cycle,
+                                    ..
+                                }
+                                | PresenceMonitorEvent::AnimationEnd {
+                                    cycle_id: event_cycle,
+                                    ..
+                                }
+                                | PresenceMonitorEvent::AnimationCancel {
+                                    cycle_id: event_cycle,
+                                    ..
+                                }
+                                | PresenceMonitorEvent::Fallback {
+                                    cycle_id: event_cycle,
+                                    ..
+                                } => {
+                                    presence.write().complete_close_cycle(event_cycle);
+                                }
+                                _ => {}
                             }
-                            | PresenceMonitorEvent::TransitionCancel {
-                                cycle_id: event_cycle,
-                                ..
-                            }
-                            | PresenceMonitorEvent::AnimationEnd {
-                                cycle_id: event_cycle,
-                                ..
-                            }
-                            | PresenceMonitorEvent::AnimationCancel {
-                                cycle_id: event_cycle,
-                                ..
-                            }
-                            | PresenceMonitorEvent::Fallback {
-                                cycle_id: event_cycle,
-                                ..
-                            } => {
-                                presence.write().complete_close_cycle(event_cycle);
-                            }
-                            _ => {}
-                        },
-                    );
-                monitor.set(Some(watcher));
-            } else if !update.should_render() || update.invalidated_close_cycle().is_some() {
-                monitor.set(None);
+                        });
+                    *monitor.borrow_mut() = Some(watcher);
+                } else if !update.should_render() || update.invalidated_close_cycle().is_some() {
+                    *monitor.borrow_mut() = None;
+                }
             }
         }
     }));
 
     let hidden = (!should_render).then_some(true);
-    let effective_style = match (style.as_deref(), guard_style) {
-        (Some(s), Some(g)) => Some(format!("{s}; {g}")),
-        (Some(s), None) => Some(s.to_string()),
-        (None, Some(g)) => Some(g.to_string()),
-        (None, None) => None,
-    };
+    let css_vars = (*content_size.read()).map(format_accordion_css_vars);
+    let effective_style =
+        merge_disclosure_styles(style.as_deref(), guard_style, css_vars.as_deref());
+
+    let cid_mount = attrs.id().to_string();
+    let cid_trans = cid_mount.clone();
+    let cid_anim = cid_trans.clone();
 
     rsx! {
         div {
@@ -381,16 +430,66 @@ pub fn AccordionContent(
             "data-orientation": "{attrs.data_orientation()}",
             "data-value": "{attrs.data_value()}",
             "data-disabled": data_disabled_attr(item_ctx.disabled),
+            onmounted: move |_| {
+                mounted_rev += 1;
+                if is_open
+                    && let Some(size) = measure_element_without_animation(&cid_mount)
+                    && (size.width > 0.0 || size.height > 0.0)
+                {
+                    let existing = *content_size.peek();
+                    let animating_zero_height = size.height <= 0.0
+                        && existing.is_some_and(|prev| prev.height > 0.0)
+                        && is_element_animating(&cid_mount);
+                    if !animating_zero_height
+                        && existing != Some(size)
+                        && let Ok(mut cs) = content_size.try_write()
+                    {
+                        *cs = Some(size);
+                    }
+                }
+            },
             ontransitionend: move |_evt: Event<TransitionData>| {
                 let cycle = presence.read().active_close_cycle();
                 if let Some(cycle) = cycle {
-                    presence.write().complete_close_cycle(cycle);
+                    if !is_element_animating(&cid_trans) {
+                        presence.write().complete_close_cycle(cycle);
+                    }
+                } else if is_open
+                    && !is_element_animating(&cid_trans)
+                    && let Some(rect) = get_element_client_rect(&cid_trans)
+                    && (rect.width > 0.0 || rect.height > 0.0)
+                {
+                    let size = ElementSize {
+                        width: rect.width,
+                        height: rect.height,
+                    };
+                    if content_size.peek().as_ref() != Some(&size)
+                        && let Ok(mut cs) = content_size.try_write()
+                    {
+                        *cs = Some(size);
+                    }
                 }
             },
             onanimationend: move |_evt: Event<AnimationData>| {
                 let cycle = presence.read().active_close_cycle();
                 if let Some(cycle) = cycle {
-                    presence.write().complete_close_cycle(cycle);
+                    if !is_element_animating(&cid_anim) {
+                        presence.write().complete_close_cycle(cycle);
+                    }
+                } else if is_open
+                    && !is_element_animating(&cid_anim)
+                    && let Some(rect) = get_element_client_rect(&cid_anim)
+                    && (rect.width > 0.0 || rect.height > 0.0)
+                {
+                    let size = ElementSize {
+                        width: rect.width,
+                        height: rect.height,
+                    };
+                    if content_size.peek().as_ref() != Some(&size)
+                        && let Ok(mut cs) = content_size.try_write()
+                    {
+                        *cs = Some(size);
+                    }
                 }
             },
             {should_render.then_some(children)}

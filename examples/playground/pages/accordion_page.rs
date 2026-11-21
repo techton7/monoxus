@@ -97,6 +97,40 @@ pub fn AccordionPage() -> Element {
                     }
                 }
             }
+
+            // Track 2 (SW2B-2): Measured Dimensions & Variable Sizing Accordion
+            section {
+                style: "display: grid; gap: 0.75rem; padding: 1.25rem; border-radius: 0.75rem; border: 1px solid #cbd5e1; background-color: white;",
+                h3 {
+                    style: "margin: 0; font-size: 1rem; color: #0f172a;",
+                    "7. SW2B Disclosure Dimensions Accordion"
+                }
+                AccordionRoot {
+                    id: "sw2b-accordion-root".to_string(),
+                    mode: AccordionMode::Single { collapsible: true },
+                    style: "width: 320px; display: grid; gap: 0.5rem;".to_string(),
+                    AccordionItem {
+                        value: "sw2b-item-1".to_string(),
+                        style: "width: 320px; border: 1px solid #cbd5e1; border-radius: 0.5rem; overflow: hidden;".to_string(),
+                        AccordionHeader {
+                            level: 3,
+                            AccordionTrigger {
+                                id: "sw2b-accordion-trigger-1".to_string(),
+                                class: "sw1a-btn-secondary".to_string(),
+                                style: "width: 100%; justify-content: space-between;".to_string(),
+                                "Expand Dimension Panel"
+                            }
+                        }
+                        AccordionContent {
+                            style: "width: 320px; box-sizing: border-box;".to_string(),
+                            div {
+                                style: "height: 110px; width: 320px; padding: 12px; box-sizing: border-box; background: #f8fafc;",
+                                "Accordion measured dimensions panel (--radix-accordion-content-height / width)."
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

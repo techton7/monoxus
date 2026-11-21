@@ -1,4 +1,6 @@
-use crate::foundation::{shared::data_disabled_attr, state::DataState};
+use crate::foundation::{browser::ElementSize, shared::data_disabled_attr, state::DataState};
+
+pub use crate::collapsible::attrs::{format_disclosure_dimension, merge_disclosure_styles};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AccordionRootAttributes {
@@ -247,4 +249,13 @@ impl AccordionContentAttributes {
     pub fn data_value(&self) -> &str {
         &self.data_value
     }
+}
+
+/// Formats the four standard accordion content dimension CSS custom properties.
+pub fn format_accordion_css_vars(size: ElementSize) -> String {
+    let h = format_disclosure_dimension(size.height);
+    let w = format_disclosure_dimension(size.width);
+    format!(
+        "--radix-accordion-content-height: {h}; --radix-accordion-content-width: {w}; --monoxus-accordion-content-height: {h}; --monoxus-accordion-content-width: {w}"
+    )
 }

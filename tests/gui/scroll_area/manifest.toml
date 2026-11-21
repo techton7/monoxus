@@ -1,0 +1,26 @@
+[[scenarios]]
+name = "scroll-area-desktop"
+description = "Verify ScrollArea runtime rendering, thumb size clamping, and dual-axis corner"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-scroll-area"
+
+[[scenarios.targets]]
+id = "sw2b-sa-always-root"
+selector = "#sw2b-sa-always-root"
+part = "root"
+state = "visible"
+
+[[scenarios.targets]]
+id = "sw2b-sa-clamp-thumb-y"
+selector = "#sw2b-sa-clamp-thumb-y"
+part = "thumb"
+state = "visible"
+
+[[scenarios.targets]]
+id = "sw2b-sa-dual-corner"
+selector = "#sw2b-sa-dual-corner"
+part = "corner"
+state = "visible"

@@ -12,3 +12,22 @@ id = "collapsible-trigger"
 selector = "#collapsible-trigger"
 part = "trigger"
 state = "closed"
+
+[[scenarios]]
+name = "collapsible-sw2b-open"
+description = "Verify open state and measured dimensions of SW2B animated collapsible"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-collapsible"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw2b-collapsible-trigger"
+
+[[scenarios.targets]]
+id = "sw2b-collapsible-content"
+selector = "#sw2b-collapsible-content"
+part = "content"
+state = "open"
