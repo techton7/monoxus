@@ -7,11 +7,7 @@ use dioxus::prelude::*;
 
 #[inline]
 pub const fn data_disabled_attr(disabled: bool) -> Option<&'static str> {
-    if disabled {
-        Some("")
-    } else {
-        None
-    }
+    if disabled { Some("") } else { None }
 }
 
 static NEXT_STABLE_ID: AtomicU64 = AtomicU64::new(0);
@@ -213,10 +209,12 @@ pub fn use_mount_animation_guard(current_active: bool) -> Option<&'static str> {
     }
 
     use_effect(move || {
-        if *guard_active.peek() {
-            crate::foundation::browser::spawn_root_task(async move {
+        if guard_active.try_peek().is_ok_and(|g| *g) {
+            spawn(async move {
                 let _ = oxidase::frame::next_frame().await;
-                guard_active.set(false);
+                if let Ok(mut guard) = guard_active.try_write() {
+                    *guard = false;
+                }
             });
         }
     });

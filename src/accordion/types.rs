@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+pub use crate::foundation::browser::ElementSize;
 use crate::foundation::shared::{Direction, Orientation};
 
 pub const ACCORDION_PARTS: [AccordionPart; 5] = [

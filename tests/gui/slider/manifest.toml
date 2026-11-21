@@ -1,0 +1,32 @@
+[[scenarios]]
+name = "slider-basic"
+description = "Verify single horizontal slider, multi-thumb swap, RTL, and form reset in playground"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-slider"
+
+[[scenarios.targets]]
+id = "sw2b-slider-basic"
+selector = "#sw2b-slider-basic"
+part = "root"
+state = "default"
+
+[[scenarios.targets]]
+id = "sw2b-slider-swap"
+selector = "#sw2b-slider-swap"
+part = "root"
+state = "swap"
+
+[[scenarios.targets]]
+id = "sw2b-slider-rtl"
+selector = "#sw2b-slider-rtl"
+part = "root"
+state = "rtl"
+
+[[scenarios.targets]]
+id = "sw2b-slider-form"
+selector = "#sw2b-slider-form"
+part = "form"
+state = "default"
