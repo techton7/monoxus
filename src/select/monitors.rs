@@ -205,16 +205,21 @@ impl SelectRuntime {
             self.set_reference_hidden(computed.reference_hidden());
 
             let geom = computed.geometry();
-            let is_ready = geom.content_width() > 0.0 && geom.content_height() > 0.0;
-            let mut readiness_sig = self.state.content_readiness;
-            if is_ready {
-                readiness_sig.set(FloatingReadiness::Ready);
+            let next_readiness = if geom.content_width() > 0.0 && geom.content_height() > 0.0 {
+                FloatingReadiness::Ready
             } else {
-                readiness_sig.set(FloatingReadiness::Measuring);
+                FloatingReadiness::Measuring
+            };
+            let is_ready = next_readiness == FloatingReadiness::Ready;
+            let mut readiness_sig = self.state.content_readiness;
+            if *readiness_sig.peek() != next_readiness {
+                readiness_sig.set(next_readiness);
             }
 
             let mut placement_sig = self.state.placement;
-            placement_sig.set(Some(computed));
+            if placement_sig.peek().as_ref() != Some(&computed) {
+                placement_sig.set(Some(computed));
+            }
             is_ready
         } else {
             false
@@ -296,19 +301,35 @@ impl SelectRuntime {
                     self.set_reference_hidden(placement.reference_hidden());
 
                     let geom = placement.geometry();
-                    let readiness = if geom.content_width() > 0.0 && geom.content_height() > 0.0 {
+                    let next_readiness = if geom.content_width() > 0.0 && geom.content_height() > 0.0 {
                         FloatingReadiness::Ready
                     } else {
                         FloatingReadiness::Measuring
                     };
-                    let mut readiness_sig = self.state.content_readiness;
-                    if let Ok(mut r) = readiness_sig.try_write() {
-                        *r = readiness;
+                    let should_update_readiness = self
+                        .state
+                        .content_readiness
+                        .try_peek()
+                        .map(|current| *current != next_readiness)
+                        .unwrap_or(false);
+                    if should_update_readiness {
+                        let mut readiness_sig = self.state.content_readiness;
+                        if let Ok(mut readiness) = readiness_sig.try_write() {
+                            *readiness = next_readiness;
+                        }
                     }
 
-                    let mut placement_sig = self.state.placement;
-                    if let Ok(mut p) = placement_sig.try_write() {
-                        *p = Some(placement);
+                    let should_update_placement = self
+                        .state
+                        .placement
+                        .try_peek()
+                        .map(|current| current.as_ref() != Some(&placement))
+                        .unwrap_or(false);
+                    if should_update_placement {
+                        let mut placement_sig = self.state.placement;
+                        if let Ok(mut current) = placement_sig.try_write() {
+                            *current = Some(placement);
+                        }
                     }
                 }
             }
