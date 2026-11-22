@@ -15,7 +15,12 @@ pub use oxidase::watcher::{
 pub use crate::foundation::overlay::{Point2D, Rect2D};
 pub use oxidase::WatcherGuard;
 #[allow(unused_imports)]
-pub use oxidase::dom::{FocusOptions, ModalShieldGuard, ModalShieldMode, ScrollLockOptions};
+pub use oxidase::dom::{
+    FocusOptions, ModalShieldGuard, ModalShieldMode, ResizeObserverBox, ScrollLockOptions,
+};
+
+#[allow(unused_imports)]
+pub use monoxus_core::foundation::shared::{ElementScrollMetrics, ElementSize};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum PresenceMonitorEvent {
@@ -304,7 +309,8 @@ pub(crate) fn focus_first_focusable_with_options(
         let target = if root.matches(selector) {
             root.clone()
         } else {
-            root.query_selector(selector).unwrap_or_else(|| root.clone())
+            root.query_selector(selector)
+                .unwrap_or_else(|| root.clone())
         };
         if target.id() == root.id() && !root.has_attribute("tabindex") {
             root.set_attribute("tabindex", "-1");
@@ -321,7 +327,8 @@ pub(crate) fn focus_first_focusable_with_options(
             let target = if root.matches(&selector) {
                 root.clone()
             } else {
-                root.query_selector(&selector).unwrap_or_else(|| root.clone())
+                root.query_selector(&selector)
+                    .unwrap_or_else(|| root.clone())
             };
             if target.id() == root.id() && !root.has_attribute("tabindex") {
                 root.set_attribute("tabindex", "-1");
@@ -340,10 +347,7 @@ pub(crate) fn acquire_scroll_lock(lock_id: &str) {
     oxidase::dom::acquire_scroll_lock(lock_id);
 }
 
-pub(crate) fn acquire_scroll_lock_with_options(
-    lock_id: &str,
-    prevent_body_pointer_events: bool,
-) {
+pub(crate) fn acquire_scroll_lock_with_options(lock_id: &str, prevent_body_pointer_events: bool) {
     oxidase::dom::acquire_scroll_lock_with_options(
         lock_id,
         ScrollLockOptions {
@@ -521,6 +525,194 @@ pub fn query_descendant_order(
     oxidase::dom::document().query_descendant_order(root_id, candidate_ids)
 }
 
+/// Measures the unscaled natural border-box size of an element without animation or transition constraints.
+#[allow(dead_code)]
+pub(crate) fn measure_element_without_animation(element_id: &str) -> Option<ElementSize> {
+    let doc = oxidase::dom::Document::current()?;
+    doc.measure_without_animation(element_id)
+        .map(|(width, height)| ElementSize { width, height })
+}
+
+/// Returns `true` if the target element currently has a running or pending CSS animation or transition.
+#[allow(dead_code)]
+pub(crate) fn is_element_animating(element_id: &str) -> bool {
+    oxidase::dom::Document::current().is_some_and(|doc| doc.is_element_animating(element_id))
+}
+
+/// Retrieves the current CSSOM scroll metrics (scroll offset, scroll size, client size) of an element synchronously.
+#[allow(dead_code)]
+pub(crate) fn get_element_scroll_metrics(element_id: &str) -> Option<ElementScrollMetrics> {
+    let doc = oxidase::dom::Document::current()?;
+    let el = doc.element_by_id(element_id)?;
+    let scroll_left = el.scroll_x_sync().ok()?;
+    let scroll_top = el.scroll_y_sync().ok()?;
+    let scroll_width = el.scroll_width_sync().ok()?;
+    let scroll_height = el.scroll_height_sync().ok()?;
+    let client_width = el.client_width_sync().ok()?;
+    let client_height = el.client_height_sync().ok()?;
+    Some(ElementScrollMetrics {
+        scroll_left,
+        scroll_top,
+        scroll_width,
+        scroll_height,
+        client_width,
+        client_height,
+    })
+}
+
+/// Sets the scroll position of an element synchronously.
+#[allow(dead_code)]
+pub(crate) fn set_element_scroll_position(element_id: &str, x: f64, y: f64) {
+    if let Some(doc) = oxidase::dom::Document::current() {
+        if let Some(el) = doc.element_by_id(element_id) {
+            let _ = el.scroll_to_sync(x, y);
+        }
+    }
+}
+
+/// Sets an inline style property on an element by ID.
+#[allow(dead_code)]
+pub(crate) fn set_element_style_property(element_id: &str, property: &str, value: &str) {
+    if let Some(doc) = oxidase::dom::Document::current() {
+        if let Some(el) = doc.element_by_id(element_id) {
+            let _ = el.set_style_property(property, value);
+        }
+    }
+}
+
+/// Removes an inline style property from an element by ID.
+#[allow(dead_code)]
+pub(crate) fn remove_element_style_property(element_id: &str, property: &str) {
+    if let Some(doc) = oxidase::dom::Document::current() {
+        if let Some(el) = doc.element_by_id(element_id) {
+            let _ = el.remove_style_property(property);
+        }
+    }
+}
+
+/// Starts a scroll monitor on a specific element container, executing `on_scroll` within the Dioxus runtime context.
+#[allow(dead_code)]
+pub(crate) fn start_element_scroll_monitor(
+    element_id: &str,
+    mut on_scroll: impl FnMut() + 'static,
+) -> WatcherGuard {
+    let runtime = dioxus::core::Runtime::try_current();
+    let scope_id = runtime.as_ref().and_then(|rt| rt.try_current_scope_id());
+    oxidase::dom::observer::observe_element_scroll(element_id, move || {
+        if let Some(rt) = &runtime {
+            let scope = scope_id.unwrap_or(dioxus::core::ScopeId::ROOT);
+            rt.in_scope(scope, || on_scroll());
+        } else {
+            on_scroll();
+        }
+    })
+    .unwrap_or_else(|_| WatcherGuard::noop())
+}
+
+/// Starts an element resize monitor with the specified box model, executing `on_resize` within the Dioxus runtime context.
+#[allow(dead_code)]
+pub(crate) fn start_resize_monitor(
+    element_id: &str,
+    box_model: ResizeObserverBox,
+    mut on_resize: impl FnMut(ElementSize) + 'static,
+) -> WatcherGuard {
+    let runtime = dioxus::core::Runtime::try_current();
+    let scope_id = runtime.as_ref().and_then(|rt| rt.try_current_scope_id());
+    oxidase::dom::observer::observe_element_resize_with_box(
+        element_id,
+        box_model,
+        move |entry: oxidase::dom::observer::ResizeEntry| {
+            let size = ElementSize {
+                width: entry.content_rect.width,
+                height: entry.content_rect.height,
+            };
+            if let Some(rt) = &runtime {
+                let scope = scope_id.unwrap_or(dioxus::core::ScopeId::ROOT);
+                rt.in_scope(scope, || on_resize(size));
+            } else {
+                on_resize(size);
+            }
+        },
+    )
+    .unwrap_or_else(|_| WatcherGuard::noop())
+}
+
+/// Reactive hook measuring an element's border-box dimensions and updating on resize with clean `use_drop` teardown.
+#[allow(dead_code)]
+pub(crate) fn use_element_size(element_id: &str) -> Signal<Option<ElementSize>> {
+    use_element_size_with_box(element_id, ResizeObserverBox::BorderBox)
+}
+
+/// Reactive hook measuring an element's dimensions using the specified box model with clean `use_drop` teardown.
+#[allow(dead_code)]
+pub(crate) fn use_element_size_with_box(
+    element_id: &str,
+    box_model: ResizeObserverBox,
+) -> Signal<Option<ElementSize>> {
+    let mount_rev = use_signal(|| 0u64);
+    use_element_size_with_mount(element_id, box_model, mount_rev)
+}
+
+/// Reactive hook measuring an element's dimensions using the specified box model and mount revision
+/// with clean `use_drop` teardown.
+#[allow(dead_code)]
+pub(crate) fn use_element_size_with_mount(
+    element_id: &str,
+    box_model: ResizeObserverBox,
+    mount_rev: Signal<u64>,
+) -> Signal<Option<ElementSize>> {
+    let element_id_str = element_id.to_string();
+    let initial_size = measure_element_without_animation(&element_id_str)
+        .or_else(|| {
+            get_element_client_rect(&element_id_str).map(|r| ElementSize {
+                width: r.width,
+                height: r.height,
+            })
+        })
+        .filter(|s| s.width > 0.0 || s.height > 0.0);
+    let mut size_signal = use_signal(|| initial_size);
+    let guard_cell = use_hook(|| Rc::new(RefCell::new(WatcherGuard::noop())));
+
+    use_effect(use_reactive((&element_id_str,), {
+        let guard_cell = Rc::clone(&guard_cell);
+        move |(id,)| {
+            let _ = mount_rev();
+            if let Some(measured) = measure_element_without_animation(&id)
+                .or_else(|| {
+                    get_element_client_rect(&id).map(|r| ElementSize {
+                        width: r.width,
+                        height: r.height,
+                    })
+                })
+                .filter(|s| s.width > 0.0 || s.height > 0.0)
+                && size_signal.peek().as_ref() != Some(&measured)
+            {
+                size_signal.set(Some(measured));
+            }
+            let next_guard = start_resize_monitor(&id, box_model, move |new_size| {
+                if new_size.width <= 0.0 && new_size.height <= 0.0 {
+                    return;
+                }
+                if size_signal.peek().as_ref() != Some(&new_size) {
+                    size_signal.set(Some(new_size));
+                }
+            });
+            let prev_guard = std::mem::replace(&mut *guard_cell.borrow_mut(), next_guard);
+            prev_guard.stop();
+        }
+    }));
+
+    use_drop({
+        let guard_cell = Rc::clone(&guard_cell);
+        move || {
+            let prev_guard = std::mem::replace(&mut *guard_cell.borrow_mut(), WatcherGuard::noop());
+            prev_guard.stop();
+        }
+    });
+
+    size_signal
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -620,5 +812,39 @@ mod tests {
         stream_guard.stop();
 
         assert_eq!(get_element_client_rect("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_element_metrics_and_monitors_noop() {
+        use super::{
+            ElementScrollMetrics, ElementSize, ResizeObserverBox, get_element_scroll_metrics,
+            measure_element_without_animation, remove_element_style_property,
+            set_element_scroll_position, set_element_style_property, start_element_scroll_monitor,
+            start_resize_monitor,
+        };
+
+        assert_eq!(measure_element_without_animation("nonexistent"), None);
+        assert_eq!(get_element_scroll_metrics("nonexistent"), None);
+        set_element_scroll_position("nonexistent", 10.0, 20.0);
+        set_element_style_property("nonexistent", "opacity", "1");
+        remove_element_style_property("nonexistent", "opacity");
+
+        let scroll_guard = start_element_scroll_monitor("nonexistent", || {});
+        scroll_guard.stop();
+
+        let resize_guard =
+            start_resize_monitor("nonexistent", ResizeObserverBox::BorderBox, |_| {});
+        resize_guard.stop();
+
+        let size = ElementSize {
+            width: 100.0,
+            height: 50.0,
+        };
+        assert_eq!(size.width, 100.0);
+        assert_eq!(size.height, 50.0);
+
+        let metrics = ElementScrollMetrics::default();
+        assert_eq!(metrics.scroll_left, 0.0);
+        assert_eq!(metrics.scroll_top, 0.0);
     }
 }

@@ -176,7 +176,10 @@ pub fn SelectItem(
                 let runtime = ctx.runtime.clone();
                 let v = value.clone();
                 let is_dis = attrs.is_disabled();
-                move |_| {
+                move |evt| {
+                    if evt.pointer_type() == "touch" {
+                        return;
+                    }
                     runtime.clear_initial_highlight_pending();
                     if is_dis {
                         return;

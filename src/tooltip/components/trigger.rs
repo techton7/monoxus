@@ -1,3 +1,8 @@
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+
 use dioxus::prelude::*;
 
 use crate::foundation::shared::data_disabled_attr;
@@ -21,7 +26,38 @@ pub fn TooltipTrigger(props: TooltipTriggerProps) -> Element {
     let ctx = use_context::<TooltipRootContext>();
     let runtime = ctx.runtime.read();
     let trigger = runtime.trigger();
-    let trigger_id = props.id.unwrap_or_else(|| trigger.id().to_string());
+    let trigger_id = props.id.clone().unwrap_or_else(|| trigger.id().to_string());
+
+    let registered_id_cell = use_hook(|| Rc::new(RefCell::new(None::<String>)));
+    if let Some(ref custom_id) = props.id {
+        if registered_id_cell.borrow().as_deref() != Some(custom_id.as_str()) {
+            if let Some(prev) = registered_id_cell.borrow().as_deref() {
+                runtime.unregister_trigger_id(prev);
+            }
+            runtime.register_trigger_id(custom_id.clone());
+            *registered_id_cell.borrow_mut() = Some(custom_id.clone());
+        }
+    } else if let Some(prev) = registered_id_cell.borrow_mut().take() {
+        runtime.unregister_trigger_id(&prev);
+    }
+
+    let cleanup_id_cell = Rc::clone(&registered_id_cell);
+    let cleanup_runtime = runtime.clone();
+    use_drop(move || {
+        if let Some(id) = cleanup_id_cell.borrow_mut().take() {
+            cleanup_runtime.unregister_trigger_id(&id);
+        }
+    });
+
+    let mounted_once = use_hook(|| Rc::new(Cell::new(false)));
+    let runtime_sig = ctx.runtime;
+    use_effect(use_reactive((&trigger_id,), move |_| {
+        if mounted_once.get() {
+            runtime_sig.peek().resync_positioning_if_open();
+        } else {
+            mounted_once.set(true);
+        }
+    }));
 
     rsx! {
         button {

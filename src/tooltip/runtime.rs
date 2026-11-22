@@ -369,6 +369,7 @@ struct TooltipRuntimeState {
     opened_via_focus: Signal<bool>,
     focus_scroll_guard_pending: Signal<bool>,
     last_pointer_type: Signal<Option<String>>,
+    registered_trigger_id: Signal<Option<String>>,
     content_id: Signal<Option<String>>,
     measurement_id: Signal<Option<String>>,
     collision_boundary: Signal<Option<String>>,
@@ -421,6 +422,7 @@ where
         opened_via_focus: use_signal(|| false),
         focus_scroll_guard_pending: use_signal(|| false),
         last_pointer_type: use_signal(|| None),
+        registered_trigger_id: use_signal(|| None),
         content_id: use_signal(|| None),
         measurement_id: use_signal(|| None),
         collision_boundary: use_signal(|| None),
@@ -536,13 +538,13 @@ impl TooltipRuntime {
 
     pub fn trigger(&self) -> TooltipTriggerAttributes {
         let mut trigger = self.tooltip.trigger();
-        let content_id = self
-            .state
-            .content_id
-            .peek()
-            .clone()
-            .unwrap_or_else(|| self.relationships().content_id().to_string());
         trigger.aria_describedby = if self.is_open() {
+            let content_id = self
+                .state
+                .content_id
+                .read()
+                .clone()
+                .unwrap_or_else(|| self.relationships().content_id().to_string());
             Some(content_id)
         } else {
             None
@@ -614,27 +616,42 @@ impl TooltipRuntime {
     }
 
     pub fn register_content_id(&self, id: impl Into<String>) {
-        let id = id.into();
-        let mut content_id = self.state.content_id;
-        let same = content_id
-            .try_peek()
-            .is_ok_and(|current| current.as_deref() == Some(id.as_str()));
-        if !same {
-            if let Ok(mut current) = content_id.try_write() {
-                *current = Some(id);
-            }
-        }
+        register_id_signal(self.state.content_id, id.into());
     }
 
     pub fn unregister_content_id(&self, id: &str) {
-        let mut content_id = self.state.content_id;
-        let matches = content_id
-            .try_peek()
-            .is_ok_and(|current| current.as_deref() == Some(id));
-        if matches {
-            if let Ok(mut current) = content_id.try_write() {
-                *current = None;
-            }
+        unregister_id_signal(self.state.content_id, id);
+    }
+
+    /// Registers a custom DOM `id` from `TooltipTrigger` for positioning and scroll dismissal.
+    pub fn register_trigger_id(&self, id: impl Into<String>) {
+        register_id_signal(self.state.registered_trigger_id, id.into());
+    }
+
+    /// Unregisters a previously registered custom DOM `id` from `TooltipTrigger` if it matches.
+    pub fn unregister_trigger_id(&self, id: &str) {
+        unregister_id_signal(self.state.registered_trigger_id, id);
+    }
+
+    /// Returns the active trigger DOM `id`, preferring any custom registered ID over the scope default.
+    pub fn effective_trigger_id(&self) -> String {
+        effective_trigger_id_from_state(&self.tooltip, self.state)
+    }
+
+    pub(crate) fn resync_positioning_if_open(&self) {
+        if self.is_live_open() {
+            let live_tooltip = self
+                .state
+                .live_tooltip
+                .try_peek()
+                .map(|t| t.clone())
+                .unwrap_or_else(|_| self.tooltip.clone());
+            sync_tooltip_positioning(
+                &live_tooltip,
+                self.provider_runtime.clone(),
+                Rc::clone(&self.on_open_change),
+                self.state,
+            );
         }
     }
 
@@ -687,8 +704,8 @@ impl TooltipRuntime {
             return focus;
         }
 
-        let trigger_id = self.relationships().trigger_id();
-        crate::foundation::browser::is_element_focused_by_id(trigger_id)
+        let trigger_id = self.effective_trigger_id();
+        crate::foundation::browser::is_element_focused_by_id(&trigger_id)
     }
 
     pub fn has_active_grace_monitor(&self) -> bool {
@@ -708,14 +725,14 @@ impl TooltipRuntime {
             return false;
         }
 
-        let trigger_id = self.relationships().trigger_id();
+        let trigger_id = self.effective_trigger_id();
         let custom_content_id = self.state.content_id.try_peek().ok().and_then(|id| id.clone());
         let content_id = custom_content_id
             .as_deref()
             .unwrap_or_else(|| self.relationships().content_id());
 
         let (Some(trigger_rect), Some(content_rect)) = (
-            get_element_client_rect(trigger_id),
+            get_element_client_rect(&trigger_id),
             get_element_client_rect(content_id),
         ) else {
             return false;
@@ -971,9 +988,8 @@ impl TooltipRuntime {
                     .filter(|el| el.tag_name().is_some())
                     .map(|el| el.matches_focus_visible())
                     .or_else(|| {
-                        crate::foundation::browser::is_element_focus_visible_by_id(
-                            runtime.relationships().trigger_id(),
-                        )
+                        let trigger_id = runtime.effective_trigger_id();
+                        crate::foundation::browser::is_element_focus_visible_by_id(&trigger_id)
                     });
                 if focus_visible == Some(false) {
                     return;
@@ -1261,10 +1277,42 @@ fn compute_tooltip_position(tooltip: &Tooltip) -> Option<FloatingPlacement> {
     compute_overlay_position(&config)
 }
 
+fn register_id_signal(mut slot: Signal<Option<String>>, id: String) {
+    let same = slot
+        .try_peek()
+        .is_ok_and(|current| current.as_deref() == Some(id.as_str()));
+    if !same {
+        if let Ok(mut current) = slot.try_write() {
+            *current = Some(id);
+        }
+    }
+}
+
+fn unregister_id_signal(mut slot: Signal<Option<String>>, id: &str) {
+    let matches = slot
+        .try_peek()
+        .is_ok_and(|current| current.as_deref() == Some(id));
+    if matches {
+        if let Ok(mut current) = slot.try_write() {
+            *current = None;
+        }
+    }
+}
+
+fn effective_trigger_id_from_state(tooltip: &Tooltip, state: TooltipRuntimeState) -> String {
+    state
+        .registered_trigger_id
+        .try_peek()
+        .ok()
+        .and_then(|id| id.clone())
+        .unwrap_or_else(|| tooltip.relationships().trigger_id().to_owned())
+}
+
 fn compute_tooltip_position_with_state(
     tooltip: &Tooltip,
     state: TooltipRuntimeState,
 ) -> Option<FloatingPlacement> {
+    let trigger_id = effective_trigger_id_from_state(tooltip, state);
     let custom_content_id = state.content_id.try_peek().ok().and_then(|id| id.clone());
     let measurement_id = state.measurement_id.try_peek().ok().and_then(|id| id.clone());
     let content_id = measurement_id
@@ -1280,7 +1328,7 @@ fn compute_tooltip_position_with_state(
         .unwrap_or(0.0);
     let floating_layer = tooltip.lifecycle().floating();
     let config = OverlayPositionConfig {
-        anchor_id: tooltip.relationships().trigger_id(),
+        anchor_id: &trigger_id,
         content_id,
         arrow_id: Some(tooltip.relationships().arrow_id()),
         boundary_id: boundary_id.as_deref(),
@@ -1363,7 +1411,7 @@ fn sync_tooltip_positioning(
         }
     });
 
-    let trigger_id = tooltip.relationships().trigger_id();
+    let trigger_id = effective_trigger_id_from_state(tooltip, state);
     let custom_content_id = state.content_id.try_peek().ok().and_then(|id| id.clone());
     let measurement_id = state.measurement_id.try_peek().ok().and_then(|id| id.clone());
     let content_id = measurement_id
@@ -1373,7 +1421,8 @@ fn sync_tooltip_positioning(
     let provider_clone = provider_runtime.clone();
     let on_open_change_clone = Rc::clone(&on_open_change);
 
-    let watcher = start_floating_auto_update_monitor(&[trigger_id], &content_id, move |event| {
+    let watcher =
+        start_floating_auto_update_monitor(&[trigger_id.as_str()], &content_id, move |event| {
         match event {
             FloatingAutoUpdateEvent::Scroll => {
                 let is_guard_pending = state

@@ -5,6 +5,22 @@ pub const fn data_disabled_attr(disabled: bool) -> Option<&'static str> {
     if disabled { Some("") } else { None }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ElementSize {
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct ElementScrollMetrics {
+    pub scroll_left: f64,
+    pub scroll_top: f64,
+    pub scroll_width: f64,
+    pub scroll_height: f64,
+    pub client_width: f64,
+    pub client_height: f64,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ScopeHandle {
     segments: Vec<Cow<'static, str>>,

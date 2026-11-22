@@ -16,7 +16,9 @@ pub mod popover;
 pub mod progress;
 pub mod radio_group;
 pub mod scenarios;
+pub mod scroll_area;
 pub mod separator;
+pub mod slider;
 pub mod switch;
 pub mod tabs;
 pub mod toggle;
@@ -27,8 +29,8 @@ use dioxus::prelude::*;
 use pages::{
     AccordionPage, AlertDialogPage, AspectRatioPage, AvatarPage, ButtonPage, CheckboxPage,
     CollapsiblePage, DialogPage, Form1bPage, LabelPage, MeterPage, PopoverPage, ProgressPage,
-    RadioGroupPage, SelectPage, SeparatorPage, SwitchPage, TabsPage, ToastPage, ToggleGroupPage,
-    TogglePage, TooltipPage,
+    RadioGroupPage, ScrollAreaPage, SelectPage, SeparatorPage, SliderPage, SwitchPage, TabsPage,
+    ToastPage, ToggleGroupPage, TogglePage, TooltipPage,
 };
 
 #[component]
@@ -115,6 +117,8 @@ pub enum ComponentPage {
     Meter,
     AspectRatio,
     Avatar,
+    Slider,
+    ScrollArea,
     Form1B,
     Select,
     Collapsible,
@@ -142,6 +146,8 @@ impl ComponentPage {
             Self::Meter => "Meter",
             Self::AspectRatio => "Aspect Ratio",
             Self::Avatar => "Avatar",
+            Self::Slider => "Slider",
+            Self::ScrollArea => "Scroll Area",
             Self::Form1B => "Form (1B)",
             Self::Select => "Select",
             Self::Collapsible => "Collapsible",
@@ -169,6 +175,8 @@ impl ComponentPage {
             Self::Meter => "▱",
             Self::AspectRatio => "▭",
             Self::Avatar => "◉",
+            Self::Slider => "⊶",
+            Self::ScrollArea => "⇳",
             Self::Form1B => "📝",
             Self::Select => "▾",
             Self::Collapsible => "◰",
@@ -196,6 +204,8 @@ impl ComponentPage {
             Self::Meter => "ARIA Meter",
             Self::AspectRatio => "Live Ratio",
             Self::Avatar => "Image Status",
+            Self::Slider => "Range/Drag",
+            Self::ScrollArea => "Custom Scroll",
             Self::Form1B => "FormData Reset",
             Self::Select => "7 Scenarios",
             Self::Collapsible => "Disclosure",
@@ -227,6 +237,8 @@ pub fn App() -> Element {
         ComponentPage::Meter,
         ComponentPage::AspectRatio,
         ComponentPage::Avatar,
+        ComponentPage::Slider,
+        ComponentPage::ScrollArea,
         ComponentPage::Form1B,
         ComponentPage::Select,
         ComponentPage::Collapsible,
@@ -242,7 +254,7 @@ pub fn App() -> Element {
     rsx! {
         document::Link { rel: "stylesheet", href: asset!("/assets/tailwind.css") }
         style { {include_str!("../../assets/pretendard.css")} }
-        style { "{SW1A_PLAYGROUND_CSS}\n{SW1B_PLAYGROUND_CSS}\n{SW2A_PLAYGROUND_CSS}" }
+        style { "{SW1A_PLAYGROUND_CSS}\n{SW1B_PLAYGROUND_CSS}\n{SW2A_PLAYGROUND_CSS}\n{SW2B_PLAYGROUND_CSS}" }
         div {
             style: "min-height: 100vh; background-color: #f8fafc; display: flex; flex-direction: row; color: #0f172a; font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;",
 
@@ -370,6 +382,8 @@ pub fn App() -> Element {
                     ComponentPage::Meter => rsx! { MeterPage {} },
                     ComponentPage::AspectRatio => rsx! { AspectRatioPage {} },
                     ComponentPage::Avatar => rsx! { AvatarPage {} },
+                    ComponentPage::Slider => rsx! { SliderPage {} },
+                    ComponentPage::ScrollArea => rsx! { ScrollAreaPage {} },
                     ComponentPage::Form1B => rsx! { Form1bPage {} },
                     ComponentPage::Select => rsx! { SelectPage {} },
                     ComponentPage::Collapsible => rsx! { CollapsiblePage {} },
@@ -871,5 +885,145 @@ pub const SW2A_PLAYGROUND_CSS: &str = r#"
 
 [data-progress-indicator][data-state="indeterminate"] {
     background-color: #a78bfa;
+}
+"#;
+
+pub const SW2B_PLAYGROUND_CSS: &str = r#"
+@keyframes sw2bSlideDown {
+    from {
+        height: 0;
+    }
+    to {
+        height: var(--radix-collapsible-content-height);
+    }
+}
+
+@keyframes sw2bSlideUp {
+    from {
+        height: var(--radix-collapsible-content-height);
+    }
+    to {
+        height: 0;
+    }
+}
+
+.sw2b-collapsible-animated {
+    overflow: hidden;
+}
+
+.sw2b-collapsible-animated[data-state="open"] {
+    animation: sw2bSlideDown 250ms ease-out;
+}
+
+.sw2b-collapsible-animated[data-state="closed"] {
+    animation: sw2bSlideUp 350ms ease-out forwards;
+}
+
+.sw2b-slider-track {
+    position: relative;
+    flex-grow: 1;
+    overflow: hidden;
+    border-radius: 9999px;
+    background-color: #e2e8f0;
+    user-select: none;
+}
+
+.sw2b-slider-track[data-orientation="vertical"] {
+    flex-grow: 0;
+}
+
+.sw2b-slider-range {
+    position: absolute;
+    background-color: #7c3aed;
+    border-radius: 9999px;
+}
+
+.sw2b-slider-range[data-orientation="horizontal"] {
+    top: 0;
+    bottom: 0;
+    height: 100%;
+}
+
+.sw2b-slider-range[data-orientation="vertical"] {
+    left: 0;
+    right: 0;
+    width: 100%;
+}
+
+.sw2b-slider-thumb {
+    display: block;
+    width: 20px;
+    height: 20px;
+    border-radius: 9999px;
+    background-color: #ffffff;
+    border: 2px solid #7c3aed;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
+    cursor: grab;
+    outline: none;
+}
+
+.sw2b-slider-thumb:focus-visible {
+    outline: 2px solid #9333ea;
+    outline-offset: 2px;
+}
+
+.sw2b-slider-thumb[data-active] {
+    cursor: grabbing;
+    box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.25);
+}
+
+.sw2b-slider-thumb[data-disabled] {
+    cursor: not-allowed;
+    border-color: #cbd5e1;
+}
+
+.sw2b-sa-viewport {
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    outline: none;
+}
+
+.sw2b-sa-viewport:focus-visible {
+    outline: 2px solid #9333ea;
+    outline-offset: 2px;
+}
+
+.sw2b-sa-scrollbar {
+    display: flex;
+    user-select: none;
+    touch-action: none;
+    padding: 2px;
+    box-sizing: border-box;
+    background-color: rgba(15, 23, 42, 0.06);
+    transition: background-color 150ms ease-out;
+}
+
+.sw2b-sa-scrollbar:hover {
+    background-color: rgba(15, 23, 42, 0.12);
+}
+
+.sw2b-sa-scrollbar[data-orientation="vertical"] {
+    width: 10px;
+}
+
+.sw2b-sa-scrollbar[data-orientation="horizontal"] {
+    height: 10px;
+    flex-direction: column;
+}
+
+.sw2b-sa-thumb {
+    flex: 1;
+    background-color: rgba(100, 116, 139, 0.65);
+    border-radius: 9999px;
+    position: relative;
+}
+
+.sw2b-sa-thumb:hover {
+    background-color: rgba(71, 85, 105, 0.85);
+}
+
+.sw2b-sa-corner {
+    background-color: rgba(148, 163, 184, 0.35);
 }
 "#;

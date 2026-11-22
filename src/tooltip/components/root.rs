@@ -97,15 +97,26 @@ pub fn TooltipRoot(props: TooltipRootProps) -> Element {
     };
 
     let is_open = open_signal();
-
-    if is_open
-        && effective_provider_runtime
+    let prev_open = use_hook(|| std::rc::Rc::new(std::cell::Cell::new(false)));
+    let was_open = prev_open.get();
+    if is_open && !was_open {
+        if effective_provider_runtime
             .active_tooltip_id()
             .as_deref()
             != Some(relationships.root_id())
+        {
+            effective_provider_runtime.request_open(relationships.root_id(), true);
+        }
+    } else if !is_open
+        && was_open
+        && effective_provider_runtime
+            .active_tooltip_id()
+            .as_deref()
+            == Some(relationships.root_id())
     {
-        effective_provider_runtime.request_open(relationships.root_id(), true);
+        effective_provider_runtime.request_close(relationships.root_id());
     }
+    prev_open.set(is_open);
 
     let mut tooltip = Tooltip::new(scope, is_open)
         .with_provider(effective_provider_runtime.provider().clone());

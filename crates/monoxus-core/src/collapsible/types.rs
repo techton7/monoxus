@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+pub use crate::foundation::shared::ElementSize;
 use crate::foundation::state::DataState;
 
 pub const COLLAPSIBLE_PARTS: [CollapsiblePart; 3] = [

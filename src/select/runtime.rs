@@ -408,6 +408,10 @@ impl SelectRuntime {
         self.state.highlighted_value.read().clone()
     }
 
+    pub(crate) fn highlighted_value_untracked(&self) -> Option<String> {
+        self.state.highlighted_value.peek().clone()
+    }
+
     pub fn set_highlighted(&self, val: Option<String>) {
         self.set_highlighted_with_scroll(val, true);
     }

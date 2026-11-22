@@ -31,7 +31,7 @@
 
 ---
 
-## 3. Component Extraction Boundary (All 21 Components)
+## 3. Component Extraction Boundary (All 23 Components)
 
 ### Wave A: High-Similarity Shared Components (6)
 
@@ -54,3 +54,10 @@
 
 - **6 Compound Directories** (`avatar`, `checkbox`, `progress`, `radio_group`, `switch`, `toggle_group`): Extract `types`, `relationships`, `state`, `attrs` (`runtime.rs` & `components.rs` stay in `ui/monoxus`). Note: `avatar/types.rs` checks for any `oxidase` usage and excludes DOM-only parts if present.
 - **6 Single-File Primitives** (`aspect_ratio.rs`, `button.rs`, `label.rs`, `meter.rs`, `separator.rs`, `toggle.rs`): Extract pure structs, enums, constants, `attributes()`, `project_*_as_child`, and pure unit tests to `monoxus-core`; retain `#[component]`, `*Props`, `Element`, and `dioxus`/`oxidase` imports in `ui/monoxus`.
+
+### Wave D: Tier 2B Primitives & Disclosure Dimension Helpers (`main` @ `2260aed` Sync)
+
+- **`foundation/shared.rs`**: Extracted pure `ElementSize` and `ElementScrollMetrics` structs (`ui/monoxus/src/foundation/browser/mod.rs` re-exports both for backward compatibility).
+- **`collapsible/attrs.rs` & `accordion/attrs.rs`**: Extracted `format_disclosure_dimension`, `format_collapsible_css_vars`, `format_accordion_css_vars`, and `merge_disclosure_styles`, plus `ElementSize` re-exports in `types.rs`.
+- **`slider`**: Extracted `types`, `relationships`, `state`, `attrs`, and pure unit tests (keeping Dioxus `VirtualDom`-backed `SliderRuntime` test in `ui/monoxus/src/slider/tests.rs`).
+- **`scroll_area`**: Extracted `types`, `relationships`, `state`, `attrs`, and all pure unit tests (`ui/monoxus/src/scroll_area/` retains `runtime.rs` and `components/`).

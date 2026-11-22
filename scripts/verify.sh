@@ -53,6 +53,9 @@ if [[ "${1-}" == "--skip-checks" || "${1-}" == "--fast" ]]; then
 fi
 
 if [[ "$skip_checks" == false ]]; then
+    cargo check -p monoxus-core --lib
+    cargo check -p monoxus-core --target wasm32-unknown-unknown
+    cargo test -p monoxus-core
     cargo check --lib
     cargo check --target wasm32-unknown-unknown
 fi

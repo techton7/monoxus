@@ -17,18 +17,46 @@ pub static NATIVE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Mounts a Dioxus scenario component headlessly into a Blitz document harness.
 ///
-/// Constructs `Harness::from_component(app)` and performs initial layout/style pump.
+/// Attaches oxidase bridges and provides the native document context before `initial_build()`,
+/// then drains pending VirtualDom polls and resolves initial style/layout.
 pub fn mount_native_scenario(app: fn() -> Element) -> Harness<DioxusDocument> {
-    let mut harness = Harness::from_component(app);
-    let native_doc = oxidase::dom::Document::from_base(harness.doc.inner.clone());
+    let opts = blitz_test_harness::HarnessOptions::default();
+    let mut doc = DioxusDocument::new(
+        dioxus::prelude::VirtualDom::new(app),
+        blitz_dom::DocumentConfig {
+            viewport: Some(blitz_traits::shell::Viewport::new(
+                opts.width,
+                opts.height,
+                opts.scale,
+                opts.color_scheme,
+            )),
+            base_url: opts.base_url,
+            net_provider: opts.net_provider,
+            ..Default::default()
+        },
+    );
+    let native_doc = oxidase::dom::Document::from_base(doc.inner.clone());
     native_doc.attach_engine_bridges();
     oxidase::dom::Document::set_current(Some(native_doc.clone()));
     let doc_for_vdom = native_doc;
-    harness.doc.vdom.in_scope(dioxus::core::ScopeId::ROOT, move || {
+    doc.vdom.in_scope(dioxus::core::ScopeId::ROOT, move || {
         dioxus::prelude::provide_context(doc_for_vdom);
     });
-    harness.pump();
+    doc.initial_build();
+    let mut harness = Harness::wrap(doc);
+    drain_polls_and_resolve(&mut harness);
     harness
+}
+
+/// Drains up to 4 pending VirtualDom poll cycles and resolves style/layout at the harness time.
+pub fn drain_polls_and_resolve<D: Document>(harness: &mut Harness<D>) {
+    for _ in 0..4 {
+        if !harness.doc.poll(None) {
+            break;
+        }
+    }
+    let time = harness.time();
+    harness.doc.inner_mut().resolve(time);
 }
 
 /// Advances simulated animation clock by `dt_seconds`, flushes queued native animation and
@@ -44,21 +72,20 @@ pub fn advance_frame_and_pump(harness: &mut Harness<DioxusDocument>, dt_seconds:
     harness.pump();
 }
 
-/// Interaction Helper: Clicks the node matching `selector`, then runs `pump()` and `tick(0.01)`.
+/// Interaction Helper: Clicks the node matching `selector`, drains polls/resolves, ticks frame, and pumps.
 pub fn click_and_pump<D: Document>(harness: &mut Harness<D>, selector: &str) {
-    harness.click(selector);
-    harness.pump();
-    oxidase::frame::tick(std::time::Duration::from_millis(16));
-    harness.pump();
-    harness.tick(0.01);
+    let (x, y) = harness.center_of(selector);
+    click_at_and_pump(harness, x, y);
 }
 
 /// Interaction Helper: Clicks at page coordinates `(x, y)`, dispatching capture event and then pumping layout.
 pub fn click_at_and_pump<D: Document>(harness: &mut Harness<D>, x: f32, y: f32) {
-    harness.click_at(x, y);
-    harness.pump();
+    let event = blitz_test_harness::mouse_pointer_event(x, y);
+    harness.dispatch(UiEvent::PointerDown(event.clone()));
+    harness.dispatch(UiEvent::PointerUp(event));
+    drain_polls_and_resolve(harness);
     oxidase::frame::tick(std::time::Duration::from_millis(16));
-    harness.pump();
+    drain_polls_and_resolve(harness);
     harness.tick(0.01);
 }
 
@@ -103,9 +130,9 @@ pub fn send_key_and_pump_with<D: Document>(
 
     harness.dispatch(UiEvent::KeyDown(down_event));
     harness.dispatch(UiEvent::KeyUp(up_event));
-    harness.pump();
+    drain_polls_and_resolve(harness);
     oxidase::frame::tick(std::time::Duration::from_millis(16));
-    harness.pump();
+    drain_polls_and_resolve(harness);
     harness.tick(0.01);
 }
 

@@ -31,13 +31,24 @@ pub fn SelectContentStatic(
 
     let focus_cid = content_id.clone();
     let focus_runtime = ctx.runtime.clone();
+    let mut aligned_for_open = use_signal(|| false);
     use_effect(use_reactive((&is_open, &readiness_sig), {
         let cid = focus_cid.clone();
         let rt = focus_runtime.clone();
         move |(open, readiness)| {
-            if open && readiness() == crate::foundation::overlay::FloatingReadiness::Ready {
+            if !open {
+                if *aligned_for_open.peek() {
+                    aligned_for_open.set(false);
+                }
+                return;
+            }
+
+            if readiness() == crate::foundation::overlay::FloatingReadiness::Ready
+                && !*aligned_for_open.peek()
+            {
+                aligned_for_open.set(true);
                 restore_focus_element_by_id(&cid);
-                if let Some(ref v) = rt.highlighted_value() {
+                if let Some(ref v) = rt.highlighted_value_untracked() {
                     let item_id = rt.relationships().item_id(v);
                     let vp_id = rt.relationships().viewport_id();
                     super::viewport::scroll_item_within_container(&vp_id, &cid, &item_id);
