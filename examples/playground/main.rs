@@ -980,6 +980,13 @@ pub const SW2B_PLAYGROUND_CSS: &str = r#"
 .sw2b-sa-viewport {
     width: 100%;
     height: 100%;
+    border-radius: inherit;
+    outline: none;
+}
+
+.sw2b-sa-viewport:focus-visible {
+    outline: 2px solid #9333ea;
+    outline-offset: 2px;
 }
 
 .sw2b-sa-scrollbar {

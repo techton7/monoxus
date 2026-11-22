@@ -84,7 +84,6 @@ pub fn BasicSliderScenario() -> Element {
                         index: 0,
                         class: "sw2b-slider-thumb",
                         aria_label: "Master Volume".to_string(),
-                        style: "width: 20px; height: 20px; background: #ffffff; border: 2px solid #7c3aed; border-radius: 9999px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); outline: none; cursor: grab; display: block;",
                     }
                 }
             }
@@ -173,14 +172,12 @@ pub fn MultiThumbSliderScenario() -> Element {
                         index: 0,
                         class: "sw2b-slider-thumb",
                         aria_label: "Min Range".to_string(),
-                        style: "width: 20px; height: 20px; background: #ffffff; border: 2px solid #7c3aed; border-radius: 9999px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); outline: none; cursor: grab; display: block;",
                     }
                     SliderThumb {
                         id: "sw2b-slider-swap-thumb-1",
                         index: 1,
                         class: "sw2b-slider-thumb",
                         aria_label: "Max Range".to_string(),
-                        style: "width: 20px; height: 20px; background: #ffffff; border: 2px solid #7c3aed; border-radius: 9999px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); outline: none; cursor: grab; display: block;",
                     }
                 }
                 div {
@@ -224,14 +221,12 @@ pub fn MultiThumbSliderScenario() -> Element {
                         index: 0,
                         class: "sw2b-slider-thumb",
                         aria_label: "Lower Bound".to_string(),
-                        style: "width: 20px; height: 20px; background: #ffffff; border: 2px solid #7c3aed; border-radius: 9999px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); outline: none; cursor: grab; display: block;",
                     }
                     SliderThumb {
                         id: "sw2b-slider-preserve-thumb-1",
                         index: 1,
                         class: "sw2b-slider-thumb",
                         aria_label: "Upper Bound".to_string(),
-                        style: "width: 20px; height: 20px; background: #ffffff; border: 2px solid #7c3aed; border-radius: 9999px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); outline: none; cursor: grab; display: block;",
                     }
                 }
                 div {
@@ -297,7 +292,6 @@ pub fn RtlAndStepSliderScenario() -> Element {
                             index: 0,
                             class: "sw2b-slider-thumb",
                             aria_label: "RTL Level".to_string(),
-                            style: "width: 20px; height: 20px; background: #ffffff; border: 2px solid #7c3aed; border-radius: 9999px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); outline: none; cursor: grab; display: block;",
                         }
                     }
                 }
@@ -351,7 +345,6 @@ pub fn RtlAndStepSliderScenario() -> Element {
                             index: 0,
                             class: "sw2b-slider-thumb",
                             aria_label: "Custom Step".to_string(),
-                            style: "width: 20px; height: 20px; background: #ffffff; border: 2px solid #7c3aed; border-radius: 9999px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); outline: none; cursor: grab; display: block;",
                         }
                         SliderThumbLabel {
                             index: 0,
@@ -396,7 +389,6 @@ pub fn RtlAndStepSliderScenario() -> Element {
                                 index: 0,
                                 class: "sw2b-slider-thumb",
                                 aria_label: "Vertical Value".to_string(),
-                                style: "width: 20px; height: 20px; background: #ffffff; border: 2px solid #7c3aed; border-radius: 9999px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); outline: none; cursor: grab; display: block;",
                             }
                         }
                     }
@@ -427,7 +419,7 @@ pub fn RtlAndStepSliderScenario() -> Element {
                                 index: 0,
                                 class: "sw2b-slider-thumb",
                                 aria_label: "Disabled Slider".to_string(),
-                                style: "width: 20px; height: 20px; background: #f8fafc; border: 2px solid #cbd5e1; border-radius: 9999px; cursor: not-allowed; display: block;",
+                                style: "background: #f8fafc;",
                             }
                         }
                     }
@@ -484,7 +476,6 @@ pub fn FormSliderScenario() -> Element {
                         index: 0,
                         class: "sw2b-slider-thumb",
                         aria_label: "Form Volume".to_string(),
-                        style: "width: 20px; height: 20px; background: #ffffff; border: 2px solid #7c3aed; border-radius: 9999px; box-shadow: 0 1px 3px rgba(0,0,0,0.2); outline: none; cursor: grab; display: block;",
                     }
                 }
 

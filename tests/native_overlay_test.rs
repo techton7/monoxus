@@ -933,3 +933,127 @@ fn test_native_tooltip_unmount_during_skip_delay_no_panic() {
     // 5. Zero panic! Re-assert placeholder is still valid and intact
     assert!(harness.query("#unmounted-placeholder").is_some());
 }
+
+/// Test 14: Tooltip with custom trigger ID and custom content ID positioning & scroll-ancestor dismissal
+#[test]
+fn test_native_tooltip_custom_trigger_id_positioning_and_scroll_dismiss() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    #[component]
+    fn CustomIdsTooltipScrollScenario() -> Element {
+        use monoxus::tooltip::{
+            TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger,
+        };
+        rsx! {
+            div {
+                id: "tooltip-scroll-container",
+                style: "width: 400px; height: 220px; overflow-y: auto; padding: 24px;",
+                div {
+                    style: "height: 80px;",
+                    "Top spacer"
+                }
+                TooltipProvider {
+                    delay_duration: 0,
+                    disable_hoverable_content: true,
+                    TooltipRoot {
+                        id: "custom-guard-tt",
+                        TooltipTrigger {
+                            id: "custom-guard-trigger",
+                            "Hover Custom Trigger"
+                        }
+                        TooltipPortal {
+                            TooltipContent {
+                                id: "custom-guard-content",
+                                "Custom Guard Tooltip"
+                            }
+                        }
+                    }
+                }
+                div {
+                    style: "height: 600px;",
+                    "Bottom spacer"
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(CustomIdsTooltipScrollScenario);
+
+    assert_rect_non_empty(&harness, "#custom-guard-trigger");
+    assert!(
+        harness.query("#custom-guard-content").is_none(),
+        "Tooltip content should not be mounted initially"
+    );
+
+    // 1. Hovering custom trigger opens tooltip and positions content (no longer Measuring/hidden)
+    let (tx, ty) = harness.center_of("#custom-guard-trigger");
+    harness.move_mouse_to(tx, ty);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    assert!(
+        harness.query("#custom-guard-content").is_some(),
+        "Tooltip content should mount after hovering custom trigger ID"
+    );
+    assert_rect_non_empty(&harness, "#custom-guard-content");
+    assert_eq!(
+        harness
+            .attr("#custom-guard-trigger", "aria-describedby")
+            .as_deref(),
+        Some("custom-guard-content")
+    );
+
+    let wrapper_style = harness
+        .attr("[data-monoxus-floating-content-wrapper]", "style")
+        .expect("Floating wrapper should have a style attribute");
+    assert!(
+        wrapper_style.contains("visibility: visible;"),
+        "Positioned tooltip wrapper must transition out of Measuring to visibility: visible, got: {wrapper_style}"
+    );
+    assert!(
+        !wrapper_style.contains("visibility: hidden;"),
+        "Positioned tooltip wrapper must not remain visibility: hidden, got: {wrapper_style}"
+    );
+    assert_relative_above(
+        &harness,
+        "#custom-guard-trigger",
+        "#custom-guard-content",
+        30.0,
+    );
+
+    // 2. Scrolling ancestor container dismisses tooltip attached to custom trigger ID
+    let container_rect = harness.layout_rect("#tooltip-scroll-container");
+    wheel_at_and_pump(
+        &mut harness,
+        container_rect.x + container_rect.width - 20.0,
+        container_rect.y + container_rect.height - 20.0,
+        0.0,
+        -50.0,
+    );
+    drain_polls_and_resolve(&mut harness);
+    advance_frame_and_pump(&mut harness, 0.25);
+    drain_polls_and_resolve(&mut harness);
+
+    let container_node = harness.node("#tooltip-scroll-container");
+    let container_scroll_y = harness
+        .base()
+        .get_node(container_node)
+        .unwrap()
+        .scroll_offset()
+        .y;
+    assert!(
+        container_scroll_y > 0.0,
+        "Scrollable ancestor must actually scroll for regression check (scroll_y={container_scroll_y})"
+    );
+    assert_eq!(
+        harness
+            .attr("#custom-guard-trigger", "data-state")
+            .as_deref(),
+        Some("closed"),
+        "Tooltip trigger must transition to closed after scrollable ancestor scroll"
+    );
+    assert!(
+        harness.query("#custom-guard-content").is_none(),
+        "Tooltip content must unmount after scrollable ancestor dismisses it"
+    );
+}

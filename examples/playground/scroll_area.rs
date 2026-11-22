@@ -52,7 +52,7 @@ pub fn ScrollAreaPlayground() -> Element {
                             id: "sw2b-sa-hover-root".to_string(),
                             r#type: ScrollAreaType::Hover,
                             scroll_hide_delay: 600,
-                            style: "width: 260px; height: 180px; border: 1px solid #cbd5e1; border-radius: 0.5rem; overflow: hidden; background: #ffffff;",
+                            style: "width: 260px; height: 180px; border: 1px solid #cbd5e1; border-radius: 0.5rem; background: #ffffff;",
                             ScrollAreaViewport {
                                 id: "sw2b-sa-hover-vp".to_string(),
                                 class: "sw2b-sa-viewport",
@@ -86,7 +86,7 @@ pub fn ScrollAreaPlayground() -> Element {
                             id: "sw2b-sa-scroll-root".to_string(),
                             r#type: ScrollAreaType::Scroll,
                             scroll_hide_delay: 400,
-                            style: "width: 260px; height: 180px; border: 1px solid #cbd5e1; border-radius: 0.5rem; overflow: hidden; background: #ffffff;",
+                            style: "width: 260px; height: 180px; border: 1px solid #cbd5e1; border-radius: 0.5rem; background: #ffffff;",
                             ScrollAreaViewport {
                                 id: "sw2b-sa-scroll-vp".to_string(),
                                 class: "sw2b-sa-viewport",
@@ -128,7 +128,7 @@ pub fn ScrollAreaPlayground() -> Element {
                         ScrollAreaRoot {
                             id: "sw2b-sa-auto-root".to_string(),
                             r#type: ScrollAreaType::Auto,
-                            style: "width: 260px; height: 180px; border: 1px solid #cbd5e1; border-radius: 0.5rem; overflow: hidden; background: #ffffff;",
+                            style: "width: 260px; height: 180px; border: 1px solid #cbd5e1; border-radius: 0.5rem; background: #ffffff;",
                             ScrollAreaViewport {
                                 id: "sw2b-sa-auto-vp".to_string(),
                                 class: "sw2b-sa-viewport",
@@ -167,7 +167,7 @@ pub fn ScrollAreaPlayground() -> Element {
                         ScrollAreaRoot {
                             id: "sw2b-sa-always-root".to_string(),
                             r#type: ScrollAreaType::Always,
-                            style: "width: 260px; height: 180px; border: 1px solid #cbd5e1; border-radius: 0.5rem; overflow: hidden; background: #ffffff;",
+                            style: "width: 260px; height: 180px; border: 1px solid #cbd5e1; border-radius: 0.5rem; background: #ffffff;",
                             ScrollAreaViewport {
                                 id: "sw2b-sa-always-vp".to_string(),
                                 class: "sw2b-sa-viewport",
@@ -211,7 +211,7 @@ pub fn ScrollAreaPlayground() -> Element {
                 ScrollAreaRoot {
                     id: "sw2b-sa-clamp-root".to_string(),
                     r#type: ScrollAreaType::Always,
-                    style: "width: 300px; height: 200px; border: 1px solid #cbd5e1; border-radius: 0.5rem; overflow: hidden; background: #ffffff;",
+                    style: "width: 300px; height: 200px; border: 1px solid #cbd5e1; border-radius: 0.5rem; background: #ffffff;",
                     ScrollAreaViewport {
                         id: "sw2b-sa-clamp-vp".to_string(),
                         class: "sw2b-sa-viewport",
@@ -252,7 +252,7 @@ pub fn ScrollAreaPlayground() -> Element {
                 ScrollAreaRoot {
                     id: "sw2b-sa-interact-root".to_string(),
                     r#type: ScrollAreaType::Always,
-                    style: "width: 360px; height: 240px; border: 1px solid #cbd5e1; border-radius: 0.5rem; overflow: hidden; background: #ffffff;",
+                    style: "width: 360px; height: 240px; border: 1px solid #cbd5e1; border-radius: 0.5rem; background: #ffffff;",
                     ScrollAreaViewport {
                         id: "sw2b-sa-interact-vp".to_string(),
                         class: "sw2b-sa-viewport",
@@ -320,7 +320,7 @@ pub fn ScrollAreaPlayground() -> Element {
                         ScrollAreaRoot {
                             id: "sw2b-sa-dual-root".to_string(),
                             r#type: ScrollAreaType::Always,
-                            style: "width: 320px; height: 220px; border: 1px solid #cbd5e1; border-radius: 0.5rem; overflow: hidden; background: #ffffff;",
+                            style: "width: 320px; height: 220px; border: 1px solid #cbd5e1; border-radius: 0.5rem; background: #ffffff;",
                             ScrollAreaViewport {
                                 id: "sw2b-sa-dual-vp".to_string(),
                                 nonce: "sw2b-csp-nonce".to_string(),
@@ -372,7 +372,7 @@ pub fn ScrollAreaPlayground() -> Element {
                             id: "sw2b-sa-rtl-root".to_string(),
                             dir: Direction::Rtl,
                             r#type: ScrollAreaType::Always,
-                            style: "width: 320px; height: 140px; border: 1px solid #cbd5e1; border-radius: 0.5rem; overflow: hidden; background: #ffffff;",
+                            style: "width: 320px; height: 140px; border: 1px solid #cbd5e1; border-radius: 0.5rem; background: #ffffff;",
                             ScrollAreaViewport {
                                 id: "sw2b-sa-rtl-vp".to_string(),
                                 class: "sw2b-sa-viewport",

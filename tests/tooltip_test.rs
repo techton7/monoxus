@@ -464,4 +464,103 @@ fn test_tooltip_aria_label_sample_renders() {
     dom.rebuild_in_place();
 }
 
+#[derive(Clone)]
+struct RuntimeHandle(Rc<RefCell<Option<monoxus::tooltip::TooltipRuntime>>>);
+
+impl PartialEq for RuntimeHandle {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+#[component]
+fn CustomTriggerIdProbe(runtime_out: RuntimeHandle) -> Element {
+    let ctx = use_context::<TooltipRootContext>();
+    *runtime_out.0.borrow_mut() = Some(ctx.runtime.read().clone());
+    rsx! {}
+}
+
+#[component]
+fn CustomTriggerIdLifecycleSample(
+    trigger_id_out: Rc<RefCell<Option<Signal<Option<String>>>>>,
+    show_trigger_out: Rc<RefCell<Option<Signal<bool>>>>,
+    runtime_out: RuntimeHandle,
+) -> Element {
+    let trigger_id = use_signal(|| Some("custom-guard-trigger".to_string()));
+    let show_trigger = use_signal(|| true);
+    *trigger_id_out.borrow_mut() = Some(trigger_id);
+    *show_trigger_out.borrow_mut() = Some(show_trigger);
+
+    rsx! {
+        TooltipRoot {
+            id: "custom-guard-root",
+            default_open: true,
+            if show_trigger() {
+                TooltipTrigger {
+                    id: trigger_id(),
+                    "Custom Guard Trigger"
+                }
+            }
+            TooltipPortal {
+                TooltipContent {
+                    id: "custom-guard-content",
+                    "Custom Guard Content"
+                }
+            }
+            CustomTriggerIdProbe {
+                runtime_out,
+            }
+        }
+    }
+}
+
+#[test]
+fn test_tooltip_custom_trigger_id_registration_and_cleanup() {
+    let trigger_id_out = Rc::new(RefCell::new(None));
+    let show_trigger_out = Rc::new(RefCell::new(None));
+    let runtime_out = RuntimeHandle(Rc::new(RefCell::new(None)));
+
+    let mut dom = VirtualDom::new_with_props(
+        CustomTriggerIdLifecycleSample,
+        CustomTriggerIdLifecycleSampleProps {
+            trigger_id_out: trigger_id_out.clone(),
+            show_trigger_out: show_trigger_out.clone(),
+            runtime_out: runtime_out.clone(),
+        },
+    );
+    dom.rebuild_in_place();
+
+    let runtime = runtime_out
+        .0
+        .borrow()
+        .as_ref()
+        .expect("probe must capture TooltipRuntime")
+        .clone();
+    let default_trigger_id = runtime.relationships().trigger_id().to_owned();
+    assert_eq!(runtime.effective_trigger_id(), "custom-guard-trigger");
+    assert_ne!(runtime.effective_trigger_id(), default_trigger_id);
+
+    // Updating custom trigger ID across renders replaces registration cleanly.
+    let mut trigger_id_sig = trigger_id_out.borrow().unwrap();
+    trigger_id_sig.set(Some("custom-guard-trigger-v2".to_string()));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(runtime.effective_trigger_id(), "custom-guard-trigger-v2");
+
+    // Clearing custom trigger ID falls back to the scope default.
+    trigger_id_sig.set(None);
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(runtime.effective_trigger_id(), default_trigger_id);
+
+    // Re-registering and unmounting TooltipTrigger unregisters on drop.
+    trigger_id_sig.set(Some("custom-guard-trigger-v3".to_string()));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(runtime.effective_trigger_id(), "custom-guard-trigger-v3");
+
+    let mut show_trigger_sig = show_trigger_out.borrow().unwrap();
+    show_trigger_sig.set(false);
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(runtime.effective_trigger_id(), default_trigger_id);
+}
+
+
 
