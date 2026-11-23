@@ -42,11 +42,48 @@ The first primitive family surfaces now live in:
   orientation/direction-aware roving focus coordination, decoupled
   automatic/manual activation modes, and `use_tabs_runtime` actuation hooks
 
+## Platform Support & Native Setup
+
+### Web (`wasm32`, default features `default = []`)
+
+- **Zero `blitz` dependency**: `blitz-*` and `dioxus-native` are strictly gated behind `cfg(not(target_arch = "wasm32"))` and the opt-in `native` feature.
+- **Works out-of-the-box**: Builds directly against upstream `dioxus` (`0.8.0-alpha.3`) and `oxidase` (JS-free `web-sys` backend), with no forks or `[patch.crates-io]` overrides required.
+
+### Blitz Native (opt-in `native` feature)
+
+- Enabled via `--no-default-features --features native` (or `features = ["native"]` in `Cargo.toml`), which activates `oxidase/native` targeting the downstream Blitz fork (`https://github.com/techton7/blitz.git`, `techton/main` branch, consumed via pinned release tags such as `techton-main-v0.3.8`).
+- **Workspace-root `[patch.crates-io]` required**: Cargo does not propagate `[patch.crates-io]` from dependency crates (`oxidase`). Native consumer apps should add a workspace-root `[patch.crates-io]` pinning the matching `techton7/blitz` release tag (prefer a pinned `tag` paired with `oxidase` over a floating `branch = "techton/main"`):
+
+```toml
+[patch.crates-io]
+blitz-shell = { git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.8" }
+blitz-dom = { git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.8" }
+blitz-traits = { git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.8" }
+blitz-paint = { git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.8" }
+dioxus-native = { git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.8" }
+dioxus-native-dom = { git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.8" }
+```
+
+### Optional Upstream Patches for Native Consumers (Outside `techton7/blitz`)
+
+The following optional fixes belong to separate upstream repositories (`DioxusLabs/dioxus` and `rust-windowing/winit`), so they cannot be merged into `techton7/blitz`'s `techton/main` branch. When opting into either patch, Cargo requires a workspace-root `[patch.crates-io]` so `crates.io` and `git` instances unify across the dependency graph:
+
+1. **Standalone `asset!()` without `dx` (`manganis`, `manganis-core`, `manganis-macro`, `dioxus-asset-resolver`)**: Upstream `dioxus` `0.8.0-alpha.3` expects `dx` to patch `bundled_path` or `CARGO_MANIFEST_DIR` (set by `cargo run`) to resolve source paths; running a `cargo build` binary directly without `CARGO_MANIFEST_DIR` fails to resolve `asset!()` assets. Tracked upstream at https://github.com/DioxusLabs/dioxus/pull/6025 (not required when running via `dx` or `cargo run`, or when inlining CSS with `include_str!`).
+2. **macOS Korean IME Input-Source Switch Fix (`winit`, `winit-appkit` `0.31.0-beta.4`)**: Optional patch mitigating macOS Korean IME daemon cold-start timeout on input source switch and returning `nil` from `inputContext` when IME is disabled. Only needed for Native macOS apps hitting Korean IME issues until merged upstream.
+
 ## Example playground
 
-Run the minimal Phase 3.1 / 3.2 / 3.3 playground with:
+Run the minimal Phase 3.1 / 3.2 / 3.3 playground on **Web** with:
 
-`dx serve --example playground --web`
+```sh
+dx serve --example playground --web
+```
+
+Run the playground on **Blitz Native** with `cargo run` (which automatically sets `CARGO_MANIFEST_DIR` so unbundled assets resolve without `dx`), or via `dx`:
+
+```sh
+cargo run --example playground --no-default-features --features native
+```
 
 ## Foundation proof artifact
 

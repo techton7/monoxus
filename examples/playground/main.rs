@@ -6,19 +6,25 @@ pub mod alert_dialog;
 pub mod aspect_ratio;
 pub mod avatar;
 pub mod button;
+pub mod calendar;
 pub mod checkbox;
 pub mod collapsible;
+pub mod context_menu;
 pub mod dialog;
+pub mod dropdown_menu;
 pub mod form_1b;
 pub mod hover_card;
 pub mod label;
+pub mod menubar;
 pub mod meter;
+pub mod navigation_menu;
 pub mod pages;
 pub mod pagination;
 pub mod pin_input;
 pub mod popover;
 pub mod progress;
 pub mod radio_group;
+pub mod range_calendar;
 pub mod rating_group;
 pub mod scenarios;
 pub mod scroll_area;
@@ -35,10 +41,11 @@ pub mod visually_hidden;
 use dioxus::prelude::*;
 use pages::{
     AccessibleIconPage, AccordionPage, AlertDialogPage, AspectRatioPage, AvatarPage, ButtonPage,
-    CheckboxPage, CollapsiblePage, DialogPage, Form1bPage, HoverCardPage, LabelPage, MeterPage,
-    PaginationPage, PinInputPage, PopoverPage, ProgressPage, RadioGroupPage, RatingGroupPage,
-    ScrollAreaPage, SelectPage, SeparatorPage, SliderPage, SwitchPage, TabsPage, ToastPage,
-    ToggleGroupPage, TogglePage, ToolbarPage, TooltipPage, VisuallyHiddenPage,
+    CalendarPage, CheckboxPage, CollapsiblePage, ContextMenuPage, DialogPage, DropdownMenuPage,
+    Form1bPage, HoverCardPage, LabelPage, MenubarPage, MeterPage, NavigationMenuPage,
+    PaginationPage, PinInputPage, PopoverPage, ProgressPage, RadioGroupPage, RangeCalendarPage,
+    RatingGroupPage, ScrollAreaPage, SelectPage, SeparatorPage, SliderPage, SwitchPage, TabsPage,
+    ToastPage, ToggleGroupPage, TogglePage, ToolbarPage, TooltipPage, VisuallyHiddenPage,
 };
 
 #[component]
@@ -78,6 +85,9 @@ fn NativeHostedApp() -> Element {
         }
         dioxus_native::winit::event::WindowEvent::Occluded(occluded) => {
             oxidase::dom::document().set_document_hidden(*occluded);
+        }
+        dioxus_native::winit::event::WindowEvent::Focused(false) => {
+            oxidase::dom::document().dispatch_window_blur();
         }
         _ => {}
     });
@@ -129,11 +139,17 @@ pub enum ComponentPage {
     ScrollArea,
     HoverCard,
     Toolbar,
+    DropdownMenu,
+    ContextMenu,
+    Menubar,
+    NavigationMenu,
     Pagination,
     PinInput,
     VisuallyHidden,
     AccessibleIcon,
     RatingGroup,
+    Calendar,
+    RangeCalendar,
     Form1B,
     Select,
     Collapsible,
@@ -165,11 +181,17 @@ impl ComponentPage {
             Self::ScrollArea => "Scroll Area",
             Self::HoverCard => "Hover Card",
             Self::Toolbar => "Toolbar",
+            Self::DropdownMenu => "Dropdown Menu",
+            Self::ContextMenu => "Context Menu",
+            Self::Menubar => "Menubar",
+            Self::NavigationMenu => "Navigation Menu",
             Self::Pagination => "Pagination",
             Self::PinInput => "Pin Input",
             Self::VisuallyHidden => "Visually Hidden",
             Self::AccessibleIcon => "Accessible Icon",
             Self::RatingGroup => "Rating Group",
+            Self::Calendar => "Calendar",
+            Self::RangeCalendar => "Range Calendar",
             Self::Form1B => "Form (1B)",
             Self::Select => "Select",
             Self::Collapsible => "Collapsible",
@@ -201,11 +223,17 @@ impl ComponentPage {
             Self::ScrollArea => "⇳",
             Self::HoverCard => "◱",
             Self::Toolbar => "☰",
+            Self::DropdownMenu => "▾",
+            Self::ContextMenu => "▤",
+            Self::Menubar => "⊟",
+            Self::NavigationMenu => "⇥",
             Self::Pagination => "⋯",
             Self::PinInput => "⌸",
             Self::VisuallyHidden => "◌",
             Self::AccessibleIcon => "★",
             Self::RatingGroup => "☆",
+            Self::Calendar => "▦",
+            Self::RangeCalendar => "◫",
             Self::Form1B => "📝",
             Self::Select => "▾",
             Self::Collapsible => "◰",
@@ -237,11 +265,17 @@ impl ComponentPage {
             Self::ScrollArea => "Custom Scroll",
             Self::HoverCard => "Hover/Grace",
             Self::Toolbar => "Roving Bar",
+            Self::DropdownMenu => "Menu/Sub",
+            Self::ContextMenu => "Virtual Rect",
+            Self::Menubar => "Bar/Swap",
+            Self::NavigationMenu => "Viewport/Nav",
             Self::Pagination => "Page Range",
             Self::PinInput => "OTP Overlay",
             Self::VisuallyHidden => "SR-Only",
             Self::AccessibleIcon => "Icon A11y",
             Self::RatingGroup => "Half-Star",
+            Self::Calendar => "2D Grid",
+            Self::RangeCalendar => "Range Grid",
             Self::Form1B => "FormData Reset",
             Self::Select => "7 Scenarios",
             Self::Collapsible => "Disclosure",
@@ -277,11 +311,17 @@ pub fn App() -> Element {
         ComponentPage::ScrollArea,
         ComponentPage::HoverCard,
         ComponentPage::Toolbar,
+        ComponentPage::DropdownMenu,
+        ComponentPage::ContextMenu,
+        ComponentPage::Menubar,
+        ComponentPage::NavigationMenu,
         ComponentPage::Pagination,
         ComponentPage::PinInput,
         ComponentPage::VisuallyHidden,
         ComponentPage::AccessibleIcon,
         ComponentPage::RatingGroup,
+        ComponentPage::Calendar,
+        ComponentPage::RangeCalendar,
         ComponentPage::Form1B,
         ComponentPage::Select,
         ComponentPage::Collapsible,
@@ -429,11 +469,17 @@ pub fn App() -> Element {
                     ComponentPage::ScrollArea => rsx! { ScrollAreaPage {} },
                     ComponentPage::HoverCard => rsx! { HoverCardPage {} },
                     ComponentPage::Toolbar => rsx! { ToolbarPage {} },
+                    ComponentPage::DropdownMenu => rsx! { DropdownMenuPage {} },
+                    ComponentPage::ContextMenu => rsx! { ContextMenuPage {} },
+                    ComponentPage::Menubar => rsx! { MenubarPage {} },
+                    ComponentPage::NavigationMenu => rsx! { NavigationMenuPage {} },
                     ComponentPage::Pagination => rsx! { PaginationPage {} },
                     ComponentPage::PinInput => rsx! { PinInputPage {} },
                     ComponentPage::VisuallyHidden => rsx! { VisuallyHiddenPage {} },
                     ComponentPage::AccessibleIcon => rsx! { AccessibleIconPage {} },
                     ComponentPage::RatingGroup => rsx! { RatingGroupPage {} },
+                    ComponentPage::Calendar => rsx! { CalendarPage {} },
+                    ComponentPage::RangeCalendar => rsx! { RangeCalendarPage {} },
                     ComponentPage::Form1B => rsx! { Form1bPage {} },
                     ComponentPage::Select => rsx! { SelectPage {} },
                     ComponentPage::Collapsible => rsx! { CollapsiblePage {} },

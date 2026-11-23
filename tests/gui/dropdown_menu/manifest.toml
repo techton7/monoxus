@@ -1,0 +1,144 @@
+[[scenarios]]
+name = "dropdown-menu-initial"
+description = "Verify initial closed DropdownMenu trigger and mounted non-modal DropdownMenuContentStatic"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-dropdown-menu"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.targets]]
+id = "sw3b-dm-trigger"
+selector = "#sw3b-dm-trigger"
+part = "trigger"
+state = "closed"
+
+[[scenarios.targets]]
+id = "sw3b-dm-static-content"
+selector = "#sw3b-dm-static-content"
+part = "content-static"
+state = "open"
+
+[[scenarios]]
+name = "dropdown-menu-open-and-selection"
+description = "Verify clicking trigger opens menu, toggles tri-state checkbox, group checkbox, and radio group items"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-dropdown-menu"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3b-dm-trigger"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3b-dm-cb-tri"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3b-dm-cb-italic"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3b-dm-rad-right"
+
+[[scenarios.targets]]
+id = "sw3b-dm-content"
+selector = "#sw3b-dm-content"
+part = "content"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw3b-dm-cb-tri"
+selector = "#sw3b-dm-cb-tri"
+part = "checkbox-item"
+state = "checked"
+
+[[scenarios.targets]]
+id = "sw3b-dm-cb-italic"
+selector = "#sw3b-dm-cb-italic"
+part = "checkbox-item"
+state = "checked"
+
+[[scenarios.targets]]
+id = "sw3b-dm-rad-right"
+selector = "#sw3b-dm-rad-right"
+part = "radio-item"
+state = "checked"
+
+[[scenarios.targets]]
+id = "sw3b-dm-arrow"
+selector = "#sw3b-dm-arrow"
+part = "arrow"
+state = "open"
+
+[[scenarios]]
+name = "dropdown-menu-keyboard-submenu-and-escape"
+description = "Verify Enter opens focusing first enabled item, End + ArrowRight opens submenu, and Escape closes tree"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-dropdown-menu"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.actions]]
+kind = "focus"
+target = "#sw3b-dm-trigger"
+
+[[scenarios.actions]]
+kind = "key"
+key = "Enter"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.actions]]
+kind = "key"
+key = "End"
+
+[[scenarios.actions]]
+kind = "key"
+key = "ArrowRight"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.targets]]
+id = "sw3b-dm-sub-content"
+selector = "#sw3b-dm-sub-content"
+part = "sub-content"
+state = "open"
+
+[[scenarios.actions]]
+kind = "key"
+key = "Escape"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.targets]]
+id = "sw3b-dm-trigger"
+selector = "#sw3b-dm-trigger"
+part = "trigger"
+state = "closed"

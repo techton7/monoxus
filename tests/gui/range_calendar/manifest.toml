@@ -1,0 +1,79 @@
+[[scenarios]]
+name = "range-calendar-initial"
+description = "Verify initial RangeCalendar range markers, constrained grid, read-only grid, and multi-month paged layout"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-range-calendar"
+
+[[scenarios.targets]]
+id = "sw5b-rc-basic"
+selector = "#sw5b-rc-basic"
+part = "root"
+state = "default"
+
+[[scenarios.targets]]
+id = "sw5b-rc-basic-grid"
+selector = "#sw5b-rc-basic-grid"
+part = "grid"
+state = "table-7col"
+
+[[scenarios.targets]]
+id = "sw5b-rc-basic-day-2024-01-08"
+selector = "#sw5b-rc-basic-day-2024-01-08"
+part = "day"
+state = "range-start"
+
+[[scenarios.targets]]
+id = "sw5b-rc-basic-day-2024-01-11"
+selector = "#sw5b-rc-basic-day-2024-01-11"
+part = "day"
+state = "range-middle"
+
+[[scenarios.targets]]
+id = "sw5b-rc-basic-day-2024-01-14"
+selector = "#sw5b-rc-basic-day-2024-01-14"
+part = "day"
+state = "range-end"
+
+[[scenarios.targets]]
+id = "sw5b-rc-readonly"
+selector = "#sw5b-rc-readonly"
+part = "root"
+state = "readonly"
+
+[[scenarios.targets]]
+id = "sw5b-rc-multi-month"
+selector = "#sw5b-rc-multi-month"
+part = "root"
+state = "multi-month"
+
+[[scenarios]]
+name = "range-calendar-backward-select"
+description = "Select start Jan 20 then backward end Jan 16 and verify ordered range endpoints"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-range-calendar"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5b-rc-basic-day-2024-01-20"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5b-rc-basic-day-2024-01-16"
+
+[[scenarios.targets]]
+id = "sw5b-rc-basic-start"
+selector = "#sw5b-rc-basic-start"
+part = "readout"
+state = "2024-01-16"
+
+[[scenarios.targets]]
+id = "sw5b-rc-basic-end"
+selector = "#sw5b-rc-basic-end"
+part = "readout"
+state = "2024-01-20"

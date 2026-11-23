@@ -1,0 +1,112 @@
+[[scenarios]]
+name = "context-menu-initial"
+description = "Verify initial ContextMenu triggers (enabled, disabled) and mounted static context surface"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-context-menu"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.targets]]
+id = "sw3b-cm-trig-a"
+selector = "#sw3b-cm-trig-a"
+part = "trigger"
+state = "closed"
+
+[[scenarios.targets]]
+id = "sw3b-cm-trig-disabled"
+selector = "#sw3b-cm-trig-disabled"
+part = "trigger"
+state = "disabled"
+
+[[scenarios.targets]]
+id = "sw3b-cm-static-content"
+selector = "#sw3b-cm-static-content"
+part = "content-static"
+state = "open"
+
+[[scenarios]]
+name = "context-menu-open-checkbox-and-radio"
+description = "Verify opening ContextMenu A via controlled preview, toggling CheckboxItem and RadioGroup"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-context-menu"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3b-cm-open-a-btn"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3b-cm-a-bookmarks"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3b-cm-a-rad-dark"
+
+[[scenarios.targets]]
+id = "sw3b-cm-content-a"
+selector = "#sw3b-cm-content-a"
+part = "content"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw3b-cm-a-bookmarks"
+selector = "#sw3b-cm-a-bookmarks"
+part = "checkbox-item"
+state = "checked"
+
+[[scenarios.targets]]
+id = "sw3b-cm-a-rad-dark"
+selector = "#sw3b-cm-a-rad-dark"
+part = "radio-item"
+state = "checked"
+
+[[scenarios]]
+name = "context-menu-escape-dismiss"
+description = "Verify Escape closes active ContextMenu A cleanly"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-context-menu"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3b-cm-open-a-btn"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.actions]]
+kind = "key"
+key = "Escape"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.targets]]
+id = "sw3b-cm-trig-a"
+selector = "#sw3b-cm-trig-a"
+part = "trigger"
+state = "closed"

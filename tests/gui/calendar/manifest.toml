@@ -1,0 +1,73 @@
+[[scenarios]]
+name = "calendar-initial"
+description = "Verify initial Calendar grid geometry, single selection, unavailable/disabled cells, multi-month fixed weeks, and ko-KR locale"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-calendar"
+
+[[scenarios.targets]]
+id = "sw5b-cal-single"
+selector = "#sw5b-cal-single"
+part = "root"
+state = "default"
+
+[[scenarios.targets]]
+id = "sw5b-cal-single-grid"
+selector = "#sw5b-cal-single-grid"
+part = "grid"
+state = "table-7col"
+
+[[scenarios.targets]]
+id = "sw5b-cal-single-day-2024-01-15"
+selector = "#sw5b-cal-single-day-2024-01-15"
+part = "day"
+state = "selected"
+
+[[scenarios.targets]]
+id = "sw5b-cal-single-day-2024-01-18"
+selector = "#sw5b-cal-single-day-2024-01-18"
+part = "day"
+state = "unavailable"
+
+[[scenarios.targets]]
+id = "sw5b-cal-multi-month"
+selector = "#sw5b-cal-multi-month"
+part = "root"
+state = "multi-month"
+
+[[scenarios.targets]]
+id = "sw5b-cal-i18n"
+selector = "#sw5b-cal-i18n"
+part = "root"
+state = "ko-kr"
+
+[[scenarios]]
+name = "calendar-single-select-and-page"
+description = "Click a day to select it and advance multi-month paged navigation"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-calendar"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5b-cal-single-day-2024-01-20"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5b-cal-mm-next"
+
+[[scenarios.targets]]
+id = "sw5b-cal-single-selected"
+selector = "#sw5b-cal-single-selected"
+part = "readout"
+state = "2024-01-20"
+
+[[scenarios.targets]]
+id = "sw5b-cal-mm-heading"
+selector = "#sw5b-cal-mm-heading"
+part = "heading"
+state = "march-april"

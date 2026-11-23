@@ -53,19 +53,25 @@ mod accessible_icon_test;
 mod aspect_ratio_test;
 mod avatar_test;
 mod button_test;
+mod calendar_test;
 mod collapsible_test;
+mod context_menu_test;
 mod disclosure_dimensions_test;
+mod dropdown_menu_test;
 mod form_hidden_input_test;
 mod foundation_phase_2_4_handoff;
 mod foundation_phase_3_7_handoff;
 mod hover_card_test;
 mod label_test;
+mod menubar_test;
 mod meter_test;
+mod navigation_menu_test;
 mod overlay_presence_phase_3_7_step_4;
 mod pagination_test;
 mod pin_input_test;
 mod popover_test;
 mod progress_test;
+mod range_calendar_test;
 mod rating_group_test;
 mod roving_focus_test;
 mod scroll_area_test;
@@ -106,14 +112,19 @@ fn all_test_files_are_included() {
         "aspect_ratio_test.rs",
         "avatar_test.rs",
         "button_test.rs",
+        "calendar_test.rs",
         "collapsible_test.rs",
+        "context_menu_test.rs",
         "disclosure_dimensions_test.rs",
+        "dropdown_menu_test.rs",
         "form_hidden_input_test.rs",
         "foundation_phase_2_4_handoff.rs",
         "foundation_phase_3_7_handoff.rs",
         "hover_card_test.rs",
         "label_test.rs",
+        "menubar_test.rs",
         "meter_test.rs",
+        "navigation_menu_test.rs",
         "native_accordion_test.rs",
         "native_data_gesture_test.rs",
         "native_harness_test.rs",
@@ -127,6 +138,7 @@ fn all_test_files_are_included() {
         "pin_input_test.rs",
         "popover_test.rs",
         "progress_test.rs",
+        "range_calendar_test.rs",
         "rating_group_test.rs",
         "roving_focus_test.rs",
         "scroll_area_test.rs",

@@ -330,6 +330,9 @@ body {
   .mt-3 {
     margin-top: calc(var(--spacing) * 3);
   }
+  .mb-1 {
+    margin-bottom: calc(var(--spacing) * 1);
+  }
   .ml-1 {
     margin-left: calc(var(--spacing) * 1);
   }
@@ -356,6 +359,9 @@ body {
   }
   .inline-flex {
     display: inline-flex;
+  }
+  .table {
+    display: table;
   }
   .h-1\.5 {
     height: calc(var(--spacing) * 1.5);
@@ -416,6 +422,9 @@ body {
   }
   .flex-grow {
     flex-grow: 1;
+  }
+  .border-collapse {
+    border-collapse: collapse;
   }
   .transform {
     transform: var(--tw-rotate-x,) var(--tw-rotate-y,) var(--tw-rotate-z,) var(--tw-skew-x,) var(--tw-skew-y,);

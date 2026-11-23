@@ -1,0 +1,154 @@
+[[scenarios]]
+name = "menubar-initial"
+description = "Verify Menubar role=menubar horizontal triggers, disabled Edit trigger, and static RTL menu"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-menubar"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.targets]]
+id = "sw3b-mb-main"
+selector = "#sw3b-mb-main"
+part = "root"
+state = "horizontal"
+
+[[scenarios.targets]]
+id = "sw3b-mb-trig-file"
+selector = "#sw3b-mb-trig-file"
+part = "trigger"
+state = "closed"
+
+[[scenarios.targets]]
+id = "sw3b-mb-trig-edit"
+selector = "#sw3b-mb-trig-edit"
+part = "trigger"
+state = "disabled"
+
+[[scenarios.targets]]
+id = "sw3b-mb-rtl-help-static"
+selector = "#sw3b-mb-rtl-help-static"
+part = "content-static"
+state = "open"
+
+[[scenarios]]
+name = "menubar-hover-swap"
+description = "Verify clicking File opens File content and hovering View immediately swaps to View"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-menubar"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3b-mb-trig-file"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.targets]]
+id = "sw3b-mb-content-file"
+selector = "#sw3b-mb-content-file"
+part = "content"
+state = "open"
+
+[[scenarios.actions]]
+kind = "hover"
+target = "#sw3b-mb-trig-view"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.targets]]
+id = "sw3b-mb-content-view"
+selector = "#sw3b-mb-content-view"
+part = "content"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw3b-mb-trig-file"
+selector = "#sw3b-mb-trig-file"
+part = "trigger"
+state = "closed"
+
+[[scenarios]]
+name = "menubar-cross-menu-arrows-and-submenu"
+description = "Verify ArrowDown opens File, ArrowRight opens Share submenu, second ArrowRight switches to View, Escape closes"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-menubar"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.actions]]
+kind = "focus"
+target = "#sw3b-mb-trig-file"
+
+[[scenarios.actions]]
+kind = "key"
+key = "ArrowDown"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.actions]]
+kind = "key"
+key = "ArrowDown"
+
+[[scenarios.actions]]
+kind = "key"
+key = "ArrowRight"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.targets]]
+id = "sw3b-mb-file-share-sub"
+selector = "#sw3b-mb-file-share-sub"
+part = "sub-content"
+state = "open"
+
+[[scenarios.actions]]
+kind = "key"
+key = "ArrowRight"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.targets]]
+id = "sw3b-mb-content-view"
+selector = "#sw3b-mb-content-view"
+part = "content"
+state = "open"
+
+[[scenarios.actions]]
+kind = "key"
+key = "Escape"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 60
+
+[[scenarios.targets]]
+id = "sw3b-mb-trig-view"
+selector = "#sw3b-mb-trig-view"
+part = "trigger"
+state = "closed"

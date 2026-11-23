@@ -1,5 +1,17 @@
 pub use monoxus_core::foundation::overlay::floating::*;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum OverlayAnchor<'a> {
+    Element(&'a str),
+    VirtualPoint {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        context_element_id: Option<&'a str>,
+    },
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct OverlayPositionConfig<'a> {
     pub anchor_id: &'a str,
@@ -18,8 +30,57 @@ pub struct OverlayPositionConfig<'a> {
     pub namespace: Option<&'a str>,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct VirtualOverlayPositionConfig<'a> {
+    pub anchor: OverlayAnchor<'a>,
+    pub content_id: &'a str,
+    pub arrow_id: Option<&'a str>,
+    pub boundary_id: Option<&'a str>,
+    pub side: PlacementSide,
+    pub align: PlacementAlign,
+    pub side_offset: f32,
+    pub align_offset: f32,
+    pub avoid_collisions: bool,
+    pub collision_padding: f32,
+    pub arrow_padding: f32,
+    pub hide_when_detached: bool,
+    pub sticky: bool,
+    pub namespace: Option<&'a str>,
+}
+
+impl<'a> From<&OverlayPositionConfig<'a>> for VirtualOverlayPositionConfig<'a> {
+    fn from(config: &OverlayPositionConfig<'a>) -> Self {
+        Self {
+            anchor: OverlayAnchor::Element(config.anchor_id),
+            content_id: config.content_id,
+            arrow_id: config.arrow_id,
+            boundary_id: config.boundary_id,
+            side: config.side,
+            align: config.align,
+            side_offset: config.side_offset,
+            align_offset: config.align_offset,
+            avoid_collisions: config.avoid_collisions,
+            collision_padding: config.collision_padding,
+            arrow_padding: config.arrow_padding,
+            hide_when_detached: config.hide_when_detached,
+            sticky: config.sticky,
+            namespace: config.namespace,
+        }
+    }
+}
+
 pub fn compute_overlay_position(config: &OverlayPositionConfig) -> Option<FloatingPlacement> {
+    compute_virtual_overlay_position(&VirtualOverlayPositionConfig::from(config))
+}
+
+pub fn compute_virtual_overlay_position(
+    config: &VirtualOverlayPositionConfig,
+) -> Option<FloatingPlacement> {
+    use oxidase_floating_ui::geometry::{
+        ClientRectObject, DefaultVirtualElement, ElementOrVirtual, Rect as FloatingRect,
+    };
     use oxidase_floating_ui::platform::FloatingPlatform;
+    use std::rc::Rc;
 
     let platform = oxidase::floating::HostFloatingPlatform::current()?;
 
@@ -72,7 +133,14 @@ pub fn compute_overlay_position(config: &OverlayPositionConfig) -> Option<Floati
         )));
     }
 
-    if config.hide_when_detached {
+    let can_detect_reference_overflow = match config.anchor {
+        OverlayAnchor::Element(_) => true,
+        OverlayAnchor::VirtualPoint {
+            context_element_id, ..
+        } => context_element_id.is_some(),
+    };
+
+    if config.hide_when_detached && can_detect_reference_overflow {
         let mut hide_overflow = oxidase_floating_ui::detect_overflow::DetectOverflowOptions::default();
         if let Some(bid) = config.boundary_id {
             hide_overflow = hide_overflow
@@ -88,10 +156,41 @@ pub fn compute_overlay_position(config: &OverlayPositionConfig) -> Option<Floati
         )));
     }
 
-    let anchor_str = config.anchor_id.to_string();
     let content_str = config.content_id.to_string();
+    let (anchor_rect, content_size, anchor_id_owned) = match config.anchor {
+        OverlayAnchor::Element(anchor_id) => {
+            let anchor_str = anchor_id.to_string();
+            let element_rects = platform.get_element_rects(&anchor_str, &content_str).ok()?;
+            (
+                Rect::new(
+                    element_rects.reference.x as f32,
+                    element_rects.reference.y as f32,
+                    element_rects.reference.width as f32,
+                    element_rects.reference.height as f32,
+                ),
+                Size::new(
+                    element_rects.floating.width as f32,
+                    element_rects.floating.height as f32,
+                ),
+                Some(anchor_str),
+            )
+        }
+        OverlayAnchor::VirtualPoint {
+            x,
+            y,
+            width,
+            height,
+            ..
+        } => {
+            let dims = platform.get_dimensions(&content_str).ok()?;
+            (
+                Rect::new(x, y, width, height),
+                Size::new(dims.width as f32, dims.height as f32),
+                None,
+            )
+        }
+    };
 
-    let element_rects = platform.get_element_rects(&anchor_str, &content_str).ok()?;
     let boundary = if let Some(bid) = config.boundary_id {
         oxidase_floating_ui::types::Boundary::Element(bid.to_string())
     } else {
@@ -104,7 +203,29 @@ pub fn compute_overlay_position(config: &OverlayPositionConfig) -> Option<Floati
         .placement(placement)
         .strategy(oxidase_floating_ui::geometry::Strategy::Fixed)
         .middleware(middlewares);
-    let reference = oxidase_floating_ui::geometry::ElementOrVirtual::Element(&anchor_str);
+    let reference = match (&anchor_id_owned, config.anchor) {
+        (Some(anchor_str), _) => ElementOrVirtual::Element(anchor_str),
+        (
+            None,
+            OverlayAnchor::VirtualPoint {
+                x,
+                y,
+                width,
+                height,
+                context_element_id,
+            },
+        ) => {
+            let virtual_rect =
+                FloatingRect::new(x as f64, y as f64, width as f64, height as f64);
+            let mut virtual_el =
+                DefaultVirtualElement::new(Rc::new(move || ClientRectObject::from(virtual_rect)));
+            if let Some(ctx_id) = context_element_id {
+                virtual_el = virtual_el.context_element(ctx_id.to_string());
+            }
+            ElementOrVirtual::VirtualElement(Box::new(virtual_el))
+        }
+        (None, OverlayAnchor::Element(_)) => unreachable!(),
+    };
     let result = oxidase_floating_ui::compute_position(reference, &content_str, compute_config);
 
     let (side, align) = match result.placement {
@@ -124,17 +245,6 @@ pub fn compute_overlay_position(config: &OverlayPositionConfig) -> Option<Floati
 
     let x = result.x as f32;
     let y = result.y as f32;
-
-    let anchor_rect = Rect::new(
-        element_rects.reference.x as f32,
-        element_rects.reference.y as f32,
-        element_rects.reference.width as f32,
-        element_rects.reference.height as f32,
-    );
-    let content_size = Size::new(
-        element_rects.floating.width as f32,
-        element_rects.floating.height as f32,
-    );
 
     let transform_origin_x = match side {
         PlacementSide::Right => 0.0,
@@ -197,4 +307,155 @@ pub fn compute_overlay_position(config: &OverlayPositionConfig) -> Option<Floati
     };
 
     Some(FloatingPlacement::new(side, align, geometry, arrow, reference_hidden))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn virtual_overlay_position_returns_none_without_active_platform() {
+        let config = VirtualOverlayPositionConfig {
+            anchor: OverlayAnchor::VirtualPoint {
+                x: 120.0,
+                y: 80.0,
+                width: 0.0,
+                height: 0.0,
+                context_element_id: None,
+            },
+            content_id: "menu-content",
+            arrow_id: None,
+            boundary_id: None,
+            side: PlacementSide::Bottom,
+            align: PlacementAlign::Start,
+            side_offset: 4.0,
+            align_offset: 0.0,
+            avoid_collisions: true,
+            collision_padding: 8.0,
+            arrow_padding: 0.0,
+            hide_when_detached: true,
+            sticky: false,
+            namespace: Some("context-menu"),
+        };
+        assert_eq!(compute_virtual_overlay_position(&config), None);
+    }
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn native_virtual_overlay_position_supports_hide_with_and_without_context_element() {
+        use blitz_dom::{Attribute, BaseDocument, DocumentConfig, LocalName, QualName, ns};
+        use oxidase::dom::Document;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let qname = |tag: &'static str| QualName::new(None, ns!(html), LocalName::from(tag));
+        let attr = |name: &'static str, val: &str| Attribute {
+            name: QualName::new(None, ns!(), LocalName::from(name)),
+            value: val.to_string(),
+        };
+
+        let mut base_doc_raw = BaseDocument::new(DocumentConfig::default());
+        {
+            let mut vp = base_doc_raw.viewport_mut();
+            vp.window_size = (800, 600);
+            vp.hidpi_scale = 1.0;
+        }
+        let base_doc = Rc::new(RefCell::new(base_doc_raw));
+        let doc = Document::from_base(base_doc.clone());
+
+        {
+            let mut base = base_doc.borrow_mut();
+            let root_id = base.root_node().id;
+            let mut mutator = base.mutate();
+            let html = mutator.create_element(qname("html"), vec![]);
+            let body = mutator.create_element(
+                qname("body"),
+                vec![attr("style", "margin: 0; padding: 0;")],
+            );
+            let ctx_trigger = mutator.create_element(
+                qname("div"),
+                vec![
+                    attr("id", "ctx-trigger"),
+                    attr("style", "width: 200px; height: 100px; display: block;"),
+                ],
+            );
+            let content = mutator.create_element(
+                qname("div"),
+                vec![
+                    attr("id", "ctx-content"),
+                    attr(
+                        "style",
+                        "position: fixed; width: 120px; height: 80px; display: block;",
+                    ),
+                ],
+            );
+            mutator.append_children(body, &[ctx_trigger, content]);
+            mutator.append_children(html, &[body]);
+            mutator.append_children(root_id, &[html]);
+        }
+        doc.resolve(0.0);
+
+        Document::with_current(doc, || {
+            // 1. VirtualPoint with context_element_id + hide_when_detached: true
+            let with_ctx = compute_virtual_overlay_position(&VirtualOverlayPositionConfig {
+                anchor: OverlayAnchor::VirtualPoint {
+                    x: 150.0,
+                    y: 90.0,
+                    width: 0.0,
+                    height: 0.0,
+                    context_element_id: Some("ctx-trigger"),
+                },
+                content_id: "ctx-content",
+                arrow_id: None,
+                boundary_id: None,
+                side: PlacementSide::Bottom,
+                align: PlacementAlign::Start,
+                side_offset: 6.0,
+                align_offset: 0.0,
+                avoid_collisions: true,
+                collision_padding: 8.0,
+                arrow_padding: 0.0,
+                hide_when_detached: true,
+                sticky: false,
+                namespace: Some("context-menu"),
+            })
+            .expect("virtual placement with context_element_id must succeed");
+
+            assert_eq!(with_ctx.side(), PlacementSide::Bottom);
+            assert_eq!(with_ctx.align(), PlacementAlign::Start);
+            assert!((with_ctx.geometry().x() - 150.0).abs() < 1.0);
+            assert!((with_ctx.geometry().y() - 96.0).abs() < 1.0);
+            assert!(!with_ctx.reference_hidden());
+
+            // 2. VirtualPoint without context_element_id + hide_when_detached: true (must NOT panic!)
+            let without_ctx = compute_virtual_overlay_position(&VirtualOverlayPositionConfig {
+                anchor: OverlayAnchor::VirtualPoint {
+                    x: 200.0,
+                    y: 120.0,
+                    width: 0.0,
+                    height: 0.0,
+                    context_element_id: None,
+                },
+                content_id: "ctx-content",
+                arrow_id: None,
+                boundary_id: None,
+                side: PlacementSide::Right,
+                align: PlacementAlign::Start,
+                side_offset: 4.0,
+                align_offset: 0.0,
+                avoid_collisions: true,
+                collision_padding: 8.0,
+                arrow_padding: 0.0,
+                hide_when_detached: true,
+                sticky: false,
+                namespace: Some("context-menu"),
+            })
+            .expect("virtual placement without context_element_id must not panic");
+
+            assert_eq!(without_ctx.side(), PlacementSide::Right);
+            assert!((without_ctx.geometry().x() - 204.0).abs() < 1.0);
+            assert!((without_ctx.geometry().y() - 120.0).abs() < 1.0);
+            assert!(!without_ctx.reference_hidden());
+        });
+    }
 }

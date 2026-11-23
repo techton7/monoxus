@@ -791,6 +791,261 @@ pub(crate) fn set_input_value_by_id(element_id: &str, value: &str) -> bool {
     el.set_input_value(value).is_ok()
 }
 
+/// Returns the host local calendar date as `(year, month, day)` (`month` in `1..=12`, `day` in `1..=31`).
+#[allow(dead_code)]
+pub fn local_today_ymd() -> (i32, u8, u8) {
+    oxidase::time::local_today_ymd()
+}
+
+/// Measures the CSSOM `offsetLeft`/`offsetTop`/`offsetWidth`/`offsetHeight` rect of `id`
+/// relative to its `offsetParent` without CSS transform adjustments.
+#[allow(dead_code)]
+pub fn get_element_offset_rect(id: &str) -> Option<crate::foundation::overlay::Rect> {
+    let doc = oxidase::dom::Document::current()?;
+    let el = doc.element_by_id(id)?;
+    let rect = el.offset_rect()?;
+    Some(crate::foundation::overlay::Rect::new(
+        rect.x as f32,
+        rect.y as f32,
+        rect.width as f32,
+        rect.height as f32,
+    ))
+}
+
+/// Starts a host window `blur` monitor returning an RAII [`WatcherGuard`].
+#[allow(dead_code)]
+pub fn start_window_blur_monitor(mut on_blur: impl FnMut() + 'static) -> WatcherGuard {
+    let runtime = dioxus::core::Runtime::try_current();
+    let scope_id = runtime.as_ref().and_then(|rt| rt.try_current_scope_id());
+    oxidase::dom::observer::observe_window_blur(move || {
+        if let Some(rt) = &runtime {
+            let scope = scope_id.unwrap_or(dioxus::core::ScopeId::ROOT);
+            rt.in_scope(scope, || on_blur());
+        } else {
+            on_blur();
+        }
+    })
+    .unwrap_or_else(|_| WatcherGuard::noop())
+}
+
+const TABBABLE_SELECTOR: &str = "a[href],area[href],button:not([disabled]),input:not([disabled]):not([type='hidden']),select:not([disabled]),textarea:not([disabled]),summary,[contenteditable]:not([contenteditable='false']),[tabindex]";
+const SAVED_TABINDEX_ATTR: &str = "data-monoxus-tabindex";
+const SAVED_TABINDEX_NONE: &str = "__none__";
+static NEXT_TABBABLE_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn is_tabbable_element(el: &oxidase::dom::Element) -> bool {
+    if el.has_attribute("disabled")
+        || el.has_attribute("hidden")
+        || el.has_attribute("inert")
+        || el.closest("[hidden],[inert],[aria-hidden='true']").is_some()
+    {
+        return false;
+    }
+    if el.get_attribute("aria-hidden").as_deref() == Some("true") {
+        return false;
+    }
+    let tag = el.tag_name();
+    if tag.as_deref() == Some("input")
+        && el
+            .get_attribute("type")
+            .is_some_and(|t| t.eq_ignore_ascii_case("hidden"))
+    {
+        return false;
+    }
+    if let Some(raw_tabindex) = el.get_attribute("tabindex") {
+        let trimmed = raw_tabindex.trim();
+        match trimmed.parse::<i32>() {
+            Ok(idx) if idx < 0 => return false,
+            Ok(_) => return true,
+            Err(_) => {
+                let natively_focusable = matches!(
+                    tag.as_deref(),
+                    Some("a" | "area" | "button" | "input" | "select" | "textarea" | "summary")
+                );
+                if !natively_focusable {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+fn collect_tabbable_elements(container: &oxidase::dom::Element) -> Vec<oxidase::dom::Element> {
+    container
+        .query_selector_all(TABBABLE_SELECTOR)
+        .into_iter()
+        .filter(is_tabbable_element)
+        .collect()
+}
+
+/// Returns `true` if the element identified by `element_id` exists and is genuinely keyboard-tabbable.
+#[allow(dead_code)]
+pub(crate) fn is_element_tabbable_by_id(element_id: &str) -> bool {
+    let Some(doc) = oxidase::dom::Document::current() else {
+        return false;
+    };
+    let Some(el) = doc.element_by_id(element_id) else {
+        return false;
+    };
+    el.matches(TABBABLE_SELECTOR) && is_tabbable_element(&el)
+}
+
+fn ensure_element_id(el: &oxidase::dom::Element) -> String {
+    if let Some(id) = el.id().filter(|id| !id.is_empty()) {
+        return id;
+    }
+    let id = format!(
+        "monoxus-tabbable-{}",
+        NEXT_TABBABLE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    el.set_attribute("id", &id);
+    id
+}
+
+/// Returns tabbable descendant element IDs under `container_id` in DOM order,
+/// synthesizing stable IDs when a tabbable descendant has no `id` attribute.
+#[allow(dead_code)]
+pub fn get_tabbable_candidates(container_id: &str) -> Vec<String> {
+    let Some(doc) = oxidase::dom::Document::current() else {
+        return Vec::new();
+    };
+    let Some(container) = doc.element_by_id(container_id) else {
+        return Vec::new();
+    };
+    collect_tabbable_elements(&container)
+        .into_iter()
+        .map(|el| ensure_element_id(&el))
+        .collect()
+}
+
+/// Removes tabbable descendants under `container_id` from the keyboard tab order
+/// by saving any prior `tabindex` in `data-monoxus-tabindex` and setting `tabindex="-1"`.
+#[allow(dead_code)]
+pub fn remove_from_tab_order(container_id: &str) {
+    let Some(doc) = oxidase::dom::Document::current() else {
+        return;
+    };
+    let Some(container) = doc.element_by_id(container_id) else {
+        return;
+    };
+    for el in collect_tabbable_elements(&container) {
+        if !el.has_attribute(SAVED_TABINDEX_ATTR) {
+            match el.get_attribute("tabindex") {
+                Some(prev) => el.set_attribute(SAVED_TABINDEX_ATTR, &prev),
+                None => el.set_attribute(SAVED_TABINDEX_ATTR, SAVED_TABINDEX_NONE),
+            }
+        }
+        el.set_attribute("tabindex", "-1");
+    }
+}
+
+/// Restores tabbable descendants under `container_id` previously modified by [`remove_from_tab_order`].
+#[allow(dead_code)]
+pub fn restore_tab_order(container_id: &str) {
+    let Some(doc) = oxidase::dom::Document::current() else {
+        return;
+    };
+    let Some(container) = doc.element_by_id(container_id) else {
+        return;
+    };
+    for el in container.query_selector_all(&format!("[{SAVED_TABINDEX_ATTR}]")) {
+        let saved = el.get_attribute(SAVED_TABINDEX_ATTR);
+        el.remove_attribute(SAVED_TABINDEX_ATTR);
+        match saved.as_deref() {
+            Some(SAVED_TABINDEX_NONE) => el.remove_attribute("tabindex"),
+            Some(prev) => el.set_attribute("tabindex", prev),
+            None => {}
+        }
+    }
+}
+
+/// Starts a document-wide keyboard-modality monitor: capture-phase `KeyDown` emits `true`,
+/// and `PointerDown`/`PointerMove` emit `false` on transitions.
+#[allow(dead_code)]
+pub fn start_keyboard_modality_monitor(
+    on_change: impl FnMut(bool) + 'static,
+) -> WatcherGuard {
+    use std::cell::Cell;
+
+    let runtime = dioxus::core::Runtime::try_current();
+    let scope_id = runtime.as_ref().and_then(|rt| rt.try_current_scope_id());
+    let on_change_cell: Rc<RefCell<Box<dyn FnMut(bool)>>> =
+        Rc::new(RefCell::new(Box::new(on_change)));
+    let last_is_keyboard = Rc::new(Cell::new(None::<bool>));
+
+    let emit = {
+        let runtime = runtime.clone();
+        let on_change_cell = Rc::clone(&on_change_cell);
+        let last_is_keyboard = Rc::clone(&last_is_keyboard);
+        move |is_keyboard: bool| {
+            if last_is_keyboard.get() == Some(is_keyboard) {
+                return;
+            }
+            last_is_keyboard.set(Some(is_keyboard));
+            let invoke = || {
+                if let Ok(mut cb) = on_change_cell.try_borrow_mut() {
+                    cb(is_keyboard);
+                }
+            };
+            if let Some(rt) = &runtime {
+                let scope = scope_id.unwrap_or(dioxus::core::ScopeId::ROOT);
+                rt.in_scope(scope, invoke);
+            } else {
+                invoke();
+            }
+        }
+    };
+
+    let emit_for_capture = emit.clone();
+    let capture_guard = oxidase::dom::observer::observe_capture_events(move |event| {
+        match event.kind {
+            oxidase::dom::observer::CaptureEventKind::KeyDown { .. } => emit_for_capture(true),
+            oxidase::dom::observer::CaptureEventKind::PointerDown { .. } => {
+                emit_for_capture(false)
+            }
+            oxidase::dom::observer::CaptureEventKind::Click { .. }
+            | oxidase::dom::observer::CaptureEventKind::FocusIn => {}
+        }
+    })
+    .unwrap_or_else(|_| WatcherGuard::noop());
+
+    let pointer_move_guard = oxidase::dom::observer::observe_pointer_move(move |_x, _y| {
+        emit(false);
+    })
+    .unwrap_or_else(|_| WatcherGuard::noop());
+
+    WatcherGuard::with_cleanup("monoxus_keyboard_modality_monitor", 0, None, move || {
+        capture_guard.stop();
+        pointer_move_guard.stop();
+    })
+}
+
+/// Reactive hook tracking whether the user is currently navigating via keyboard (`KeyDown` -> `true`,
+/// `PointerDown`/`PointerMove` -> `false`) with automatic `use_drop` teardown.
+#[allow(dead_code)]
+pub fn use_is_using_keyboard() -> Signal<bool> {
+    let mut is_using_keyboard = use_signal(|| false);
+    let guard_cell = use_hook(|| {
+        let guard = start_keyboard_modality_monitor(move |using_kb| {
+            if *is_using_keyboard.peek() != using_kb {
+                is_using_keyboard.set(using_kb);
+            }
+        });
+        Rc::new(RefCell::new(guard))
+    });
+
+    use_drop({
+        let guard_cell = Rc::clone(&guard_cell);
+        move || {
+            let prev = std::mem::replace(&mut *guard_cell.borrow_mut(), WatcherGuard::noop());
+            prev.stop();
+        }
+    });
+
+    is_using_keyboard
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -924,5 +1179,312 @@ mod tests {
         let metrics = ElementScrollMetrics::default();
         assert_eq!(metrics.scroll_left, 0.0);
         assert_eq!(metrics.scroll_top, 0.0);
+    }
+
+    #[test]
+    fn test_batch2_browser_foundation_mock_helpers() {
+        use super::{
+            get_element_offset_rect, get_tabbable_candidates, local_today_ymd,
+            remove_from_tab_order, restore_tab_order, start_keyboard_modality_monitor,
+            start_window_blur_monitor,
+        };
+
+        let (year, month, day) = local_today_ymd();
+        assert!(year >= 1970);
+        assert!((1..=12).contains(&month));
+        assert!((1..=31).contains(&day));
+
+        assert_eq!(get_element_offset_rect("nonexistent"), None);
+        assert!(get_tabbable_candidates("nonexistent").is_empty());
+        remove_from_tab_order("nonexistent");
+        restore_tab_order("nonexistent");
+
+        let blur_guard = start_window_blur_monitor(|| {});
+        blur_guard.stop();
+
+        let modality_guard = start_keyboard_modality_monitor(|_| {});
+        modality_guard.stop();
+    }
+
+    #[cfg(feature = "native")]
+    mod native_tests {
+        use super::super::{
+            get_element_offset_rect, get_tabbable_candidates, remove_from_tab_order,
+            restore_tab_order, start_keyboard_modality_monitor, start_window_blur_monitor,
+        };
+        use blitz_dom::{Attribute, BaseDocument, DocumentConfig, LocalName, QualName, ns};
+        use blitz_traits::events::{
+            BlitzKeyEvent, BlitzPointerEvent, BlitzPointerId, KeyState, MouseEventButton,
+            MouseEventButtons, PointerCoords, PointerDetails, UiEvent,
+        };
+        use keyboard_types::{Code, Key, Location, Modifiers};
+        use oxidase::dom::Document;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        fn qname(tag: &'static str) -> QualName {
+            QualName::new(None, ns!(html), LocalName::from(tag))
+        }
+
+        fn attr(name: &'static str, val: &str) -> Attribute {
+            Attribute {
+                name: QualName::new(None, ns!(), LocalName::from(name)),
+                value: val.to_string(),
+            }
+        }
+
+        fn mk_pe(x: f32, y: f32, buttons: MouseEventButtons) -> BlitzPointerEvent {
+            BlitzPointerEvent {
+                id: BlitzPointerId::Mouse,
+                is_primary: true,
+                coords: PointerCoords {
+                    page_x: x,
+                    page_y: y,
+                    screen_x: x,
+                    screen_y: y,
+                    client_x: x,
+                    client_y: y,
+                },
+                button: MouseEventButton::Main,
+                buttons,
+                mods: Default::default(),
+                details: PointerDetails::default(),
+                element: Default::default(),
+                active_pointers: Default::default(),
+            }
+        }
+
+        #[test]
+        fn test_native_offset_rect_and_window_blur_monitor() {
+            let base_doc = Rc::new(RefCell::new(BaseDocument::new(DocumentConfig::default())));
+            let doc = Document::from_base(base_doc.clone());
+
+            {
+                let mut base = base_doc.borrow_mut();
+                let root_id = base.root_node().id;
+                let mut mutator = base.mutate();
+                let html = mutator.create_element(qname("html"), vec![]);
+                let body = mutator.create_element(
+                    qname("body"),
+                    vec![attr("style", "margin: 0; padding: 0;")],
+                );
+                let parent = mutator.create_element(
+                    qname("div"),
+                    vec![attr(
+                        "style",
+                        "position: relative; margin-left: 80px; padding-left: 12px; padding-top: 6px;",
+                    )],
+                );
+                let item = mutator.create_element(
+                    qname("div"),
+                    vec![
+                        attr("id", "nav-item"),
+                        attr(
+                            "style",
+                            "margin-left: 10px; margin-top: 4px; width: 90px; height: 32px; display: block;",
+                        ),
+                    ],
+                );
+                mutator.append_children(parent, &[item]);
+                mutator.append_children(body, &[parent]);
+                mutator.append_children(html, &[body]);
+                mutator.append_children(root_id, &[html]);
+            }
+            doc.resolve(0.0);
+
+            Document::with_current(doc.clone(), || {
+                let rect = get_element_offset_rect("nav-item").expect("offset rect must resolve");
+                assert!((rect.x() - 22.0).abs() < 1.0, "x={}", rect.x());
+                assert!((rect.y() - 10.0).abs() < 1.0, "y={}", rect.y());
+                assert!((rect.width() - 90.0).abs() < 1.0, "w={}", rect.width());
+                assert!((rect.height() - 32.0).abs() < 1.0, "h={}", rect.height());
+
+                let blur_count = Rc::new(RefCell::new(0usize));
+                let blur_clone = blur_count.clone();
+                let guard = start_window_blur_monitor(move || {
+                    *blur_clone.borrow_mut() += 1;
+                });
+                doc.dispatch_window_blur();
+                assert_eq!(*blur_count.borrow(), 1);
+                guard.stop();
+                doc.dispatch_window_blur();
+                assert_eq!(*blur_count.borrow(), 1);
+            });
+        }
+
+        #[test]
+        fn test_native_tabbable_candidates_and_tab_order_suppression() {
+            let base_doc = Rc::new(RefCell::new(BaseDocument::new(DocumentConfig::default())));
+            let doc = Document::from_base(base_doc.clone());
+
+            {
+                let mut base = base_doc.borrow_mut();
+                let root_id = base.root_node().id;
+                let mut mutator = base.mutate();
+                let html = mutator.create_element(qname("html"), vec![]);
+                let body = mutator.create_element(qname("body"), vec![]);
+                let container = mutator.create_element(qname("div"), vec![attr("id", "tab-scope")]);
+
+                let btn_ok = mutator.create_element(
+                    qname("button"),
+                    vec![attr("id", "btn-ok"), attr("tabindex", "0")],
+                );
+                let btn_no_id = mutator.create_element(qname("button"), vec![]);
+                let btn_disabled = mutator.create_element(
+                    qname("button"),
+                    vec![attr("id", "btn-disabled"), attr("disabled", "")],
+                );
+                let btn_hidden = mutator.create_element(
+                    qname("button"),
+                    vec![attr("id", "btn-hidden"), attr("hidden", "")],
+                );
+                let btn_aria_hidden = mutator.create_element(
+                    qname("button"),
+                    vec![attr("id", "btn-aria-hidden"), attr("aria-hidden", "true")],
+                );
+                let input_hidden = mutator.create_element(
+                    qname("input"),
+                    vec![attr("id", "input-hidden"), attr("type", "hidden")],
+                );
+                let div_neg = mutator.create_element(
+                    qname("div"),
+                    vec![attr("id", "div-neg"), attr("tabindex", "-1")],
+                );
+                let link_ok = mutator.create_element(
+                    qname("a"),
+                    vec![attr("id", "link-ok"), attr("href", "#top")],
+                );
+
+                mutator.append_children(
+                    container,
+                    &[
+                        btn_ok,
+                        btn_no_id,
+                        btn_disabled,
+                        btn_hidden,
+                        btn_aria_hidden,
+                        input_hidden,
+                        div_neg,
+                        link_ok,
+                    ],
+                );
+                mutator.append_children(body, &[container]);
+                mutator.append_children(html, &[body]);
+                mutator.append_children(root_id, &[html]);
+            }
+            doc.resolve(0.0);
+
+            Document::with_current(doc.clone(), || {
+                let candidates = get_tabbable_candidates("tab-scope");
+                assert_eq!(candidates.len(), 3);
+                assert_eq!(candidates[0], "btn-ok");
+                assert!(candidates[1].starts_with("monoxus-tabbable-"));
+                assert_eq!(candidates[2], "link-ok");
+
+                // Suppress tab order twice (idempotent check)
+                remove_from_tab_order("tab-scope");
+                remove_from_tab_order("tab-scope");
+
+                assert!(get_tabbable_candidates("tab-scope").is_empty());
+                let btn_ok_el = doc.element_by_id("btn-ok").unwrap();
+                let link_ok_el = doc.element_by_id("link-ok").unwrap();
+                assert_eq!(btn_ok_el.get_attribute("tabindex").as_deref(), Some("-1"));
+                assert_eq!(
+                    btn_ok_el.get_attribute("data-monoxus-tabindex").as_deref(),
+                    Some("0")
+                );
+                assert_eq!(link_ok_el.get_attribute("tabindex").as_deref(), Some("-1"));
+                assert_eq!(
+                    link_ok_el.get_attribute("data-monoxus-tabindex").as_deref(),
+                    Some("__none__")
+                );
+
+                // Restore tab order
+                restore_tab_order("tab-scope");
+                let restored = get_tabbable_candidates("tab-scope");
+                assert_eq!(restored, candidates);
+                assert_eq!(btn_ok_el.get_attribute("tabindex").as_deref(), Some("0"));
+                assert!(!btn_ok_el.has_attribute("data-monoxus-tabindex"));
+                assert_eq!(link_ok_el.get_attribute("tabindex"), None);
+                assert!(!link_ok_el.has_attribute("data-monoxus-tabindex"));
+            });
+        }
+
+        #[test]
+        fn test_native_keyboard_modality_monitor() {
+            let base_doc = Rc::new(RefCell::new(BaseDocument::new(DocumentConfig::default())));
+            let doc = Document::from_base(base_doc.clone());
+
+            {
+                let mut base = base_doc.borrow_mut();
+                let root_id = base.root_node().id;
+                let mut mutator = base.mutate();
+                let html = mutator.create_element(qname("html"), vec![]);
+                let body = mutator.create_element(qname("body"), vec![]);
+                let target = mutator.create_element(
+                    qname("div"),
+                    vec![
+                        attr("id", "modality-target"),
+                        attr("style", "width: 200px; height: 200px; display: block;"),
+                    ],
+                );
+                mutator.append_children(body, &[target]);
+                mutator.append_children(html, &[body]);
+                mutator.append_children(root_id, &[html]);
+            }
+            doc.resolve(0.0);
+
+            let transitions = Rc::new(RefCell::new(Vec::<bool>::new()));
+            let trans_clone = transitions.clone();
+            let guard = start_keyboard_modality_monitor(move |is_kb| {
+                trans_clone.borrow_mut().push(is_kb);
+            });
+
+            doc.handle_ui_event(UiEvent::KeyDown(BlitzKeyEvent {
+                key: Key::Character("Tab".into()),
+                code: Code::Tab,
+                modifiers: Modifiers::empty(),
+                location: Location::Standard,
+                is_auto_repeating: false,
+                is_composing: false,
+                state: KeyState::Pressed,
+                text: None,
+            }));
+            doc.handle_ui_event(UiEvent::PointerDown(mk_pe(
+                10.0,
+                10.0,
+                MouseEventButtons::Primary,
+            )));
+            doc.handle_ui_event(UiEvent::KeyDown(BlitzKeyEvent {
+                key: Key::Character("a".into()),
+                code: Code::KeyA,
+                modifiers: Modifiers::empty(),
+                location: Location::Standard,
+                is_auto_repeating: false,
+                is_composing: false,
+                state: KeyState::Pressed,
+                text: None,
+            }));
+            doc.handle_ui_event(UiEvent::PointerMove(mk_pe(
+                20.0,
+                20.0,
+                MouseEventButtons::None,
+            )));
+
+            assert_eq!(*transitions.borrow(), vec![true, false, true, false]);
+
+            guard.stop();
+            doc.handle_ui_event(UiEvent::KeyDown(BlitzKeyEvent {
+                key: Key::Character("b".into()),
+                code: Code::KeyB,
+                modifiers: Modifiers::empty(),
+                location: Location::Standard,
+                is_auto_repeating: false,
+                is_composing: false,
+                state: KeyState::Pressed,
+                text: None,
+            }));
+            assert_eq!(transitions.borrow().len(), 4);
+        }
     }
 }

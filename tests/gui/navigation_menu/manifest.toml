@@ -1,0 +1,206 @@
+[[scenarios]]
+name = "navigation-menu-initial"
+description = "Verify initial closed NavigationMenu triggers, disabled trigger, manual root, and inline root in playground"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-navigation-menu"
+
+[[scenarios.targets]]
+id = "sw3c-nm-trig-overview"
+selector = "#sw3c-nm-trig-overview"
+part = "trigger"
+state = "closed"
+
+[[scenarios.targets]]
+id = "sw3c-nm-trig-disabled"
+selector = "#sw3c-nm-trig-disabled"
+part = "trigger"
+state = "disabled"
+
+[[scenarios.targets]]
+id = "sw3c-nm-manual-trig-ws"
+selector = "#sw3c-nm-manual-trig-ws"
+part = "trigger"
+state = "closed"
+
+[[scenarios.targets]]
+id = "sw3c-nm-inline-trig-click"
+selector = "#sw3c-nm-inline-trig-click"
+part = "trigger"
+state = "closed"
+
+[[scenarios]]
+name = "navigation-menu-viewport-and-indicator"
+description = "Verify clicking triggers opens Viewport, tracks active Content sizing, sets Indicator visible, and applies motion on switch"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-navigation-menu"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3c-nm-trig-overview"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.targets]]
+id = "sw3c-nm-trig-overview"
+selector = "#sw3c-nm-trig-overview"
+part = "trigger"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw3c-nm-viewport"
+selector = "#sw3c-nm-viewport"
+part = "viewport"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw3c-nm-content-overview"
+selector = "#sw3c-nm-content-overview"
+part = "content"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw3c-nm-indicator"
+selector = "#sw3c-nm-indicator"
+part = "indicator"
+state = "visible"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3c-nm-trig-components"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.targets]]
+id = "sw3c-nm-content-components"
+selector = "#sw3c-nm-content-components"
+part = "content"
+state = "open"
+
+[[scenarios]]
+name = "navigation-menu-hover-delay-and-grace"
+description = "Verify 200ms hover delay open and immediate sibling hover switch within open state"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-navigation-menu"
+
+[[scenarios.actions]]
+kind = "hover"
+target = "#sw3c-nm-trig-overview"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 260
+
+[[scenarios.targets]]
+id = "sw3c-nm-content-overview"
+selector = "#sw3c-nm-content-overview"
+part = "content"
+state = "open"
+
+[[scenarios.actions]]
+kind = "hover"
+target = "#sw3c-nm-trig-components"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.targets]]
+id = "sw3c-nm-content-components"
+selector = "#sw3c-nm-content-components"
+part = "content"
+state = "open"
+
+[[scenarios]]
+name = "navigation-menu-manual-sub-and-inline"
+description = "Verify Manual activation ignores hover, opens nested NavigationMenuSub on click, and inline item mounts inside Item"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-navigation-menu"
+
+[[scenarios.actions]]
+kind = "hover"
+target = "#sw3c-nm-manual-trig-ws"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 260
+
+[[scenarios.targets]]
+id = "sw3c-nm-manual-trig-ws"
+selector = "#sw3c-nm-manual-trig-ws"
+part = "trigger"
+state = "closed"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3c-nm-manual-trig-ws"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.targets]]
+id = "sw3c-nm-sub-content-guides"
+selector = "#sw3c-nm-sub-content-guides"
+part = "content"
+state = "open"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3c-nm-inline-trig-click"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.targets]]
+id = "sw3c-nm-inline-content-click"
+selector = "#sw3c-nm-inline-content-click"
+part = "content"
+state = "open"
+
+[[scenarios]]
+name = "navigation-menu-escape-dismiss"
+description = "Verify Escape dismisses open NavigationMenuContent and closes trigger"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-navigation-menu"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3c-nm-trig-overview"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.actions]]
+kind = "key"
+key = "Escape"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 50
+
+[[scenarios.targets]]
+id = "sw3c-nm-trig-overview"
+selector = "#sw3c-nm-trig-overview"
+part = "trigger"
+state = "closed"
