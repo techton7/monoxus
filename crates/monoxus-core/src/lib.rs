@@ -1,6 +1,7 @@
 //! Pure Rust headless UI state machines, relationships, attribute publishers,
 //! roving-focus logic, `as_child` projection helpers, and overlay geometry.
 
+pub mod accessible_icon;
 pub mod accordion;
 pub mod alert_dialog;
 pub mod aspect_ratio;
@@ -10,11 +11,15 @@ pub mod checkbox;
 pub mod collapsible;
 pub mod dialog;
 pub mod foundation;
+pub mod hover_card;
 pub mod label;
 pub mod meter;
+pub mod pagination;
+pub mod pin_input;
 pub mod popover;
 pub mod progress;
 pub mod radio_group;
+pub mod rating_group;
 pub mod scroll_area;
 pub mod select;
 pub mod separator;
@@ -24,4 +29,6 @@ pub mod tabs;
 pub mod toast;
 pub mod toggle;
 pub mod toggle_group;
+pub mod toolbar;
 pub mod tooltip;
+pub mod visually_hidden;

@@ -1,0 +1,32 @@
+[[scenarios]]
+name = "accessible-icon-live"
+description = "Verify AccessibleIcon direct render_child and display: contents fallback buttons"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-accessible-icon"
+
+[[scenarios.targets]]
+id = "sw5a-ai-btn-direct"
+selector = "#sw5a-ai-btn-direct"
+part = "trigger"
+state = "direct"
+
+[[scenarios.targets]]
+id = "sw5a-ai-svg-direct"
+selector = "#sw5a-ai-svg-direct"
+part = "icon"
+state = "aria-hidden"
+
+[[scenarios.targets]]
+id = "sw5a-ai-btn-fallback"
+selector = "#sw5a-ai-btn-fallback"
+part = "trigger"
+state = "fallback"
+
+[[scenarios.targets]]
+id = "sw5a-ai-svg-fallback"
+selector = "#sw5a-ai-svg-fallback"
+part = "icon"
+state = "display-contents"

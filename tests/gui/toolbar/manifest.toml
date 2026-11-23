@@ -1,0 +1,108 @@
+[[scenarios]]
+name = "toolbar-main-and-toggles"
+description = "Verify horizontal Toolbar layout, inverted vertical separator, and Single/Multiple ToolbarToggleGroup toggles"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-toolbar"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3a-tb-align-left"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw3a-tb-fmt-italic"
+
+[[scenarios.targets]]
+id = "sw3a-toolbar-main"
+selector = "#sw3a-toolbar-main"
+part = "root"
+state = "horizontal"
+
+[[scenarios.targets]]
+id = "sw3a-tb-sep-1"
+selector = "#sw3a-tb-sep-1"
+part = "separator"
+state = "vertical"
+
+[[scenarios.targets]]
+id = "sw3a-tb-align-left"
+selector = "#sw3a-tb-align-left"
+part = "toggle-item"
+state = "on"
+
+[[scenarios.targets]]
+id = "sw3a-tb-fmt-italic"
+selector = "#sw3a-tb-fmt-italic"
+part = "toggle-item"
+state = "on"
+
+[[scenarios]]
+name = "toolbar-vertical-rtl-and-nested"
+description = "Verify vertical Toolbar separator inversion, RTL direction Toolbar, boundary clamp Toolbar, and nested Toolbar isolation"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-toolbar"
+
+[[scenarios.targets]]
+id = "sw3a-toolbar-vertical"
+selector = "#sw3a-toolbar-vertical"
+part = "root"
+state = "vertical"
+
+[[scenarios.targets]]
+id = "sw3a-tb-vert-sep"
+selector = "#sw3a-tb-vert-sep"
+part = "separator"
+state = "horizontal"
+
+[[scenarios.targets]]
+id = "sw3a-toolbar-clamp"
+selector = "#sw3a-toolbar-clamp"
+part = "root"
+state = "clamp"
+
+[[scenarios.targets]]
+id = "sw3a-toolbar-rtl"
+selector = "#sw3a-toolbar-rtl"
+part = "root"
+state = "rtl"
+
+[[scenarios.targets]]
+id = "sw3a-toolbar-outer"
+selector = "#sw3a-toolbar-outer"
+part = "root"
+state = "outer"
+
+[[scenarios.targets]]
+id = "sw3a-toolbar-inner"
+selector = "#sw3a-toolbar-inner"
+part = "root"
+state = "inner"
+
+[[scenarios]]
+name = "toolbar-keyboard-navigation"
+description = "Verify unified roving focus skips disabled items and separators on ArrowRight"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-toolbar"
+
+[[scenarios.actions]]
+kind = "focus"
+target = "#sw3a-tb-btn-cut"
+
+[[scenarios.actions]]
+kind = "key"
+key = "ArrowRight"
+
+[[scenarios.targets]]
+id = "sw3a-tb-align-left"
+selector = "#sw3a-tb-align-left"
+part = "toggle-item"
+state = "focused"

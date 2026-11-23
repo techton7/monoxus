@@ -1,0 +1,122 @@
+[[scenarios]]
+name = "pagination-initial"
+description = "Verify initial Pagination landmark, page 1 active state, PrevButton disabled, NextButton enabled, ellipsis, RTL, and disabled demos"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-pagination"
+
+[[scenarios.targets]]
+id = "sw4a-pag-basic"
+selector = "#sw4a-pag-basic"
+part = "root"
+state = "default"
+
+[[scenarios.targets]]
+id = "sw4a-pag-prev"
+selector = "#sw4a-pag-prev"
+part = "prev-button"
+state = "disabled"
+
+[[scenarios.targets]]
+id = "sw4a-pag-page-1"
+selector = "#sw4a-pag-page-1"
+part = "page"
+state = "selected"
+
+[[scenarios.targets]]
+id = "sw4a-pag-next"
+selector = "#sw4a-pag-next"
+part = "next-button"
+state = "enabled"
+
+[[scenarios.targets]]
+id = "sw4a-pag-range-text"
+selector = "#sw4a-pag-range-text"
+part = "range"
+state = "page-1"
+
+[[scenarios.targets]]
+id = "sw4a-pag-rtl"
+selector = "#sw4a-pag-rtl"
+part = "root"
+state = "rtl"
+
+[[scenarios.targets]]
+id = "sw4a-pag-disabled"
+selector = "#sw4a-pag-disabled"
+part = "root"
+state = "disabled"
+
+[[scenarios]]
+name = "pagination-page-select"
+description = "Verify Pagination dynamic ellipsis windowing and range update when navigating to page 5"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-pagination"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4a-pag-page-4"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4a-pag-page-5"
+
+[[scenarios.targets]]
+id = "sw4a-pag-page-5"
+selector = "#sw4a-pag-page-5"
+part = "page"
+state = "selected"
+
+[[scenarios.targets]]
+id = "sw4a-pag-range-text"
+selector = "#sw4a-pag-range-text"
+part = "range"
+state = "page-5"
+
+[[scenarios.targets]]
+id = "sw4a-pag-prev"
+selector = "#sw4a-pag-prev"
+part = "prev-button"
+state = "enabled"
+
+[[scenarios.targets]]
+id = "sw4a-pag-next"
+selector = "#sw4a-pag-next"
+part = "next-button"
+state = "enabled"
+
+[[scenarios]]
+name = "pagination-boundary-end"
+description = "Verify Pagination boundary disablement on last page 10"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-pagination"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4a-pag-page-10"
+
+[[scenarios.targets]]
+id = "sw4a-pag-page-10"
+selector = "#sw4a-pag-page-10"
+part = "page"
+state = "selected"
+
+[[scenarios.targets]]
+id = "sw4a-pag-next"
+selector = "#sw4a-pag-next"
+part = "next-button"
+state = "disabled"
+
+[[scenarios.targets]]
+id = "sw4a-pag-prev"
+selector = "#sw4a-pag-prev"
+part = "prev-button"
+state = "enabled"

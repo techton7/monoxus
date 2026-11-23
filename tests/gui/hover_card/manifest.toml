@@ -1,0 +1,103 @@
+[[scenarios]]
+name = "hover-card-closed"
+description = "Verify initial closed HoverCard trigger and open static HoverCardContentStatic in playground"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-hover-card"
+
+[[scenarios.targets]]
+id = "sw3a-hc-trigger"
+selector = "#sw3a-hc-trigger"
+part = "trigger"
+state = "closed"
+
+[[scenarios.targets]]
+id = "sw3a-hc-static-content"
+selector = "#sw3a-hc-static-content"
+part = "content"
+state = "open"
+
+[[scenarios]]
+name = "hover-card-hover-open"
+description = "Verify HoverCard opens after 300ms open_delay on pointer hover with anchored content and arrow"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-hover-card"
+
+[[scenarios.actions]]
+kind = "hover"
+target = "#sw3a-hc-trigger"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 400
+
+[[scenarios.targets]]
+id = "sw3a-hc-trigger"
+selector = "#sw3a-hc-trigger"
+part = "trigger"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw3a-hc-content"
+selector = "#sw3a-hc-content"
+part = "content"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw3a-hc-arrow"
+selector = "#sw3a-hc-arrow"
+part = "arrow"
+state = "open"
+
+[[scenarios]]
+name = "hover-card-focus-open-and-escape"
+description = "Verify HoverCard opens on focus and closes on Escape key"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-hover-card"
+
+[[scenarios.actions]]
+kind = "focus"
+target = "#sw3a-hc-focus-trigger"
+
+[[scenarios.actions]]
+kind = "wait"
+ms = 100
+
+[[scenarios.targets]]
+id = "sw3a-hc-focus-content"
+selector = "#sw3a-hc-focus-content"
+part = "content"
+state = "open"
+
+[[scenarios.actions]]
+kind = "key"
+key = "Escape"
+
+[[scenarios.targets]]
+id = "sw3a-hc-focus-trigger"
+selector = "#sw3a-hc-focus-trigger"
+part = "trigger"
+state = "closed"
+
+[[scenarios]]
+name = "hover-card-user-select-probe"
+description = "Verify explicit user-select: text probe span for Blitz D-5 dogfooding"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-hover-card"
+
+[[scenarios.targets]]
+id = "sw3a-hc-explicit-user-select-text"
+selector = "#sw3a-hc-explicit-user-select-text"
+part = "probe"
+state = "default"

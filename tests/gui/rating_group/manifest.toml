@@ -1,0 +1,67 @@
+[[scenarios]]
+name = "rating-group-initial"
+description = "Verify RatingGroup half-star, RTL, vertical, form, disabled, and read-only instances"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-rating-group"
+
+[[scenarios.targets]]
+id = "sw5a-rg-half"
+selector = "#sw5a-rg-half"
+part = "root"
+state = "default"
+
+[[scenarios.targets]]
+id = "sw5a-rg-rtl"
+selector = "#sw5a-rg-rtl"
+part = "root"
+state = "rtl"
+
+[[scenarios.targets]]
+id = "sw5a-rg-vertical"
+selector = "#sw5a-rg-vertical"
+part = "root"
+state = "vertical"
+
+[[scenarios.targets]]
+id = "sw5a-rg-form"
+selector = "#sw5a-rg-form"
+part = "root"
+state = "form-default"
+
+[[scenarios.targets]]
+id = "sw5a-rg-disabled"
+selector = "#sw5a-rg-disabled"
+part = "root"
+state = "disabled"
+
+[[scenarios.targets]]
+id = "sw5a-rg-readonly"
+selector = "#sw5a-rg-readonly"
+part = "root"
+state = "readonly"
+
+[[scenarios]]
+name = "rating-group-form-reset"
+description = "Verify clicking RatingGroup item updates score and native form reset restores default_value 2"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-rating-group"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5a-rg-form-item-3"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5a-rg-reset-btn"
+
+[[scenarios.targets]]
+id = "sw5a-rg-form"
+selector = "#sw5a-rg-form"
+part = "root"
+state = "reset-2"

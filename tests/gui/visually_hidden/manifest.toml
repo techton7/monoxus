@@ -1,0 +1,26 @@
+[[scenarios]]
+name = "visually-hidden-live"
+description = "Verify VisuallyHidden bordered container geometry and as_child article projection"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-visually-hidden"
+
+[[scenarios.targets]]
+id = "sw5a-vh-box"
+selector = "#sw5a-vh-box"
+part = "container"
+state = "default"
+
+[[scenarios.targets]]
+id = "sw5a-vh-span"
+selector = "#sw5a-vh-span"
+part = "root"
+state = "hidden"
+
+[[scenarios.targets]]
+id = "sw5a-vh-article"
+selector = "#sw5a-vh-article"
+part = "root"
+state = "as-child"

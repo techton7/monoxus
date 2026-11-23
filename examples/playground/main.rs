@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+pub mod accessible_icon;
 pub mod accordion;
 pub mod alert_dialog;
 pub mod aspect_ratio;
@@ -9,12 +10,16 @@ pub mod checkbox;
 pub mod collapsible;
 pub mod dialog;
 pub mod form_1b;
+pub mod hover_card;
 pub mod label;
 pub mod meter;
 pub mod pages;
+pub mod pagination;
+pub mod pin_input;
 pub mod popover;
 pub mod progress;
 pub mod radio_group;
+pub mod rating_group;
 pub mod scenarios;
 pub mod scroll_area;
 pub mod separator;
@@ -23,14 +28,17 @@ pub mod switch;
 pub mod tabs;
 pub mod toggle;
 pub mod toggle_group;
+pub mod toolbar;
 pub mod tooltip;
+pub mod visually_hidden;
 
 use dioxus::prelude::*;
 use pages::{
-    AccordionPage, AlertDialogPage, AspectRatioPage, AvatarPage, ButtonPage, CheckboxPage,
-    CollapsiblePage, DialogPage, Form1bPage, LabelPage, MeterPage, PopoverPage, ProgressPage,
-    RadioGroupPage, ScrollAreaPage, SelectPage, SeparatorPage, SliderPage, SwitchPage, TabsPage,
-    ToastPage, ToggleGroupPage, TogglePage, TooltipPage,
+    AccessibleIconPage, AccordionPage, AlertDialogPage, AspectRatioPage, AvatarPage, ButtonPage,
+    CheckboxPage, CollapsiblePage, DialogPage, Form1bPage, HoverCardPage, LabelPage, MeterPage,
+    PaginationPage, PinInputPage, PopoverPage, ProgressPage, RadioGroupPage, RatingGroupPage,
+    ScrollAreaPage, SelectPage, SeparatorPage, SliderPage, SwitchPage, TabsPage, ToastPage,
+    ToggleGroupPage, TogglePage, ToolbarPage, TooltipPage, VisuallyHiddenPage,
 };
 
 #[component]
@@ -119,6 +127,13 @@ pub enum ComponentPage {
     Avatar,
     Slider,
     ScrollArea,
+    HoverCard,
+    Toolbar,
+    Pagination,
+    PinInput,
+    VisuallyHidden,
+    AccessibleIcon,
+    RatingGroup,
     Form1B,
     Select,
     Collapsible,
@@ -148,6 +163,13 @@ impl ComponentPage {
             Self::Avatar => "Avatar",
             Self::Slider => "Slider",
             Self::ScrollArea => "Scroll Area",
+            Self::HoverCard => "Hover Card",
+            Self::Toolbar => "Toolbar",
+            Self::Pagination => "Pagination",
+            Self::PinInput => "Pin Input",
+            Self::VisuallyHidden => "Visually Hidden",
+            Self::AccessibleIcon => "Accessible Icon",
+            Self::RatingGroup => "Rating Group",
             Self::Form1B => "Form (1B)",
             Self::Select => "Select",
             Self::Collapsible => "Collapsible",
@@ -177,6 +199,13 @@ impl ComponentPage {
             Self::Avatar => "◉",
             Self::Slider => "⊶",
             Self::ScrollArea => "⇳",
+            Self::HoverCard => "◱",
+            Self::Toolbar => "☰",
+            Self::Pagination => "⋯",
+            Self::PinInput => "⌸",
+            Self::VisuallyHidden => "◌",
+            Self::AccessibleIcon => "★",
+            Self::RatingGroup => "☆",
             Self::Form1B => "📝",
             Self::Select => "▾",
             Self::Collapsible => "◰",
@@ -206,6 +235,13 @@ impl ComponentPage {
             Self::Avatar => "Image Status",
             Self::Slider => "Range/Drag",
             Self::ScrollArea => "Custom Scroll",
+            Self::HoverCard => "Hover/Grace",
+            Self::Toolbar => "Roving Bar",
+            Self::Pagination => "Page Range",
+            Self::PinInput => "OTP Overlay",
+            Self::VisuallyHidden => "SR-Only",
+            Self::AccessibleIcon => "Icon A11y",
+            Self::RatingGroup => "Half-Star",
             Self::Form1B => "FormData Reset",
             Self::Select => "7 Scenarios",
             Self::Collapsible => "Disclosure",
@@ -239,6 +275,13 @@ pub fn App() -> Element {
         ComponentPage::Avatar,
         ComponentPage::Slider,
         ComponentPage::ScrollArea,
+        ComponentPage::HoverCard,
+        ComponentPage::Toolbar,
+        ComponentPage::Pagination,
+        ComponentPage::PinInput,
+        ComponentPage::VisuallyHidden,
+        ComponentPage::AccessibleIcon,
+        ComponentPage::RatingGroup,
         ComponentPage::Form1B,
         ComponentPage::Select,
         ComponentPage::Collapsible,
@@ -384,6 +427,13 @@ pub fn App() -> Element {
                     ComponentPage::Avatar => rsx! { AvatarPage {} },
                     ComponentPage::Slider => rsx! { SliderPage {} },
                     ComponentPage::ScrollArea => rsx! { ScrollAreaPage {} },
+                    ComponentPage::HoverCard => rsx! { HoverCardPage {} },
+                    ComponentPage::Toolbar => rsx! { ToolbarPage {} },
+                    ComponentPage::Pagination => rsx! { PaginationPage {} },
+                    ComponentPage::PinInput => rsx! { PinInputPage {} },
+                    ComponentPage::VisuallyHidden => rsx! { VisuallyHiddenPage {} },
+                    ComponentPage::AccessibleIcon => rsx! { AccessibleIconPage {} },
+                    ComponentPage::RatingGroup => rsx! { RatingGroupPage {} },
                     ComponentPage::Form1B => rsx! { Form1bPage {} },
                     ComponentPage::Select => rsx! { SelectPage {} },
                     ComponentPage::Collapsible => rsx! { CollapsiblePage {} },

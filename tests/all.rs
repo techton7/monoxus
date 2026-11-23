@@ -49,6 +49,7 @@ mod tabs;
 mod toggle_group;
 mod web_driver;
 
+mod accessible_icon_test;
 mod aspect_ratio_test;
 mod avatar_test;
 mod button_test;
@@ -57,11 +58,15 @@ mod disclosure_dimensions_test;
 mod form_hidden_input_test;
 mod foundation_phase_2_4_handoff;
 mod foundation_phase_3_7_handoff;
+mod hover_card_test;
 mod label_test;
 mod meter_test;
 mod overlay_presence_phase_3_7_step_4;
+mod pagination_test;
+mod pin_input_test;
 mod popover_test;
 mod progress_test;
+mod rating_group_test;
 mod roving_focus_test;
 mod scroll_area_test;
 mod separator_test;
@@ -69,7 +74,9 @@ mod slider_test;
 mod switch_test;
 mod toast_test;
 mod toggle_test;
+mod toolbar_test;
 mod tooltip_test;
+mod visually_hidden_test;
 
 #[cfg(feature = "native")]
 mod native_accordion_test;
@@ -82,6 +89,8 @@ mod native_non_floating_test;
 #[cfg(feature = "native")]
 mod native_overlay_test;
 #[cfg(feature = "native")]
+mod native_pin_input_test;
+#[cfg(feature = "native")]
 mod native_presence_exit_test;
 #[cfg(feature = "native")]
 mod native_select_test;
@@ -93,6 +102,7 @@ fn all_test_files_are_included() {
     use std::path::{Path, PathBuf};
 
     const ROOT_TESTS: &[&str] = &[
+        "accessible_icon_test.rs",
         "aspect_ratio_test.rs",
         "avatar_test.rs",
         "button_test.rs",
@@ -101,6 +111,7 @@ fn all_test_files_are_included() {
         "form_hidden_input_test.rs",
         "foundation_phase_2_4_handoff.rs",
         "foundation_phase_3_7_handoff.rs",
+        "hover_card_test.rs",
         "label_test.rs",
         "meter_test.rs",
         "native_accordion_test.rs",
@@ -108,11 +119,15 @@ fn all_test_files_are_included() {
         "native_harness_test.rs",
         "native_non_floating_test.rs",
         "native_overlay_test.rs",
+        "native_pin_input_test.rs",
         "native_presence_exit_test.rs",
         "native_select_test.rs",
         "overlay_presence_phase_3_7_step_4.rs",
+        "pagination_test.rs",
+        "pin_input_test.rs",
         "popover_test.rs",
         "progress_test.rs",
+        "rating_group_test.rs",
         "roving_focus_test.rs",
         "scroll_area_test.rs",
         "separator_test.rs",
@@ -120,7 +135,9 @@ fn all_test_files_are_included() {
         "switch_test.rs",
         "toast_test.rs",
         "toggle_test.rs",
+        "toolbar_test.rs",
         "tooltip_test.rs",
+        "visually_hidden_test.rs",
     ];
     const SUITE_ROOTS: &[&str] = &[
         "accordion/mod.rs",

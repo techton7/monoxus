@@ -713,6 +713,84 @@ pub(crate) fn use_element_size_with_mount(
     size_signal
 }
 
+/// Returns `true` when the active host document currently holds a non-empty text selection.
+#[allow(dead_code)]
+pub(crate) fn document_has_text_selection() -> bool {
+    oxidase::dom::Document::current()
+        .map(|doc| doc.has_text_selection())
+        .unwrap_or(false)
+}
+
+/// Starts a passive document-wide `pointerup` observer returning an RAII [`WatcherGuard`].
+#[allow(dead_code)]
+pub(crate) fn start_document_pointer_up_observer(
+    mut on_pointer_up: impl FnMut() + 'static,
+) -> WatcherGuard {
+    let runtime = dioxus::core::Runtime::try_current();
+    oxidase::dom::observe_pointer_up(move || {
+        let _guard = runtime
+            .as_ref()
+            .map(|rt| dioxus::core::RuntimeGuard::new(rt.clone()));
+        on_pointer_up();
+    })
+    .unwrap_or_else(|_| WatcherGuard::noop())
+}
+
+/// Queries all matching descendant elements inside `element_id`.
+#[allow(dead_code)]
+pub(crate) fn query_selector_all_by_id(
+    element_id: &str,
+    selector: &str,
+) -> Vec<oxidase::dom::Element> {
+    let Some(el) = oxidase::dom::Document::current().and_then(|doc| doc.element_by_id(element_id)) else {
+        return Vec::new();
+    };
+    el.query_selector_all(selector)
+}
+
+/// Dispatches a synchronous DOM click on `element_id`. Returns `true` when dispatched.
+#[allow(dead_code)]
+pub(crate) fn click_element_by_id(element_id: &str) -> bool {
+    let Some(el) = oxidase::dom::Document::current().and_then(|doc| doc.element_by_id(element_id)) else {
+        return false;
+    };
+    el.click_sync().is_ok()
+}
+
+/// Reads the current `(selection_start, selection_end)` UTF-16 range of the `<input>` identified by `element_id`.
+#[allow(dead_code)]
+pub(crate) fn get_input_selection_range(element_id: &str) -> Option<(usize, usize)> {
+    let el = oxidase::dom::Document::current()?.element_by_id(element_id)?;
+    el.selection_range()
+}
+
+/// Sets the `(start, end)` UTF-16 selection range on the `<input>` identified by `element_id`.
+#[allow(dead_code)]
+pub(crate) fn set_input_selection_range(element_id: &str, start: usize, end: usize) -> bool {
+    let Some(el) = oxidase::dom::Document::current().and_then(|doc| doc.element_by_id(element_id)) else {
+        return false;
+    };
+    el.set_selection_range(start, end).is_ok()
+}
+
+/// Selects the full text contents of the `<input>` identified by `element_id`.
+#[allow(dead_code)]
+pub(crate) fn select_input_by_id(element_id: &str) -> bool {
+    let Some(el) = oxidase::dom::Document::current().and_then(|doc| doc.element_by_id(element_id)) else {
+        return false;
+    };
+    el.select().is_ok()
+}
+
+/// Synchronously sets the value of the `<input>` identified by `element_id`.
+#[allow(dead_code)]
+pub(crate) fn set_input_value_by_id(element_id: &str, value: &str) -> bool {
+    let Some(el) = oxidase::dom::Document::current().and_then(|doc| doc.element_by_id(element_id)) else {
+        return false;
+    };
+    el.set_input_value(value).is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{

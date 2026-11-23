@@ -1,0 +1,88 @@
+[[scenarios]]
+name = "pin-input-initial"
+description = "Verify initial PinInput Digits, Paste, Mask, and Form scenarios in playground"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-pin-input"
+
+[[scenarios.targets]]
+id = "sw4a-pin-digits"
+selector = "#sw4a-pin-digits"
+part = "root"
+state = "default"
+
+[[scenarios.targets]]
+id = "sw4a-pin-digits-cell-0"
+selector = "#sw4a-pin-digits-cell-0"
+part = "cell"
+state = "inactive"
+
+[[scenarios.targets]]
+id = "sw4a-pin-paste"
+selector = "#sw4a-pin-paste"
+part = "root"
+state = "paste"
+
+[[scenarios.targets]]
+id = "sw4a-pin-mask"
+selector = "#sw4a-pin-mask"
+part = "root"
+state = "masked"
+
+[[scenarios.targets]]
+id = "sw4a-pin-form"
+selector = "#sw4a-pin-form"
+part = "form"
+state = "default"
+
+[[scenarios]]
+name = "pin-input-focus"
+description = "Verify clicking PinInput Digits container activates cell 0 with fake caret"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-pin-input"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4a-pin-digits"
+
+[[scenarios.targets]]
+id = "sw4a-pin-digits-cell-0"
+selector = "#sw4a-pin-digits-cell-0"
+part = "cell"
+state = "active"
+
+[[scenarios.targets]]
+id = "sw4a-pin-digits-cell-1"
+selector = "#sw4a-pin-digits-cell-1"
+part = "cell"
+state = "inactive"
+
+[[scenarios]]
+name = "pin-input-form-reset"
+description = "Verify PinInput form reset button preserves default_value 123456"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-pin-input"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4a-pin-reset-btn"
+
+[[scenarios.targets]]
+id = "sw4a-pin-form"
+selector = "#sw4a-pin-form"
+part = "form"
+state = "reset"
+
+[[scenarios.targets]]
+id = "sw4a-pin-form-val"
+selector = "#sw4a-pin-form-val"
+part = "value"
+state = "default"
