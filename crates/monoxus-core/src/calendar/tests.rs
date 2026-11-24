@@ -1,6 +1,6 @@
 use crate::foundation::{
     compose::Slottable,
-    date_time::{CalendarDate, CalendarLocale},
+    date_time::{CalendarDate, CalendarLocale, MonthFormat, YearFormat},
     shared::{Direction, ScopeHandle},
 };
 
@@ -168,4 +168,68 @@ fn boolean_data_attrs_are_omitted_when_false_and_as_child_projects() {
 
     let (_, proj, _) = project_calendar_day_as_child(&day, "slot", Slottable::new("15"));
     assert_eq!(proj, day);
+}
+
+#[test]
+fn calendar_select_option_builders_and_resolution() {
+    let en = CalendarLocale::EnUs;
+    let ko = CalendarLocale::KoKr;
+
+    let default_months = build_calendar_month_options(None, &en, MonthFormat::Long);
+    assert_eq!(default_months.len(), 12);
+    assert_eq!(default_months[0].value, 1);
+    assert_eq!(default_months[0].value_string(), "1");
+    assert_eq!(default_months[0].label, "January");
+    assert_eq!(default_months[11].value, 12);
+    assert_eq!(default_months[11].value_string(), "12");
+    assert_eq!(default_months[11].label, "December");
+
+    let subset_months = build_calendar_month_options(Some(&[2, 7]), &ko, MonthFormat::Short);
+    assert_eq!(
+        subset_months,
+        vec![
+            CalendarSelectOption {
+                value: 2,
+                label: String::from("2월"),
+            },
+            CalendarSelectOption {
+                value: 7,
+                label: String::from("7월"),
+            },
+        ]
+    );
+
+    let resolved = resolve_selected_calendar_option(&subset_months, 7);
+    assert_eq!(
+        resolved,
+        Some(CalendarSelectOption {
+            value: 7,
+            label: String::from("7월"),
+        })
+    );
+    assert_eq!(resolve_selected_calendar_option(&subset_months, 3), None);
+
+    let years_numeric = build_calendar_year_options(&[2024, 2025], &en, YearFormat::Numeric);
+    assert_eq!(
+        years_numeric,
+        vec![
+            CalendarSelectOption {
+                value: 2024,
+                label: String::from("2024"),
+            },
+            CalendarSelectOption {
+                value: 2025,
+                label: String::from("2025"),
+            },
+        ]
+    );
+    assert_eq!(years_numeric[0].value_string(), "2024");
+
+    let years_two_digit_ko = build_calendar_year_options(&[2024], &ko, YearFormat::TwoDigit);
+    assert_eq!(years_two_digit_ko.len(), 1);
+    assert_eq!(years_two_digit_ko[0].value, 2024);
+    assert_eq!(
+        years_two_digit_ko[0].label,
+        ko.year_label(2024, YearFormat::TwoDigit)
+    );
 }

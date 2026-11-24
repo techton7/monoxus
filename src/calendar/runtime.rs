@@ -6,10 +6,10 @@ use dioxus::prelude::*;
 use crate::foundation::{
     browser::{FocusOptions, focus_element_sync_or_defer, local_today_ymd},
     date_time::{
-        CalendarDate, CalendarLocale, CalendarMonth, CalendarNavKey, build_visible_months,
-        default_year_range, ensure_non_disabled_placeholder, is_next_page_disabled,
-        is_prev_page_disabled, resolve_grid_navigation, resolve_tabbable_date,
-        visible_weekday_headers,
+        CalendarDate, CalendarLocale, CalendarMonth, CalendarNavKey, MonthFormat, YearFormat,
+        build_visible_months, default_year_range, ensure_non_disabled_placeholder,
+        is_next_page_disabled, is_prev_page_disabled, resolve_grid_navigation,
+        resolve_tabbable_date, visible_weekday_headers,
     },
 };
 
@@ -22,7 +22,8 @@ use super::{
     relationships::CalendarRelationships,
     state::{CalendarDefinition, apply_multiple_click, apply_single_click},
     types::{
-        CalendarCellSnapshot, CalendarKind, CalendarMode, CalendarPart, CalendarSnapshot,
+        CalendarCellSnapshot, CalendarKind, CalendarMode, CalendarPart, CalendarSelectOption,
+        CalendarSnapshot, build_calendar_month_options, build_calendar_year_options,
     },
 };
 
@@ -731,6 +732,37 @@ impl CalendarContext {
 
     pub fn next_page(&mut self) {
         self.runtime.next_page();
+    }
+
+    pub fn current_month(&self) -> u8 {
+        self.runtime.current_placeholder().month
+    }
+
+    pub fn current_year(&self) -> i32 {
+        self.runtime.current_placeholder().year
+    }
+
+    pub fn set_month(&mut self, month: u8) {
+        self.runtime.set_month(month);
+    }
+
+    pub fn set_year(&mut self, year: i32) {
+        self.runtime.set_year(year);
+    }
+
+    pub fn default_years(&self) -> Vec<i32> {
+        self.runtime.default_years()
+    }
+
+    pub fn month_options(&self, format: MonthFormat) -> Vec<CalendarSelectOption> {
+        let locale = &self.runtime.def.read().locale;
+        build_calendar_month_options(None, locale, format)
+    }
+
+    pub fn year_options(&self, format: YearFormat) -> Vec<CalendarSelectOption> {
+        let years = self.runtime.default_years();
+        let locale = &self.runtime.def.read().locale;
+        build_calendar_year_options(&years, locale, format)
     }
 }
 

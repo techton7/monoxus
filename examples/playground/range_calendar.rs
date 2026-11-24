@@ -2,6 +2,10 @@ use dioxus::prelude::*;
 use monoxus::{
     foundation::date_time::{CalendarDate, DateRange},
     range_calendar::*,
+    select::{
+        SelectContent, SelectItem, SelectItemIndicator, SelectItemText, SelectPortal, SelectRoot,
+        SelectTrigger, SelectValue, SelectViewport,
+    },
 };
 
 const RANGE_CALENDAR_PLAYGROUND_CSS: &str = r#"
@@ -23,7 +27,6 @@ const RANGE_CALENDAR_PLAYGROUND_CSS: &str = r#"
     user-select: none;
     box-sizing: border-box;
     border: 1px solid transparent;
-    transition: background-color 0.12s ease, color 0.12s ease;
 }
 [data-range-calendar-day]:hover:not([data-disabled]):not([data-selected]) {
     background-color: #f1f5f9;
@@ -92,12 +95,37 @@ const RANGE_CALENDAR_PLAYGROUND_CSS: &str = r#"
     color: #0f172a;
     font-size: 0.8125rem;
 }
+.rc-select-trigger[data-disabled] {
+    background-color: #f1f5f9;
+    color: #94a3b8;
+    border-color: #e2e8f0;
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+.rc-select-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    color: #0f172a;
+    cursor: pointer;
+    user-select: none;
+}
+.rc-select-item[data-highlighted="true"] {
+    background-color: #f1f5f9;
+}
+.rc-select-item[data-selected="true"] {
+    font-weight: 600;
+}
 "#;
 
 const CARD_STYLE: &str = "border-radius: 1rem; border: 1px solid #e2e8f0; background-color: #ffffff; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;";
 const CAL_CARD_STYLE: &str = "display: inline-flex; flex-direction: column; gap: 0.75rem; padding: 1rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; background-color: #ffffff;";
 const HEADER_STYLE: &str = "display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;";
-const TABLE_STYLE: &str = "border-collapse: collapse; table-layout: fixed;";
+const TABLE_STYLE: &str = "border-collapse: collapse; table-layout: fixed; width: 252px; align-self: center;";
 const TH_STYLE: &str = "width: 36px; height: 28px; text-align: center; font-size: 0.75rem; font-weight: 600; color: #64748b; padding: 0;";
 const TD_STYLE: &str = "width: 36px; height: 36px; padding: 2px 0; text-align: center;";
 const BADGE_STYLE: &str = "display: inline-flex; align-items: center; border-radius: 0.25rem; padding: 0.125rem 0.5rem; background-color: #f1f5f9; color: #334155; font-size: 0.75rem; font-weight: 700; font-family: monospace;";
@@ -132,6 +160,7 @@ pub fn RangeCalendarPlayground() -> Element {
             BasicRangeCalendarScenario {}
             ConstrainedRangeCalendarScenario {}
             ReadOnlyAndMultiMonthRangeScenario {}
+            CustomSelectRangeCalendarScenario {}
         }
     }
 }
@@ -470,6 +499,188 @@ fn ReadOnlyAndMultiMonthRangeScenario() -> Element {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn render_custom_range_select(slot: RangeCalendarSelectRenderProps, min_width: &str) -> Element {
+    let current_val = slot.value_string.clone();
+    let select_items = slot.select_items();
+    let items = slot.items.clone();
+    let trigger_style = format!(
+        "display: inline-flex; align-items: center; justify-content: space-between; gap: 0.375rem; height: 32px; padding: 0 10px; border-radius: 0.5rem; border: 1px solid #cbd5e1; background-color: #ffffff; color: #0f172a; font-size: 0.8125rem; font-weight: 500; cursor: pointer; {min_width}"
+    );
+    rsx! {
+        SelectRoot {
+            id: slot.attrs.id.clone(),
+            items: Some(select_items),
+            value: Some(current_val.clone()),
+            disabled: slot.disabled,
+            on_value_change: slot.on_value_change,
+            SelectTrigger {
+                class: "rc-select-trigger".to_string(),
+                style: trigger_style,
+                SelectValue {}
+                span {
+                    style: "font-size: 0.6875rem; color: #64748b;",
+                    "▾"
+                }
+            }
+            SelectPortal {
+                SelectContent {
+                    class: "rc-select-content".to_string(),
+                    style: "z-index: 50; background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 0.5rem; box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.12); padding: 0.25rem; outline: none;".to_string(),
+                    SelectViewport {
+                        style: "max-height: 220px;".to_string(),
+                        for opt in items {
+                            {
+                                let opt_val = opt.value_string();
+                                let is_selected = opt_val == current_val;
+                                rsx! {
+                                    SelectItem {
+                                        key: "{opt.value}",
+                                        value: opt_val,
+                                        text: opt.label.clone(),
+                                        class: "rc-select-item".to_string(),
+                                        SelectItemText { "{opt.label}" }
+                                        SelectItemIndicator {
+                                            if is_selected {
+                                                span { style: "color: #0f172a; font-weight: 700; margin-left: 0.5rem;", "✓" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn CustomSelectRangeCalendarScenario() -> Element {
+    let range = use_signal(|| DateRange::new(Some(rc_date(2024, 1, 8)), Some(rc_date(2024, 1, 14))));
+    let mut commits = use_signal(|| 0usize);
+
+    rsx! {
+        div {
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
+            style: "{CARD_STYLE}",
+
+            div {
+                style: "display: flex; flex-direction: column; gap: 0.25rem;",
+                h3 {
+                    class: "text-base font-semibold text-slate-900",
+                    style: "margin: 0; font-size: 1rem; font-weight: 600; color: #0f172a;",
+                    "4. Composed Month/Year Select (as_child + monoxus::Select)"
+                }
+                p {
+                    class: "text-xs text-slate-500",
+                    style: "margin: 0; font-size: 0.75rem; color: #64748b;",
+                    "Same configuration as Scenario 1 (2024-01-08..=2024-01-14, unbounded 111-year scrollable viewport), replacing only native <select> with RangeCalendarMonthSelect / RangeCalendarYearSelect as_child + monoxus::SelectRoot."
+                }
+            }
+
+            div {
+                style: "display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.5rem;",
+                RangeCalendarRoot {
+                    id: "sw5b-rc-custom-select",
+                    value: Some(range),
+                    default_placeholder: rc_date(2024, 1, 1),
+                    on_range_select: move |_| commits += 1,
+                    style: "{CAL_CARD_STYLE}",
+                    render_children: move |snap: RangeCalendarSnapshot| rsx! {
+                        RangeCalendarHeader {
+                            style: "{HEADER_STYLE}",
+                            RangeCalendarPrevButton { id: "sw5b-rc-custom-prev", "‹" }
+                            div {
+                                style: "display: flex; align-items: center; gap: 0.375rem;",
+                                RangeCalendarMonthSelect {
+                                    id: "sw5b-rc-custom-month-select",
+                                    as_child: true,
+                                    render_child: move |slot: RangeCalendarSelectRenderProps| {
+                                        render_custom_range_select(slot, "min-width: 120px;")
+                                    },
+                                }
+                                RangeCalendarYearSelect {
+                                    id: "sw5b-rc-custom-year-select",
+                                    as_child: true,
+                                    render_child: move |slot: RangeCalendarSelectRenderProps| {
+                                        render_custom_range_select(slot, "min-width: 88px;")
+                                    },
+                                }
+                            }
+                            RangeCalendarNextButton { id: "sw5b-rc-custom-next", "›" }
+                        }
+                        RangeCalendarHeading {
+                            id: "sw5b-rc-custom-heading",
+                            style: "text-align: center; font-size: 0.875rem; font-weight: 600; color: #0f172a;",
+                        }
+                        RangeCalendarGrid {
+                            id: "sw5b-rc-custom-grid",
+                            style: "{TABLE_STYLE}",
+                            RangeCalendarGridHead {
+                                RangeCalendarGridRow {
+                                    for (w_idx, wd) in snap.weekdays.iter().enumerate() {
+                                        RangeCalendarHeadCell { key: "{w_idx}", style: "{TH_STYLE}", "{wd}" }
+                                    }
+                                }
+                            }
+                            RangeCalendarGridBody {
+                                for (r_idx, week) in snap.months[0].weeks.iter().enumerate() {
+                                    RangeCalendarGridRow {
+                                        key: "{r_idx}",
+                                        for date in week.iter().copied() {
+                                            RangeCalendarCell {
+                                                key: "{date}",
+                                                date,
+                                                month: snap.months[0].value,
+                                                style: "{TD_STYLE}",
+                                                RangeCalendarDay {
+                                                    id: "sw5b-rc-custom-day-{date}",
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                div {
+                    style: "display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.75rem;",
+                    div {
+                        style: "display: flex; align-items: center; gap: 0.5rem;",
+                        span { style: "color: #64748b; font-weight: 600;", "Start:" }
+                        span {
+                            id: "sw5b-rc-custom-start",
+                            style: "{BADGE_STYLE}",
+                            {range().start.map_or_else(|| String::from("none"), |d| d.to_iso_string())}
+                        }
+                    }
+                    div {
+                        style: "display: flex; align-items: center; gap: 0.5rem;",
+                        span { style: "color: #64748b; font-weight: 600;", "End:" }
+                        span {
+                            id: "sw5b-rc-custom-end",
+                            style: "{BADGE_STYLE}",
+                            {range().end.map_or_else(|| String::from("none"), |d| d.to_iso_string())}
+                        }
+                    }
+                    div {
+                        style: "display: flex; align-items: center; gap: 0.5rem;",
+                        span { style: "color: #64748b; font-weight: 600;", "on_range_select:" }
+                        span {
+                            id: "sw5b-rc-custom-commits",
+                            style: "{BADGE_STYLE}",
+                            "{commits}"
                         }
                     }
                 }

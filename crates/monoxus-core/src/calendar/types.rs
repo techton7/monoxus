@@ -1,4 +1,6 @@
-use crate::foundation::date_time::{CalendarDate, CalendarMonth};
+use crate::foundation::date_time::{
+    CalendarDate, CalendarLocale, CalendarMonth, MonthFormat, YearFormat,
+};
 
 /// All 14 compound parts exported by `calendar`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -89,6 +91,55 @@ pub enum CalendarSelectionValue {
 pub struct CalendarSelectOption {
     pub value: i32,
     pub label: String,
+}
+
+impl CalendarSelectOption {
+    /// Returns the stringified numeric value used by `<option>` and `SelectItem`.
+    pub fn value_string(&self) -> String {
+        self.value.to_string()
+    }
+}
+
+/// Returns the option item matching `current`, if present in `items`.
+pub fn resolve_selected_calendar_option(
+    items: &[CalendarSelectOption],
+    current: i32,
+) -> Option<CalendarSelectOption> {
+    items.iter().find(|item| item.value == current).cloned()
+}
+
+/// Builds localized month select options for `months` (defaults to `1..=12` when `None`).
+pub fn build_calendar_month_options(
+    months: Option<&[u8]>,
+    locale: &CalendarLocale,
+    format: MonthFormat,
+) -> Vec<CalendarSelectOption> {
+    const DEFAULT_MONTHS: [u8; 12] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+    let slice = months.unwrap_or(&DEFAULT_MONTHS);
+    slice
+        .iter()
+        .copied()
+        .map(|month| CalendarSelectOption {
+            value: month as i32,
+            label: locale.month_label(month, format),
+        })
+        .collect()
+}
+
+/// Builds localized year select options for `years`.
+pub fn build_calendar_year_options(
+    years: &[i32],
+    locale: &CalendarLocale,
+    format: YearFormat,
+) -> Vec<CalendarSelectOption> {
+    years
+        .iter()
+        .copied()
+        .map(|year| CalendarSelectOption {
+            value: year,
+            label: locale.year_label(year, format),
+        })
+        .collect()
 }
 
 /// Per-cell reactive state snapshot exposed to custom `Day` / `Cell` renderers.

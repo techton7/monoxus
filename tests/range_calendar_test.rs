@@ -2,16 +2,21 @@ use dioxus::prelude::*;
 use monoxus::{
     foundation::{
         compose::Slottable,
-        date_time::{CalendarDate, CalendarLocale, DateRange},
+        date_time::{CalendarDate, CalendarLocale, DateRange, MonthFormat, YearFormat},
         shared::ScopeHandle,
     },
     range_calendar::{
         RANGE_CALENDAR_PARTS, RangeCalendar, RangeCalendarCell, RangeCalendarDay,
         RangeCalendarGrid, RangeCalendarGridBody, RangeCalendarGridHead, RangeCalendarGridRow,
         RangeCalendarHeadCell, RangeCalendarHeader, RangeCalendarHeading,
-        RangeCalendarMonthSelect, RangeCalendarNextButton, RangeCalendarPart,
-        RangeCalendarPrevButton, RangeCalendarRelationships, RangeCalendarRoot,
-        RangeCalendarSnapshot, RangeCalendarYearSelect, use_range_calendar_context,
+        RangeCalendarMonthSelect, RangeCalendarMonthSelectRenderProps, RangeCalendarNextButton,
+        RangeCalendarPart, RangeCalendarPrevButton, RangeCalendarRelationships, RangeCalendarRoot,
+        RangeCalendarSelectRenderProps, RangeCalendarSnapshot, RangeCalendarYearSelect,
+        RangeCalendarYearSelectRenderProps, use_range_calendar_context,
+    },
+    select::{
+        SelectContent, SelectItem, SelectItemIndicator, SelectItemText, SelectPortal, SelectRoot,
+        SelectTrigger, SelectValue, SelectViewport,
     },
 };
 
@@ -152,6 +157,91 @@ fn RangeCalendarVdomSmokeApp() -> Element {
 #[test]
 fn range_calendar_vdom_mounts_cleanly() {
     let mut dom = VirtualDom::new(RangeCalendarVdomSmokeApp);
+    dom.rebuild_in_place();
+}
+
+#[test]
+fn range_calendar_select_as_child_vdom_and_context_helpers() {
+    #[component]
+    fn RangeCalendarCustomSelectVdomProbe() -> Element {
+        let ctx = use_range_calendar_context();
+        assert_eq!(ctx.current_month(), 5);
+        assert_eq!(ctx.current_year(), 2024);
+        assert!(!ctx.default_years().is_empty());
+        assert_eq!(ctx.month_options(MonthFormat::Long).len(), 12);
+        assert_eq!(
+            ctx.year_options(YearFormat::Numeric).len(),
+            ctx.default_years().len()
+        );
+
+        rsx! {
+            RangeCalendarHeader {
+                RangeCalendarMonthSelect {
+                    id: "vdom-rc-custom-month",
+                    as_child: true,
+                    render_child: move |slot: RangeCalendarMonthSelectRenderProps| {
+                        assert_eq!(slot.value, 5);
+                        assert_eq!(slot.value_string, "5");
+                        assert_eq!(slot.selected_label(), "May");
+                        let items = slot.items.clone();
+                        rsx! {
+                            SelectRoot {
+                                id: slot.attrs.id.clone(),
+                                items: Some(slot.select_items()),
+                                value: Some(slot.value_string.clone()),
+                                disabled: slot.disabled,
+                                on_value_change: slot.on_value_change,
+                                SelectTrigger { SelectValue {} }
+                                SelectPortal {
+                                    SelectContent {
+                                        SelectViewport {
+                                            for opt in items {
+                                                SelectItem {
+                                                    key: "{opt.value}",
+                                                    value: opt.value_string(),
+                                                    text: opt.label.clone(),
+                                                    SelectItemText { "{opt.label}" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                }
+                RangeCalendarYearSelect {
+                    id: "vdom-rc-custom-year",
+                    disabled: true,
+                    as_child: true,
+                    render_child: move |slot: RangeCalendarYearSelectRenderProps| {
+                        assert_eq!(slot.value, 2024);
+                        assert!(slot.disabled);
+                        rsx! {
+                            button {
+                                r#type: "button",
+                                disabled: slot.disabled,
+                                "{slot.selected_label()}"
+                            }
+                        }
+                    },
+                }
+            }
+        }
+    }
+
+    #[component]
+    fn RangeCalendarCustomSelectVdomApp() -> Element {
+        rsx! {
+            RangeCalendar {
+                id: "vdom-rc-custom",
+                default_placeholder: d(2024, 5, 1),
+                RangeCalendarCustomSelectVdomProbe {}
+            }
+        }
+    }
+
+    let mut dom = VirtualDom::new(RangeCalendarCustomSelectVdomApp);
     dom.rebuild_in_place();
 }
 
@@ -422,5 +512,272 @@ mod native_tests {
             harness.attr("#rc-ro-probe", "data-end").as_deref(),
             Some("2024-01-08")
         );
+    }
+
+    fn render_native_range_select(
+        slot: RangeCalendarSelectRenderProps,
+        trigger_tag: &'static str,
+    ) -> Element {
+        let current_val = slot.value_string.clone();
+        let select_items = slot.select_items();
+        let items = slot.items.clone();
+        let on_select = slot.on_select;
+        let on_value_change = slot.on_value_change;
+        let is_month = trigger_tag.contains("month");
+        rsx! {
+            div {
+                "data-range-select-slot": "{trigger_tag}",
+                SelectRoot {
+                    id: slot.attrs.id.clone(),
+                    items: Some(select_items),
+                    value: Some(current_val.clone()),
+                    disabled: slot.disabled,
+                    on_value_change,
+                    SelectTrigger {
+                        style: "min-width: 110px; height: 30px;",
+                        SelectValue {}
+                    }
+                    SelectPortal {
+                        SelectContent {
+                            style: "background: white;",
+                            SelectViewport {
+                                style: "max-height: 200px;",
+                                for opt in items {
+                                    {
+                                        let opt_val = opt.value_string();
+                                        let is_selected = opt_val == current_val;
+                                        rsx! {
+                                            SelectItem {
+                                                key: "{opt.value}",
+                                                value: opt_val,
+                                                text: opt.label.clone(),
+                                                SelectItemText { "{opt.label}" }
+                                                SelectItemIndicator {
+                                                    if is_selected { "✓" }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                button {
+                    id: "{trigger_tag}-probe-on-select",
+                    r#type: "button",
+                    onclick: move |_| {
+                        if is_month {
+                            on_select.call(4);
+                        } else {
+                            on_select.call(2027);
+                        }
+                    },
+                    "on_select"
+                }
+                button {
+                    id: "{trigger_tag}-probe-on-value-change",
+                    r#type: "button",
+                    onclick: move |_| {
+                        if is_month {
+                            on_value_change.call(Some(String::from("7")));
+                        } else {
+                            on_value_change.call(Some(String::from("2028")));
+                        }
+                    },
+                    "on_value_change"
+                }
+            }
+        }
+    }
+
+    #[component]
+    fn NativeRangeContextProbe() -> Element {
+        let mut ctx = use_range_calendar_context();
+        rsx! {
+            div {
+                id: "rc-ctx-probe",
+                "data-month": "{ctx.current_month()}",
+                "data-year": "{ctx.current_year()}",
+                "data-month-opts": "{ctx.month_options(MonthFormat::Long).len()}",
+                "data-year-opts": "{ctx.year_options(YearFormat::Numeric).len()}",
+                "data-default-years": "{ctx.default_years().len()}",
+            }
+            button {
+                id: "rc-ctx-set-oct",
+                r#type: "button",
+                onclick: move |_| {
+                    ctx.set_month(10);
+                    ctx.set_year(2025);
+                },
+                "ctx_set"
+            }
+        }
+    }
+
+    #[component]
+    fn NativeRangeCustomSelectScenario() -> Element {
+        rsx! {
+            div {
+                style: "padding: 16px; display: flex; flex-direction: column; gap: 16px;",
+                RangeCalendarRoot {
+                    id: "rc-custom",
+                    default_placeholder: d(2024, 5, 1),
+                    render_children: move |snap: RangeCalendarSnapshot| rsx! {
+                        NativeRangeContextProbe {}
+                        RangeCalendarHeader {
+                            RangeCalendarPrevButton { id: "rc-custom-prev", "Prev" }
+                            RangeCalendarHeading { id: "rc-custom-heading" }
+                            RangeCalendarNextButton { id: "rc-custom-next", "Next" }
+                            RangeCalendarMonthSelect {
+                                id: "rc-custom-month",
+                                as_child: true,
+                                render_child: move |slot: RangeCalendarSelectRenderProps| {
+                                    render_native_range_select(slot, "rc-custom-month")
+                                },
+                            }
+                            RangeCalendarYearSelect {
+                                id: "rc-custom-year",
+                                as_child: true,
+                                render_child: move |slot: RangeCalendarSelectRenderProps| {
+                                    render_native_range_select(slot, "rc-custom-year")
+                                },
+                            }
+                        }
+                        RangeCalendarGrid {
+                            RangeCalendarGridBody {
+                                for (r_idx, week) in snap.months[0].weeks.iter().enumerate() {
+                                    RangeCalendarGridRow {
+                                        key: "{r_idx}",
+                                        for date in week.iter().copied() {
+                                            RangeCalendarCell {
+                                                key: "{date}",
+                                                date,
+                                                month: snap.months[0].value,
+                                                RangeCalendarDay {
+                                                    id: "rc-custom-day-{date}",
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                RangeCalendarRoot {
+                    id: "rc-custom-dis",
+                    default_placeholder: d(2024, 5, 1),
+                    disabled: true,
+                    render_children: move |_snap: RangeCalendarSnapshot| rsx! {
+                        RangeCalendarHeader {
+                            RangeCalendarHeading { id: "rc-custom-dis-heading" }
+                            RangeCalendarMonthSelect {
+                                id: "rc-custom-dis-month",
+                                as_child: true,
+                                render_child: move |slot: RangeCalendarSelectRenderProps| {
+                                    render_native_range_select(slot, "rc-custom-dis-month")
+                                },
+                            }
+                            RangeCalendarYearSelect {
+                                id: "rc-custom-dis-year",
+                                as_child: true,
+                                render_child: move |slot: RangeCalendarSelectRenderProps| {
+                                    render_native_range_select(slot, "rc-custom-dis-year")
+                                },
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_range_calendar_custom_month_year_select_as_child_and_disabled() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeRangeCustomSelectScenario);
+
+        let month_trigger = "[data-range-select-slot='rc-custom-month'] [role='combobox']";
+        let month_value = "[data-range-select-slot='rc-custom-month'] [role='combobox'] [data-placeholder]";
+        let year_trigger = "[data-range-select-slot='rc-custom-year'] [role='combobox']";
+        let year_value = "[data-range-select-slot='rc-custom-year'] [role='combobox'] [data-placeholder]";
+        let dis_month_trigger = "[data-range-select-slot='rc-custom-dis-month'] [role='combobox']";
+        let dis_year_trigger = "[data-range-select-slot='rc-custom-dis-year'] [role='combobox']";
+
+        assert_eq!(harness.text_content("#rc-custom-heading"), "May 2024");
+        assert_eq!(harness.text_content(month_value), "May");
+        assert_eq!(harness.text_content(year_value), "2024");
+        assert_eq!(harness.attr("#rc-ctx-probe", "data-month").as_deref(), Some("5"));
+        assert_eq!(harness.attr("#rc-ctx-probe", "data-year").as_deref(), Some("2024"));
+        assert_eq!(
+            harness.attr("#rc-ctx-probe", "data-month-opts").as_deref(),
+            Some("12")
+        );
+        assert_eq!(
+            harness.attr("#rc-ctx-probe", "data-year-opts").as_deref(),
+            harness.attr("#rc-ctx-probe", "data-default-years").as_deref()
+        );
+
+        // Select August (8)
+        click_and_pump(&mut harness, month_trigger);
+        advance_frame_and_pump(&mut harness, 0.02);
+        click_and_pump(&mut harness, "[role='listbox'] [role='option'][data-value='8']");
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.25);
+        assert_eq!(harness.text_content("#rc-custom-heading"), "August 2024");
+        assert_eq!(harness.text_content(month_value), "August");
+        assert!(harness.query("#rc-custom-day-2024-08-10").is_some());
+
+        // Select 2023 (visible above 2024 in scrollable 111-year viewport)
+        click_and_pump(&mut harness, year_trigger);
+        advance_frame_and_pump(&mut harness, 0.02);
+        click_and_pump(&mut harness, "[role='listbox'] [role='option'][data-value='2023']");
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.25);
+        assert_eq!(harness.text_content("#rc-custom-heading"), "August 2023");
+        assert_eq!(harness.text_content(year_value), "2023");
+
+        // Select December (12), click Next -> January 2024 & reactive sync
+        click_and_pump(&mut harness, month_trigger);
+        advance_frame_and_pump(&mut harness, 0.02);
+        click_and_pump(&mut harness, "[role='listbox'] [role='option'][data-value='12']");
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.25);
+        click_and_pump(&mut harness, "#rc-custom-next");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert_eq!(harness.text_content("#rc-custom-heading"), "January 2024");
+        assert_eq!(harness.text_content(month_value), "January");
+        assert_eq!(harness.text_content(year_value), "2024");
+
+        click_and_pump(&mut harness, "#rc-custom-prev");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert_eq!(harness.text_content("#rc-custom-heading"), "December 2023");
+        assert_eq!(harness.text_content(month_value), "December");
+        assert_eq!(harness.text_content(year_value), "2023");
+
+        // Context convenience setter & on_select
+        click_and_pump(&mut harness, "#rc-ctx-set-oct");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert_eq!(harness.text_content("#rc-custom-heading"), "October 2025");
+        click_and_pump(&mut harness, "#rc-custom-month-probe-on-select");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert_eq!(harness.text_content("#rc-custom-heading"), "April 2025");
+
+        // Disabled root propagates to SelectTrigger & blocks callbacks
+        assert_eq!(
+            harness.attr(dis_month_trigger, "aria-disabled").as_deref(),
+            Some("true")
+        );
+        assert_eq!(
+            harness.attr(dis_year_trigger, "aria-disabled").as_deref(),
+            Some("true")
+        );
+        click_and_pump(&mut harness, dis_month_trigger);
+        assert!(harness.query("[role='listbox']").is_none());
+        click_and_pump(&mut harness, "#rc-custom-dis-month-probe-on-value-change");
+        click_and_pump(&mut harness, "#rc-custom-dis-year-probe-on-select");
+        assert_eq!(harness.text_content("#rc-custom-dis-heading"), "May 2024");
     }
 }

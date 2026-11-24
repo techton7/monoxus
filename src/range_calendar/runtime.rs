@@ -6,15 +6,18 @@ use crate::{
     calendar::{
         attrs::CalendarRootAttrs,
         runtime::{CalendarViewConfig, local_today},
-        types::CalendarKind,
+        types::{
+            CalendarKind, CalendarSelectOption, build_calendar_month_options,
+            build_calendar_year_options,
+        },
     },
     foundation::{
         browser::{FocusOptions, focus_element_sync_or_defer},
         date_time::{
-            CalendarDate, CalendarMonth, CalendarNavKey, DateRange, build_visible_months,
-            compute_highlighted_range, default_year_range, ensure_non_disabled_placeholder,
-            is_next_page_disabled, is_prev_page_disabled, resolve_grid_navigation,
-            resolve_tabbable_date, visible_weekday_headers,
+            CalendarDate, CalendarMonth, CalendarNavKey, DateRange, MonthFormat, YearFormat,
+            build_visible_months, compute_highlighted_range, default_year_range,
+            ensure_non_disabled_placeholder, is_next_page_disabled, is_prev_page_disabled,
+            resolve_grid_navigation, resolve_tabbable_date, visible_weekday_headers,
         },
     },
 };
@@ -593,6 +596,37 @@ impl RangeCalendarContext {
 
     pub fn next_page(&mut self) {
         self.runtime.next_page();
+    }
+
+    pub fn current_month(&self) -> u8 {
+        self.runtime.current_placeholder().month
+    }
+
+    pub fn current_year(&self) -> i32 {
+        self.runtime.current_placeholder().year
+    }
+
+    pub fn set_month(&mut self, month: u8) {
+        self.runtime.set_month(month);
+    }
+
+    pub fn set_year(&mut self, year: i32) {
+        self.runtime.set_year(year);
+    }
+
+    pub fn default_years(&self) -> Vec<i32> {
+        self.runtime.default_years()
+    }
+
+    pub fn month_options(&self, format: MonthFormat) -> Vec<CalendarSelectOption> {
+        let locale = &self.runtime.def.read().locale;
+        build_calendar_month_options(None, locale, format)
+    }
+
+    pub fn year_options(&self, format: YearFormat) -> Vec<CalendarSelectOption> {
+        let years = self.runtime.default_years();
+        let locale = &self.runtime.def.read().locale;
+        build_calendar_year_options(&years, locale, format)
     }
 }
 

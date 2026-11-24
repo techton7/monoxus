@@ -5,6 +5,10 @@ use monoxus::{
         date_time::{CalendarDate, CalendarLocale, MonthFormat, WeekdayFormat, YearFormat},
         shared::Direction,
     },
+    select::{
+        SelectContent, SelectItem, SelectItemIndicator, SelectItemText, SelectPortal, SelectRoot,
+        SelectTrigger, SelectValue, SelectViewport,
+    },
 };
 
 const CALENDAR_PLAYGROUND_CSS: &str = r#"
@@ -26,7 +30,6 @@ const CALENDAR_PLAYGROUND_CSS: &str = r#"
     user-select: none;
     box-sizing: border-box;
     border: 1px solid transparent;
-    transition: background-color 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 [data-calendar-day]:hover:not([data-disabled]):not([data-selected]) {
     background-color: #f1f5f9;
@@ -92,14 +95,39 @@ const CALENDAR_PLAYGROUND_CSS: &str = r#"
     color: #0f172a;
     font-size: 0.8125rem;
 }
+.cal-select-trigger[data-disabled] {
+    background-color: #f1f5f9;
+    color: #94a3b8;
+    border-color: #e2e8f0;
+    cursor: not-allowed;
+    opacity: 0.65;
+}
+.cal-select-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.375rem 0.5rem;
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    color: #0f172a;
+    cursor: pointer;
+    user-select: none;
+}
+.cal-select-item[data-highlighted="true"] {
+    background-color: #f1f5f9;
+}
+.cal-select-item[data-selected="true"] {
+    font-weight: 600;
+}
 "#;
 
 const CARD_STYLE: &str = "border-radius: 1rem; border: 1px solid #e2e8f0; background-color: #ffffff; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;";
 const CAL_CARD_STYLE: &str = "display: inline-flex; flex-direction: column; gap: 0.75rem; padding: 1rem; border-radius: 0.75rem; border: 1px solid #e2e8f0; background-color: #ffffff;";
 const HEADER_STYLE: &str = "display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap;";
-const TABLE_STYLE: &str = "border-collapse: collapse; table-layout: fixed;";
-const TH_STYLE: &str = "width: 36px; height: 28px; text-align: center; font-size: 0.75rem; font-weight: 600; color: #64748b; padding: 0;";
-const TD_STYLE: &str = "width: 36px; height: 36px; padding: 2px; text-align: center;";
+const TABLE_STYLE: &str = "border-collapse: collapse; table-layout: fixed; width: 280px; align-self: center;";
+const TH_STYLE: &str = "width: 40px; height: 28px; text-align: center; font-size: 0.75rem; font-weight: 600; color: #64748b; padding: 0;";
+const TD_STYLE: &str = "width: 40px; height: 40px; padding: 2px; text-align: center;";
 const BADGE_STYLE: &str = "display: inline-flex; align-items: center; border-radius: 0.25rem; padding: 0.125rem 0.5rem; background-color: #f1f5f9; color: #334155; font-size: 0.75rem; font-weight: 700; font-family: monospace;";
 const TOGGLE_BTN_STYLE: &str = "display: inline-flex; align-items: center; height: 30px; padding: 0 10px; border-radius: 0.5rem; border: 1px solid #cbd5e1; background-color: #f8fafc; color: #334155; font-size: 0.75rem; font-weight: 600; cursor: pointer;";
 
@@ -134,6 +162,7 @@ pub fn CalendarPlayground() -> Element {
             MultipleCalendarScenario {}
             MultiMonthFixedWeeksScenario {}
             LocaleRtlInitialFocusScenario {}
+            CustomSelectCalendarScenario {}
         }
     }
 }
@@ -621,6 +650,193 @@ fn LocaleRtlInitialFocusScenario() -> Element {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn render_custom_calendar_select(slot: CalendarSelectRenderProps, min_width: &str) -> Element {
+    let current_val = slot.value_string.clone();
+    let select_items = slot.select_items();
+    let items = slot.items.clone();
+    let trigger_style = format!(
+        "display: inline-flex; align-items: center; justify-content: space-between; gap: 0.375rem; height: 32px; padding: 0 10px; border-radius: 0.5rem; border: 1px solid #cbd5e1; background-color: #ffffff; color: #0f172a; font-size: 0.8125rem; font-weight: 500; cursor: pointer; {min_width}"
+    );
+    rsx! {
+        SelectRoot {
+            id: slot.attrs.id.clone(),
+            items: Some(select_items),
+            value: Some(current_val.clone()),
+            disabled: slot.disabled,
+            on_value_change: slot.on_value_change,
+            SelectTrigger {
+                class: "cal-select-trigger".to_string(),
+                style: trigger_style,
+                SelectValue {}
+                span {
+                    style: "font-size: 0.6875rem; color: #64748b;",
+                    "▾"
+                }
+            }
+            SelectPortal {
+                SelectContent {
+                    class: "cal-select-content".to_string(),
+                    style: "z-index: 50; background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 0.5rem; box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.12); padding: 0.25rem; outline: none;".to_string(),
+                    SelectViewport {
+                        style: "max-height: 220px;".to_string(),
+                        for opt in items {
+                            {
+                                let opt_val = opt.value_string();
+                                let is_selected = opt_val == current_val;
+                                rsx! {
+                                    SelectItem {
+                                        key: "{opt.value}",
+                                        value: opt_val,
+                                        text: opt.label.clone(),
+                                        class: "cal-select-item".to_string(),
+                                        SelectItemText { "{opt.label}" }
+                                        SelectItemIndicator {
+                                            if is_selected {
+                                                span { style: "color: #0f172a; font-weight: 700; margin-left: 0.5rem;", "✓" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn CustomSelectCalendarScenario() -> Element {
+    let selected = use_signal(|| Some(cal_date(2024, 1, 15)));
+    let mut select_calls = use_signal(|| 0usize);
+
+    rsx! {
+        div {
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
+            style: "{CARD_STYLE}",
+
+            div {
+                style: "display: flex; flex-direction: column; gap: 0.25rem;",
+                h3 {
+                    class: "text-base font-semibold text-slate-900",
+                    style: "margin: 0; font-size: 1rem; font-weight: 600; color: #0f172a;",
+                    "5. Composed Month/Year Select (as_child + monoxus::Select)"
+                }
+                p {
+                    class: "text-xs text-slate-500",
+                    style: "margin: 0; font-size: 0.75rem; color: #64748b;",
+                    "Same configuration as Scenario 1 (bounded to 2024-01-03..=2026-12-20; Day 18 unavailable; Day 31 disabled), replacing only native <select> with CalendarMonthSelect / CalendarYearSelect as_child + monoxus::SelectRoot."
+                }
+            }
+
+            div {
+                style: "display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.5rem;",
+                CalendarRoot {
+                    id: "sw5b-cal-custom-select",
+                    value: Some(selected),
+                    default_placeholder: cal_date(2024, 1, 15),
+                    min_value: cal_date(2024, 1, 3),
+                    max_value: cal_date(2026, 12, 20),
+                    is_date_unavailable: Callback::new(|date: CalendarDate| date.day == 18),
+                    is_date_disabled: Callback::new(|date: CalendarDate| date.day == 31),
+                    on_date_select: move |_| select_calls += 1,
+                    style: "{CAL_CARD_STYLE}",
+                    render_children: move |snap: CalendarSnapshot| rsx! {
+                        CalendarHeader {
+                            id: "sw5b-cal-custom-header",
+                            style: "{HEADER_STYLE}",
+                            CalendarPrevButton { id: "sw5b-cal-custom-prev", "‹" }
+                            div {
+                                style: "display: flex; align-items: center; gap: 0.375rem;",
+                                CalendarMonthSelect {
+                                    id: "sw5b-cal-custom-month-select",
+                                    as_child: true,
+                                    render_child: move |slot: CalendarSelectRenderProps| {
+                                        render_custom_calendar_select(slot, "min-width: 120px;")
+                                    },
+                                }
+                                CalendarYearSelect {
+                                    id: "sw5b-cal-custom-year-select",
+                                    as_child: true,
+                                    render_child: move |slot: CalendarSelectRenderProps| {
+                                        render_custom_calendar_select(slot, "min-width: 88px;")
+                                    },
+                                }
+                            }
+                            CalendarNextButton { id: "sw5b-cal-custom-next", "›" }
+                        }
+                        CalendarHeading {
+                            id: "sw5b-cal-custom-heading",
+                            style: "text-align: center; font-size: 0.875rem; font-weight: 600; color: #0f172a;",
+                        }
+                        for (m_idx, month) in snap.months.iter().enumerate() {
+                            CalendarGrid {
+                                key: "{m_idx}",
+                                id: "sw5b-cal-custom-grid",
+                                month_idx: Some(m_idx),
+                                style: "{TABLE_STYLE}",
+                                CalendarGridHead {
+                                    CalendarGridRow {
+                                        for (w_idx, wd) in snap.weekdays.iter().enumerate() {
+                                            CalendarHeadCell {
+                                                key: "{w_idx}",
+                                                style: "{TH_STYLE}",
+                                                "{wd}"
+                                            }
+                                        }
+                                    }
+                                }
+                                CalendarGridBody {
+                                    for (r_idx, week) in month.weeks.iter().enumerate() {
+                                        CalendarGridRow {
+                                            key: "{r_idx}",
+                                            for date in week.iter().copied() {
+                                                CalendarCell {
+                                                    key: "{date}",
+                                                    id: "sw5b-cal-custom-cell-{date}",
+                                                    date,
+                                                    month: month.value,
+                                                    style: "{TD_STYLE}",
+                                                    CalendarDay {
+                                                        id: "sw5b-cal-custom-day-{date}",
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                div {
+                    style: "display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.75rem;",
+                    div {
+                        style: "display: flex; align-items: center; gap: 0.5rem;",
+                        span { style: "color: #64748b; font-weight: 600;", "Selected:" }
+                        span {
+                            id: "sw5b-cal-custom-selected",
+                            style: "{BADGE_STYLE}",
+                            {selected().map_or_else(|| String::from("none"), |d| d.to_iso_string())}
+                        }
+                    }
+                    div {
+                        style: "display: flex; align-items: center; gap: 0.5rem;",
+                        span { style: "color: #64748b; font-weight: 600;", "on_date_select:" }
+                        span {
+                            id: "sw5b-cal-custom-select-count",
+                            style: "{BADGE_STYLE}",
+                            "{select_calls}"
                         }
                     }
                 }

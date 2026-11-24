@@ -47,6 +47,7 @@ pub struct SelectRuntimeState {
     pub values: Signal<Vec<String>>,
     pub default_values: Signal<Vec<String>>,
     pub open: Signal<bool>,
+    pub disabled: Signal<bool>,
     pub highlighted_value: Signal<Option<String>>,
     pub initial_highlight_pending: Signal<bool>,
     pub items: Signal<Vec<SelectItemData>>,
@@ -163,6 +164,7 @@ where
         values: use_signal(|| initial_vals),
         default_values: use_signal(|| initial_def_vals),
         open: use_signal(|| initial_open),
+        disabled: use_signal(|| select.is_disabled()),
         highlighted_value: use_signal(|| None),
         initial_highlight_pending: use_signal(|| false),
         items: use_signal(|| select.items().to_vec()),
@@ -249,6 +251,10 @@ where
         if *open_sig.peek() != select.is_open() {
             open_sig.set(select.is_open());
         }
+        let mut disabled_sig = effect_state.disabled;
+        if *disabled_sig.peek() != select.is_disabled() {
+            disabled_sig.set(select.is_disabled());
+        }
         let current_items = select.items();
         if !current_items.is_empty() && effect_state.registry.peek().is_empty() {
             let mut reg_sig = effect_state.registry;
@@ -295,6 +301,7 @@ impl SelectRuntime {
             values: Signal::new(initial_vals),
             default_values: Signal::new(initial_def_vals),
             open: Signal::new(initial_open),
+            disabled: Signal::new(select.is_disabled()),
             highlighted_value: Signal::new(None),
             initial_highlight_pending: Signal::new(false),
             items: Signal::new(select.items().to_vec()),
@@ -401,7 +408,7 @@ impl SelectRuntime {
     }
 
     pub fn is_disabled(&self) -> bool {
-        self.select.is_disabled()
+        *self.state.disabled.read()
     }
 
     pub fn highlighted_value(&self) -> Option<String> {
