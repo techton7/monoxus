@@ -5,7 +5,7 @@ default-members = ["."]
 
 [package]
 name = "monoxus"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Headless Dioxus primitives and shared foundations for accessible, composable component systems."
 readme = "README.md"
@@ -15,7 +15,7 @@ exclude = ["tests/gui/**"]
 autotests = false
 
 [dependencies]
-monoxus-core = { path = "crates/monoxus-core", version = "0.1.0" }
+monoxus-core = { path = "crates/monoxus-core", version = "0.1.1" }
 dioxus = { version = "0.8.0-alpha.3", default-features = false, features = ["devtools", "document", "hooks", "html", "mounted", "signals", "macro", "asset"] }
 # Upstream FFI / host abstraction engine.
 # Note: Keep tagged GitHub release here matching kinetoxus until crates.io publication.
