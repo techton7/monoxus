@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "tabs-initial",
+    "target": "tabs-horizontal-auto",
+    "host": "web",
+    "viewport": "desktop",
+    "state": "initial"
+  },
+  "source_run_id": "run-20261120T140624Z",
+  "baseline_path": "tests/gui/tabs/baselines/tabs-initial/tabs-horizontal-auto/web/desktop/initial.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T140624Z/actual/monoxus/tabs-initial/tabs-horizontal-auto/web/desktop/initial.png",
+  "approved_at": "2026-11-20T14:17:15.448376Z"
+}

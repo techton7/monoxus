@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "button-clicked",
+    "target": "btn-action",
+    "host": "web",
+    "viewport": "desktop",
+    "state": "clicked"
+  },
+  "source_run_id": "run-20261120T122910Z",
+  "baseline_path": "tests/gui/button/baselines/button-clicked/btn-action/web/desktop/clicked.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T122910Z/actual/monoxus/button-clicked/btn-action/web/desktop/clicked.png",
+  "approved_at": "2026-11-20T12:30:44.426673Z"
+}

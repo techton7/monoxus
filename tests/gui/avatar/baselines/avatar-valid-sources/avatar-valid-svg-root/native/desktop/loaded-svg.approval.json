@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "avatar-valid-sources",
+    "target": "avatar-valid-svg-root",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "loaded-svg"
+  },
+  "source_run_id": "run-20261120T124233Z",
+  "baseline_path": "tests/gui/avatar/baselines/avatar-valid-sources/avatar-valid-svg-root/native/desktop/loaded-svg.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T124233Z/actual/monoxus/avatar-valid-sources/avatar-valid-svg-root/native/desktop/loaded-svg.png",
+  "approved_at": "2026-11-20T12:42:38.68359Z"
+}

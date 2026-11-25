@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "aspect-ratio-live",
+    "target": "aspect-ratio-root-1",
+    "host": "web",
+    "viewport": "desktop",
+    "state": "ratio-1"
+  },
+  "source_run_id": "run-20261120T124224Z",
+  "baseline_path": "tests/gui/aspect_ratio/baselines/aspect-ratio-live/aspect-ratio-root-1/web/desktop/ratio-1.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T124224Z/actual/monoxus/aspect-ratio-live/aspect-ratio-root-1/web/desktop/ratio-1.png",
+  "approved_at": "2026-11-20T12:42:31.114306Z"
+}

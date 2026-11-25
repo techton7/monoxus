@@ -17,6 +17,7 @@ source = "app:assets/fonts/PretendardVariable.ttf"
 mode = "verify"
 
 [defaults]
+compare_profile = "cross-host-parity"
 viewports = ["desktop"]
 
 [defaults.settle]
@@ -25,4 +26,4 @@ font_ready = true
 double_raf = true
 idle_frames = 2
 native_frame_count = 2
-animation_policy = "finish"
+animation_policy = "disabled"

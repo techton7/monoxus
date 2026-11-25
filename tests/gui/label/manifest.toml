@@ -1,0 +1,45 @@
+[[scenarios]]
+name = "label-initial"
+description = "Verify initial explicit input and checkbox label associations"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-label"
+
+[[scenarios.targets]]
+id = "label-for-input"
+selector = "#label-for-input"
+part = "label"
+state = "initial"
+
+[[scenarios.targets]]
+id = "label-for-checkbox"
+selector = "#label-for-checkbox"
+part = "label"
+state = "unchecked"
+
+[[scenarios]]
+name = "label-checkbox-toggle"
+description = "Verify checkbox activation through its associated label"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-label"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#label-for-checkbox"
+
+[[scenarios.targets]]
+id = "label-for-checkbox"
+selector = "#label-for-checkbox"
+part = "label"
+state = "checked"
+
+[[scenarios.targets]]
+id = "label-checkbox-state"
+selector = "#label-checkbox-state"
+part = "state"
+state = "checked"

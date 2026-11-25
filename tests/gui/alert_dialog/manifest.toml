@@ -1,0 +1,30 @@
+[[scenarios]]
+name = "alert-dialog-open"
+description = "Verify Alert Dialog modal opening, overlay backdrop, and content dialog panel"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-alert-dialog"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#alert-dialog-trigger"
+
+[[scenarios.targets]]
+id = "alert-dialog-trigger"
+selector = "#alert-dialog-trigger"
+part = "trigger"
+state = "open"
+
+[[scenarios.targets]]
+id = "alert-dialog-content"
+selector = "#alert-dialog-content"
+part = "content"
+state = "open"
+
+[[scenarios.targets]]
+id = "alert-dialog-overlay"
+selector = "#alert-dialog-overlay"
+part = "overlay"
+state = "open"

@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "progress-states",
+    "target": "progress-loading-root",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "loading"
+  },
+  "source_run_id": "run-20261120T124112Z",
+  "baseline_path": "tests/gui/progress/baselines/progress-states/progress-loading-root/native/desktop/loading.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T124112Z/actual/monoxus/progress-states/progress-loading-root/native/desktop/loading.png",
+  "approved_at": "2026-11-20T12:41:17.476982Z"
+}

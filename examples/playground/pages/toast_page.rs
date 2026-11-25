@@ -422,6 +422,7 @@ pub fn ToastPage() -> Element {
 
                 button {
                     id: "dispatch-info",
+                    "data-gui-test-id": "dispatch-info",
                     style: "padding: 0.75rem 1rem; border-radius: 0.5rem; background-color: #ffffff; color: #0284c7; font-weight: 600; font-size: 0.875rem; border: 1px solid #bae6fd; cursor: pointer;",
                     onclick: move |_| {
                         toast::info("Informational update ready", None);

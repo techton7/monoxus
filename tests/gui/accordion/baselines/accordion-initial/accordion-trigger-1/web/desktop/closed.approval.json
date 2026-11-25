@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "accordion-initial",
+    "target": "accordion-trigger-1",
+    "host": "web",
+    "viewport": "desktop",
+    "state": "closed"
+  },
+  "source_run_id": "run-20261120T123336Z",
+  "baseline_path": "tests/gui/accordion/baselines/accordion-initial/accordion-trigger-1/web/desktop/closed.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T123336Z/actual/monoxus/accordion-initial/accordion-trigger-1/web/desktop/closed.png",
+  "approved_at": "2026-11-20T12:33:38.743018Z"
+}

@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "tooltip-open",
+    "target": "tooltip-content",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "open"
+  },
+  "source_run_id": "run-20261120T124905Z",
+  "baseline_path": "tests/gui/tooltip/baselines/tooltip-open/tooltip-content/native/desktop/open.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T124905Z/actual/monoxus/tooltip-open/tooltip-content/native/desktop/open.png",
+  "approved_at": "2026-11-20T12:49:10.868899Z"
+}

@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "meter-initial",
+    "target": "meter-reactive-scenario",
+    "host": "web",
+    "viewport": "desktop",
+    "state": "initial"
+  },
+  "source_run_id": "run-20261120T124148Z",
+  "baseline_path": "tests/gui/meter/baselines/meter-initial/meter-reactive-scenario/web/desktop/initial.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T124148Z/actual/monoxus/meter-initial/meter-reactive-scenario/web/desktop/initial.png",
+  "approved_at": "2026-11-20T12:42:14.605726Z"
+}

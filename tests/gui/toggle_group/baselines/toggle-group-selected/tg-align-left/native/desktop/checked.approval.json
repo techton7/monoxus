@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "toggle-group-selected",
+    "target": "tg-align-left",
+    "host": "native",
+    "viewport": "desktop",
+    "state": "checked"
+  },
+  "source_run_id": "run-20261120T122928Z",
+  "baseline_path": "tests/gui/toggle_group/baselines/toggle-group-selected/tg-align-left/native/desktop/checked.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T122928Z/actual/monoxus/toggle-group-selected/tg-align-left/native/desktop/checked.png",
+  "approved_at": "2026-11-20T12:31:13.977422Z"
+}

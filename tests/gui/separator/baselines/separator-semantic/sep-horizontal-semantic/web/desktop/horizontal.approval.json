@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "separator-semantic",
+    "target": "sep-horizontal-semantic",
+    "host": "web",
+    "viewport": "desktop",
+    "state": "horizontal"
+  },
+  "source_run_id": "run-20261120T122913Z",
+  "baseline_path": "tests/gui/separator/baselines/separator-semantic/sep-horizontal-semantic/web/desktop/horizontal.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T122913Z/actual/monoxus/separator-semantic/sep-horizontal-semantic/web/desktop/horizontal.png",
+  "approved_at": "2026-11-20T12:30:45.070308Z"
+}

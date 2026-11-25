@@ -1,0 +1,14 @@
+{
+  "artifact_id": {
+    "package": "monoxus",
+    "scenario": "progress-states",
+    "target": "progress-complete-root",
+    "host": "web",
+    "viewport": "desktop",
+    "state": "complete"
+  },
+  "source_run_id": "run-20261120T124112Z",
+  "baseline_path": "tests/gui/progress/baselines/progress-states/progress-complete-root/web/desktop/complete.png",
+  "source_actual_path": "test-results/gui/runs/run-20261120T124112Z/actual/monoxus/progress-states/progress-complete-root/web/desktop/complete.png",
+  "approved_at": "2026-11-20T12:41:17.503476Z"
+}

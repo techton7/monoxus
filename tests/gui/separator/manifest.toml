@@ -1,0 +1,20 @@
+[[scenarios]]
+name = "separator-semantic"
+description = "Verify semantic horizontal and vertical separator presentation"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-separator"
+
+[[scenarios.targets]]
+id = "sep-horizontal-semantic"
+selector = "#sep-horizontal-semantic"
+part = "root"
+state = "horizontal"
+
+[[scenarios.targets]]
+id = "sep-vertical-semantic"
+selector = "#sep-vertical-semantic"
+part = "root"
+state = "vertical"

@@ -48,6 +48,7 @@ pub fn SeparatorPlayground() -> Element {
                         class: "space-y-2",
                         Separator {
                             id: "sep-horizontal-semantic".to_string(),
+                            "data-gui-test-id": "sep-horizontal-semantic",
                             orientation: SeparatorOrientation::Horizontal,
                             decorative: false,
                         }
@@ -71,6 +72,7 @@ pub fn SeparatorPlayground() -> Element {
                             span { class: "text-xs font-medium text-slate-700", "Architecture" }
                             Separator {
                                 id: "sep-vertical-semantic".to_string(),
+                                "data-gui-test-id": "sep-vertical-semantic",
                                 orientation: SeparatorOrientation::Vertical,
                                 decorative: false,
                             }
