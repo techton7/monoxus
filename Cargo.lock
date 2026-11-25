@@ -518,8 +518,8 @@ dependencies = [
 
 [[package]]
 name = "blitz-host"
-version = "0.3.6"
-source = "git+https://github.com/techton7/blitz-host.git?tag=blitz-host-v0.3.6#ea3acc0d957155dd494ba838541c9f637dc15ec8"
+version = "0.3.7"
+source = "git+https://github.com/techton7/blitz-host.git?tag=blitz-host-v0.3.7#52d6158cff05b6d327879b3adb8cdebdc7134fbc"
 dependencies = [
  "blitz-dom",
  "blitz-host-bridge",
@@ -536,8 +536,8 @@ dependencies = [
 
 [[package]]
 name = "blitz-host-bridge"
-version = "0.3.6"
-source = "git+https://github.com/techton7/blitz-host.git?tag=blitz-host-v0.3.6#ea3acc0d957155dd494ba838541c9f637dc15ec8"
+version = "0.3.7"
+source = "git+https://github.com/techton7/blitz-host.git?tag=blitz-host-v0.3.7#52d6158cff05b6d327879b3adb8cdebdc7134fbc"
 dependencies = [
  "anyrender",
  "anyrender_vello_cpu",
@@ -551,8 +551,8 @@ dependencies = [
 
 [[package]]
 name = "blitz-host-protocol"
-version = "0.3.6"
-source = "git+https://github.com/techton7/blitz-host.git?tag=blitz-host-v0.3.6#ea3acc0d957155dd494ba838541c9f637dc15ec8"
+version = "0.3.7"
+source = "git+https://github.com/techton7/blitz-host.git?tag=blitz-host-v0.3.7#52d6158cff05b6d327879b3adb8cdebdc7134fbc"
 dependencies = [
  "serde",
  "serde_json",
@@ -560,8 +560,8 @@ dependencies = [
 
 [[package]]
 name = "blitz-host-transport"
-version = "0.3.6"
-source = "git+https://github.com/techton7/blitz-host.git?tag=blitz-host-v0.3.6#ea3acc0d957155dd494ba838541c9f637dc15ec8"
+version = "0.3.7"
+source = "git+https://github.com/techton7/blitz-host.git?tag=blitz-host-v0.3.7#52d6158cff05b6d327879b3adb8cdebdc7134fbc"
 dependencies = [
  "blitz-host-protocol",
  "interprocess",

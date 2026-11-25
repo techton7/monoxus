@@ -47,7 +47,7 @@ serde_json = "1.0"
 manganis = "0.8.0-alpha.3"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-blitz-host = { version = "0.3.6", git = "https://github.com/techton7/blitz-host.git", tag = "blitz-host-v0.3.6", features = ["dioxus-native"] }
+blitz-host = { version = "0.3.7", git = "https://github.com/techton7/blitz-host.git", tag = "blitz-host-v0.3.7", features = ["dioxus-native"] }
 blitz-dom = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.8" }
 blitz-test-harness = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.8" }
 dioxus-native-dom = { version = "0.7.0", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.8" }
