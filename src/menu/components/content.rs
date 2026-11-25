@@ -14,10 +14,11 @@ pub fn build_menu_wrapper_style(
     root: &MenuRootContext,
     placement: Option<&FloatingPlacement>,
     readiness: FloatingReadiness,
+    z_index: Option<&str>,
 ) -> String {
     let base_style = match placement {
-        Some(pl) => pl.wrapper_style(readiness, None),
-        None => FloatingReadiness::wrapper_measuring_style(None).to_owned(),
+        Some(pl) => pl.wrapper_style(readiness, z_index),
+        None => FloatingReadiness::wrapper_measuring_style(z_index),
     };
     let mut vars_buf = String::new();
     if let Some(pl) = placement {
@@ -176,19 +177,89 @@ pub fn MenuContent(props: MenuContentProps) -> Element {
         let _ = ca.try_write().map(|mut w| *w = props.on_close_auto_focus.clone());
     }
 
+    let parent_branch = try_consume_context::<crate::foundation::overlay::OverlayBranchContext>();
+    let should_render = surface.should_render_content();
+    let is_open = root.is_open();
+    let content_id = surface.current_content_id();
+    let wrapper_id = surface.current_wrapper_id();
+    let portal_id = surface
+        .portal_id
+        .read()
+        .clone()
+        .unwrap_or_else(|| format!("{}-portal", surface.surface_key));
+
+    crate::foundation::overlay::use_register_parent_overlay_branches(
+        parent_branch.clone(),
+        should_render,
+        vec![content_id.clone(), wrapper_id.clone(), portal_id],
+    );
+
+    let latest_cid = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(content_id.clone())));
+    {
+        let mut prev = latest_cid.borrow_mut();
+        if *prev != content_id {
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev);
+            *prev = content_id.clone();
+        }
+    }
+    let mut registered_layer_id = use_signal(|| Option::<String>::None);
+    if is_open {
+        let prev = registered_layer_id.peek().clone();
+        if prev.as_deref() != Some(content_id.as_str()) {
+            if let Some(prev_id) = prev.as_deref() {
+                crate::foundation::overlay::unregister_active_overlay_layer(prev_id);
+            }
+            crate::foundation::overlay::register_active_overlay_layer(&content_id);
+            registered_layer_id.set(Some(content_id.clone()));
+        }
+    } else {
+        let prev = registered_layer_id.peek().clone();
+        if let Some(prev_id) = prev {
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev_id);
+            registered_layer_id.set(None);
+        }
+    }
+    {
+        let drop_cid = latest_cid.clone();
+        use_drop(move || {
+            let current_cid = drop_cid.borrow().clone();
+            crate::foundation::overlay::unregister_active_overlay_layer(&current_cid);
+        });
+    }
+
+    {
+        let surf_reg = surface.clone();
+        let surf_unreg = surface.clone();
+        let parent_for_reg = parent_branch.clone();
+        let parent_for_unreg = parent_branch;
+        use_context_provider(|| {
+            crate::foundation::overlay::OverlayBranchContext::new(
+                move |branch: String| {
+                    surf_reg.register_branch(branch.clone());
+                    if let Some(ref pb) = parent_for_reg {
+                        pb.register_branch(branch);
+                    }
+                },
+                move |branch: String| {
+                    surf_unreg.unregister_branch(&branch);
+                    if let Some(ref pb) = parent_for_unreg {
+                        pb.unregister_branch(branch);
+                    }
+                },
+            )
+        });
+    }
+
     use_context_provider(|| MenuSurfaceContext {
         surface: surface.clone(),
         parent_surface: None,
         close_this_submenu: None,
     });
 
-    if !surface.should_render_content() {
+    if !should_render {
         return rsx! {};
     }
 
-    let is_open = root.is_open();
-    let content_id = surface.current_content_id();
-    let wrapper_id = surface.current_wrapper_id();
     let placement = surface.placement.read().clone();
     let readiness = *surface.readiness.read();
     let hidden_detached = props.hide_when_detached
@@ -220,7 +291,13 @@ pub fn MenuContent(props: MenuContentProps) -> Element {
         MenuPart::Content,
     );
 
-    let wrapper_style = build_menu_wrapper_style(&root, placement.as_ref(), readiness);
+    let content_z_index = surface.content_z_index.read();
+    let wrapper_style = build_menu_wrapper_style(
+        &root,
+        placement.as_ref(),
+        readiness,
+        content_z_index.as_deref(),
+    );
     let hidden_style = if hidden_detached {
         " visibility: hidden;"
     } else {
@@ -281,6 +358,7 @@ pub fn MenuContent(props: MenuContentProps) -> Element {
         return rsx! {
             div {
                 id: "{wrapper_id}",
+                "data-monoxus-floating-content-wrapper": "",
                 style: "{wrapper_style}",
                 "data-positioning": readiness.positioning_state(),
                 {rendered}
@@ -291,6 +369,7 @@ pub fn MenuContent(props: MenuContentProps) -> Element {
     rsx! {
         div {
             id: "{wrapper_id}",
+            "data-monoxus-floating-content-wrapper": "",
             style: "{wrapper_style}",
             "data-positioning": readiness.positioning_state(),
             div {

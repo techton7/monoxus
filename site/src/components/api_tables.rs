@@ -14,7 +14,7 @@ pub struct PropsTableProps {
 /// Compact Radix-style Props reference table with expandable Popover details.
 #[component]
 pub fn PropsTable(props: PropsTableProps) -> Element {
-    let part_name = props.part_name;
+    let _part_name = props.part_name;
     let props = props.props;
     if props.is_empty() {
         return rsx! {
@@ -51,9 +51,7 @@ pub fn PropsTable(props: PropsTableProps) -> Element {
                                             span { class: "ml-0.5 text-destructive", "*" }
                                         }
                                     }
-                                    // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
                                     PopoverRoot {
-                                        id: Some(format!("prop-{}-{}", part_name, prop.name)),
                                         side: PlacementSide::Top,
                                         side_offset: 6.0,
                                         PopoverTrigger {

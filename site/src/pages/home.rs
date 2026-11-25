@@ -206,9 +206,7 @@ fn QuickSettingsCard() -> Element {
 
             div {
                 class: "my-5",
-                // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
                 TabsRoot {
-                    id: Some("home-tabs-runtime".into()),
                     default_value: Some("web".to_string()),
                     class: "w-full",
                     TabsList {
@@ -262,9 +260,7 @@ fn ModalTooltipCard() -> Element {
 
             div {
                 class: "my-6 flex flex-col items-center justify-center gap-3 rounded-card-sm border border-dashed border-border-input bg-muted/25 p-5",
-                // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
                 TooltipRoot {
-                    id: Some("home-overlay-tooltip".into()),
                     side: PlacementSide::Top,
                     side_offset: 6.0,
                     TooltipTrigger {
@@ -279,9 +275,7 @@ fn ModalTooltipCard() -> Element {
                     }
                 }
 
-                // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
                 DialogRoot {
-                    id: Some("home-overlay-dialog".into()),
                     open: Some(modal_open),
                     DialogTrigger {
                         class: "inline-flex h-9 items-center justify-center rounded-button bg-dark px-4 text-xs font-semibold text-background shadow-btn transition-opacity hover:opacity-90",
@@ -342,9 +336,7 @@ fn FaqAccordionCard() -> Element {
 
             div {
                 class: "my-4",
-                // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
                 AccordionRoot {
-                    id: Some("home-faq-accordion".into()),
                     mode: AccordionMode::Single { collapsible: true },
                     default_value: Some("unstyled".to_string()),
                     class: "w-full divide-y divide-border-card rounded-card-sm border border-border-card bg-background",

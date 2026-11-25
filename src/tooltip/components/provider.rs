@@ -1,6 +1,8 @@
+use std::borrow::Cow;
+
 use dioxus::prelude::*;
 
-use crate::foundation::shared::ScopeHandle;
+use crate::foundation::shared::{ScopeHandle, use_stable_id};
 use crate::tooltip::{
     components::TooltipProviderContext,
     runtime::use_tooltip_provider_runtime,
@@ -26,10 +28,7 @@ pub struct TooltipProviderProps {
 
 #[component]
 pub fn TooltipProvider(props: TooltipProviderProps) -> Element {
-    let scope_id = props
-        .id
-        .clone()
-        .unwrap_or_else(|| "tooltip-provider".to_string());
+    let scope_id = use_stable_id(props.id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("tooltip").child(scope_id);
 
     let provider_def = TooltipProviderDef::new(scope)
@@ -40,7 +39,10 @@ pub fn TooltipProvider(props: TooltipProviderProps) -> Element {
         .with_ignore_non_keyboard_focus(props.ignore_non_keyboard_focus);
 
     let runtime = use_tooltip_provider_runtime(provider_def);
-    let runtime_sig = use_signal(|| runtime);
+    let mut runtime_sig = use_signal(|| runtime.clone());
+    if runtime_sig.peek().provider() != runtime.provider() {
+        runtime_sig.set(runtime);
+    }
 
     use_context_provider(|| TooltipProviderContext {
         runtime: runtime_sig,

@@ -1,7 +1,12 @@
+use std::borrow::Cow;
+
 use dioxus::prelude::*;
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 
-use crate::foundation::{overlay::PortalHost, shared::ScopeHandle};
+use crate::foundation::{
+    overlay::PortalHost,
+    shared::{ScopeHandle, use_stable_id},
+};
 
 use super::{
     runtime::{DialogRuntime, use_dialog_runtime},
@@ -40,7 +45,7 @@ pub fn DialogRoot(
 ) -> Element {
     let fallback_open = use_signal(|| default_open.unwrap_or(false));
     let open_signal = open.unwrap_or(fallback_open);
-    let scope_id = id.clone().unwrap_or_else(|| "dialog".to_string());
+    let scope_id = use_stable_id(id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("dialog").child(scope_id);
 
     let mut dialog = Dialog::new(scope, open_signal());
@@ -71,7 +76,9 @@ pub fn DialogRoot(
 
     let runtime = use_dialog_runtime(dialog);
     let mut runtime_sig = use_signal(|| runtime.clone());
-    if runtime_sig.peek().is_open() != runtime.is_open() {
+    if runtime_sig.peek().is_open() != runtime.is_open()
+        || runtime_sig.peek().root().id() != runtime.root().id()
+    {
         runtime_sig.set(runtime.clone());
     }
 
@@ -186,35 +193,25 @@ pub fn DialogPortal(
     };
 
     let pid = runtime.relationships().scope().qualify("portal");
-    let pid_effect = pid.clone();
-    let target_host = resolved_host.clone();
-    use_effect(use_reactive((&should_render,), move |(render,)| {
-        if !render && !force_mount {
-            return;
-        }
-        if let PortalHost::Named(name) = &target_host {
-            crate::foundation::browser::teleport_element_to_host(&pid_effect, Some(name.as_ref()));
-        }
-    }));
-
-    let pid_cleanup = pid.clone();
-    let is_named_host = matches!(resolved_host, PortalHost::Named(_));
-    dioxus::core::use_drop(move || {
-        if is_named_host {
-            crate::foundation::browser::remove_element_by_id(&pid_cleanup);
-        }
-    });
-
-    if !should_render {
-        return rsx! {};
-    }
+    crate::foundation::overlay::use_portal_teleport(
+        pid.clone(),
+        should_render,
+        false,
+        &resolved_host,
+    );
 
     rsx! {
         div {
-            id: "{pid}",
             style: "display: contents;",
-            "data-portal-host": "{host_attr}",
-            {children}
+            "data-portal-anchor": "",
+            if should_render {
+                div {
+                    id: "{pid}",
+                    style: "display: contents;",
+                    "data-portal-host": "{host_attr}",
+                    {children}
+                }
+            }
         }
     }
 }
@@ -341,6 +338,19 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
         runtime.content()
     };
     let content_id = id.unwrap_or_else(|| content.id().to_string());
+    let overlay_id = runtime.overlay_element_id_reactive();
+    let portal_id = runtime.relationships().scope().qualify("portal");
+
+    let latest_cid = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(content_id.clone())));
+    {
+        let mut prev = latest_cid.borrow_mut();
+        if *prev != content_id {
+            runtime.unregister_content_id(&prev);
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev);
+            *prev = content_id.clone();
+        }
+    }
+
     if should_render {
         runtime.register_content_id(&content_id);
         if prevent_body_pointer_events.is_some() {
@@ -349,18 +359,45 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
     } else {
         runtime.unregister_content_id(&content_id);
     }
-    let cid_for_drop = content_id.clone();
+
+    let parent_branch = try_consume_context::<crate::foundation::overlay::OverlayBranchContext>();
+    crate::foundation::overlay::use_register_parent_overlay_branches(
+        parent_branch.clone(),
+        should_render,
+        vec![content_id.clone(), overlay_id, portal_id],
+    );
+
+    let cid_for_drop = latest_cid.clone();
     let runtime_for_drop = runtime.clone();
     let had_pbpe_override = prevent_body_pointer_events.is_some();
     use_drop(move || {
+        let current_cid = cid_for_drop.borrow().clone();
         runtime_for_drop.stop_content_dismiss_monitor();
-        runtime_for_drop.unregister_content_id(&cid_for_drop);
+        runtime_for_drop.unregister_content_id(&current_cid);
+        crate::foundation::overlay::unregister_active_overlay_layer(&current_cid);
         if had_pbpe_override {
             runtime_for_drop.set_prevent_body_pointer_events_override(None);
         }
     });
 
     let is_open = (ctx.open)();
+    let mut registered_layer_id = use_signal(|| Option::<String>::None);
+    if is_open {
+        let prev = registered_layer_id.peek().clone();
+        if prev.as_deref() != Some(content_id.as_str()) {
+            if let Some(prev_id) = prev.as_deref() {
+                crate::foundation::overlay::unregister_active_overlay_layer(prev_id);
+            }
+            crate::foundation::overlay::register_active_overlay_layer(&content_id);
+            registered_layer_id.set(Some(content_id.clone()));
+        }
+    } else {
+        let prev = registered_layer_id.peek().clone();
+        if let Some(prev_id) = prev {
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev_id);
+            registered_layer_id.set(None);
+        }
+    }
     let effect_content_id = content_id.clone();
     let runtime_for_effect = runtime.clone();
     let branches_sig = runtime.branches_signal();
@@ -368,11 +405,15 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
     let mut open_for_dismiss = ctx.open;
     let on_change_for_dismiss = ctx.on_open_change;
     let trigger_sig_for_dismiss = ctx.trigger_id;
+    let last_focused_open_cid =
+        use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(Option::<String>::None)));
+    let focused_cid_effect = last_focused_open_cid.clone();
     use_effect(use_reactive(
         (&should_render, &is_open, &effect_content_id, &prevent_body_pointer_events),
         move |(render_val, open_val, cid, pbpe)| {
             let _ = branches_sig.read();
             if !render_val {
+                *focused_cid_effect.borrow_mut() = None;
                 runtime_for_effect.stop_content_dismiss_monitor();
                 return;
             }
@@ -382,7 +423,12 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
             runtime_for_effect.sync_scroll_lock();
             runtime_for_effect.sync_modal_shield();
             if open_val {
-                runtime_for_effect.apply_open_focus_for_content(&cid);
+                let needs_open_focus =
+                    focused_cid_effect.borrow().as_deref() != Some(cid.as_str());
+                if needs_open_focus {
+                    *focused_cid_effect.borrow_mut() = Some(cid.clone());
+                    runtime_for_effect.apply_open_focus_for_content(&cid);
+                }
                 let rt_close = runtime_for_effect.clone();
                 runtime_for_effect.start_content_dismiss_monitor(is_alert, move |was_pointer| {
                     let is_currently_open = open_for_dismiss
@@ -410,21 +456,30 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
                     rt_close.restore_close_focus_with_fallback(fallback_tid.as_deref());
                 });
             } else {
+                *focused_cid_effect.borrow_mut() = None;
                 runtime_for_effect.stop_content_dismiss_monitor();
             }
         },
     ));
 
     let runtime_for_branch = runtime.clone();
+    let parent_for_reg = parent_branch.clone();
+    let parent_for_unreg = parent_branch;
     use_context_provider(|| {
         let rt_reg = runtime_for_branch.clone();
         let rt_unreg = runtime_for_branch.clone();
         crate::foundation::overlay::OverlayBranchContext::new(
             move |branch: String| {
-                rt_reg.register_branch(branch);
+                rt_reg.register_branch(branch.clone());
+                if let Some(ref pb) = parent_for_reg {
+                    pb.register_branch(branch);
+                }
             },
             move |branch: String| {
                 rt_unreg.unregister_branch(&branch);
+                if let Some(ref pb) = parent_for_unreg {
+                    pb.unregister_branch(branch);
+                }
             },
         )
     });
@@ -441,12 +496,21 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
 
     let trigger_sig = ctx.trigger_id;
     let runtime_for_key = runtime.clone();
+    let keydown_cid = content_id.clone();
 
     let on_keydown = move |evt: KeyboardEvent| {
         if evt.key() == Key::Named(NamedKey::Escape) {
             if !*open.peek() {
                 return;
             }
+            if crate::foundation::overlay::is_overlay_escape_consumed()
+                || !crate::foundation::overlay::is_topmost_overlay_layer(&keydown_cid)
+            {
+                return;
+            }
+            crate::foundation::overlay::mark_overlay_escape_consumed();
+            evt.prevent_default();
+            evt.stop_propagation();
             runtime_for_key.clear_pointer_dismiss();
             open.set(false);
             if let Some(h) = on_change {
@@ -566,7 +630,8 @@ pub fn DialogClose(
     let ctx = use_context::<DialogContext>();
     let runtime = ctx.runtime.read();
     let close = runtime.close();
-    let close_id = id.unwrap_or_else(|| close.id().to_string());
+    let stable_fallback = use_stable_id(None);
+    let close_id = id.unwrap_or_else(|| format!("{stable_fallback}-close"));
     let mut open = ctx.open;
     let on_change = ctx.on_open_change;
 

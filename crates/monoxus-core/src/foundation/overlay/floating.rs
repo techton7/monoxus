@@ -1051,3 +1051,64 @@ pub fn compute_pure_overlay_position(config: &PureOverlayPositionConfig) -> Floa
         layer.position(config.anchor, config.content)
     }
 }
+
+/// Normalizes a CSSOM computed `z-index` string for floating wrapper hoisting.
+///
+/// Returns `None` for `None`, empty/whitespace-only strings, or `"auto"` (case-insensitive)
+/// so the outer floating wrapper omits `z-index:` when no explicit stacking layer is set.
+/// Preserves explicit integer values including `"0"` and negative integers like `"-1"`.
+pub fn normalize_hoisted_z_index(raw: Option<&str>) -> Option<String> {
+    let trimmed = raw?.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("auto") {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_hoisted_z_index_distinguishes_auto_zero_and_negative() {
+        assert_eq!(normalize_hoisted_z_index(None), None);
+        assert_eq!(normalize_hoisted_z_index(Some("")), None);
+        assert_eq!(normalize_hoisted_z_index(Some("   ")), None);
+        assert_eq!(normalize_hoisted_z_index(Some("auto")), None);
+        assert_eq!(normalize_hoisted_z_index(Some("AUTO")), None);
+        assert_eq!(normalize_hoisted_z_index(Some("  Auto  ")), None);
+
+        assert_eq!(normalize_hoisted_z_index(Some("0")), Some("0".to_string()));
+        assert_eq!(normalize_hoisted_z_index(Some("-1")), Some("-1".to_string()));
+        assert_eq!(normalize_hoisted_z_index(Some("50")), Some("50".to_string()));
+        assert_eq!(
+            normalize_hoisted_z_index(Some(" 9999 ")),
+            Some("9999".to_string())
+        );
+    }
+
+    #[test]
+    fn wrapper_style_emits_or_omits_z_index_cleanly() {
+        let placement = FloatingLayer::new(PlacementSide::Bottom)
+            .position(Rect::new(10.0, 20.0, 100.0, 32.0), Size::new(160.0, 80.0));
+
+        let ready_none = placement.wrapper_style(FloatingReadiness::Ready, None);
+        assert!(!ready_none.contains("z-index:"));
+
+        let ready_50 = placement.wrapper_style(FloatingReadiness::Ready, Some("50"));
+        assert!(ready_50.contains(" z-index: 50;"));
+
+        let ready_0 = placement.wrapper_style(FloatingReadiness::Ready, Some("0"));
+        assert!(ready_0.contains(" z-index: 0;"));
+
+        let ready_neg = placement.wrapper_style(FloatingReadiness::Ready, Some("-1"));
+        assert!(ready_neg.contains(" z-index: -1;"));
+
+        let measuring_none = FloatingReadiness::wrapper_measuring_style(None);
+        assert!(!measuring_none.contains("z-index:"));
+
+        let measuring_50 = FloatingReadiness::wrapper_measuring_style(Some("50"));
+        assert!(measuring_50.contains(" z-index: 50;"));
+    }
+}

@@ -28,39 +28,25 @@ pub fn TooltipPortal(props: TooltipPortalProps) -> Element {
     };
 
     let pid = runtime.relationships().scope().qualify("portal");
-    let pid_effect = pid.clone();
-    let target_host = resolved_host.clone();
-
-    use_effect(use_reactive((&should_render,), move |(render,)| {
-        if !render && !props.force_mount {
-            return;
-        }
-        if let PortalHost::Named(name) = &target_host {
-            crate::foundation::browser::teleport_element_to_host(
-                &pid_effect,
-                Some(name.as_ref()),
-            );
-        }
-    }));
-
-    let pid_cleanup = pid.clone();
-    let is_named_host = matches!(resolved_host, PortalHost::Named(_));
-    dioxus::core::use_drop(move || {
-        if is_named_host {
-            crate::foundation::browser::remove_element_by_id(&pid_cleanup);
-        }
-    });
-
-    if !should_render {
-        return rsx! {};
-    }
+    crate::foundation::overlay::use_portal_teleport(
+        pid.clone(),
+        should_render,
+        false,
+        &resolved_host,
+    );
 
     rsx! {
         div {
-            id: "{pid}",
             style: "display: contents;",
-            "data-portal-host": "{host_attr}",
-            {props.children}
+            "data-portal-anchor": "",
+            if should_render {
+                div {
+                    id: "{pid}",
+                    style: "display: contents;",
+                    "data-portal-host": "{host_attr}",
+                    {props.children}
+                }
+            }
         }
     }
 }

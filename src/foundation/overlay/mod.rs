@@ -12,6 +12,11 @@ pub use self::grace::*;
 pub use self::portal::*;
 pub use self::presence::*;
 
+#[doc(hidden)]
+pub use crate::foundation::browser::{
+    PortalOp, start_portal_op_recording, stop_portal_op_recording, take_portal_ops,
+};
+
 use std::{
     cell::{Cell, RefCell},
     rc::Rc,
@@ -164,6 +169,117 @@ impl OverlayBranchContext {
             cb(branch.into());
         }
     }
+}
+
+/// Shared portal teleportation & drop cleanup hook for all `*Portal` components (`PRT-1`..`PRT-7`).
+///
+/// Tracks `(latest_pid, was_teleported)` across re-renders so that:
+/// - `PortalHost::Default` teleports to `#main` (`host_id = None`),
+/// - `PortalHost::Named(name)` teleports to `#name` (`host_id = Some(name)`),
+/// - `PortalHost::Inline` or `disabled == true` never invokes teleportation,
+/// - Changing `pid` while teleported removes the stale node before teleporting the new one,
+/// - `use_drop` calls `remove_element_by_id` only when `was_teleported == true`.
+pub(crate) fn use_portal_teleport(
+    pid: String,
+    should_render: bool,
+    disabled: bool,
+    resolved_host: &PortalHost,
+) {
+    use dioxus::prelude::*;
+
+    let state: Rc<RefCell<(String, bool)>> =
+        use_hook(|| Rc::new(RefCell::new((pid.clone(), false))));
+
+    {
+        let state_effect = Rc::clone(&state);
+        use_effect(use_reactive(
+            (&should_render, &disabled, &pid, resolved_host),
+            move |(render, is_disabled, cur_pid, host)| {
+                let mut tracked = state_effect.borrow_mut();
+                let should_teleport = render && !is_disabled && !host.is_inline();
+                if should_teleport {
+                    if tracked.1 && tracked.0 != cur_pid {
+                        crate::foundation::browser::remove_element_by_id(&tracked.0);
+                    }
+                    let host_id = match &host {
+                        PortalHost::Default => None,
+                        PortalHost::Named(name) => Some(name.as_ref()),
+                        PortalHost::Inline => None,
+                    };
+                    crate::foundation::browser::teleport_element_to_host(&cur_pid, host_id);
+                    tracked.0 = cur_pid;
+                    tracked.1 = true;
+                } else {
+                    if tracked.1 && tracked.0 != cur_pid {
+                        crate::foundation::browser::remove_element_by_id(&tracked.0);
+                    }
+                    tracked.0 = cur_pid;
+                    tracked.1 = false;
+                }
+            },
+        ));
+    }
+
+    {
+        let state_drop = Rc::clone(&state);
+        use_drop(move || {
+            let (cur_pid, was_teleported) = state_drop.borrow().clone();
+            if was_teleported {
+                crate::foundation::browser::remove_element_by_id(&cur_pid);
+            }
+        });
+    }
+}
+
+/// Registers a set of DOM element IDs (e.g. `[content_id, wrapper_id, portal_id]`) into an
+/// enclosing [`OverlayBranchContext`] while `active` is `true`, cleaning up stale IDs on
+/// ID change, close (`active == false`), and unmount (`use_drop`).
+pub(crate) fn use_register_parent_overlay_branches(
+    parent_branch: Option<OverlayBranchContext>,
+    active: bool,
+    ids: Vec<String>,
+) {
+    use dioxus::prelude::*;
+
+    let tracked: Rc<RefCell<Vec<String>>> = use_hook(|| Rc::new(RefCell::new(Vec::new())));
+
+    if let Some(ref bctx) = parent_branch {
+        let mut prev = tracked.borrow_mut();
+        if !active {
+            for old in prev.drain(..) {
+                bctx.unregister_branch(old);
+            }
+        } else {
+            let stale: Vec<String> = prev
+                .iter()
+                .filter(|old| !ids.iter().any(|n| n == *old))
+                .cloned()
+                .collect();
+            for old in &stale {
+                bctx.unregister_branch(old.clone());
+            }
+            prev.retain(|old| !stale.contains(old));
+
+            for id in &ids {
+                if !id.is_empty() && !prev.contains(id) {
+                    bctx.register_branch(id.clone());
+                    prev.push(id.clone());
+                }
+            }
+        }
+    } else {
+        tracked.borrow_mut().clear();
+    }
+
+    let drop_tracked = Rc::clone(&tracked);
+    let drop_branch = parent_branch;
+    use_drop(move || {
+        if let Some(ref bctx) = drop_branch {
+            for old in drop_tracked.borrow_mut().drain(..) {
+                bctx.unregister_branch(old);
+            }
+        }
+    });
 }
 
 #[cfg(test)]

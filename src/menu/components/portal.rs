@@ -42,40 +42,25 @@ pub fn MenuPortal(props: MenuPortalProps) -> Element {
         }
     }
 
-    let pid_effect = pid.clone();
-    let target_host = resolved_host.clone();
-    use_effect(use_reactive((&should_render, &target_host), move |(render, host)| {
-        if !render && !props.force_mount {
-            return;
-        }
-        if !host.is_inline() {
-            let host_id = match &host {
-                PortalHost::Named(name) => Some(name.as_ref()),
-                PortalHost::Default => None,
-                PortalHost::Inline => unreachable!(),
-            };
-            crate::foundation::browser::teleport_element_to_host(&pid_effect, host_id);
-        }
-    }));
-
-    let pid_cleanup = pid.clone();
-    let is_teleported_host = !resolved_host.is_inline();
-    dioxus::core::use_drop(move || {
-        if is_teleported_host {
-            crate::foundation::browser::remove_element_by_id(&pid_cleanup);
-        }
-    });
-
-    if !should_render {
-        return rsx! {};
-    }
+    crate::foundation::overlay::use_portal_teleport(
+        pid.clone(),
+        should_render,
+        false,
+        &resolved_host,
+    );
 
     rsx! {
         div {
-            id: "{pid}",
             style: "display: contents;",
-            "data-portal-host": "{host_attr}",
-            {props.children}
+            "data-portal-anchor": "",
+            if should_render {
+                div {
+                    id: "{pid}",
+                    style: "display: contents;",
+                    "data-portal-host": "{host_attr}",
+                    {props.children}
+                }
+            }
         }
     }
 }

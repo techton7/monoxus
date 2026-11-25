@@ -91,9 +91,7 @@ pub fn SearchDialog(open: Signal<bool>) -> Element {
     };
 
     rsx! {
-        // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
         DialogRoot {
-            id: Some("site-search-dialog".into()),
             open: Some(open),
             DialogPortal {
                 DialogOverlay {
@@ -155,9 +153,7 @@ pub fn SearchDialog(open: Signal<bool>) -> Element {
                         }
                     }
 
-                    // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
                     ScrollAreaRoot {
-                        id: Some("site-search-scroll-area".into()),
                         r#type: ScrollAreaType::Auto,
                         class: "max-h-[360px] w-full overflow-hidden",
                         ScrollAreaViewport {

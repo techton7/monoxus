@@ -12,16 +12,16 @@ use crate::foundation::{
     browser::{
         DEFAULT_FOCUSABLE_SELECTOR, DocumentDismissEvent, DocumentPointerStreamGuard,
         FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard, document_has_text_selection,
-        get_element_client_rect, is_element_focus_visible_by_id, is_element_focused_by_id,
-        query_selector_all_by_id, restore_body_user_select, set_body_user_select_none,
-        spawn_root_task, start_document_dismiss_monitor_with_boundaries,
+        get_element_client_rect, get_element_computed_z_index, is_element_focus_visible_by_id,
+        is_element_focused_by_id, query_selector_all_by_id, restore_body_user_select,
+        set_body_user_select_none, spawn_root_task, start_document_dismiss_monitor_with_boundaries,
         start_document_pointer_stream, start_document_pointer_up_observer,
         start_floating_auto_update_monitor, start_presence_monitor,
     },
     overlay::{
         FloatingLayer, FloatingPlacement, FloatingReadiness, GeometryVars, OverlayPositionConfig,
         PlacementAlign, PlacementSide, Point2D, Presence, PresenceCloseCycleId, PresenceController,
-        PresenceControllerUpdate, Rect, Size, compute_overlay_position,
+        PresenceControllerUpdate, Rect, Size, compute_overlay_position, normalize_hoisted_z_index,
     },
     shared::Direction,
     state::DataState,
@@ -125,6 +125,7 @@ struct HoverCardRuntimeState {
     content_handle: Signal<Option<Rc<MountedData>>>,
     placement: Signal<Option<FloatingPlacement>>,
     content_readiness: Signal<FloatingReadiness>,
+    content_z_index: Signal<Option<String>>,
     presence_lane: Signal<HoverCardContentPresenceLane>,
     presence_monitor: RetainedRootPresenceMonitorState,
     pointer_down_inside_trigger: Signal<bool>,
@@ -182,6 +183,7 @@ where
         content_handle: use_signal(|| None),
         placement: use_signal(|| None),
         content_readiness: use_signal(FloatingReadiness::default),
+        content_z_index: use_signal(|| None),
         presence_lane: use_signal(|| {
             HoverCardContentPresenceLane::new(hover_card.lifecycle().presence())
         }),
@@ -418,10 +420,17 @@ impl HoverCardRuntime {
     }
 
     pub fn wrapper_style(&self) -> String {
+        let z_index = self.state.content_z_index.read();
         match self.placement() {
-            Some(ref placement) => placement.wrapper_style(self.content_readiness(), None),
-            None => FloatingReadiness::wrapper_measuring_style(None),
+            Some(ref placement) => {
+                placement.wrapper_style(self.content_readiness(), z_index.as_deref())
+            }
+            None => FloatingReadiness::wrapper_measuring_style(z_index.as_deref()),
         }
+    }
+
+    pub fn clear_content_z_index(&self) {
+        clear_hover_card_content_z_index(self.state);
     }
 
     pub fn placement(&self) -> Option<FloatingPlacement> {
@@ -640,6 +649,7 @@ impl HoverCardRuntime {
                 .try_peek()
                 .map(|c| c.clone())
                 .unwrap_or_else(|_| runtime.hover_card.clone());
+            sync_hover_card_content_z_index(&live_card, runtime.state);
             sync_hover_card_positioning(
                 &live_card,
                 runtime.state,
@@ -649,6 +659,7 @@ impl HoverCardRuntime {
             if let Some(placement) = compute_hover_card_position_with_state(&live_card, runtime.state)
             {
                 if placement.geometry().content_height() > 0.0 {
+                    sync_hover_card_content_z_index(&live_card, runtime.state);
                     update_placement_if_changed(runtime.state, placement);
                     set_hover_card_content_readiness(runtime.state, FloatingReadiness::Ready);
                     return;
@@ -669,6 +680,7 @@ impl HoverCardRuntime {
                     .try_peek()
                     .map(|c| c.clone())
                     .unwrap_or_else(|_| runtime_clone.hover_card.clone());
+                sync_hover_card_content_z_index(&live_card, runtime_clone.state);
                 if let Some(placement) =
                     compute_hover_card_position_with_state(&live_card, runtime_clone.state)
                 {
@@ -972,11 +984,14 @@ impl HoverCardRuntime {
     }
 
     pub fn dismiss_escape(&self) -> bool {
-        if !self.is_live_open() {
+        if !self.is_live_open() || crate::foundation::overlay::is_overlay_escape_consumed() {
+            return false;
+        }
+        let effective_content_id = self.effective_content_id();
+        if !crate::foundation::overlay::is_topmost_overlay_layer(&effective_content_id) {
             return false;
         }
         let stack = self.dismiss_stack();
-        let effective_content_id = self.effective_content_id();
         let should_dismiss_layer = self.state.live_hover_card.with_peek(|c| {
             let mut layer = c.lifecycle().dismiss_layer().clone();
             layer.set_id(effective_content_id.clone());
@@ -996,6 +1011,7 @@ impl HoverCardRuntime {
             handler.call(());
         }
         if cfg.escape_keydown_behavior.should_close() {
+            crate::foundation::overlay::mark_overlay_escape_consumed();
             self.force_close();
             return true;
         }
@@ -1512,6 +1528,7 @@ fn sync_hover_card_positioning(
 
     let _position_loop_token = advance_token(state.position_loop_token);
 
+    sync_hover_card_content_z_index(card, state);
     if let Some(placement) = compute_hover_card_position_with_state(card, state) {
         update_placement_if_changed(state, placement);
         set_hover_card_content_readiness(state, FloatingReadiness::Ready);
@@ -1520,6 +1537,7 @@ fn sync_hover_card_positioning(
     let card_for_frame = card.clone();
     spawn_root_task(async move {
         let _ = oxidase::frame::next_frame().await;
+        sync_hover_card_content_z_index(&card_for_frame, state);
         if let Some(placement) = compute_hover_card_position_with_state(&card_for_frame, state) {
             update_placement_if_changed(state, placement);
             set_hover_card_content_readiness(state, FloatingReadiness::Ready);
@@ -1534,6 +1552,7 @@ fn sync_hover_card_positioning(
         start_floating_auto_update_monitor(&[trigger_id.as_str()], &content_id, move |event| {
             match event {
                 FloatingAutoUpdateEvent::Scroll | FloatingAutoUpdateEvent::Update => {
+                    sync_hover_card_content_z_index(&card_clone, state);
                     if let Some(placement) = compute_hover_card_position_with_state(&card_clone, state)
                     {
                         update_placement_if_changed(state, placement);
@@ -1687,6 +1706,26 @@ fn stop_hover_card_grace_monitor(mut state: HoverCardRuntimeState) {
     }
 }
 
+fn sync_hover_card_content_z_index(card: &HoverCard, state: HoverCardRuntimeState) {
+    let content_id = effective_content_id_from_state(card, state);
+    let next = normalize_hoisted_z_index(get_element_computed_z_index(&content_id).as_deref());
+    let mut sig = state.content_z_index;
+    if sig.try_peek().is_ok_and(|cur| *cur != next) {
+        if let Ok(mut w) = sig.try_write() {
+            *w = next;
+        }
+    }
+}
+
+fn clear_hover_card_content_z_index(state: HoverCardRuntimeState) {
+    let mut sig = state.content_z_index;
+    if sig.try_peek().is_ok_and(|cur| cur.is_some()) {
+        if let Ok(mut w) = sig.try_write() {
+            *w = None;
+        }
+    }
+}
+
 fn clear_hover_card_retained_content_state(state: HoverCardRuntimeState) {
     stop_hover_card_grace_monitor(state);
     let mut content_handle = state.content_handle;
@@ -1704,6 +1743,7 @@ fn clear_hover_card_retained_content_state(state: HoverCardRuntimeState) {
             *pl = None;
         }
     }
+    clear_hover_card_content_z_index(state);
     set_hover_card_content_readiness(state, FloatingReadiness::Measuring);
 }
 

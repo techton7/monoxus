@@ -524,6 +524,46 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
         let _ = esc.try_write().map(|mut w| *w = props.on_escape_keydown.clone());
     }
 
+    let parent_branch = try_consume_context::<crate::foundation::overlay::OverlayBranchContext>();
+    let should_render = surface.should_render_content();
+    let is_open = sub.is_open();
+    let content_id = surface.current_content_id();
+    let wrapper_id = surface.current_wrapper_id();
+    let portal_id = surface
+        .portal_id
+        .read()
+        .clone()
+        .unwrap_or_else(|| format!("{}-portal", surface.surface_key));
+
+    crate::foundation::overlay::use_register_parent_overlay_branches(
+        parent_branch.clone(),
+        should_render,
+        vec![content_id.clone(), wrapper_id.clone(), portal_id],
+    );
+
+    {
+        let surf_reg = surface.clone();
+        let surf_unreg = surface.clone();
+        let parent_for_reg = parent_branch.clone();
+        let parent_for_unreg = parent_branch;
+        use_context_provider(|| {
+            crate::foundation::overlay::OverlayBranchContext::new(
+                move |branch: String| {
+                    surf_reg.register_branch(branch.clone());
+                    if let Some(ref pb) = parent_for_reg {
+                        pb.register_branch(branch);
+                    }
+                },
+                move |branch: String| {
+                    surf_unreg.unregister_branch(&branch);
+                    if let Some(ref pb) = parent_for_unreg {
+                        pb.unregister_branch(branch);
+                    }
+                },
+            )
+        });
+    }
+
     let close_fn_sub = sub.clone();
     let root_kb = root.using_keyboard;
     use_context_provider(|| MenuSurfaceContext {
@@ -535,13 +575,10 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
         })),
     });
 
-    if !surface.should_render_content() {
+    if !should_render {
         return rsx! {};
     }
 
-    let is_open = sub.is_open();
-    let content_id = surface.current_content_id();
-    let wrapper_id = surface.current_wrapper_id();
     let placement = surface.placement.read().clone();
     let readiness = *surface.readiness.read();
     let hidden_detached = props.hide_when_detached
@@ -568,7 +605,13 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
         MenuPart::SubContent,
     );
 
-    let wrapper_style = build_menu_wrapper_style(&root, placement.as_ref(), readiness);
+    let content_z_index = surface.content_z_index.read();
+    let wrapper_style = build_menu_wrapper_style(
+        &root,
+        placement.as_ref(),
+        readiness,
+        content_z_index.as_deref(),
+    );
     let hidden_style = if hidden_detached {
         " visibility: hidden;"
     } else {
@@ -653,6 +696,7 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
         return rsx! {
             div {
                 id: "{wrapper_id}",
+                "data-monoxus-floating-content-wrapper": "",
                 style: "{wrapper_style}",
                 "data-positioning": readiness.positioning_state(),
                 {rendered}
@@ -663,6 +707,7 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
     rsx! {
         div {
             id: "{wrapper_id}",
+            "data-monoxus-floating-content-wrapper": "",
             style: "{wrapper_style}",
             "data-positioning": readiness.positioning_state(),
             div {
@@ -748,6 +793,44 @@ pub fn MenuSubContentStatic(props: MenuSubContentStaticProps) -> Element {
         let _ = esc.try_write().map(|mut w| *w = props.on_escape_keydown.clone());
     }
 
+    let parent_branch = try_consume_context::<crate::foundation::overlay::OverlayBranchContext>();
+    let should_render = surface.should_render_content();
+    let content_id = surface.current_content_id();
+    let portal_id = surface
+        .portal_id
+        .read()
+        .clone()
+        .unwrap_or_else(|| format!("{}-portal", surface.surface_key));
+
+    crate::foundation::overlay::use_register_parent_overlay_branches(
+        parent_branch.clone(),
+        should_render,
+        vec![content_id.clone(), portal_id],
+    );
+
+    {
+        let surf_reg = surface.clone();
+        let surf_unreg = surface.clone();
+        let parent_for_reg = parent_branch.clone();
+        let parent_for_unreg = parent_branch;
+        use_context_provider(|| {
+            crate::foundation::overlay::OverlayBranchContext::new(
+                move |branch: String| {
+                    surf_reg.register_branch(branch.clone());
+                    if let Some(ref pb) = parent_for_reg {
+                        pb.register_branch(branch);
+                    }
+                },
+                move |branch: String| {
+                    surf_unreg.unregister_branch(&branch);
+                    if let Some(ref pb) = parent_for_unreg {
+                        pb.unregister_branch(branch);
+                    }
+                },
+            )
+        });
+    }
+
     let close_fn_sub = sub.clone();
     let root_kb = root.using_keyboard;
     use_context_provider(|| MenuSurfaceContext {
@@ -759,11 +842,10 @@ pub fn MenuSubContentStatic(props: MenuSubContentStaticProps) -> Element {
         })),
     });
 
-    if !surface.should_render_content() {
+    if !should_render {
         return rsx! {};
     }
 
-    let content_id = surface.current_content_id();
     let attrs = MenuContentAttributes::new(
         content_id,
         surface.current_wrapper_id(),

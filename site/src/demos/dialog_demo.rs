@@ -12,9 +12,7 @@ pub fn DialogDemo() -> Element {
 
     rsx! {
         div { class: "flex flex-col items-center gap-3",
-            // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
             DialogRoot {
-                id: Some("demo-dialog".into()),
                 open: open,
                 on_open_change: move |next| open.set(next),
 

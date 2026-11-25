@@ -21,9 +21,7 @@ pub fn SelectDemo() -> Element {
 
     rsx! {
         div { class: "flex flex-col items-center gap-3",
-            // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
             SelectRoot {
-                id: Some("demo-select".into()),
                 value: selected(),
                 items: Some(items),
                 on_value_change: move |next| selected.set(next),

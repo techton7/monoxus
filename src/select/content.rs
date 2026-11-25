@@ -207,8 +207,10 @@ pub fn SelectContent(
 
     let drop_ids = latest_ids.clone();
     let drop_parent_branch = parent_branch.clone();
+    let drop_runtime = ctx.runtime.clone();
     use_drop(move || {
         let (drop_cid, drop_wid, drop_pid) = drop_ids.borrow().clone();
+        drop_runtime.clear_content_z_index();
         crate::foundation::overlay::unregister_active_overlay_layer(&drop_cid);
         if let Some(ref branch_ctx) = drop_parent_branch {
             branch_ctx.unregister_branch(drop_cid.clone());
@@ -240,8 +242,7 @@ pub fn SelectContent(
     let is_ready = readiness == crate::foundation::overlay::FloatingReadiness::Ready && placement_opt.is_some();
 
     let css_vars = ctx.runtime.content_css_custom_properties();
-
-    const DEFAULT_OVERLAY_Z_INDEX: &str = "50";
+    let content_z_index = ctx.runtime.content_z_index();
 
     let (wrapper_style, width_style, ref_hidden_str) = if is_ready {
         let placement = placement_opt.unwrap();
@@ -253,11 +254,14 @@ pub fn SelectContent(
         } else {
             format!("min-width: {}px;", anchor_w)
         };
-        let w_pos_style = placement.wrapper_style(readiness, Some(DEFAULT_OVERLAY_Z_INDEX));
+        let w_pos_style = placement.wrapper_style(readiness, content_z_index.as_deref());
         let ref_hidden = if placement.reference_hidden() { "true" } else { "false" };
         (w_pos_style, w_style, ref_hidden)
     } else {
-        let w_pos_style = crate::foundation::overlay::FloatingReadiness::wrapper_measuring_style(Some(DEFAULT_OVERLAY_Z_INDEX));
+        let w_pos_style =
+            crate::foundation::overlay::FloatingReadiness::wrapper_measuring_style(
+                content_z_index.as_deref(),
+            );
         let w_style = if same_width {
             "width: 100%; min-width: 100%;".to_string()
         } else {
@@ -351,6 +355,7 @@ pub fn SelectContent(
                     move |evt: Event<MountedData>| {
                         let mut ch = runtime.state.content_handle;
                         ch.set(Some(evt.data()));
+                        runtime.sync_content_z_index();
                         runtime.start_position_monitor();
                     }
                 },

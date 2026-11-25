@@ -44,9 +44,7 @@ pub fn SiteHeader() -> Element {
                                 "Monoxus"
                             }
                         }
-                        // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
                         TooltipRoot {
-                            id: Some("site-header-version-tooltip".into()),
                             side: PlacementSide::Bottom,
                             side_offset: 8.0,
                             TooltipTrigger {
@@ -130,9 +128,7 @@ pub fn SiteHeader() -> Element {
                     // Mobile navigation drawer
                     div {
                         class: "lg:hidden",
-                        // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
                         DialogRoot {
-                            id: Some("site-header-mobile-nav-dialog".into()),
                             open: Some(mobile_open),
                             DialogTrigger {
                                 class: "inline-flex h-9 w-9 items-center justify-center rounded-input border border-border-input bg-background-alt text-foreground-alt shadow-mini transition-colors hover:border-border-input-hover hover:text-foreground",

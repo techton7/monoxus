@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::foundation::shared::use_stable_id;
 use crate::popover::components::PopoverContext;
 
 #[derive(Props, Clone, PartialEq)]
@@ -20,7 +21,10 @@ pub fn PopoverClose(props: PopoverCloseProps) -> Element {
     let ctx = use_context::<PopoverContext>();
     let runtime = ctx.runtime.read();
     let close = runtime.close();
-    let close_id = props.id.unwrap_or_else(|| close.id().to_string());
+    let stable_fallback = use_stable_id(None);
+    let close_id = props
+        .id
+        .unwrap_or_else(|| format!("{stable_fallback}-close"));
 
     rsx! {
         button {

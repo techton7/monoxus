@@ -10,9 +10,7 @@ pub fn TooltipDemo() -> Element {
 
     rsx! {
         div { class: "flex flex-wrap items-center justify-center gap-3",
-            // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
             TooltipRoot {
-                id: Some("demo-tooltip-copy".into()),
                 delay_duration: 200,
                 side: PlacementSide::Top,
                 side_offset: 8.0,
@@ -39,9 +37,7 @@ pub fn TooltipDemo() -> Element {
                 }
             }
 
-            // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
             TooltipRoot {
-                id: Some("demo-tooltip-cmd".into()),
                 delay_duration: 200,
                 side: PlacementSide::Bottom,
                 side_offset: 8.0,

@@ -4,9 +4,7 @@ use monoxus::tabs::{TabsContent, TabsList, TabsRoot, TabsTrigger};
 #[component]
 pub fn TabsDemo() -> Element {
     rsx! {
-        // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
         TabsRoot {
-            id: Some("demo-tabs".into()),
             default_value: "account".to_string(),
             class: "w-full max-w-md rounded-card-sm border border-border-card bg-background p-2 shadow-mini",
 

@@ -53,9 +53,7 @@ pub fn ComponentPreview(slug: String, #[props(default = true)] default_open: boo
             }
 
             // Attached Collapsible Code Tabs
-            // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
             TabsRoot {
-                id: Some(format!("preview-tabs-{slug}")),
                 value: Some(active_tab),
                 on_value_change: move |val| active_tab.set(val),
                 CollapsibleRoot {
@@ -81,9 +79,7 @@ pub fn ComponentPreview(slug: String, #[props(default = true)] default_open: boo
 
                             div {
                                 class: "flex items-center gap-2",
-                                // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
                                 TooltipRoot {
-                                    id: Some(format!("preview-copy-tooltip-{slug}")),
                                     side: PlacementSide::Top,
                                     side_offset: 6.0,
                                     span {

@@ -51,6 +51,7 @@ mod web_driver;
 
 mod accessible_icon_test;
 mod aspect_ratio_test;
+mod auto_id_test;
 mod avatar_test;
 mod button_test;
 mod calendar_test;
@@ -77,6 +78,7 @@ mod overlay_presence_phase_3_7_step_4;
 mod pagination_test;
 mod pin_input_test;
 mod popover_test;
+mod portal_parity_test;
 mod progress_test;
 mod range_calendar_test;
 mod rating_group_test;
@@ -92,6 +94,7 @@ mod toggle_test;
 mod toolbar_test;
 mod tooltip_test;
 mod visually_hidden_test;
+mod z_index_hoisting_test;
 
 #[cfg(feature = "native")]
 mod native_accordion_test;
@@ -119,6 +122,7 @@ fn all_test_files_are_included() {
     const ROOT_TESTS: &[&str] = &[
         "accessible_icon_test.rs",
         "aspect_ratio_test.rs",
+        "auto_id_test.rs",
         "avatar_test.rs",
         "button_test.rs",
         "calendar_test.rs",
@@ -153,6 +157,7 @@ fn all_test_files_are_included() {
         "pagination_test.rs",
         "pin_input_test.rs",
         "popover_test.rs",
+        "portal_parity_test.rs",
         "progress_test.rs",
         "range_calendar_test.rs",
         "rating_group_test.rs",
@@ -168,6 +173,7 @@ fn all_test_files_are_included() {
         "toolbar_test.rs",
         "tooltip_test.rs",
         "visually_hidden_test.rs",
+        "z_index_hoisting_test.rs",
     ];
     const SUITE_ROOTS: &[&str] = &[
         "accordion/mod.rs",

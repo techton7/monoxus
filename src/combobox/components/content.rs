@@ -153,50 +153,38 @@ pub fn ComboboxContent(props: ComboboxContentProps) -> Element {
     // and with the shared LIFO overlay stack, tracking dynamic content_id safely (DEF-CBX-12).
     let parent_branch = try_consume_context::<OverlayBranchContext>();
     let wrapper_id = format!("{content_id}-floating-wrapper");
-    let tracked_ids: Rc<RefCell<Option<(String, String)>>> =
-        use_hook(|| Rc::new(RefCell::new(None)));
+    let portal_id = format!("{content_id}-portal-root");
+    crate::foundation::overlay::use_register_parent_overlay_branches(
+        parent_branch,
+        should_render,
+        vec![content_id.clone(), wrapper_id.clone(), portal_id],
+    );
+
+    let tracked_layer_id: Rc<RefCell<Option<String>>> = use_hook(|| Rc::new(RefCell::new(None)));
     {
         let cid = content_id.clone();
-        let wid = wrapper_id.clone();
-        let branch = parent_branch.clone();
-        let tracked = Rc::clone(&tracked_ids);
-        use_effect(use_reactive(
-            (&is_open, &cid, &wid),
-            move |(open, cur_cid, cur_wid)| {
-                if let Some((prev_cid, prev_wid)) = tracked.borrow_mut().take() {
-                    if prev_cid != cur_cid || !open {
-                        unregister_active_overlay_layer(&prev_cid);
-                        if let Some(ref b) = branch {
-                            b.unregister_branch(prev_cid);
-                            b.unregister_branch(prev_wid);
-                        }
-                    }
+        let tracked = Rc::clone(&tracked_layer_id);
+        use_effect(use_reactive((&is_open, &cid), move |(open, cur_cid)| {
+            if let Some(prev_cid) = tracked.borrow_mut().take() {
+                if prev_cid != cur_cid || !open {
+                    unregister_active_overlay_layer(&prev_cid);
                 }
-                if open {
-                    register_active_overlay_layer(&cur_cid);
-                    if let Some(ref b) = branch {
-                        b.register_branch(cur_cid.clone());
-                        b.register_branch(cur_wid.clone());
-                    }
-                    *tracked.borrow_mut() = Some((cur_cid, cur_wid));
-                }
-            },
-        ));
+            }
+            if open {
+                register_active_overlay_layer(&cur_cid);
+                *tracked.borrow_mut() = Some(cur_cid);
+            }
+        }));
     }
 
     {
-        let tracked = Rc::clone(&tracked_ids);
-        let branch = parent_branch;
+        let tracked = Rc::clone(&tracked_layer_id);
         let rt = ctx.runtime.clone();
         use_drop(move || {
             rt.set_content_mounted(false);
             rt.stop_position_monitor();
-            if let Some((cid, wid)) = tracked.borrow_mut().take() {
+            if let Some(cid) = tracked.borrow_mut().take() {
                 unregister_active_overlay_layer(&cid);
-                if let Some(ref b) = branch {
-                    b.unregister_branch(cid);
-                    b.unregister_branch(wid);
-                }
             }
         });
     }
@@ -210,8 +198,15 @@ pub fn ComboboxContent(props: ComboboxContentProps) -> Element {
                 rt.refresh_scroll_buttons();
             } else {
                 rt.stop_position_monitor();
+                rt.clear_content_z_index();
             }
         }));
+    }
+    {
+        let rt = ctx.runtime.clone();
+        use_drop(move || {
+            rt.clear_content_z_index();
+        });
     }
 
     // DEF-CBX-01/02/04: Tracked DOM order sync + post-render open/input highlight reconciliation.
@@ -248,8 +243,8 @@ pub fn ComboboxContent(props: ComboboxContentProps) -> Element {
     let readiness = ctx.runtime.content_readiness();
     let is_ready = readiness == FloatingReadiness::Ready && placement_opt.is_some();
     let css_vars = ctx.runtime.content_css_custom_properties();
+    let content_z_index = ctx.runtime.content_z_index();
 
-    const DEFAULT_OVERLAY_Z_INDEX: &str = "50";
     let (wrapper_style, width_style, ref_hidden_str) = if is_ready {
         let placement = placement_opt.unwrap();
         let anchor_w = placement.geometry().anchor_width();
@@ -258,7 +253,7 @@ pub fn ComboboxContent(props: ComboboxContentProps) -> Element {
         } else {
             format!("min-width: {anchor_w}px;")
         };
-        let w_pos_style = placement.wrapper_style(readiness, Some(DEFAULT_OVERLAY_Z_INDEX));
+        let w_pos_style = placement.wrapper_style(readiness, content_z_index.as_deref());
         let ref_hidden = if placement.reference_hidden() {
             "true"
         } else {
@@ -266,8 +261,7 @@ pub fn ComboboxContent(props: ComboboxContentProps) -> Element {
         };
         (w_pos_style, w_style, ref_hidden)
     } else {
-        let w_pos_style =
-            FloatingReadiness::wrapper_measuring_style(Some(DEFAULT_OVERLAY_Z_INDEX));
+        let w_pos_style = FloatingReadiness::wrapper_measuring_style(content_z_index.as_deref());
         let w_style = if props.same_width {
             "width: 100%; min-width: 100%;".to_string()
         } else {
@@ -296,7 +290,9 @@ pub fn ComboboxContent(props: ComboboxContentProps) -> Element {
     let esc_cid = content_id.clone();
     let on_key_down = EventHandler::new(move |evt: KeyboardEvent| {
         if evt.key() == Key::Named(NamedKey::Escape) {
-            if !is_topmost_overlay_layer(&esc_cid) {
+            if crate::foundation::overlay::is_overlay_escape_consumed()
+                || !is_topmost_overlay_layer(&esc_cid)
+            {
                 return;
             }
             // DEF-CBX-03: Invoke consumer callback BEFORE `evt.prevent_default()`.
@@ -306,6 +302,8 @@ pub fn ComboboxContent(props: ComboboxContentProps) -> Element {
                 consumer_prevented = !evt.default_action_enabled();
             }
             evt.prevent_default();
+            evt.stop_propagation();
+            crate::foundation::overlay::mark_overlay_escape_consumed();
             if consumer_prevented {
                 return;
             }
@@ -317,6 +315,7 @@ pub fn ComboboxContent(props: ComboboxContentProps) -> Element {
     let on_mounted = EventHandler::new(move |evt: MountedEvent| {
         let mut ch = mount_rt.state.content_handle;
         let _ = ch.try_write().map(|mut w| *w = Some(evt.data()));
+        mount_rt.sync_content_z_index();
         mount_rt.start_position_monitor();
     });
 

@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use dioxus::prelude::*;
 
 use crate::collapsible::{
@@ -6,7 +8,7 @@ use crate::collapsible::{
     runtime::use_collapsible_runtime,
     state::Collapsible,
 };
-use crate::foundation::shared::{data_disabled_attr, ScopeHandle};
+use crate::foundation::shared::{ScopeHandle, data_disabled_attr, use_stable_id};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct CollapsibleRootProps {
@@ -38,7 +40,7 @@ pub fn CollapsibleRoot(props: CollapsibleRootProps) -> Element {
         disabled_sig.set(props.disabled);
     }
 
-    let scope_id = props.id.clone().unwrap_or_else(|| "collapsible".to_string());
+    let scope_id = use_stable_id(props.id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("collapsible").child(scope_id);
     let relationships = CollapsibleRelationships::new(scope.clone());
 

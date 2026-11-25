@@ -12,17 +12,18 @@ use crate::foundation::{
     browser::{
         DocumentDismissEvent, FloatingAutoUpdateEvent, FocusOptions, ModalShieldGuard,
         PresenceMonitorEvent, WatcherGuard, acquire_scroll_lock_with_options, focus_element_by_id,
-        focus_first_focusable, focus_mounted_handle, is_body_pointer_events_locked,
-        query_selector_all_by_id, release_scroll_lock, restore_focus_element_by_id,
-        restore_focus_element_by_id_with_options, start_document_dismiss_monitor_with_boundaries,
-        start_floating_auto_update_monitor, start_presence_monitor, suppress_external_dom,
+        focus_first_focusable, focus_mounted_handle, get_element_computed_z_index,
+        is_body_pointer_events_locked, query_selector_all_by_id, release_scroll_lock,
+        restore_focus_element_by_id, restore_focus_element_by_id_with_options,
+        start_document_dismiss_monitor_with_boundaries, start_floating_auto_update_monitor,
+        start_presence_monitor, suppress_external_dom,
     },
     overlay::{
         FloatingPlacement, FloatingReadiness, GeometryVars, OverlayEscapeGuardFn,
         OverlayPositionConfig, PlacementAlign, PlacementSide, Presence, PresenceCloseCycleId,
         PresenceController, PresenceControllerUpdate, Rect, Size, active_overlay_layers_snapshot,
-        compute_overlay_position, is_topmost_overlay_layer, register_active_overlay_layer,
-        unregister_active_overlay_layer,
+        compute_overlay_position, is_topmost_overlay_layer, normalize_hoisted_z_index,
+        register_active_overlay_layer, unregister_active_overlay_layer,
     },
     state::DataState,
 };
@@ -96,6 +97,7 @@ struct PopoverRuntimeState {
     content_handle: Signal<Option<PopoverMountedHandle>>,
     placement: Signal<Option<FloatingPlacement>>,
     content_readiness: Signal<FloatingReadiness>,
+    content_z_index: Signal<Option<String>>,
     focus_targets: Signal<HashMap<String, PopoverMountedHandle>>,
     presence_lane: Signal<PopoverContentPresenceLane>,
     presence_monitor: RetainedRootPresenceMonitorState,
@@ -147,6 +149,7 @@ where
         content_handle: use_signal(|| None),
         placement: use_signal(|| None),
         content_readiness: use_signal(FloatingReadiness::default),
+        content_z_index: use_signal(|| None),
         focus_targets: use_signal(HashMap::new),
         presence_lane: use_signal(|| {
             PopoverContentPresenceLane::new(popover.lifecycle().presence())
@@ -346,10 +349,17 @@ impl PopoverRuntime {
     }
 
     pub fn wrapper_style(&self) -> String {
+        let z_index = self.state.content_z_index.read();
         match self.placement() {
-            Some(ref placement) => placement.wrapper_style(self.content_readiness(), None),
-            None => FloatingReadiness::wrapper_measuring_style(None),
+            Some(ref placement) => {
+                placement.wrapper_style(self.content_readiness(), z_index.as_deref())
+            }
+            None => FloatingReadiness::wrapper_measuring_style(z_index.as_deref()),
         }
+    }
+
+    pub fn clear_content_z_index(&self) {
+        clear_popover_content_z_index(self.state);
     }
 
     pub fn trigger_handle(&self) -> Option<PopoverMountedHandle> {
@@ -584,6 +594,7 @@ impl PopoverRuntime {
         let mut content_handle = self.state.content_handle;
         content_handle.set(Some(mounted.clone()));
         self.capture_focus_target(effective_content_id(&self.popover, self.state), mounted);
+        sync_popover_content_z_index(self.popover(), self.state);
         sync_popover_positioning(self.popover(), self.state);
         self.refresh_live_placement();
         self.try_apply_pending_open_focus();
@@ -1469,6 +1480,8 @@ fn try_measure_popover_placement_sync(
         namespace: Some("popover"),
     };
 
+    sync_popover_content_z_index(popover, state);
+
     if let Some(placement) = compute_overlay_position(&config) {
         let geom = placement.geometry();
         let is_ready = geom.content_width() > 0.0 && geom.content_height() > 0.0;
@@ -1593,6 +1606,8 @@ async fn measure_popover_placement(
             .position(anchor_rect, content_size)
     };
 
+    sync_popover_content_z_index(popover, state);
+
     let geom = placement.geometry();
     if geom.content_width() > 0.0 && geom.content_height() > 0.0 {
         set_popover_content_readiness(state, FloatingReadiness::Ready);
@@ -1671,6 +1686,26 @@ fn set_popover_content_readiness(state: PopoverRuntimeState, readiness: Floating
     }
 }
 
+fn sync_popover_content_z_index(popover: &Popover, state: PopoverRuntimeState) {
+    let content_id = effective_content_id(popover, state);
+    let next = normalize_hoisted_z_index(get_element_computed_z_index(&content_id).as_deref());
+    let mut sig = state.content_z_index;
+    if sig.try_peek().is_ok_and(|cur| *cur != next) {
+        if let Ok(mut w) = sig.try_write() {
+            *w = next;
+        }
+    }
+}
+
+fn clear_popover_content_z_index(state: PopoverRuntimeState) {
+    let mut sig = state.content_z_index;
+    if sig.try_peek().is_ok_and(|cur| cur.is_some()) {
+        if let Ok(mut w) = sig.try_write() {
+            *w = None;
+        }
+    }
+}
+
 fn clear_popover_content_readiness(state: PopoverRuntimeState) {
     set_popover_content_readiness(state, FloatingReadiness::Measuring);
 }
@@ -1678,6 +1713,7 @@ fn clear_popover_content_readiness(state: PopoverRuntimeState) {
 fn clear_popover_retained_content_state(state: PopoverRuntimeState) {
     clear_popover_content_handle(state);
     clear_popover_placement(state);
+    clear_popover_content_z_index(state);
     clear_popover_content_readiness(state);
 }
 

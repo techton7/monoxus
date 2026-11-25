@@ -31,32 +31,56 @@ pub fn TooltipContent(props: TooltipContentProps) -> Element {
     let content = runtime.content();
     let content_id = props.id.clone().unwrap_or_else(|| content.id().to_string());
     let wrapper_id = content.wrapper_id().to_string();
+    let portal_id = runtime.relationships().scope().qualify("portal");
+    let is_open = runtime.is_open();
 
     let branch_context = try_consume_context::<OverlayBranchContext>();
-    if let Some(ctx) = &branch_context {
-        if should_render {
-            ctx.register_branch(&content_id);
-        } else {
-            ctx.unregister_branch(&content_id);
+    crate::foundation::overlay::use_register_parent_overlay_branches(
+        branch_context,
+        should_render,
+        vec![content_id.clone(), wrapper_id.clone(), portal_id],
+    );
+
+    let latest_cid = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(content_id.clone())));
+    {
+        let mut prev = latest_cid.borrow_mut();
+        if *prev != content_id {
+            runtime.unregister_content_id(&prev);
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev);
+            *prev = content_id.clone();
         }
     }
-    let branch_cleanup_id = content_id.clone();
-    let branch_ctx_cleanup = branch_context.clone();
-    use_drop(move || {
-        if let Some(ctx) = &branch_ctx_cleanup {
-            ctx.unregister_branch(&branch_cleanup_id);
+
+    let mut registered_layer_id = use_signal(|| Option::<String>::None);
+    if is_open {
+        let prev = registered_layer_id.peek().clone();
+        if prev.as_deref() != Some(content_id.as_str()) {
+            if let Some(prev_id) = prev.as_deref() {
+                crate::foundation::overlay::unregister_active_overlay_layer(prev_id);
+            }
+            crate::foundation::overlay::register_active_overlay_layer(&content_id);
+            registered_layer_id.set(Some(content_id.clone()));
         }
-    });
+    } else {
+        let prev = registered_layer_id.peek().clone();
+        if let Some(prev_id) = prev {
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev_id);
+            registered_layer_id.set(None);
+        }
+    }
 
     if should_render {
         runtime.register_content_id(content_id.clone());
     } else {
         runtime.unregister_content_id(&content_id);
     }
-    let cleanup_content_id = content_id.clone();
+    let cleanup_cid = latest_cid.clone();
     let cleanup_runtime = runtime.clone();
     use_drop(move || {
-        cleanup_runtime.unregister_content_id(&cleanup_content_id);
+        let current_cid = cleanup_cid.borrow().clone();
+        cleanup_runtime.unregister_content_id(&current_cid);
+        cleanup_runtime.clear_content_z_index();
+        crate::foundation::overlay::unregister_active_overlay_layer(&current_cid);
     });
 
     runtime.set_collision_boundary(props.collision_boundary.clone());

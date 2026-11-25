@@ -1,8 +1,13 @@
+use std::borrow::Cow;
+
 use dioxus::prelude::*;
 
 use crate::foundation::{
     roving_focus::{RovingItemMeta, use_roving_focus_item},
-    shared::{ScopeHandle, data_disabled_attr, use_direction_context, use_mount_animation_guard},
+    shared::{
+        ScopeHandle, data_disabled_attr, use_direction_context, use_mount_animation_guard,
+        use_stable_id,
+    },
 };
 
 use super::{
@@ -36,7 +41,7 @@ pub fn TabsRoot(
     let initial_val = default_value.unwrap_or_default();
     let fallback_val = use_signal(|| initial_val.clone());
     let val_signal = value.unwrap_or(fallback_val);
-    let scope_id = id.clone().unwrap_or_else(|| "tabs".to_string());
+    let scope_id = use_stable_id(id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("tabs").child(scope_id);
 
     let mut tabs_def = Tabs::new(scope, val_signal()).with_direction(tabs_dir);

@@ -39,43 +39,32 @@ pub fn SelectPortal(
     };
 
     let portal_id = format!("{}-portal-root", ctx.runtime.relationships().content_id());
-
-    let pid = portal_id.clone();
-    let target_host = resolved_host.clone();
     let should_render_portal = ctx.runtime.should_render_portal();
-    use_effect(use_reactive((&should_render_portal,), move |(should_render,)| {
-        if !should_render && !force_mount {
-            return;
-        }
-        let host_id = match &target_host {
-            PortalHost::Inline => None,
-            PortalHost::Named(name) => Some(name.as_ref()),
-            PortalHost::Default => None,
-        };
-        crate::foundation::browser::teleport_element_to_host(&pid, host_id);
-    }));
-
-    let pid_cleanup = portal_id.clone();
-    dioxus::core::use_drop(move || {
-        crate::foundation::browser::remove_element_by_id(&pid_cleanup);
-    });
-
     let is_force_mounted = force_mount || ctx.runtime.force_mount();
     let should_render = should_render_portal || is_force_mounted;
-    if !should_render {
-        return rsx! {};
-    }
-
     let is_teleported = !disabled && !resolved_host.is_inline();
+
+    crate::foundation::overlay::use_portal_teleport(
+        portal_id.clone(),
+        should_render,
+        disabled,
+        &resolved_host,
+    );
 
     rsx! {
         div {
-            id: "{portal_id}",
             style: "display: contents;",
-            "data-portal-host": "{host_attr}",
-            "data-portal-disabled": if disabled { "true" } else { "false" },
-            "data-portal-teleported": if is_teleported { "true" } else { "false" },
-            {children}
+            "data-portal-anchor": "",
+            if should_render {
+                div {
+                    id: "{portal_id}",
+                    style: "display: contents;",
+                    "data-portal-host": "{host_attr}",
+                    "data-portal-disabled": if disabled { "true" } else { "false" },
+                    "data-portal-teleported": if is_teleported { "true" } else { "false" },
+                    {children}
+                }
+            }
         }
     }
 }

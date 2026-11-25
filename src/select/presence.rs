@@ -52,6 +52,14 @@ pub(crate) fn sync_select_presence(content_id: &str, mut state: SelectRuntimeSta
 
     if update.invalidated_close_cycle().is_some() || !update.should_render() {
         stop_select_presence_monitor(state, content_id);
+        if !open && !update.should_render() {
+            let mut z_sig = state.content_z_index;
+            if z_sig.try_peek().is_ok_and(|cur| cur.is_some()) {
+                if let Ok(mut w) = z_sig.try_write() {
+                    *w = None;
+                }
+            }
+        }
     }
 
     if let Some(cycle_id) = update.started_close_cycle() {
@@ -129,7 +137,15 @@ pub(crate) fn complete_select_presence_close_cycle(
     cycle_id: PresenceCloseCycleId,
 ) {
     clear_select_presence_monitor_state(state);
-    let _ = state
+    let completed = state
         .presence_lane
         .with_mut(|lane| lane.complete_close_cycle(cycle_id));
+    if completed {
+        let mut z_sig = state.content_z_index;
+        if z_sig.try_peek().is_ok_and(|cur| cur.is_some()) {
+            if let Ok(mut w) = z_sig.try_write() {
+                *w = None;
+            }
+        }
+    }
 }

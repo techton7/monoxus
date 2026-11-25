@@ -1,6 +1,8 @@
+use std::borrow::Cow;
+
 use dioxus::prelude::*;
 
-use crate::foundation::shared::ScopeHandle;
+use crate::foundation::shared::{ScopeHandle, use_stable_id};
 
 use super::{
     hidden_input::SelectHiddenInput,
@@ -37,14 +39,15 @@ pub fn SelectRoot(
     #[props(default)] dir: Option<crate::foundation::shared::Direction>,
     children: Element,
 ) -> Element {
-    let fallback_scope_id = id.clone().unwrap_or_else(|| "select".to_string());
+    let fallback_scope_id = use_stable_id(id.clone().map(Cow::Owned));
     let fallback_val = value.clone().or(default_value.clone());
     let fallback_vals = values
         .clone()
         .or(default_values.clone())
         .unwrap_or_default();
 
-    let mut fallback_select = Select::new(ScopeHandle::root("select").child(fallback_scope_id))
+    let mut fallback_select =
+        Select::new(ScopeHandle::root("select").child(fallback_scope_id))
         .with_value(fallback_val)
         .with_default_value(default_value)
         .with_open(open)

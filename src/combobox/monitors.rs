@@ -100,7 +100,9 @@ impl ComboboxRuntime {
         let watcher =
             start_document_dismiss_monitor_with_boundaries(&boundaries, move |event| match event {
                 DocumentDismissEvent::Escape => {
-                    if !is_topmost_overlay_layer(&content_id_clone) {
+                    if crate::foundation::overlay::is_overlay_escape_consumed()
+                        || !is_topmost_overlay_layer(&content_id_clone)
+                    {
                         return;
                     }
                     // When focus is on the ComboboxInput or ComboboxContent element, their own
@@ -120,9 +122,11 @@ impl ComboboxRuntime {
                         let evt = dioxus::core::Event::new(Rc::new(kb_data), true);
                         cb.call(evt.clone());
                         if !evt.default_action_enabled() {
+                            crate::foundation::overlay::mark_overlay_escape_consumed();
                             return;
                         }
                     }
+                    crate::foundation::overlay::mark_overlay_escape_consumed();
                     // Escape closes without reverting `input_value`.
                     runtime.close_menu();
                 }
@@ -230,6 +234,8 @@ impl ComboboxRuntime {
             namespace: Some("combobox"),
         };
 
+        self.sync_content_z_index();
+
         if let Some(computed) = compute_overlay_position(&config) {
             let mut side_sig = self.state.side;
             if side_sig.try_peek().is_ok_and(|g| *g != computed.side()) {
@@ -321,6 +327,8 @@ impl ComboboxRuntime {
                 if align_sig.try_peek().is_ok_and(|g| *g != placement.align()) {
                     let _ = align_sig.try_write().map(|mut w| *w = placement.align());
                 }
+
+                self.sync_content_z_index();
 
                 let geom = placement.geometry();
                 let next_readiness = if geom.content_width() > 0.0 && geom.content_height() > 0.0 {

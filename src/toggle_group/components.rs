@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::rc::Rc;
 
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
@@ -5,7 +6,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     roving_focus::{RovingFocusConfig, RovingItemMeta, use_roving_focus_item},
-    shared::{Direction, ScopeHandle, use_direction_context},
+    shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
     state::{ControllableStateProps, use_controllable_state},
 };
 
@@ -64,10 +65,7 @@ pub struct ToggleGroupRootProps {
 #[component]
 pub fn ToggleGroupRoot(props: ToggleGroupRootProps) -> Element {
     let resolved_dir = use_direction_context(props.dir);
-    let scope_id = props
-        .id
-        .clone()
-        .unwrap_or_else(|| ScopeHandle::root("toggle-group").token());
+    let scope_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
 
     let on_single_change_cb = props.on_value_change.as_ref().map(|handler| {
         let handler = *handler;

@@ -678,6 +678,14 @@ pub fn DatePickerContent(props: DatePickerContentProps) -> Element {
     let content = runtime.content();
     let content_id = props.id.unwrap_or_else(|| content.id().to_string());
     let wrapper_id = format!("{}-wrapper", content_id);
+    let portal_id = runtime.relationships().scope().qualify("portal");
+
+    let parent_branch = try_consume_context::<OverlayBranchContext>();
+    crate::foundation::overlay::use_register_parent_overlay_branches(
+        parent_branch.clone(),
+        should_render,
+        vec![content_id.clone(), wrapper_id.clone(), portal_id],
+    );
 
     let latest_cid = use_hook(|| Rc::new(RefCell::new(content_id.clone())));
     {
@@ -733,15 +741,23 @@ pub fn DatePickerContent(props: DatePickerContentProps) -> Element {
     ));
 
     let runtime_for_branch = runtime.clone();
+    let parent_for_reg = parent_branch.clone();
+    let parent_for_unreg = parent_branch;
     use_context_provider(|| {
         let rt_reg = runtime_for_branch.clone();
         let rt_unreg = runtime_for_branch.clone();
         OverlayBranchContext::new(
             move |branch: String| {
-                rt_reg.register_branch(branch);
+                rt_reg.register_branch(branch.clone());
+                if let Some(ref pb) = parent_for_reg {
+                    pb.register_branch(branch);
+                }
             },
             move |branch: String| {
                 rt_unreg.unregister_branch(&branch);
+                if let Some(ref pb) = parent_for_unreg {
+                    pb.unregister_branch(branch);
+                }
             },
         )
     });
@@ -893,6 +909,14 @@ pub fn DatePickerContentStatic(props: DatePickerContentProps) -> Element {
 
     let content = runtime.content();
     let content_id = props.id.unwrap_or_else(|| content.id().to_string());
+    let portal_id = runtime.relationships().scope().qualify("portal");
+
+    let parent_branch = try_consume_context::<OverlayBranchContext>();
+    crate::foundation::overlay::use_register_parent_overlay_branches(
+        parent_branch.clone(),
+        should_render,
+        vec![content_id.clone(), portal_id],
+    );
 
     let latest_cid = use_hook(|| Rc::new(RefCell::new(content_id.clone())));
     {
@@ -933,15 +957,23 @@ pub fn DatePickerContentStatic(props: DatePickerContentProps) -> Element {
     });
 
     let runtime_for_branch = runtime.clone();
+    let parent_for_reg = parent_branch.clone();
+    let parent_for_unreg = parent_branch;
     use_context_provider(|| {
         let rt_reg = runtime_for_branch.clone();
         let rt_unreg = runtime_for_branch.clone();
         OverlayBranchContext::new(
             move |branch: String| {
-                rt_reg.register_branch(branch);
+                rt_reg.register_branch(branch.clone());
+                if let Some(ref pb) = parent_for_reg {
+                    pb.register_branch(branch);
+                }
             },
             move |branch: String| {
                 rt_unreg.unregister_branch(&branch);
+                if let Some(ref pb) = parent_for_unreg {
+                    pb.unregister_branch(branch);
+                }
             },
         )
     });

@@ -199,6 +199,8 @@ impl SelectRuntime {
             namespace: Some("select"),
         };
 
+        self.sync_content_z_index();
+
         if let Some(computed) = compute_overlay_position(&config) {
             let mut side_sig = self.state.side;
             if *side_sig.peek() != computed.side() {
@@ -305,6 +307,7 @@ impl SelectRuntime {
                     }
 
                     self.set_reference_hidden(placement.reference_hidden());
+                    self.sync_content_z_index();
 
                     let geom = placement.geometry();
                     let next_readiness = if geom.content_width() > 0.0 && geom.content_height() > 0.0 {

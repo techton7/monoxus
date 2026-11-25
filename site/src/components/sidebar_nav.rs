@@ -14,9 +14,7 @@ pub fn SidebarNav() -> Element {
         aside {
             aria_label: "Documentation navigation",
             class: "sticky top-[71px] hidden h-[calc(100vh-71px)] w-[240px] shrink-0 self-start lg:block",
-            // TODO(monoxus): remove once auto-ID & wrapper z-index hoisting land
             ScrollAreaRoot {
-                id: Some("docs-sidebar-scroll-area".into()),
                 r#type: ScrollAreaType::Hover,
                 class: "h-full w-full overflow-hidden border-r border-border-card pr-3",
                 ScrollAreaViewport {

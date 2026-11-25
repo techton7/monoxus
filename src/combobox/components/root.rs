@@ -212,6 +212,7 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
     let content_handle = use_signal(|| None);
     let placement = use_signal(|| None);
     let content_readiness = use_signal(|| FloatingReadiness::Measuring);
+    let content_z_index = use_signal(|| None);
 
     let preferred_side = use_signal(|| PlacementSide::Bottom);
     let preferred_align = use_signal(|| PlacementAlign::Start);
@@ -286,6 +287,7 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
             content_handle,
             placement,
             content_readiness,
+            content_z_index,
             preferred_side,
             preferred_align,
             side,

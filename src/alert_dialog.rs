@@ -190,7 +190,8 @@ pub fn AlertDialogRoot(
 ) -> Element {
     let fallback_open = use_signal(|| default_open.unwrap_or(false));
     let open_signal = open.unwrap_or(fallback_open);
-    let scope_id = id.clone().unwrap_or_else(|| "alert-dialog".to_string());
+    let scope_id =
+        crate::foundation::shared::use_stable_id(id.clone().map(std::borrow::Cow::Owned));
     let scope = ScopeHandle::root("alert-dialog").child(scope_id);
 
     let mut alert = AlertDialog::new(scope, open_signal());
@@ -207,7 +208,9 @@ pub fn AlertDialogRoot(
 
     let alert_runtime = use_alert_dialog_runtime(alert);
     let mut runtime_sig = use_signal(|| alert_runtime.dialog_runtime().clone());
-    if runtime_sig.peek().is_open() != alert_runtime.dialog_runtime().is_open() {
+    if runtime_sig.peek().is_open() != alert_runtime.dialog_runtime().is_open()
+        || runtime_sig.peek().root().id() != alert_runtime.dialog_runtime().root().id()
+    {
         runtime_sig.set(alert_runtime.dialog_runtime().clone());
     }
 

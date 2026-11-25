@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -13,7 +14,10 @@ use crate::foundation::{
         start_presence_monitor, start_resize_monitor,
     },
     overlay::PresenceController,
-    shared::{ScopeHandle, data_disabled_attr, use_direction_context, use_mount_animation_guard},
+    shared::{
+        ScopeHandle, data_disabled_attr, use_direction_context, use_mount_animation_guard,
+        use_stable_id,
+    },
 };
 
 use super::{
@@ -44,7 +48,7 @@ pub fn AccordionRoot(
 ) -> Element {
     let resolved_dir = use_direction_context(dir.map(Into::into));
     let accordion_dir = AccordionDirection::from(resolved_dir);
-    let scope_id = id.clone().unwrap_or_else(|| "accordion".to_string());
+    let scope_id = use_stable_id(id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("accordion").child(scope_id);
 
     let mut accordion = Accordion::new(scope, mode)

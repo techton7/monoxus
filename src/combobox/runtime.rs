@@ -102,6 +102,7 @@ pub struct ComboboxRuntimeState {
     pub content_handle: Signal<Option<MountedHandle>>,
     pub placement: Signal<Option<FloatingPlacement>>,
     pub content_readiness: Signal<FloatingReadiness>,
+    pub content_z_index: Signal<Option<String>>,
 
     pub preferred_side: Signal<PlacementSide>,
     pub preferred_align: Signal<PlacementAlign>,
@@ -972,12 +973,20 @@ impl ComboboxRuntime {
         // DEF-CBX-03: Invoke consumer `on_escape_key_down` BEFORE calling `evt.prevent_default()`
         // so consumers can prevent dismissal while default Escape still preserves Blitz input focus.
         if nav_key == ComboboxNavKey::Escape && is_open {
+            let cid = self.current_content_id_untracked();
+            if crate::foundation::overlay::is_overlay_escape_consumed()
+                || !crate::foundation::overlay::is_topmost_overlay_layer(&cid)
+            {
+                return;
+            }
             let mut consumer_prevented = false;
             if let Ok(Some(cb)) = self.state.on_escape_key_down.try_peek().map(|g| *g) {
                 cb.call(evt.clone());
                 consumer_prevented = !evt.default_action_enabled();
             }
             evt.prevent_default();
+            evt.stop_propagation();
+            crate::foundation::overlay::mark_overlay_escape_consumed();
             if consumer_prevented {
                 return;
             }
@@ -1211,6 +1220,32 @@ impl ComboboxRuntime {
 
     pub fn content_readiness(&self) -> FloatingReadiness {
         *self.state.content_readiness.read()
+    }
+
+    pub fn content_z_index(&self) -> Option<String> {
+        self.state.content_z_index.read().clone()
+    }
+
+    pub fn sync_content_z_index(&self) {
+        let content_id = self.current_content_id_untracked();
+        let next = crate::foundation::overlay::normalize_hoisted_z_index(
+            crate::foundation::browser::get_element_computed_z_index(&content_id).as_deref(),
+        );
+        let mut sig = self.state.content_z_index;
+        if sig.try_peek().is_ok_and(|cur| *cur != next) {
+            if let Ok(mut w) = sig.try_write() {
+                *w = next;
+            }
+        }
+    }
+
+    pub fn clear_content_z_index(&self) {
+        let mut sig = self.state.content_z_index;
+        if sig.try_peek().is_ok_and(|cur| cur.is_some()) {
+            if let Ok(mut w) = sig.try_write() {
+                *w = None;
+            }
+        }
     }
 
     pub fn side(&self) -> PlacementSide {

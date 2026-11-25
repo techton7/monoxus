@@ -77,25 +77,25 @@ pub fn ComboboxContentStatic(props: ComboboxContentStaticProps) -> Element {
     }
 
     let parent_branch = try_consume_context::<OverlayBranchContext>();
+    let portal_id = format!("{content_id}-portal-root");
+    crate::foundation::overlay::use_register_parent_overlay_branches(
+        parent_branch,
+        should_render,
+        vec![content_id.clone(), portal_id],
+    );
+
     let tracked_id: Rc<RefCell<Option<String>>> = use_hook(|| Rc::new(RefCell::new(None)));
     {
         let cid = content_id.clone();
-        let branch = parent_branch.clone();
         let tracked = Rc::clone(&tracked_id);
         use_effect(use_reactive((&is_open, &cid), move |(open, cur_cid)| {
             if let Some(prev_cid) = tracked.borrow_mut().take() {
                 if prev_cid != cur_cid || !open {
                     unregister_active_overlay_layer(&prev_cid);
-                    if let Some(ref b) = branch {
-                        b.unregister_branch(prev_cid);
-                    }
                 }
             }
             if open {
                 register_active_overlay_layer(&cur_cid);
-                if let Some(ref b) = branch {
-                    b.register_branch(cur_cid.clone());
-                }
                 *tracked.borrow_mut() = Some(cur_cid);
             }
         }));
@@ -103,15 +103,11 @@ pub fn ComboboxContentStatic(props: ComboboxContentStaticProps) -> Element {
 
     {
         let tracked = Rc::clone(&tracked_id);
-        let branch = parent_branch;
         let rt = ctx.runtime.clone();
         use_drop(move || {
             rt.set_content_mounted(false);
             if let Some(cid) = tracked.borrow_mut().take() {
                 unregister_active_overlay_layer(&cid);
-                if let Some(ref b) = branch {
-                    b.unregister_branch(cid);
-                }
             }
         });
     }
@@ -161,7 +157,9 @@ pub fn ComboboxContentStatic(props: ComboboxContentStaticProps) -> Element {
     let esc_cid = content_id;
     let on_key_down = EventHandler::new(move |evt: KeyboardEvent| {
         if evt.key() == Key::Named(NamedKey::Escape) {
-            if !is_topmost_overlay_layer(&esc_cid) {
+            if crate::foundation::overlay::is_overlay_escape_consumed()
+                || !is_topmost_overlay_layer(&esc_cid)
+            {
                 return;
             }
             // DEF-CBX-03: Invoke consumer callback BEFORE `evt.prevent_default()`.
@@ -171,6 +169,8 @@ pub fn ComboboxContentStatic(props: ComboboxContentStaticProps) -> Element {
                 consumer_prevented = !evt.default_action_enabled();
             }
             evt.prevent_default();
+            evt.stop_propagation();
+            crate::foundation::overlay::mark_overlay_escape_consumed();
             if consumer_prevented {
                 return;
             }

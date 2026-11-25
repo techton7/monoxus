@@ -80,18 +80,88 @@ pub fn MenuContentStatic(props: MenuContentStaticProps) -> Element {
         let _ = ca.try_write().map(|mut w| *w = props.on_close_auto_focus.clone());
     }
 
+    let parent_branch = try_consume_context::<crate::foundation::overlay::OverlayBranchContext>();
+    let should_render = surface.should_render_content();
+    let is_open = root.is_open();
+    let content_id = surface.current_content_id();
+    let portal_id = surface
+        .portal_id
+        .read()
+        .clone()
+        .unwrap_or_else(|| format!("{}-portal", surface.surface_key));
+
+    crate::foundation::overlay::use_register_parent_overlay_branches(
+        parent_branch.clone(),
+        should_render,
+        vec![content_id.clone(), portal_id],
+    );
+
+    let latest_cid = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(content_id.clone())));
+    {
+        let mut prev = latest_cid.borrow_mut();
+        if *prev != content_id {
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev);
+            *prev = content_id.clone();
+        }
+    }
+    let mut registered_layer_id = use_signal(|| Option::<String>::None);
+    if is_open {
+        let prev = registered_layer_id.peek().clone();
+        if prev.as_deref() != Some(content_id.as_str()) {
+            if let Some(prev_id) = prev.as_deref() {
+                crate::foundation::overlay::unregister_active_overlay_layer(prev_id);
+            }
+            crate::foundation::overlay::register_active_overlay_layer(&content_id);
+            registered_layer_id.set(Some(content_id.clone()));
+        }
+    } else {
+        let prev = registered_layer_id.peek().clone();
+        if let Some(prev_id) = prev {
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev_id);
+            registered_layer_id.set(None);
+        }
+    }
+    {
+        let drop_cid = latest_cid.clone();
+        use_drop(move || {
+            let current_cid = drop_cid.borrow().clone();
+            crate::foundation::overlay::unregister_active_overlay_layer(&current_cid);
+        });
+    }
+
+    {
+        let surf_reg = surface.clone();
+        let surf_unreg = surface.clone();
+        let parent_for_reg = parent_branch.clone();
+        let parent_for_unreg = parent_branch;
+        use_context_provider(|| {
+            crate::foundation::overlay::OverlayBranchContext::new(
+                move |branch: String| {
+                    surf_reg.register_branch(branch.clone());
+                    if let Some(ref pb) = parent_for_reg {
+                        pb.register_branch(branch);
+                    }
+                },
+                move |branch: String| {
+                    surf_unreg.unregister_branch(&branch);
+                    if let Some(ref pb) = parent_for_unreg {
+                        pb.unregister_branch(branch);
+                    }
+                },
+            )
+        });
+    }
+
     use_context_provider(|| MenuSurfaceContext {
         surface: surface.clone(),
         parent_surface: None,
         close_this_submenu: None,
     });
 
-    if !surface.should_render_content() {
+    if !should_render {
         return rsx! {};
     }
 
-    let is_open = root.is_open();
-    let content_id = surface.current_content_id();
     let labelledby = match root.variant {
         MenuVariant::ContextMenu => None,
         _ => Some(root.trigger_id.read().clone()),

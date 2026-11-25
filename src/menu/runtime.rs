@@ -256,6 +256,7 @@ pub struct MenuSurfaceRuntime {
     pub active_submenu_close: Signal<Option<(String, Rc<dyn Fn()>)>>,
     pub active_corridor_sub: Signal<Option<ActiveCorridorSubmenu>>,
     pub child_subcontents: Signal<Vec<String>>,
+    pub branches: Signal<Vec<String>>,
     pub registered_sub_triggers: Signal<Vec<(String, Rc<dyn Fn()>, Rc<dyn Fn()>)>>,
     pub on_close_submenu: Signal<Option<Rc<dyn Fn()>>>,
     pub submenu_intent: Signal<SubmenuIntentMachine>,
@@ -267,6 +268,7 @@ pub struct MenuSurfaceRuntime {
     pub active_close_cycle: Signal<Option<PresenceCloseCycleId>>,
     pub placement: Signal<Option<FloatingPlacement>>,
     pub readiness: Signal<FloatingReadiness>,
+    pub content_z_index: Signal<Option<String>>,
     pub position_monitor: Signal<Option<WatcherGuard>>,
     pub dismiss_monitor: Signal<Option<WatcherGuard>>,
     pub blur_monitor: Signal<Option<WatcherGuard>>,
@@ -331,6 +333,7 @@ impl MenuSurfaceRuntime {
             active_submenu_close: use_signal(|| None),
             active_corridor_sub: use_signal(|| None),
             child_subcontents: use_signal(Vec::new),
+            branches: use_signal(Vec::new),
             registered_sub_triggers: use_signal(Vec::new),
             on_close_submenu: use_signal(|| None),
             submenu_intent: use_signal(SubmenuIntentMachine::default),
@@ -344,6 +347,7 @@ impl MenuSurfaceRuntime {
             active_close_cycle: use_signal(|| None),
             placement: use_signal(|| None),
             readiness: use_signal(FloatingReadiness::default),
+            content_z_index: use_signal(|| None),
             position_monitor: use_signal(|| None),
             dismiss_monitor: use_signal(|| None),
             blur_monitor: use_signal(|| None),
@@ -499,6 +503,38 @@ impl MenuSurfaceRuntime {
         if let Ok(mut list) = sig.try_write() {
             list.retain(|entry| entry != id);
         }
+    }
+
+    pub fn register_branch(&self, id: impl Into<String>) {
+        let id = id.into();
+        let mut sig = self.branches;
+        let already = sig.try_peek().is_ok_and(|list| list.contains(&id));
+        if !already {
+            if let Ok(mut list) = sig.try_write() {
+                if !list.contains(&id) {
+                    list.push(id);
+                }
+            }
+        }
+    }
+
+    pub fn unregister_branch(&self, id: &str) {
+        let mut sig = self.branches;
+        let present = sig
+            .try_peek()
+            .is_ok_and(|list| list.iter().any(|entry| entry == id));
+        if present {
+            if let Ok(mut list) = sig.try_write() {
+                list.retain(|entry| entry != id);
+            }
+        }
+    }
+
+    pub fn branches(&self) -> Vec<String> {
+        self.branches
+            .try_read()
+            .map(|list| list.clone())
+            .unwrap_or_default()
     }
 
     pub fn register_sub_trigger_open(
@@ -943,6 +979,12 @@ impl MenuSurfaceRuntime {
 
         // Escape dismisses full menu tree back to root trigger (`3B D-2`)
         if matches!(key, MenuKey::Escape) {
+            let root_cid = root.root_surface.current_content_id();
+            if crate::foundation::overlay::is_overlay_escape_consumed()
+                || !crate::foundation::overlay::is_topmost_overlay_layer(&root_cid)
+            {
+                return;
+            }
             evt.prevent_default();
             evt.stop_propagation();
             let esc_evt = MenuPreventableEvent::new();
@@ -954,6 +996,7 @@ impl MenuSurfaceRuntime {
             {
                 cb.call(esc_evt.clone());
             }
+            crate::foundation::overlay::mark_overlay_escape_consumed();
             if !esc_evt.is_default_prevented() {
                 root.close_menu_tree(true);
             }
@@ -1047,10 +1090,34 @@ impl MenuSurfaceRuntime {
         }
     }
 
+    pub fn sync_content_z_index(&self) {
+        let content_id = self.current_content_id();
+        let next = crate::foundation::overlay::normalize_hoisted_z_index(
+            crate::foundation::browser::get_element_computed_z_index(&content_id).as_deref(),
+        );
+        let mut sig = self.content_z_index;
+        if sig.try_peek().is_ok_and(|cur| *cur != next) {
+            if let Ok(mut w) = sig.try_write() {
+                *w = next;
+            }
+        }
+    }
+
+    pub fn clear_content_z_index(&self) {
+        let mut sig = self.content_z_index;
+        if sig.try_peek().is_ok_and(|cur| cur.is_some()) {
+            if let Ok(mut w) = sig.try_write() {
+                *w = None;
+            }
+        }
+    }
+
     pub fn update_placement(&self, root: &MenuRootContext) {
         if !self.should_render_content() {
             return;
         }
+
+        self.sync_content_z_index();
 
         let content_id = self.current_content_id();
         let wrapper_id = self.current_wrapper_id();
@@ -1160,9 +1227,11 @@ impl MenuSurfaceRuntime {
             {
                 let _ = rd.try_write().map(|mut w| *w = FloatingReadiness::Measuring);
             }
+            self.clear_content_z_index();
             return;
         }
 
+        self.sync_content_z_index();
         self.update_placement(root);
 
         let anchor_id = self
@@ -1342,6 +1411,7 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
             {
                 let _ = rd.try_write().map(|mut w| *w = FloatingReadiness::Measuring);
             }
+            pos_surface.clear_content_z_index();
             return;
         }
 
@@ -1357,6 +1427,7 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
             let is_modal = (modal_root.modal)();
             let prevent_scroll = (modal_surface.prevent_scroll)();
             let subcontents = (modal_surface.child_subcontents)();
+            let branches = (modal_surface.branches)();
 
             if !is_open {
                 let next_gen = modal_surface.open_focus_gen.get().wrapping_add(1);
@@ -1482,6 +1553,11 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
                     keep_ids.push(cid.clone());
                 }
             }
+            for bid in &branches {
+                if !keep_ids.contains(bid) {
+                    keep_ids.push(bid.clone());
+                }
+            }
             let keep_refs: Vec<&str> = keep_ids.iter().map(String::as_str).collect();
 
             if is_modal {
@@ -1521,6 +1597,11 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
                     boundaries.push(cid.clone());
                 }
             }
+            for bid in &branches {
+                if !boundaries.contains(bid) {
+                    boundaries.push(bid.clone());
+                }
+            }
             match modal_root.variant {
                 MenuVariant::DropdownMenu => {
                     if !trigger_id.is_empty() && !boundaries.contains(&trigger_id) {
@@ -1545,6 +1626,12 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
             let dm_guard = start_document_dismiss_monitor_with_boundaries(&boundary_refs, move |evt| {
                 match evt {
                     DocumentDismissEvent::Escape => {
+                        let root_cid = dm_surface.current_content_id();
+                        if crate::foundation::overlay::is_overlay_escape_consumed()
+                            || !crate::foundation::overlay::is_topmost_overlay_layer(&root_cid)
+                        {
+                            return;
+                        }
                         let esc_evt = MenuPreventableEvent::new();
                         if let Some(cb) = dm_surface
                             .on_escape_keydown
@@ -1554,6 +1641,7 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
                         {
                             cb.call(esc_evt.clone());
                         }
+                        crate::foundation::overlay::mark_overlay_escape_consumed();
                         if !esc_evt.is_default_prevented() {
                             dm_root.close_menu_tree(true);
                         }
@@ -1564,6 +1652,7 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
                                 || dm_surface.wrapper_id.try_peek().is_ok_and(|w| w.as_str() == pid)
                                 || dm_surface.portal_id.try_peek().is_ok_and(|p| p.as_deref() == Some(pid.as_str()))
                                 || dm_surface.child_subcontents.try_peek().is_ok_and(|subs| subs.contains(pid))
+                                || dm_surface.branches.try_peek().is_ok_and(|brs| brs.contains(pid))
                         });
                         if inside_live_surface {
                             return;
@@ -1600,6 +1689,7 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
                                 || dm_surface.wrapper_id.try_peek().is_ok_and(|w| w.as_str() == pid)
                                 || dm_surface.portal_id.try_peek().is_ok_and(|p| p.as_deref() == Some(pid.as_str()))
                                 || dm_surface.child_subcontents.try_peek().is_ok_and(|subs| subs.contains(pid))
+                                || dm_surface.branches.try_peek().is_ok_and(|brs| brs.contains(pid))
                         });
                         if inside_live_surface {
                             return;

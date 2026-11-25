@@ -10,14 +10,15 @@ pub use crate::foundation::compose::{
 use crate::foundation::{
     browser::{
         DocumentPointerStreamGuard, FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard,
-        get_element_client_rect, start_document_pointer_stream,
-        start_document_pointer_up_observer, start_floating_auto_update_monitor,
-        start_presence_monitor,
+        computed_z_index_for_element, get_element_client_rect, get_element_computed_z_index,
+        start_document_pointer_stream, start_document_pointer_up_observer,
+        start_floating_auto_update_monitor, start_presence_monitor,
     },
     overlay::{
-        compute_overlay_position, create_grace_area, is_point_in_polygon, FloatingPlacement,
-        FloatingReadiness, GeometryVars, OverlayPositionConfig, Point2D, Presence,
-        PresenceCloseCycleId, PresenceController, PresenceControllerUpdate, Rect, Rect2D, Size,
+        FloatingPlacement, FloatingReadiness, GeometryVars, OverlayPositionConfig, Point2D,
+        Presence, PresenceCloseCycleId, PresenceController, PresenceControllerUpdate, Rect, Rect2D,
+        Size, compute_overlay_position, create_grace_area, is_point_in_polygon,
+        normalize_hoisted_z_index,
     },
     state::DataState,
 };
@@ -357,6 +358,7 @@ struct TooltipRuntimeState {
     content_handle: Signal<Option<Rc<MountedData>>>,
     placement: Signal<Option<FloatingPlacement>>,
     content_readiness: Signal<FloatingReadiness>,
+    content_z_index: Signal<Option<String>>,
     presence_lane: Signal<TooltipContentPresenceLane>,
     presence_monitor: RetainedRootPresenceMonitorState,
     pointer_down_inside: Signal<bool>,
@@ -407,6 +409,7 @@ where
         content_handle: use_signal(|| None),
         placement: use_signal(|| None),
         content_readiness: use_signal(FloatingReadiness::default),
+        content_z_index: use_signal(|| None),
         presence_lane: use_signal(|| {
             TooltipContentPresenceLane::new(tooltip.lifecycle().presence())
         }),
@@ -607,10 +610,17 @@ impl TooltipRuntime {
     }
 
     pub fn wrapper_style(&self) -> String {
+        let z_index = self.state.content_z_index.read();
         match self.placement() {
-            Some(ref placement) => placement.wrapper_style(self.content_readiness(), None),
-            None => FloatingReadiness::wrapper_measuring_style(None),
+            Some(ref placement) => {
+                placement.wrapper_style(self.content_readiness(), z_index.as_deref())
+            }
+            None => FloatingReadiness::wrapper_measuring_style(z_index.as_deref()),
         }
+    }
+
+    pub fn clear_content_z_index(&self) {
+        clear_tooltip_content_z_index(self.state);
     }
 
     pub fn placement(&self) -> Option<FloatingPlacement> {
@@ -801,6 +811,7 @@ impl TooltipRuntime {
         move |event| {
             let mut content_handle = runtime.state.content_handle;
             content_handle.set(Some(event.data()));
+            sync_tooltip_content_z_index(&runtime.tooltip, runtime.state);
             sync_tooltip_positioning(
                 &runtime.tooltip,
                 runtime.provider_runtime.clone(),
@@ -810,6 +821,7 @@ impl TooltipRuntime {
             let pos = compute_tooltip_position_with_state(&runtime.tooltip, runtime.state);
             if let Some(placement) = pos {
                 if placement.geometry().content_height() > 0.0 {
+                    sync_tooltip_content_z_index(&runtime.tooltip, runtime.state);
                     let should_update = runtime
                         .state
                         .placement
@@ -829,6 +841,7 @@ impl TooltipRuntime {
                 if !runtime_clone.is_alive() {
                     return;
                 }
+                sync_tooltip_content_z_index(&runtime_clone.tooltip, runtime_clone.state);
                 if let Some(placement) =
                     compute_tooltip_position_with_state(&runtime_clone.tooltip, runtime_clone.state)
                 {
@@ -861,6 +874,19 @@ impl TooltipRuntime {
     }
 
     pub fn dismiss_escape(&self) -> bool {
+        if crate::foundation::overlay::is_overlay_escape_consumed() {
+            return false;
+        }
+        let active_cid = self
+            .state
+            .content_id
+            .try_peek()
+            .ok()
+            .and_then(|id| id.clone())
+            .unwrap_or_else(|| self.relationships().content_id().to_owned());
+        if !crate::foundation::overlay::is_topmost_overlay_layer(&active_cid) {
+            return false;
+        }
         let stack = self.dismiss_stack();
         let should_dismiss = self
             .state
@@ -868,6 +894,7 @@ impl TooltipRuntime {
             .with_peek(|t| t.lifecycle().dismiss_layer().should_dismiss_escape(&stack))
             || self.lifecycle().dismiss_layer().should_dismiss_escape(&stack);
         if should_dismiss {
+            crate::foundation::overlay::mark_overlay_escape_consumed();
             self.request_close();
             return true;
         }
@@ -1447,6 +1474,7 @@ fn sync_tooltip_positioning(
 
     let _position_loop_token = advance_tooltip_token(state.position_loop_token);
 
+    sync_tooltip_content_z_index(tooltip, state);
     if let Some(placement) = compute_tooltip_position_with_state(tooltip, state) {
         let should_update = state
             .placement
@@ -1465,6 +1493,7 @@ fn sync_tooltip_positioning(
     let tooltip_clone_for_placement = tooltip.clone();
     crate::foundation::browser::spawn_root_task(async move {
         oxidase::frame::next_frame().await;
+        sync_tooltip_content_z_index(&tooltip_clone_for_placement, state);
         if let Some(placement) =
             compute_tooltip_position_with_state(&tooltip_clone_for_placement, state)
         {
@@ -1503,6 +1532,7 @@ fn sync_tooltip_positioning(
                     .map(|g| *g)
                     .unwrap_or(false);
                 if is_guard_pending {
+                    sync_tooltip_content_z_index(&tooltip_clone, state);
                     if let Some(placement) =
                         compute_tooltip_position_with_state(&tooltip_clone, state)
                     {
@@ -1521,6 +1551,7 @@ fn sync_tooltip_positioning(
                 }
             }
             FloatingAutoUpdateEvent::Update => {
+                sync_tooltip_content_z_index(&tooltip_clone, state);
                 if let Some(placement) =
                     compute_tooltip_position_with_state(&tooltip_clone, state)
                 {
@@ -1598,6 +1629,38 @@ fn set_tooltip_content_readiness(state: TooltipRuntimeState, readiness: Floating
     }
 }
 
+fn sync_tooltip_content_z_index(tooltip: &Tooltip, state: TooltipRuntimeState) {
+    let custom_content_id = state.content_id.try_peek().ok().and_then(|id| id.clone());
+    let content_id = custom_content_id
+        .as_deref()
+        .unwrap_or_else(|| tooltip.relationships().content_id());
+    let next = normalize_hoisted_z_index(get_element_computed_z_index(content_id).as_deref())
+        .or_else(|| {
+            let handle = state
+                .content_handle
+                .try_peek()
+                .ok()
+                .and_then(|h| h.clone())?;
+            let el = oxidase::Element::from_mounted(handle);
+            normalize_hoisted_z_index(computed_z_index_for_element(&el).as_deref())
+        });
+    let mut sig = state.content_z_index;
+    if sig.try_peek().is_ok_and(|cur| *cur != next) {
+        if let Ok(mut w) = sig.try_write() {
+            *w = next;
+        }
+    }
+}
+
+fn clear_tooltip_content_z_index(state: TooltipRuntimeState) {
+    let mut sig = state.content_z_index;
+    if sig.try_peek().is_ok_and(|cur| cur.is_some()) {
+        if let Ok(mut w) = sig.try_write() {
+            *w = None;
+        }
+    }
+}
+
 fn clear_tooltip_content_readiness(state: TooltipRuntimeState) {
     set_tooltip_content_readiness(state, FloatingReadiness::Measuring);
 }
@@ -1606,6 +1669,7 @@ fn clear_tooltip_retained_content_state(state: TooltipRuntimeState) {
     stop_tooltip_grace_monitor_state(state);
     clear_tooltip_content_handle(state);
     clear_tooltip_placement(state);
+    clear_tooltip_content_z_index(state);
     clear_tooltip_content_readiness(state);
 }
 

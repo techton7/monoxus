@@ -85,6 +85,7 @@ pub struct SelectRuntimeState {
     pub presence_monitor: RetainedRootPresenceMonitorState,
     pub placement: Signal<Option<FloatingPlacement>>,
     pub content_readiness: Signal<FloatingReadiness>,
+    pub content_z_index: Signal<Option<String>>,
     pub trigger_handle: Signal<Option<Rc<MountedData>>>,
     pub content_handle: Signal<Option<Rc<MountedData>>>,
     pub selected_labels: Signal<std::collections::BTreeMap<String, String>>,
@@ -205,6 +206,7 @@ where
         },
         placement: use_signal(|| None),
         content_readiness: use_signal(FloatingReadiness::default),
+        content_z_index: use_signal(|| None),
         trigger_handle: use_signal(|| None),
         content_handle: use_signal(|| None),
         selected_labels: use_signal(|| initial_labels),
@@ -353,6 +355,7 @@ impl SelectRuntime {
             },
             placement: Signal::new(None),
             content_readiness: Signal::new(FloatingReadiness::default()),
+            content_z_index: Signal::new(None),
             trigger_handle: Signal::new(None),
             content_handle: Signal::new(None),
             selected_labels: Signal::new(initial_labels),
@@ -1017,6 +1020,7 @@ impl SelectRuntime {
         placement_sig.set(None);
         let mut readiness_sig = self.state.content_readiness;
         readiness_sig.set(FloatingReadiness::Measuring);
+        self.clear_content_z_index();
         let mut ch_sig = self.state.content_handle;
         ch_sig.set(None);
 
@@ -1174,6 +1178,32 @@ impl SelectRuntime {
 
     pub fn content_readiness(&self) -> FloatingReadiness {
         *self.state.content_readiness.read()
+    }
+
+    pub fn content_z_index(&self) -> Option<String> {
+        self.state.content_z_index.read().clone()
+    }
+
+    pub fn sync_content_z_index(&self) {
+        let content_id = self.relationships().content_id();
+        let next = crate::foundation::overlay::normalize_hoisted_z_index(
+            crate::foundation::browser::get_element_computed_z_index(content_id).as_deref(),
+        );
+        let mut sig = self.state.content_z_index;
+        if sig.try_peek().is_ok_and(|cur| *cur != next) {
+            if let Ok(mut w) = sig.try_write() {
+                *w = next;
+            }
+        }
+    }
+
+    pub fn clear_content_z_index(&self) {
+        let mut sig = self.state.content_z_index;
+        if sig.try_peek().is_ok_and(|cur| cur.is_some()) {
+            if let Ok(mut w) = sig.try_write() {
+                *w = None;
+            }
+        }
     }
 
     pub fn content_positioning_state(&self) -> &'static str {

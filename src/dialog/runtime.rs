@@ -180,6 +180,7 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
             "content",
             content_id.as_str(),
         );
+        crate::foundation::overlay::unregister_active_overlay_layer(content_id.as_str());
         if let Ok(mut mon) = cleanup_state.dismiss_monitor.try_write() {
             *mon = None;
         }
@@ -495,6 +496,18 @@ impl DialogRuntime {
                     }
                 }
                 DocumentDismissEvent::Escape => {
+                    let current_cid = state
+                        .content_id
+                        .try_peek()
+                        .ok()
+                        .and_then(|v| v.clone())
+                        .unwrap_or_else(|| dialog.relationships().content_id().to_string());
+                    if crate::foundation::overlay::is_overlay_escape_consumed()
+                        || !crate::foundation::overlay::is_topmost_overlay_layer(&current_cid)
+                    {
+                        return;
+                    }
+                    crate::foundation::overlay::mark_overlay_escape_consumed();
                     on_request_close(false);
                 }
             }
@@ -561,6 +574,14 @@ impl DialogRuntime {
         self.state
             .overlay_id
             .peek()
+            .clone()
+            .unwrap_or_else(|| self.dialog.relationships().overlay_id().to_string())
+    }
+
+    pub fn overlay_element_id_reactive(&self) -> String {
+        self.state
+            .overlay_id
+            .read()
             .clone()
             .unwrap_or_else(|| self.dialog.relationships().overlay_id().to_string())
     }
@@ -760,7 +781,8 @@ fn sync_dialog_modal_shield(dialog: &Dialog, state: DialogRuntimeState) {
         .clone()
         .unwrap_or_else(|| dialog.relationships().overlay_id().to_string());
 
-    let mut keep_ids = vec![content_id, overlay_id];
+    let portal_id = dialog.relationships().scope().qualify("portal");
+    let mut keep_ids = vec![content_id, overlay_id, portal_id];
     for branch in dialog.lifecycle().dismiss_layer().branches() {
         if !keep_ids.contains(branch) {
             keep_ids.push(branch.clone());

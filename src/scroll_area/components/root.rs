@@ -1,8 +1,9 @@
+use std::borrow::Cow;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::{Direction, ScopeHandle, use_direction_context};
+use crate::foundation::shared::{Direction, ScopeHandle, use_direction_context, use_stable_id};
 
 use super::{
     super::{
@@ -34,10 +35,7 @@ pub struct ScrollAreaRootProps {
 pub fn ScrollAreaRoot(props: ScrollAreaRootProps) -> Element {
     let dir = use_direction_context(props.dir);
 
-    let scope_id = props
-        .id
-        .clone()
-        .unwrap_or_else(|| "scroll-area".to_string());
+    let scope_id = use_stable_id(props.id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("scroll-area").child(scope_id);
     let mut relationships = ScrollAreaRelationships::new(scope);
     if let Some(ref custom_id) = props.id {
@@ -48,14 +46,9 @@ pub fn ScrollAreaRoot(props: ScrollAreaRootProps) -> Element {
     let hide_timer = use_hook(|| Rc::new(HideDelayTimer::new()));
 
     let mut relationships_sig = use_signal(|| relationships.clone());
-    use_effect(use_reactive((&props.id,), move |(id_opt,)| {
-        if let Some(id) = id_opt {
-            if relationships_sig.peek().root_id() != id {
-                let updated = relationships_sig.peek().clone().with_root_id(id);
-                relationships_sig.set(updated);
-            }
-        }
-    }));
+    if relationships_sig.peek().root_id() != relationships.root_id() {
+        relationships_sig.set(relationships.clone());
+    }
 
     let context = ScrollAreaContext {
         runtime,
