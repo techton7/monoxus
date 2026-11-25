@@ -1,9 +1,10 @@
 use dioxus::prelude::*;
 
+use crate::foundation::browser::is_element_focused_by_id;
 use crate::foundation::shared::use_stable_id;
 
 use super::super::{
-    attrs::CommandItemAttrs,
+    attrs::{CommandItemAttrs, merge_ranked_item_style},
     runtime::{CommandContext, CommandGroupContext},
 };
 
@@ -116,6 +117,9 @@ pub fn CommandItem(props: CommandItemProps) -> Element {
         props.force_mount,
         group_force_mount,
     );
+    let visual_order = ctx.item_visual_order(&normalized_value);
+    let rendered_style =
+        merge_ranked_item_style(should_render, visual_order, props.style.as_deref());
 
     let is_selected =
         should_render && !normalized_value.is_empty() && *ctx.value.read() == normalized_value;
@@ -132,9 +136,14 @@ pub fn CommandItem(props: CommandItemProps) -> Element {
     let consumer_click = props.on_click;
     let consumer_pointermove = props.on_pointermove;
 
+    let input_id_sig = ctx.input_id;
     let handle_mousedown = EventHandler::new(move |evt: MouseEvent| {
-        // Keep DOM focus on <input role="combobox"> on both Web and Blitz Native
-        evt.prevent_default();
+        // 4B D-7: Keep DOM focus on CommandInput only when CommandInput currently holds focus;
+        // when focus is outside CommandInput, allow default press focus so CommandRoot receives focus.
+        let input_id = input_id_sig.peek().clone();
+        if is_element_focused_by_id(&input_id) {
+            evt.prevent_default();
+        }
     });
 
     let mut ctx_for_move = ctx;
@@ -180,7 +189,7 @@ pub fn CommandItem(props: CommandItemProps) -> Element {
                 data_disabled: attrs.data_disabled,
                 data_selected: attrs.data_selected,
                 class: props.class,
-                style: props.style,
+                style: rendered_style,
                 on_mousedown: handle_mousedown,
                 on_pointermove: handle_pointermove,
                 on_click: handle_click,
@@ -190,12 +199,6 @@ pub fn CommandItem(props: CommandItemProps) -> Element {
             });
         }
     }
-
-    let rendered_style = if should_render {
-        props.style
-    } else {
-        Some("display: none;".to_string())
-    };
 
     rsx! {
         div {

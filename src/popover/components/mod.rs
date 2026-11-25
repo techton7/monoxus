@@ -12,7 +12,7 @@ pub use self::{
     anchor::PopoverAnchor,
     arrow::PopoverArrow,
     close::PopoverClose,
-    content::PopoverContent,
+    content::{PopoverContent, PopoverContentProps, PopoverContentRenderProps},
     description::PopoverDescription,
     portal::PopoverPortal,
     root::PopoverRoot,

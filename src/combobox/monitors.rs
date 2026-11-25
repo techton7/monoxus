@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use crate::foundation::{
     browser::{
         DocumentDismissEvent, get_element_client_rect, get_element_scroll_metrics,
-        set_element_scroll_position, spawn_root_task,
+        is_element_focused_by_id, set_element_scroll_position, spawn_root_task,
         start_document_dismiss_monitor_with_boundaries, start_floating_auto_update_monitor,
     },
     overlay::{
@@ -103,6 +103,15 @@ impl ComboboxRuntime {
                     if !is_topmost_overlay_layer(&content_id_clone) {
                         return;
                     }
+                    // When focus is on the ComboboxInput or ComboboxContent element, their own
+                    // `onkeydown` handler handles Escape on the real `KeyboardEvent` (invoking
+                    // `on_escape_key_down` once and calling `evt.prevent_default()` so Blitz
+                    // Native does not blur `<input>`).
+                    if is_element_focused_by_id(&input_id_clone)
+                        || is_element_focused_by_id(&content_id_clone)
+                    {
+                        return;
+                    }
                     if let Ok(Some(cb)) =
                         runtime.state.on_escape_key_down.try_peek().map(|g| g.clone())
                     {
@@ -182,7 +191,12 @@ impl ComboboxRuntime {
         let mut pm_sig = self.state.position_monitor;
         let _ = pm_sig.try_write().map(|mut w| *w = Some(watcher));
 
-        self.recalculate_floating_position_sync();
+        if !self.recalculate_floating_position_sync() {
+            let runtime = self.clone();
+            spawn_root_task(async move {
+                runtime.recalculate_floating_position().await;
+            });
+        }
     }
 
     pub fn stop_position_monitor(&self) {
@@ -238,12 +252,14 @@ impl ComboboxRuntime {
                 let _ = readiness_sig.try_write().map(|mut w| *w = next_readiness);
             }
 
-            let mut placement_sig = self.state.placement;
-            if placement_sig
-                .try_peek()
-                .is_ok_and(|g| g.as_ref() != Some(&computed))
-            {
-                let _ = placement_sig.try_write().map(|mut w| *w = Some(computed));
+            if is_ready {
+                let mut placement_sig = self.state.placement;
+                if placement_sig
+                    .try_peek()
+                    .is_ok_and(|g| g.as_ref() != Some(&computed))
+                {
+                    let _ = placement_sig.try_write().map(|mut w| *w = Some(computed));
+                }
             }
             is_ready
         } else {

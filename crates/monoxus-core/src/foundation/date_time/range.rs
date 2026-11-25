@@ -174,6 +174,9 @@ impl TimeRange {
     }
 
     /// Returns `true` when both endpoints are set and `end < start`.
+    ///
+    /// Opt-in helper for consumers enforcing same-day ordering via the `validate` callback.
+    /// Overnight ranges (e.g. `20:00..05:00`) are valid by default in [`validate_time_range`].
     pub fn is_inverted(&self) -> bool {
         match (self.start, self.end) {
             (Some(s), Some(e)) => e.time() < s.time(),
@@ -182,6 +185,9 @@ impl TimeRange {
     }
 
     /// Validates that a complete time range is not inverted (`end < start` -> [`FieldInvalidReason::RangeOrder`]).
+    ///
+    /// Opt-in helper for consumers enforcing same-day ordering via the `validate` callback.
+    /// [`validate_time_range`] does not call this automatically so overnight ranges (`20:00..05:00`) remain valid by default.
     pub fn validate_range_order(&self) -> Result<(), FieldInvalidReason> {
         if self.is_inverted() {
             Err(FieldInvalidReason::RangeOrder)
@@ -206,13 +212,17 @@ impl TimeRange {
 }
 
 /// Validates a [`DateValueRange`] following Sub-wave 5C precedence:
-/// `Custom` (when both endpoints set) -> `RangeOrder` (`end < start`) -> `Min` -> `Max`.
-pub fn validate_date_value_range(
+/// `Unavailable` (any present endpoint, including partial ranges) -> `Custom` (when both endpoints set) -> `RangeOrder` (`end < start`) -> `Min` -> `Max`.
+pub fn validate_date_range_with_unavailable(
     range: DateValueRange,
     min: Option<DateValue>,
     max: Option<DateValue>,
+    is_unavailable: bool,
     custom_errors: Option<Vec<String>>,
 ) -> Result<(), FieldInvalidReason> {
+    if !range.is_empty() && is_unavailable {
+        return Err(FieldInvalidReason::Unavailable);
+    }
     if range.is_complete()
         && let Some(msgs) = custom_errors
         && !msgs.is_empty()
@@ -245,8 +255,23 @@ pub fn validate_date_value_range(
     Ok(())
 }
 
-/// Validates a [`TimeRange`] following Sub-wave 5C precedence:
+/// Validates a [`DateValueRange`] following Sub-wave 5C precedence:
 /// `Custom` (when both endpoints set) -> `RangeOrder` (`end < start`) -> `Min` -> `Max`.
+pub fn validate_date_value_range(
+    range: DateValueRange,
+    min: Option<DateValue>,
+    max: Option<DateValue>,
+    custom_errors: Option<Vec<String>>,
+) -> Result<(), FieldInvalidReason> {
+    validate_date_range_with_unavailable(range, min, max, false, custom_errors)
+}
+
+/// Validates a [`TimeRange`] matching `bits-ui` (`time-range-field.svelte.ts:186-224`) precedence:
+/// `Custom` (when both endpoints set) -> `Min` (`start < min` or `end < min`) -> `Max` (`start > max` or `end > max`).
+///
+/// Overnight time ranges where `end < start` (e.g. `20:00..05:00`) are valid by default; consumers
+/// enforcing same-day ordering can opt in via the `validate` callback (e.g. using
+/// [`TimeRange::is_inverted`] or [`TimeRange::validate_range_order`]).
 pub fn validate_time_range(
     range: TimeRange,
     min: Option<TimeValue>,
@@ -259,7 +284,6 @@ pub fn validate_time_range(
     {
         return Err(FieldInvalidReason::Custom(msgs));
     }
-    range.validate_range_order()?;
     if let Some(min_val) = min {
         if range.start.is_some_and(|s| s.time() < min_val.time())
             || range.end.is_some_and(|e| e.time() < min_val.time())

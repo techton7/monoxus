@@ -3,7 +3,9 @@ use std::{cell::RefCell, rc::Rc};
 use dioxus::prelude::*;
 
 use crate::{
-    foundation::date_time::{FieldInvalidEvent, FieldInvalidReason, TimeRange, TimeValue},
+    foundation::date_time::{
+        FieldInvalidEvent, FieldInvalidReason, TimeRange, TimeValue, validate_time_range,
+    },
     time_field::TimeFieldRuntime,
 };
 
@@ -22,9 +24,11 @@ pub struct TimeRangeFieldRuntime {
     pub start_value: Signal<Option<TimeValue>>,
     pub end_value: Signal<Option<TimeValue>>,
     pub placeholder: Signal<TimeValue>,
+    pub custom_label_id: Signal<Option<String>>,
     pub last_invalid_reason: Signal<Option<FieldInvalidReason>>,
     pub start_runtime: Rc<RefCell<Option<TimeFieldRuntime>>>,
     pub end_runtime: Rc<RefCell<Option<TimeFieldRuntime>>>,
+    pub default_value: Rc<RefCell<TimeRange>>,
     pub controlled_value: Rc<RefCell<Option<Signal<TimeRange>>>>,
     pub controlled_placeholder: Rc<RefCell<Option<Signal<TimeValue>>>>,
     pub on_value_change: Rc<RefCell<Option<EventHandler<TimeRange>>>>,
@@ -46,6 +50,34 @@ impl TimeRangeFieldRuntime {
         self.state.read().snapshot()
     }
 
+    pub fn effective_label_id(&self) -> String {
+        self.custom_label_id
+            .read()
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| self.rels.label_id().to_string())
+    }
+
+    /// Registers a custom `id` from `TimeRangeFieldLabel` so `aria-labelledby` stays synced (`DEF-5C-07`).
+    pub fn register_custom_label_id(&mut self, id: Option<String>) {
+        let normalized = id.filter(|s| !s.is_empty());
+        if *self.custom_label_id.peek() != normalized {
+            self.custom_label_id.set(normalized);
+        }
+    }
+
+    pub fn default_part_value(&self, kind: RangeFieldInputKind) -> Option<TimeValue> {
+        let dv = *self.default_value.borrow();
+        match kind {
+            RangeFieldInputKind::Start => dv.start,
+            RangeFieldInputKind::End => dv.end,
+        }
+    }
+
+    pub fn is_part_invalid(&self, kind: RangeFieldInputKind) -> bool {
+        self.state.read().is_part_invalid(kind)
+    }
+
     pub fn root_attrs(&self, id_override: Option<String>) -> TimeRangeFieldRootAttrs {
         let st = self.state.read();
         let id = id_override
@@ -53,7 +85,7 @@ impl TimeRangeFieldRuntime {
             .unwrap_or_else(|| self.rels.root_id().to_string());
         TimeRangeFieldRootAttrs::new(
             id,
-            self.rels.label_id().to_string(),
+            self.effective_label_id(),
             st.def().dir,
             st.is_invalid(),
             st.def().disabled,
@@ -64,7 +96,7 @@ impl TimeRangeFieldRuntime {
         let st = self.state.read();
         let id = id_override
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| self.rels.label_id().to_string());
+            .unwrap_or_else(|| self.effective_label_id());
         TimeRangeFieldLabelAttrs::new(id, st.is_invalid(), st.def().disabled)
     }
 
@@ -108,7 +140,10 @@ impl TimeRangeFieldRuntime {
     }
 
     pub fn sync_validation_and_notify(&mut self) {
-        let range = self.state.peek().value();
+        let (range, min_val, max_val) = {
+            let st = self.state.peek();
+            (st.value(), st.def().min_value, st.def().max_value)
+        };
         let custom_errors = if range.is_complete() {
             self.validate
                 .borrow()
@@ -118,7 +153,12 @@ impl TimeRangeFieldRuntime {
             None
         };
 
-        let next_reason = self.state.write().evaluate_validation(custom_errors);
+        let next_reason = validate_time_range(range, min_val, max_val, custom_errors).err();
+        if self.state.peek().invalid_reason() != next_reason.as_ref() {
+            self.state
+                .write()
+                .set_local_invalid_reason(next_reason.clone());
+        }
         let prev_reason = self.last_invalid_reason.peek().clone();
         if next_reason != prev_reason {
             self.last_invalid_reason.set(next_reason.clone());
@@ -217,7 +257,9 @@ impl TimeRangeFieldRuntime {
             self.placeholder.set(ph);
             self.state.write().set_placeholder(ph);
         }
-        if let Some(inv) = is_invalid_override {
+        if let Some(inv) = is_invalid_override
+            && self.state.peek().external_invalid() != inv
+        {
             self.state.write().set_external_invalid(inv);
         }
         self.sync_validation_and_notify();

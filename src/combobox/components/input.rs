@@ -11,6 +11,8 @@ pub struct ComboboxInputRenderProps {
     pub style: Option<String>,
     pub on_input: EventHandler<FormEvent>,
     pub on_key_down: EventHandler<KeyboardEvent>,
+    pub on_composition_start: EventHandler<CompositionEvent>,
+    pub on_composition_end: EventHandler<CompositionEvent>,
     pub on_mounted: EventHandler<MountedEvent>,
     pub attributes: Vec<Attribute>,
 }
@@ -21,8 +23,9 @@ pub struct ComboboxInputProps {
     pub id: Option<String>,
     #[props(default)]
     pub default_value: Option<String>,
-    #[props(default = false)]
-    pub clear_on_deselect: bool,
+    /// Optional bidirectional override for `ComboboxRootProps.clear_on_deselect` (`4B D-10`).
+    #[props(default)]
+    pub clear_on_deselect: Option<bool>,
     #[props(default)]
     pub placeholder: Option<String>,
     #[props(default = false)]
@@ -52,9 +55,8 @@ pub fn ComboboxInput(props: ComboboxInputProps) -> Element {
         .unwrap_or_else(|| ctx.runtime.relationships().input_id().to_owned());
     ctx.runtime.set_input_id(id.clone());
 
-    if props.clear_on_deselect {
-        ctx.runtime.set_clear_on_deselect(true);
-    }
+    // 4B D-10 / DEF-CBX-09: Bidirectional override (`Some(true)` / `Some(false)` / `None` inherit root).
+    ctx.runtime.set_input_clear_on_deselect(props.clear_on_deselect);
 
     // Mount-only `default_value` seed per bits-ui ComboboxInput contract.
     let seeded = use_hook(|| std::cell::Cell::new(false));
@@ -91,6 +93,17 @@ pub fn ComboboxInput(props: ComboboxInputProps) -> Element {
         key_rt.handle_input_keydown(&evt);
     });
 
+    // 4B D-5: Wire Web composition events alongside `evt.data().is_composing()`.
+    let comp_start_rt = ctx.runtime.clone();
+    let on_composition_start = EventHandler::new(move |_evt: CompositionEvent| {
+        comp_start_rt.set_composing(true);
+    });
+
+    let comp_end_rt = ctx.runtime.clone();
+    let on_composition_end = EventHandler::new(move |_evt: CompositionEvent| {
+        comp_end_rt.set_composing(false);
+    });
+
     let mount_rt = ctx.runtime.clone();
     let on_mounted = EventHandler::new(move |evt: MountedEvent| {
         let mut ih = mount_rt.state.input_handle;
@@ -107,6 +120,8 @@ pub fn ComboboxInput(props: ComboboxInputProps) -> Element {
                 style: props.style,
                 on_input,
                 on_key_down,
+                on_composition_start,
+                on_composition_end,
                 on_mounted,
                 attributes: props.attributes,
             });
@@ -120,7 +135,7 @@ pub fn ComboboxInput(props: ComboboxInputProps) -> Element {
             role: "{attrs.role()}",
             "aria-autocomplete": "{attrs.aria_autocomplete()}",
             "aria-expanded": "{attrs.aria_expanded()}",
-            "aria-controls": "{attrs.aria_controls()}",
+            "aria-controls": attrs.aria_controls(),
             "aria-activedescendant": attrs.aria_activedescendant(),
             disabled: attrs.is_disabled(),
             autocomplete: "{attrs.autocomplete()}",
@@ -133,6 +148,8 @@ pub fn ComboboxInput(props: ComboboxInputProps) -> Element {
             style: props.style.as_deref().unwrap_or_default(),
             oninput: move |evt| on_input.call(evt),
             onkeydown: move |evt| on_key_down.call(evt),
+            oncompositionstart: move |evt| on_composition_start.call(evt),
+            oncompositionend: move |evt| on_composition_end.call(evt),
             onmounted: move |evt| on_mounted.call(evt),
             ..props.attributes,
         }

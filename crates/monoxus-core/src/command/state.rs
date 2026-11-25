@@ -347,6 +347,124 @@ impl CommandRegistry {
             .collect()
     }
 
+    /// Returns the deterministic 0-based visual CSS `order` index for a visible item
+    /// within its container (`CommandGroupItems` for grouped items, or `CommandViewport`
+    /// for ungrouped items ahead of groups), matching `ranked_visible_items` (`4B D-1`).
+    ///
+    /// Returns `None` if the item is not currently visible or not registered.
+    pub fn item_visual_order(
+        &self,
+        value: &str,
+        search: &str,
+        should_filter: bool,
+    ) -> Option<usize> {
+        let normalized = value.trim();
+        let ranked = self.ranked_visible_items(search, should_filter);
+        let target = ranked.iter().find(|it| it.value == normalized)?;
+        let target_group = target.group_value.as_deref();
+        ranked
+            .iter()
+            .filter(|it| it.group_value.as_deref() == target_group)
+            .position(|it| it.value == normalized)
+    }
+
+    /// Returns the deterministic visual CSS `order` index for a visible `CommandGroup`
+    /// inside `CommandViewport` (offset after any visible ungrouped items so ungrouped
+    /// items render first, matching `ranked_visible_items`, `4B D-1`).
+    ///
+    /// Returns `None` if the group is not currently visible or not registered.
+    pub fn group_visual_order(
+        &self,
+        group_value: &str,
+        search: &str,
+        should_filter: bool,
+    ) -> Option<usize> {
+        let normalized = group_value.trim();
+        let group = self.groups.iter().find(|g| g.value == normalized)?;
+        let is_visible = should_render_group(
+            group.force_mount,
+            should_filter,
+            search,
+            self.is_group_visible(normalized),
+        );
+        if !is_visible {
+            return None;
+        }
+
+        let ranked = self.ranked_visible_items(search, should_filter);
+        let ungrouped_count = ranked.iter().filter(|it| it.group_value.is_none()).count();
+
+        if !should_filter || search.is_empty() {
+            let mut visible_groups: Vec<&CommandGroupEntry> = self
+                .groups
+                .iter()
+                .filter(|g| {
+                    should_render_group(
+                        g.force_mount,
+                        should_filter,
+                        search,
+                        self.is_group_visible(&g.value),
+                    )
+                })
+                .collect();
+            visible_groups.sort_by_key(|g| g.order);
+            return visible_groups
+                .iter()
+                .position(|g| g.value == normalized)
+                .map(|idx| ungrouped_count + idx);
+        }
+
+        let score_of = |item: &CommandItemEntry| -> f64 {
+            self.filtered
+                .item_scores
+                .get(&item.value)
+                .copied()
+                .unwrap_or(0.0)
+        };
+
+        let mut group_max_scores: BTreeMap<&str, f64> = BTreeMap::new();
+        for item in &ranked {
+            if let Some(gv) = item.group_value.as_deref() {
+                let s = score_of(item);
+                let entry = group_max_scores.entry(gv).or_insert(f64::NEG_INFINITY);
+                if s > *entry {
+                    *entry = s;
+                }
+            }
+        }
+
+        let mut visible_groups: Vec<(f64, usize, &str)> = self
+            .groups
+            .iter()
+            .filter(|g| {
+                should_render_group(
+                    g.force_mount,
+                    should_filter,
+                    search,
+                    self.is_group_visible(&g.value),
+                )
+            })
+            .map(|g| {
+                let max_score = group_max_scores
+                    .get(g.value.as_str())
+                    .copied()
+                    .unwrap_or(0.0);
+                (max_score, g.order, g.value.as_str())
+            })
+            .collect();
+
+        visible_groups.sort_by(|a, b| {
+            b.0.partial_cmp(&a.0)
+                .unwrap_or(Ordering::Equal)
+                .then_with(|| a.1.cmp(&b.1))
+        });
+
+        visible_groups
+            .iter()
+            .position(|(_, _, gv)| *gv == normalized)
+            .map(|idx| ungrouped_count + idx)
+    }
+
     /// If `value` is the first visible item in its group, returns that group's heading DOM ID.
     pub fn first_in_group_heading_id(
         &self,

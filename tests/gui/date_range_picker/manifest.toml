@@ -40,3 +40,100 @@ id = "sw5c-drp-end-value"
 selector = "#sw5c-drp-end-value"
 part = "readout"
 state = "2024-06-15"
+
+[[scenarios]]
+name = "date-range-picker-partial-escape-and-close"
+description = "Click a partial start date, press Escape once to clear partial start while staying open, then Escape again to close"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-range-picker"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-drp-main-trigger"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-drp-day-0-2024-06-12"
+
+[[scenarios.actions]]
+kind = "key"
+key = "Escape"
+
+[[scenarios.targets]]
+id = "sw5c-drp-main-content"
+selector = "#sw5c-drp-main-content"
+part = "content"
+state = "open"
+
+[[scenarios]]
+name = "date-range-picker-select-complete-range"
+description = "Open DateRangePicker, select 2024-06-12 through 2024-06-18, and verify auto-close and range sync"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-range-picker"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-drp-main-trigger"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-drp-day-0-2024-06-12"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-drp-day-0-2024-06-18"
+
+[[scenarios.targets]]
+id = "sw5c-drp-start-value"
+selector = "#sw5c-drp-start-value"
+part = "readout"
+state = "2024-06-12"
+
+[[scenarios.targets]]
+id = "sw5c-drp-end-value"
+selector = "#sw5c-drp-end-value"
+part = "readout"
+state = "2024-06-18"
+
+[[scenarios.targets]]
+id = "sw5c-drp-main-open"
+selector = "#sw5c-drp-main-open"
+part = "readout"
+state = "closed"
+
+[[scenarios]]
+name = "date-range-picker-form-reset"
+description = "Modify constrained range picker and click Reset to restore 2024-06-10..2024-06-15"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-range-picker"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-drp-form-trigger"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-drp-form-day-2024-06-11"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-drp-form-day-2024-06-14"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-drp-form-reset"
+
+[[scenarios.targets]]
+id = "sw5c-drp-form-readout"
+selector = "#sw5c-drp-form-readout"
+part = "readout"
+state = "2024-06-10..2024-06-15"

@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use monoxus::{
     date_field::*,
     foundation::date_time::{
-        CalendarDate, CalendarLocale, DateValue, FieldInvalidEvent, Granularity,
+        CalendarDate, CalendarLocale, DateValue, FieldInvalidEvent, Granularity, HourCycle,
     },
 };
 
@@ -91,6 +91,7 @@ pub fn DateFieldShowcase() -> Element {
             EnUsFormDateFieldScenario {}
             KoKrDateFieldScenario {}
             DateTimeMinuteFieldScenario {}
+            Empty12hDateTimeFieldScenario {}
         }
     }
 }
@@ -319,6 +320,81 @@ fn DateTimeMinuteFieldScenario() -> Element {
                     span { style: "color: #64748b; font-weight: 600;", "ISO Value:" }
                     span {
                         id: "sw5c-df-datetime-value",
+                        style: "{BADGE_STYLE}",
+                        {value().map_or_else(|| String::from("none"), |v| v.to_iso_string())}
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn Empty12hDateTimeFieldScenario() -> Element {
+    let value = use_signal(|| None::<DateValue>);
+
+    rsx! {
+        div {
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
+            style: "{CARD_STYLE}",
+
+            div {
+                style: "display: flex; flex-direction: column; gap: 0.25rem;",
+                h3 {
+                    style: "margin: 0; font-size: 1rem; font-weight: 600; color: #0f172a;",
+                    "4. Empty 12-Hour DateTime Field with Required & Partial-Buffer Reset (DEF-5C-01, DEF-5C-03)"
+                }
+                p {
+                    style: "margin: 0; font-size: 0.75rem; color: #64748b;",
+                    "Starts empty with default AM meridiem. Typing date + time commits immediately; Reset clears partial buffers."
+                }
+            }
+
+            form {
+                id: "sw5c-df-empty-form",
+                style: "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem;",
+                DateFieldRoot {
+                    id: "sw5c-df-empty-12h",
+                    value: Some(value),
+                    granularity: Some(Granularity::Minute),
+                    hour_cycle: Some(HourCycle::H12),
+                    locale: CalendarLocale::EnUs,
+                    required: true,
+                    div {
+                        style: "display: flex; flex-direction: column; gap: 0.375rem;",
+                        DateFieldLabel {
+                            id: "sw5c-df-empty-12h-label",
+                            "Schedule DateTime (Empty 12h)"
+                        }
+                        DateFieldInput {
+                            id: "sw5c-df-empty-12h-input",
+                            name: "schedule_dt",
+                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    DateFieldSegment {
+                                        key: "{seg.index}",
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        id: format!("sw5c-df-empty-12h-seg-{}", seg.index),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                button {
+                    id: "sw5c-df-empty-reset-btn",
+                    r#type: "reset",
+                    style: "{BTN_STYLE}",
+                    "Reset Empty"
+                }
+
+                div {
+                    style: "display: flex; align-items: center; gap: 0.5rem; font-size: 0.75rem;",
+                    span { style: "color: #64748b; font-weight: 600;", "ISO Value:" }
+                    span {
+                        id: "sw5c-df-empty-12h-value",
                         style: "{BADGE_STYLE}",
                         {value().map_or_else(|| String::from("none"), |v| v.to_iso_string())}
                     }

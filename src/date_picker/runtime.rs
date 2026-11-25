@@ -54,8 +54,8 @@ pub struct DatePickerRuntime {
     pub on_value_change: Rc<RefCell<Option<EventHandler<Option<DateValue>>>>>,
     pub on_placeholder_change: Rc<RefCell<Option<EventHandler<DateValue>>>>,
     pub on_open_change: Rc<RefCell<Option<EventHandler<bool>>>>,
-    pub is_date_disabled: Rc<RefCell<Option<Callback<CalendarDate, bool>>>>,
-    pub is_date_unavailable: Rc<RefCell<Option<Callback<CalendarDate, bool>>>>,
+    pub is_date_disabled: Signal<Option<Callback<CalendarDate, bool>>>,
+    pub is_date_unavailable: Signal<Option<Callback<CalendarDate, bool>>>,
 }
 
 impl PartialEq for DatePickerRuntime {

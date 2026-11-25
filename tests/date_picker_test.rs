@@ -15,7 +15,10 @@ use monoxus::{
         DatePickerTrigger, DatePickerYearSelect, use_date_picker_context,
     },
     foundation::{
-        date_time::{CalendarDate, CalendarLocale, CalendarMonth, DateValue},
+        date_time::{
+            CalendarDate, CalendarLocale, CalendarMonth, DateValue, FieldInvalidEvent,
+            FieldInvalidReason,
+        },
         overlay::{active_overlay_layers_snapshot, unregister_active_overlay_layer},
         shared::ScopeHandle,
     },
@@ -399,6 +402,293 @@ mod native_tests {
             Some("false")
         );
         assert_native_focus_id(&harness, &trigger_id);
+
+        clear_active_overlay_stack();
+    }
+
+    #[component]
+    fn NativeDatePickerRemediationScenario() -> Element {
+        let mut complete_log = use_signal(Vec::<bool>::new);
+        let mut escape_blocked = use_signal(|| true);
+        let mut last_invalid_reason = use_signal(|| Option::<FieldInvalidReason>::None);
+
+        rsx! {
+            div {
+                style: "padding: 280px 16px 16px 16px;",
+                form {
+                    id: "dp-remediation-form",
+                    DatePickerRoot {
+                        id: "dp-remediation",
+                        locale: CalendarLocale::EnUs,
+                        default_value: d(2026, 4, 15),
+                        default_placeholder: d(2026, 4, 15),
+                        is_date_disabled: move |date: CalendarDate| date.day == 20,
+                        on_invalid: move |evt: FieldInvalidEvent| {
+                            last_invalid_reason.set(Some(evt.reason));
+                        },
+                        on_open_change_complete: move |open| {
+                            complete_log.write().push(open);
+                        },
+                        div {
+                            style: "display: flex; align-items: center; gap: 8px;",
+                            DatePickerInput {
+                                id: "dp-rem-input",
+                                name: Some("rem_date".to_string()),
+                                style: "display: flex; gap: 4px;",
+                                render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                    for seg in segments {
+                                        DatePickerSegment {
+                                            key: "{seg.index}",
+                                            id: format!("dp-rem-seg-{}", seg.index),
+                                            part: seg.kind(),
+                                            index: Some(seg.index),
+                                            style: "display: inline-block; min-width: 24px; height: 24px;",
+                                        }
+                                    }
+                                }
+                            }
+                            DatePickerTrigger {
+                                id: "dp-rem-trigger",
+                                style: "width: 80px; height: 38px;",
+                                "Open"
+                            }
+                            button {
+                                id: "dp-rem-reset",
+                                r#type: "reset",
+                                style: "width: 60px; height: 30px;",
+                                "Reset"
+                            }
+                            button {
+                                id: "dp-rem-allow-esc",
+                                r#type: "button",
+                                style: "width: 60px; height: 30px;",
+                                onclick: move |_| escape_blocked.set(false),
+                                "AllowEsc"
+                            }
+                        }
+                        DatePickerPortal {
+                            DatePickerContent {
+                                id: "dp-rem-content",
+                                collision_padding: 8.0,
+                                avoid_collisions: true,
+                                on_open_auto_focus: move |evt: monoxus::date_picker::OpenAutoFocusEvent| {
+                                    evt.prevent_default();
+                                },
+                                on_escape_key_down: move |evt: monoxus::date_picker::EscapeKeyDownEvent| {
+                                    if *escape_blocked.read() {
+                                        evt.prevent_default();
+                                    }
+                                },
+                                as_child: true,
+                                render_child: move |rp: monoxus::date_picker::DatePickerContentRenderProps| {
+                                    let wid = rp.wrapper_id.unwrap_or_default();
+                                    let wstyle = rp.wrapper_style.unwrap_or_default();
+                                    rsx! {
+                                        div {
+                                            id: "{wid}",
+                                            "data-monoxus-floating-content-wrapper": "",
+                                            style: "{wstyle}",
+                                            section {
+                                                id: "{rp.attrs.id}",
+                                                role: "{rp.role}",
+                                                "data-as-child-picker": "true",
+                                                "data-state": rp.attrs.data_state,
+                                                "data-date-picker-content": rp.attrs.data_date_picker_content,
+                                                style: "width: 280px; height: 340px; padding: 8px; background: white; {rp.style}",
+                                                tabindex: rp.attrs.tabindex,
+                                                onmounted: move |evt| rp.on_mounted.call(evt),
+                                                onkeydown: move |evt| rp.on_key_down.call(evt),
+                                                onclick: move |evt| rp.on_click.call(evt),
+                                                {rp.children}
+                                            }
+                                        }
+                                    }
+                                },
+                                DatePickerCalendar {
+                                    render_children: move |snap: CalendarSnapshot| rsx! {
+                                        for month in snap.months {
+                                            DatePickerMonthGrid { month, weekdays: snap.weekdays.clone() }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                span {
+                    id: "dp-rem-complete-count",
+                    "{complete_log.read().len()}"
+                }
+                span {
+                    id: "dp-rem-invalid-reason",
+                    "{last_invalid_reason.read():?}"
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_date_picker_clamps_viewport_validates_disabled_resets_form_and_honors_hooks() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_active_overlay_stack();
+        let mut harness = mount_native_scenario(NativeDatePickerRemediationScenario);
+
+        // 1. Open mid-viewport (y=280) 340px-tall DatePickerContent on 800x600 -> clamped y >= 0.0 (DEF-5C-04)
+        focus_node(&mut harness, "#dp-rem-trigger");
+        click_and_pump(&mut harness, "#dp-rem-trigger");
+        assert_eq!(
+            harness.attr("#dp-rem-content", "data-state").as_deref(),
+            Some("open")
+        );
+        assert_eq!(
+            harness.attr("#dp-rem-content", "data-as-child-picker").as_deref(),
+            Some("true")
+        );
+        let content_rect = harness.layout_rect("#dp-rem-content");
+        assert!(
+            content_rect.y >= 0.0 && content_rect.y + content_rect.height <= 600.0,
+            "DatePickerContent must clamp inside 800x600 viewport, got rect={content_rect:?}"
+        );
+
+        // 2. on_open_auto_focus.prevent_default() keeps focus on trigger instead of calendar day (DEF-5C-10)
+        assert_native_focus_id(&harness, "dp-rem-trigger");
+
+        // 3. on_escape_key_down.prevent_default() keeps popover open (DEF-5C-10)
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        assert_eq!(
+            harness.attr("#dp-rem-content", "data-state").as_deref(),
+            Some("open")
+        );
+
+        // Allow escape: clicking outside button closes popover; reopen and verify Escape now closes
+        click_and_pump(&mut harness, "#dp-rem-allow-esc");
+        assert_eq!(
+            harness.attr("#dp-rem-trigger", "aria-expanded").as_deref(),
+            Some("false")
+        );
+        click_and_pump(&mut harness, "#dp-rem-trigger");
+        assert_eq!(
+            harness.attr("#dp-rem-trigger", "aria-expanded").as_deref(),
+            Some("true")
+        );
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        assert_eq!(
+            harness.attr("#dp-rem-trigger", "aria-expanded").as_deref(),
+            Some("false")
+        );
+
+        // 4. Typing a disabled date (day 20) marks DatePickerInput invalid with FieldInvalidReason::Unavailable (DEF-5C-11)
+        focus_node(&mut harness, "#dp-rem-seg-2");
+        send_key_and_pump(&mut harness, Key::Character("2".to_string()), Code::Digit2);
+        send_key_and_pump(&mut harness, Key::Character("0".to_string()), Code::Digit0);
+        assert_eq!(
+            harness.attr("input[name='rem_date']", "value").as_deref(),
+            Some("2026-04-20")
+        );
+        assert_eq!(
+            harness.attr("#dp-rem-input", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.text_content("#dp-rem-invalid-reason"),
+            "Some(Unavailable)"
+        );
+
+        // 5. Native <form> reset restores default_value (2026-04-15) and clears invalid state (DEF-5C-08)
+        click_and_pump(&mut harness, "#dp-rem-reset");
+        assert_eq!(
+            harness.attr("input[name='rem_date']", "value").as_deref(),
+            Some("2026-04-15")
+        );
+        assert_eq!(harness.attr("#dp-rem-input", "data-invalid"), None);
+        assert!(harness.text_content("#dp-rem-complete-count").parse::<usize>().unwrap_or(0) >= 1);
+
+        clear_active_overlay_stack();
+    }
+
+    #[component]
+    fn NativeDatePickerStayOpenScenario() -> Element {
+        rsx! {
+            div {
+                style: "padding: 16px;",
+                DatePickerRoot {
+                    id: "dp-stay-open",
+                    locale: CalendarLocale::EnUs,
+                    default_placeholder: d(2026, 4, 15),
+                    close_on_date_select: false,
+                    div {
+                        style: "display: flex; align-items: center; gap: 8px;",
+                        DatePickerInput {
+                            id: "dp-so-input",
+                            name: Some("stay_open_date".to_string()),
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    DatePickerSegment {
+                                        key: "{seg.index}",
+                                        id: format!("dp-so-seg-{}", seg.index),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        style: "display: inline-block; min-width: 24px; height: 24px;",
+                                    }
+                                }
+                            }
+                        }
+                        DatePickerTrigger {
+                            id: "dp-so-trigger",
+                            style: "width: 80px; height: 28px;",
+                            "Calendar"
+                        }
+                    }
+                    DatePickerPortal {
+                        DatePickerContent {
+                            id: "dp-so-content",
+                            style: "width: 280px; padding: 8px; background: white;",
+                            DatePickerCalendar {
+                                render_children: move |snap: CalendarSnapshot| rsx! {
+                                    for month in snap.months {
+                                        DatePickerMonthGrid { month, weekdays: snap.weekdays.clone() }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_date_picker_close_on_date_select_false_keeps_popover_open() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_active_overlay_stack();
+        let mut harness = mount_native_scenario(NativeDatePickerStayOpenScenario);
+
+        click_and_pump(&mut harness, "#dp-so-trigger");
+        assert_eq!(
+            harness.attr("#dp-so-content", "data-state").as_deref(),
+            Some("open")
+        );
+
+        // Selecting a calendar day updates value/segments AND keeps popover open
+        click_and_pump(&mut harness, "[data-calendar-day][data-value='2026-04-20']");
+        assert_eq!(
+            harness
+                .attr("input[name='stay_open_date']", "value")
+                .as_deref(),
+            Some("2026-04-20")
+        );
+        assert_eq!(harness.text_content("#dp-so-seg-0"), "04");
+        assert_eq!(harness.text_content("#dp-so-seg-2"), "20");
+        assert_eq!(harness.text_content("#dp-so-seg-4"), "2026");
+        assert_eq!(
+            harness.attr("#dp-so-content", "data-state").as_deref(),
+            Some("open")
+        );
+        assert_eq!(
+            harness.attr("#dp-so-trigger", "aria-expanded").as_deref(),
+            Some("true")
+        );
 
         clear_active_overlay_stack();
     }

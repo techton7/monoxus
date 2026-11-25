@@ -30,3 +30,73 @@ id = "sw5c-tf-24h-value"
 selector = "#sw5c-tf-24h-value"
 part = "readout"
 state = "14:15:30"
+
+[[scenarios.targets]]
+id = "sw5c-tf-empty-12h-input"
+selector = "#sw5c-tf-empty-12h-input"
+part = "input"
+state = "empty-12h-required"
+
+[[scenarios]]
+name = "time-field-empty-12h-commit-and-reset"
+description = "Verify empty 12h TimeField commits 09:30:00 on numeric typing and resets cleanly"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-time-field"
+
+[[scenarios.actions]]
+kind = "focus"
+target = "#sw5c-tf-empty-12h-seg-0"
+
+[[scenarios.actions]]
+kind = "key"
+key = "0"
+
+[[scenarios.actions]]
+kind = "key"
+key = "9"
+
+[[scenarios.actions]]
+kind = "key"
+key = "3"
+
+[[scenarios.actions]]
+kind = "key"
+key = "0"
+
+[[scenarios.targets]]
+id = "sw5c-tf-empty-12h-value"
+selector = "#sw5c-tf-empty-12h-value"
+part = "readout"
+state = "09:30:00"
+
+[[scenarios]]
+name = "time-field-empty-12h-day-period-toggle"
+description = "Verify ArrowUp on empty 12h dayPeriod toggles AM to PM without populating numeric segments"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-time-field"
+
+[[scenarios.actions]]
+kind = "focus"
+target = "#sw5c-tf-empty-12h-seg-4"
+
+[[scenarios.actions]]
+kind = "key"
+key = "ArrowUp"
+
+[[scenarios.targets]]
+id = "sw5c-tf-empty-12h-seg-4"
+selector = "#sw5c-tf-empty-12h-seg-4"
+part = "segment"
+state = "PM"
+
+[[scenarios.targets]]
+id = "sw5c-tf-empty-12h-value"
+selector = "#sw5c-tf-empty-12h-value"
+part = "readout"
+state = "none"

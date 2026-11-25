@@ -5,8 +5,8 @@ use dioxus::prelude::*;
 use crate::{
     foundation::{
         date_time::{
-            CalendarLocale, DateValue, EditableSegmentKind, FieldInvalidEvent, Granularity,
-            HourCycle, SegmentKind,
+            CalendarDate, CalendarLocale, DateValue, EditableSegmentKind, FieldInvalidEvent,
+            Granularity, HourCycle, SegmentKind,
         },
         form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
@@ -59,6 +59,8 @@ pub struct DateFieldRootProps {
     pub required: bool,
     #[props(default)]
     pub readonly_segments: Vec<EditableSegmentKind>,
+    #[props(default)]
+    pub is_date_unavailable: Option<Callback<CalendarDate, bool>>,
     #[props(default)]
     pub validate: Option<Callback<DateValue, Option<Vec<String>>>>,
     #[props(default)]
@@ -135,14 +137,18 @@ pub fn DateFieldRoot(props: DateFieldRootProps) -> Element {
         st
     });
 
-    let mut label_id_override = use_signal(|| props.label_id_override.clone());
-    if *label_id_override.peek() != props.label_id_override {
-        label_id_override.set(props.label_id_override.clone());
-    }
+    let label_id_override = use_signal(|| props.label_id_override.clone());
+    let custom_label_id = use_signal(|| None::<String>);
 
     let trailing_trigger_id = use_signal(|| None::<String>);
     let announcement = use_signal(String::new);
     let last_invalid_reason = use_signal(|| None);
+
+    let range_role = use_hook(|| Rc::new(RefCell::new(props.range_role)));
+    *range_role.borrow_mut() = props.range_role;
+
+    let default_value = use_hook(|| Rc::new(RefCell::new(props.default_value)));
+    *default_value.borrow_mut() = props.default_value;
 
     let controlled_value = use_hook(|| Rc::new(RefCell::new(props.value)));
     *controlled_value.borrow_mut() = props.value;
@@ -155,6 +161,9 @@ pub fn DateFieldRoot(props: DateFieldRootProps) -> Element {
 
     let on_placeholder_change = use_hook(|| Rc::new(RefCell::new(props.on_placeholder_change)));
     *on_placeholder_change.borrow_mut() = props.on_placeholder_change;
+
+    let is_date_unavailable = use_hook(|| Rc::new(RefCell::new(props.is_date_unavailable)));
+    *is_date_unavailable.borrow_mut() = props.is_date_unavailable;
 
     let validate = use_hook(|| Rc::new(RefCell::new(props.validate)));
     *validate.borrow_mut() = props.validate;
@@ -170,33 +179,62 @@ pub fn DateFieldRoot(props: DateFieldRootProps) -> Element {
 
     let segment_dom_ids = use_hook(|| Rc::new(RefCell::new(std::collections::BTreeMap::new())));
 
-    let mut runtime = DateFieldRuntime {
+    let runtime = DateFieldRuntime {
         state,
         rels: rels.clone(),
-        range_role: props.range_role,
+        range_role,
         label_id_override,
+        custom_label_id,
         trailing_trigger_id,
         segment_dom_ids,
         announcement,
         last_invalid_reason,
         controlled_value,
         controlled_placeholder,
-        default_value: props.default_value,
+        default_value,
         on_value_change,
         on_placeholder_change,
+        is_date_unavailable,
         validate,
         on_invalid,
         on_prev_boundary,
         on_next_boundary,
     };
 
-    // Sync definition & external controlled signals
-    if *runtime.state.peek().def() != def {
-        runtime.state.write().sync_definition(def);
-    }
-    let ext_val = props.value.map(|s| *s.read());
-    let ext_ph = props.placeholder.map(|s| *s.read());
-    runtime.reconcile_external_state(ext_val, ext_ph, props.is_invalid_override);
+    // DEF-5C-09: Reconcile definition, predicates, controlled signals, and validation inside
+    // guarded effects instead of mutating reactive signals or invoking `on_invalid` during render.
+    use_effect(use_reactive(
+        (
+            &def,
+            &props.label_id_override,
+            &props.is_date_unavailable,
+            &props.validate,
+        ),
+        {
+            let mut rt = runtime.clone();
+            move |(next_def, label_override, _next_unavailable, _next_validate)| {
+                if *rt.label_id_override.peek() != label_override {
+                    rt.label_id_override.set(label_override);
+                }
+                if *rt.state.peek().def() != next_def {
+                    rt.state.write().sync_definition(next_def);
+                }
+                rt.sync_validation_and_notify();
+            }
+        },
+    ));
+
+    use_effect(use_reactive(
+        (&props.value, &props.placeholder, &props.is_invalid_override),
+        {
+            let mut rt = runtime.clone();
+            move |(value_sig, placeholder_sig, inv_override)| {
+                let ext_val = value_sig.map(|s| *s.read());
+                let ext_ph = placeholder_sig.map(|s| *s.read());
+                rt.reconcile_external_state(ext_val, ext_ph, inv_override);
+            }
+        },
+    ));
 
     use_context_provider(|| DateFieldContext(runtime.clone()));
 
@@ -339,11 +377,13 @@ pub fn DateFieldInput(props: DateFieldInputProps) -> Element {
             "aria-labelledby": attrs.aria_labelledby,
             "aria-describedby": attrs.aria_describedby,
             "aria-disabled": attrs.aria_disabled,
+            "aria-required": attrs.aria_required,
             dir: attrs.dir,
             "data-date-field-input": attrs.data_date_field_input,
             "data-range-field-part": attrs.data_range_field_part,
             "data-invalid": attrs.data_invalid,
             "data-disabled": attrs.data_disabled,
+            "data-required": attrs.data_required,
             onmounted: move |evt| {
                 if let Some(ref handler) = props.on_mounted {
                     handler.call(evt);
@@ -600,6 +640,18 @@ pub struct DateFieldLabelProps {
 #[component]
 pub fn DateFieldLabel(props: DateFieldLabelProps) -> Element {
     let runtime = use_date_field_context();
+    use_effect(use_reactive((&props.id,), {
+        let mut rt = runtime.clone();
+        move |(custom_id,)| {
+            rt.register_custom_label_id(custom_id);
+        }
+    }));
+    {
+        let mut rt_drop = runtime.clone();
+        use_drop(move || {
+            rt_drop.register_custom_label_id(None);
+        });
+    }
     let attrs = runtime.label_attrs(props.id.clone());
 
     let on_click = {

@@ -8,7 +8,7 @@ use monoxus::{
     },
     foundation::{
         date_time::{CalendarDate, CalendarLocale, DateValue, DateValueRange},
-        shared::ScopeHandle,
+        shared::{Direction, ScopeHandle},
     },
 };
 
@@ -77,8 +77,8 @@ mod native_tests {
 
     use super::*;
     use crate::common::native_fixture::{
-        NATIVE_TEST_LOCK, assert_native_focus_id, focus_node, mount_native_scenario,
-        send_key_and_pump,
+        NATIVE_TEST_LOCK, assert_native_focus_id, click_and_pump, focus_node,
+        mount_native_scenario, send_key_and_pump,
     };
 
     #[component]
@@ -195,5 +195,195 @@ mod native_tests {
         assert_eq!(harness.attr("#drf-root", "data-invalid"), None);
         assert_eq!(harness.attr("#drf-end", "data-invalid"), None);
         assert_eq!(harness.attr("#drf-end-seg-0", "aria-invalid"), None);
+    }
+
+    #[component]
+    fn NativeDateRangeRemediationScenario() -> Element {
+        rsx! {
+            div {
+                style: "padding: 16px;",
+                form {
+                    id: "drf-rem-form",
+                    DateRangeFieldRoot {
+                        id: "drf-rem-root",
+                        locale: CalendarLocale::EnUs,
+                        min_value: Some(d(2026, 5, 10)),
+                        default_value: DateValueRange::new(
+                            Some(d(2026, 5, 12)),
+                            Some(d(2026, 5, 20)),
+                        ),
+                        DateRangeFieldLabel { id: "drf-custom-lbl", "Range With Reset" }
+                        DateRangeFieldInput {
+                            id: "drf-rem-start",
+                            kind: RangeFieldInputKind::Start,
+                            name: Some("rem_start".to_string()),
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    DateRangeFieldSegment {
+                                        key: "{seg.index}",
+                                        id: format!("drf-rem-start-seg-{}", seg.index),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        style: "display: inline-block; min-width: 24px; height: 24px;",
+                                    }
+                                }
+                            }
+                        }
+                        DateRangeFieldInput {
+                            id: "drf-rem-end",
+                            kind: RangeFieldInputKind::End,
+                            name: Some("rem_end".to_string()),
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    DateRangeFieldSegment {
+                                        key: "{seg.index}",
+                                        id: format!("drf-rem-end-seg-{}", seg.index),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        style: "display: inline-block; min-width: 24px; height: 24px;",
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    button {
+                        id: "drf-rem-reset",
+                        r#type: "reset",
+                        style: "width: 80px; height: 28px;",
+                        "Reset"
+                    }
+                }
+                DateRangeFieldRoot {
+                    id: "drf-partial-root",
+                    locale: CalendarLocale::EnUs,
+                    min_value: Some(d(2026, 5, 10)),
+                    default_value: DateValueRange::new(Some(d(2026, 5, 5)), None),
+                    DateRangeFieldLabel { id: "drf-partial-lbl", "Partial Min" }
+                    DateRangeFieldInput {
+                        id: "drf-partial-start",
+                        kind: RangeFieldInputKind::Start,
+                        render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("drf-partial-start-seg-{}", seg.index),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                    DateRangeFieldInput {
+                        id: "drf-partial-end",
+                        kind: RangeFieldInputKind::End,
+                        render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("drf-partial-end-seg-{}", seg.index),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+                DateRangeFieldRoot {
+                    id: "drf-rtl-root",
+                    locale: CalendarLocale::EnUs,
+                    dir: Some(Direction::Rtl),
+                    default_value: DateValueRange::new(
+                        Some(d(2026, 5, 10)),
+                        Some(d(2026, 5, 15)),
+                    ),
+                    DateRangeFieldLabel { id: "drf-rtl-lbl", "RTL Range" }
+                    DateRangeFieldInput {
+                        id: "drf-rtl-start",
+                        kind: RangeFieldInputKind::Start,
+                        render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("drf-rtl-start-seg-{}", seg.index),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                    DateRangeFieldInput {
+                        id: "drf-rtl-end",
+                        kind: RangeFieldInputKind::End,
+                        render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("drf-rtl-end-seg-{}", seg.index),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_date_range_field_rtl_custom_label_partial_min_max_and_form_reset() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeDateRangeRemediationScenario);
+
+        // DEF-5C-07: custom label id synced to root and child inputs
+        assert_eq!(
+            harness.attr("#drf-rem-root", "aria-labelledby").as_deref(),
+            Some("drf-custom-lbl")
+        );
+        assert_eq!(
+            harness.attr("#drf-rem-start", "aria-labelledby").as_deref(),
+            Some("drf-custom-lbl")
+        );
+
+        // DEF-5C-13 / 5C D-8: partial min violation marks root, label, and Start invalid, NOT empty End
+        assert_eq!(
+            harness.attr("#drf-partial-root", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#drf-partial-lbl", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#drf-partial-start", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(harness.attr("#drf-partial-end", "data-invalid"), None);
+
+        // DEF-5C-08: edit Start and End, then form reset restores BOTH default endpoints
+        focus_node(&mut harness, "#drf-rem-start-seg-4");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        assert_eq!(
+            harness.attr("input[name='rem_start']", "value").as_deref(),
+            Some("2027-05-12")
+        );
+        click_and_pump(&mut harness, "#drf-rem-reset");
+        assert_eq!(
+            harness.attr("input[name='rem_start']", "value").as_deref(),
+            Some("2026-05-12")
+        );
+        assert_eq!(
+            harness.attr("input[name='rem_end']", "value").as_deref(),
+            Some("2026-05-20")
+        );
+
+        // RTL cross-field traversal: ArrowLeft moves Next across Start -> End; ArrowRight reverses
+        focus_node(&mut harness, "#drf-rtl-start-seg-4");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowLeft), Code::ArrowLeft);
+        assert_native_focus_id(&harness, "drf-rtl-end-seg-0");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowRight), Code::ArrowRight);
+        assert_native_focus_id(&harness, "drf-rtl-start-seg-4");
     }
 }

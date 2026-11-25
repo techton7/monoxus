@@ -2,7 +2,10 @@ use dioxus::prelude::*;
 
 use crate::foundation::browser::{ResizeObserverBox, use_element_size_with_mount};
 
-use super::super::{attrs::CommandViewportAttrs, runtime::CommandContext};
+use super::super::{
+    attrs::{CommandViewportAttrs, merge_flex_column_style},
+    runtime::CommandContext,
+};
 
 #[derive(Clone, PartialEq, Props)]
 pub struct CommandViewportRenderProps {
@@ -60,6 +63,8 @@ pub fn CommandViewport(props: CommandViewportProps) -> Element {
     });
 
     let attrs = CommandViewportAttrs::new(resolved_id);
+    let is_grid = ctx.columns.read().is_some();
+    let merged_style = merge_flex_column_style(props.style.as_deref(), is_grid);
     let consumer_mounted = props.on_mounted;
     let handle_mounted = EventHandler::new(move |evt: MountedEvent| {
         let next = mount_rev.peek().wrapping_add(1);
@@ -75,7 +80,7 @@ pub fn CommandViewport(props: CommandViewportProps) -> Element {
                 id: attrs.id,
                 data_command_viewport: attrs.data_command_viewport,
                 class: props.class,
-                style: props.style,
+                style: merged_style,
                 on_mounted: handle_mounted,
                 attributes: props.attributes,
                 children: props.children,
@@ -88,7 +93,7 @@ pub fn CommandViewport(props: CommandViewportProps) -> Element {
             id: "{attrs.id}",
             "data-command-viewport": attrs.data_command_viewport,
             class: props.class,
-            style: props.style,
+            style: merged_style,
             onmounted: move |evt| handle_mounted.call(evt),
             ..props.attributes,
             {props.children}

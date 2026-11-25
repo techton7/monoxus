@@ -8,7 +8,7 @@ use crate::{
         browser::focus_element_by_id,
         date_time::{
             FieldInvalidEvent, FieldInvalidReason, FieldSegmentIntent, SegmentFocusMove,
-            SegmentKind, TimeValue, parse_pasted_time_value,
+            SegmentKind, TimeValue, parse_pasted_time_value, validate_time_value,
         },
     },
 };
@@ -28,14 +28,15 @@ use super::{
 pub struct TimeFieldRuntime {
     pub state: Signal<TimeFieldState>,
     pub rels: TimeFieldRelationships,
-    pub range_role: TimeFieldRangeRole,
+    pub range_role: Rc<RefCell<TimeFieldRangeRole>>,
     pub label_id_override: Signal<Option<String>>,
+    pub custom_label_id: Signal<Option<String>>,
     pub segment_dom_ids: Rc<RefCell<BTreeMap<usize, String>>>,
     pub announcement: Signal<String>,
     pub last_invalid_reason: Signal<Option<FieldInvalidReason>>,
     pub controlled_value: Rc<RefCell<Option<Signal<Option<TimeValue>>>>>,
     pub controlled_placeholder: Rc<RefCell<Option<Signal<TimeValue>>>>,
-    pub default_value: Option<TimeValue>,
+    pub default_value: Rc<RefCell<Option<TimeValue>>>,
     pub on_value_change: Rc<RefCell<Option<EventHandler<Option<TimeValue>>>>>,
     pub on_placeholder_change: Rc<RefCell<Option<EventHandler<TimeValue>>>>,
     pub validate: Rc<RefCell<Option<Callback<TimeValue, Option<Vec<String>>>>>>,
@@ -60,11 +61,25 @@ impl TimeFieldRuntime {
     }
 
     pub fn effective_label_id(&self) -> String {
-        self.label_id_override
+        self.custom_label_id
             .read()
             .clone()
             .filter(|s| !s.is_empty())
+            .or_else(|| {
+                self.label_id_override
+                    .read()
+                    .clone()
+                    .filter(|s| !s.is_empty())
+            })
             .unwrap_or_else(|| self.rels.label_id().to_string())
+    }
+
+    /// Registers a custom `id` from `TimeFieldLabel` so `aria-labelledby` stays synced (`DEF-5C-07`).
+    pub fn register_custom_label_id(&mut self, id: Option<String>) {
+        let normalized = id.filter(|s| !s.is_empty());
+        if *self.custom_label_id.peek() != normalized {
+            self.custom_label_id.set(normalized);
+        }
     }
 
     pub fn register_segment_dom_id(&self, index: usize, dom_id: String) {
@@ -115,13 +130,14 @@ impl TimeFieldRuntime {
         };
         TimeFieldInputAttrs::new(
             id,
-            self.range_role,
+            *self.range_role.borrow(),
             Some(self.effective_label_id()),
             desc,
             st.def().dir,
             st.is_invalid(),
             st.def().disabled,
         )
+        .with_required(st.def().required)
     }
 
     pub fn label_attrs(&self, id_override: Option<String>) -> TimeFieldLabelAttrs {
@@ -164,7 +180,10 @@ impl TimeFieldRuntime {
     }
 
     fn sync_validation_and_notify(&mut self) {
-        let current_val = self.state.peek().value();
+        let (current_val, min_val, max_val) = {
+            let st = self.state.peek();
+            (st.value(), st.def().min_value, st.def().max_value)
+        };
         let custom_errors = current_val.and_then(|v| {
             self.validate
                 .borrow()
@@ -172,7 +191,10 @@ impl TimeFieldRuntime {
                 .and_then(|cb| cb.call(v))
         });
 
-        let next_reason = self.state.write().evaluate_validation(custom_errors);
+        let next_reason = validate_time_value(current_val, min_val, max_val, custom_errors).err();
+        if self.state.peek().local_invalid_reason() != next_reason.as_ref() {
+            self.state.write().set_local_invalid_reason(next_reason.clone());
+        }
         let prev_reason = self.last_invalid_reason.peek().clone();
         if next_reason != prev_reason {
             self.last_invalid_reason.set(next_reason.clone());
@@ -250,6 +272,10 @@ impl TimeFieldRuntime {
         evt: &KeyboardEvent,
     ) {
         if evt.data().is_composing() {
+            return;
+        }
+        // DEF-5C-12: Do not prevent_default() when the field is disabled.
+        if self.state.peek().def().disabled {
             return;
         }
         let mods = evt.data().modifiers();
@@ -334,7 +360,8 @@ impl TimeFieldRuntime {
             let st = self.state.peek();
             (st.value(), st.placeholder())
         };
-        self.state.write().set_value(self.default_value);
+        let default_val = *self.default_value.borrow();
+        self.state.write().reset_value(default_val);
         self.emit_value_and_placeholder_changes(prev_val, prev_ph);
         self.sync_validation_and_notify();
     }
@@ -355,7 +382,9 @@ impl TimeFieldRuntime {
         {
             self.state.write().set_placeholder(ph);
         }
-        if let Some(inv) = is_invalid_override {
+        if let Some(inv) = is_invalid_override
+            && self.state.peek().external_invalid() != inv
+        {
             self.state.write().set_external_invalid(inv);
         }
         self.sync_validation_and_notify();

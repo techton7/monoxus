@@ -4,6 +4,17 @@ use crate::foundation::overlay::PlacementSide;
 
 use crate::combobox::runtime::use_combobox_context;
 
+#[derive(Clone, PartialEq)]
+pub struct ComboboxArrowRenderProps {
+    pub width: f32,
+    pub height: f32,
+    pub side: PlacementSide,
+    pub class: Option<String>,
+    pub style: String,
+    pub attributes: Vec<Attribute>,
+    pub children: Option<Element>,
+}
+
 #[derive(Props, Clone, PartialEq)]
 pub struct ComboboxArrowProps {
     #[props(default)]
@@ -14,6 +25,10 @@ pub struct ComboboxArrowProps {
     pub width: f32,
     #[props(default = 5.0)]
     pub height: f32,
+    #[props(default = false)]
+    pub as_child: bool,
+    #[props(default)]
+    pub render_child: Option<Callback<ComboboxArrowRenderProps, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -68,6 +83,20 @@ pub fn ComboboxArrow(props: ComboboxArrowProps) -> Element {
         Some(ref custom) if !custom.is_empty() => format!("{pos_style} {custom}"),
         _ => pos_style,
     };
+
+    if props.as_child {
+        if let Some(ref render_child) = props.render_child {
+            return render_child.call(ComboboxArrowRenderProps {
+                width: props.width,
+                height: props.height,
+                side,
+                class: props.class,
+                style: merged_style,
+                attributes: props.attributes,
+                children: props.children,
+            });
+        }
+    }
 
     if let Some(c) = props.children {
         return rsx! {

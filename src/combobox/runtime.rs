@@ -6,12 +6,12 @@ use dioxus::prelude::*;
 use crate::foundation::{
     browser::{
         FocusOptions, WatcherGuard, focus_element_sync_or_defer, get_element_scroll_metrics,
-        query_descendant_order, set_input_value_by_id,
+        query_descendant_order, set_input_selection_range, set_input_value_by_id,
     },
     compose::MountedHandle,
     overlay::{
         FloatingPlacement, FloatingReadiness, GeometryVars, PlacementAlign, PlacementSide,
-        unregister_active_overlay_layer,
+        PortalHost, unregister_active_overlay_layer,
     },
 };
 
@@ -49,6 +49,27 @@ pub enum ComboboxPendingHighlight {
 
 #[derive(Clone, Copy)]
 pub struct ComboboxRuntimeState {
+    // Reactive ComboboxRoot config signals (4B D-4: zero stale mount snapshots)
+    pub mode: Signal<ComboboxMode>,
+    pub disabled: Signal<bool>,
+    pub required: Signal<bool>,
+    pub loop_focus: Signal<bool>,
+    pub scroll_alignment: Signal<ComboboxScrollAlignment>,
+    pub allow_deselect: Signal<bool>,
+    pub root_clear_on_deselect: Signal<bool>,
+    pub input_clear_on_deselect: Signal<Option<bool>>,
+    pub name: Signal<Option<String>>,
+    pub form: Signal<Option<String>>,
+    pub portal_host: Signal<PortalHost>,
+
+    // Reactive ComboboxRoot callbacks (4B D-4)
+    pub on_open_change: Signal<Option<EventHandler<bool>>>,
+    pub on_open_change_complete: Signal<Option<EventHandler<bool>>>,
+    pub on_value_change: Signal<Option<EventHandler<Option<String>>>>,
+    pub on_values_change: Signal<Option<EventHandler<Vec<String>>>>,
+    pub on_input_value_change: Signal<Option<EventHandler<String>>>,
+
+    // Value / open / highlight state
     pub open: Signal<bool>,
     pub controlled_open: Signal<Option<Signal<bool>>>,
     pub value: Signal<Option<String>>,
@@ -59,9 +80,14 @@ pub struct ComboboxRuntimeState {
     pub controlled_input_value: Signal<Option<Signal<String>>>,
     pub highlighted_value: Signal<Option<String>>,
     pub pending_open_highlight: Signal<Option<ComboboxPendingHighlight>>,
+    pub pending_input_reconcile: Signal<u64>,
     pub registry: Signal<ComboboxOptionRegistry>,
+    pub registry_version: Signal<u64>,
     pub pressed_item: Signal<Option<PressedComboboxItem>>,
-    pub clear_on_deselect: Signal<bool>,
+    pub suppress_next_click: Signal<bool>,
+    pub is_composing: Signal<bool>,
+    pub user_has_scrolled: Signal<bool>,
+    pub content_mounted: Signal<bool>,
     pub default_value_initial: Signal<Option<String>>,
     pub default_values_initial: Signal<Vec<String>>,
     pub default_input_value_initial: Signal<String>,
@@ -104,19 +130,13 @@ pub struct ComboboxRuntimeState {
 
 #[derive(Clone)]
 pub struct ComboboxRuntime {
-    pub config: ComboboxState,
     pub relationships: ComboboxRelationships,
     pub state: ComboboxRuntimeState,
-    pub on_open_change: Option<ComboboxOpenChangeHandler>,
-    pub on_open_change_complete: Option<ComboboxOpenChangeHandler>,
-    pub on_value_change: Option<ComboboxValueChangeHandler>,
-    pub on_values_change: Option<ComboboxValuesChangeHandler>,
-    pub on_input_value_change: Option<ComboboxInputValueChangeHandler>,
 }
 
 impl PartialEq for ComboboxRuntime {
     fn eq(&self, other: &Self) -> bool {
-        self.config == other.config && self.relationships == other.relationships
+        self.relationships == other.relationships
     }
 }
 
@@ -125,47 +145,201 @@ impl ComboboxRuntime {
         &self.relationships
     }
 
-    pub fn config(&self) -> &ComboboxState {
-        &self.config
+    pub fn config(&self) -> ComboboxState {
+        ComboboxState::new()
+            .with_mode(self.mode_untracked())
+            .with_disabled(self.is_disabled_untracked())
+            .with_required(self.is_required_untracked())
+            .with_loop_focus(self.loop_focus_untracked())
+            .with_scroll_alignment(self.scroll_alignment_untracked())
+            .with_allow_deselect(self.allow_deselect_untracked())
+            .with_clear_on_deselect(self.clear_on_deselect())
+            .with_name(self.name_untracked())
+            .with_form(self.form_untracked())
+            .with_portal_host(self.portal_host_untracked())
     }
 
     pub fn mode(&self) -> ComboboxMode {
-        self.config.mode()
+        *self.state.mode.read()
+    }
+
+    pub fn mode_untracked(&self) -> ComboboxMode {
+        self.state
+            .mode
+            .try_peek()
+            .map(|g| *g)
+            .unwrap_or(ComboboxMode::Single)
     }
 
     pub fn is_disabled(&self) -> bool {
-        self.config.is_disabled()
+        *self.state.disabled.read()
+    }
+
+    pub fn is_disabled_untracked(&self) -> bool {
+        self.state.disabled.try_peek().map(|g| *g).unwrap_or(false)
     }
 
     pub fn is_required(&self) -> bool {
-        self.config.is_required()
+        *self.state.required.read()
+    }
+
+    pub fn is_required_untracked(&self) -> bool {
+        self.state.required.try_peek().map(|g| *g).unwrap_or(false)
     }
 
     pub fn loop_focus(&self) -> bool {
-        self.config.loop_focus()
+        *self.state.loop_focus.read()
+    }
+
+    pub fn loop_focus_untracked(&self) -> bool {
+        self.state
+            .loop_focus
+            .try_peek()
+            .map(|g| *g)
+            .unwrap_or(false)
     }
 
     pub fn scroll_alignment(&self) -> ComboboxScrollAlignment {
-        self.config.scroll_alignment()
+        *self.state.scroll_alignment.read()
+    }
+
+    pub fn scroll_alignment_untracked(&self) -> ComboboxScrollAlignment {
+        self.state
+            .scroll_alignment
+            .try_peek()
+            .map(|g| *g)
+            .unwrap_or(ComboboxScrollAlignment::Nearest)
     }
 
     pub fn allow_deselect(&self) -> bool {
-        self.config.allow_deselect()
+        *self.state.allow_deselect.read()
+    }
+
+    pub fn allow_deselect_untracked(&self) -> bool {
+        self.state
+            .allow_deselect
+            .try_peek()
+            .map(|g| *g)
+            .unwrap_or(true)
+    }
+
+    pub fn name(&self) -> Option<String> {
+        self.state.name.read().clone()
+    }
+
+    pub fn name_untracked(&self) -> Option<String> {
+        self.state.name.try_peek().ok().and_then(|g| g.clone())
+    }
+
+    pub fn form(&self) -> Option<String> {
+        self.state.form.read().clone()
+    }
+
+    pub fn form_untracked(&self) -> Option<String> {
+        self.state.form.try_peek().ok().and_then(|g| g.clone())
+    }
+
+    pub fn portal_host(&self) -> PortalHost {
+        self.state.portal_host.read().clone()
+    }
+
+    pub fn portal_host_untracked(&self) -> PortalHost {
+        self.state
+            .portal_host
+            .try_peek()
+            .map(|g| g.clone())
+            .unwrap_or_default()
     }
 
     pub fn clear_on_deselect(&self) -> bool {
-        self.state
-            .clear_on_deselect
-            .try_peek()
-            .map(|g| *g)
-            .unwrap_or(self.config.clear_on_deselect())
+        if let Ok(Some(override_val)) = self.state.input_clear_on_deselect.try_peek().map(|g| *g) {
+            override_val
+        } else {
+            self.state
+                .root_clear_on_deselect
+                .try_peek()
+                .map(|g| *g)
+                .unwrap_or(false)
+        }
     }
 
     pub fn set_clear_on_deselect(&self, clear: bool) {
-        let mut sig = self.state.clear_on_deselect;
+        self.set_input_clear_on_deselect(Some(clear));
+    }
+
+    pub fn set_input_clear_on_deselect(&self, clear: Option<bool>) {
+        let mut sig = self.state.input_clear_on_deselect;
         if sig.try_peek().is_ok_and(|g| *g != clear) {
             let _ = sig.try_write().map(|mut w| *w = clear);
         }
+    }
+
+    pub fn set_composing(&self, composing: bool) {
+        let mut sig = self.state.is_composing;
+        if sig.try_peek().is_ok_and(|g| *g != composing) {
+            let _ = sig.try_write().map(|mut w| *w = composing);
+        }
+    }
+
+    pub fn is_composing_untracked(&self) -> bool {
+        self.state
+            .is_composing
+            .try_peek()
+            .map(|g| *g)
+            .unwrap_or(false)
+    }
+
+    pub fn set_user_has_scrolled(&self, scrolled: bool) {
+        let mut sig = self.state.user_has_scrolled;
+        if sig.try_peek().is_ok_and(|g| *g != scrolled) {
+            let _ = sig.try_write().map(|mut w| *w = scrolled);
+        }
+    }
+
+    pub fn user_has_scrolled_untracked(&self) -> bool {
+        self.state
+            .user_has_scrolled
+            .try_peek()
+            .map(|g| *g)
+            .unwrap_or(false)
+    }
+
+    pub fn set_content_mounted(&self, mounted: bool) {
+        let mut sig = self.state.content_mounted;
+        if sig.try_peek().is_ok_and(|g| *g != mounted) {
+            let _ = sig.try_write().map(|mut w| *w = mounted);
+        }
+    }
+
+    pub fn is_content_mounted(&self) -> bool {
+        *self.state.content_mounted.read()
+    }
+
+    pub fn set_suppress_next_click(&self, suppress: bool) {
+        let mut sig = self.state.suppress_next_click;
+        if sig.try_peek().is_ok_and(|g| *g != suppress) {
+            let _ = sig.try_write().map(|mut w| *w = suppress);
+        }
+    }
+
+    pub fn take_suppress_next_click(&self) -> bool {
+        let mut sig = self.state.suppress_next_click;
+        if sig.try_peek().is_ok_and(|g| *g) {
+            let _ = sig.try_write().map(|mut w| *w = false);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn bump_registry_version(&self) {
+        let mut ver = self.state.registry_version;
+        let _ = ver.try_write().map(|mut w| *w = w.wrapping_add(1));
+    }
+
+    fn bump_pending_input_reconcile(&self) {
+        let mut sig = self.state.pending_input_reconcile;
+        let _ = sig.try_write().map(|mut w| *w = w.wrapping_add(1));
     }
 
     pub fn current_input_id(&self) -> String {
@@ -277,7 +451,7 @@ impl ComboboxRuntime {
     }
 
     pub fn set_open(&self, next: bool) {
-        if self.is_disabled() && next {
+        if self.is_disabled_untracked() && next {
             return;
         }
         let current = self.is_open_untracked();
@@ -294,20 +468,22 @@ impl ComboboxRuntime {
         if !next {
             let mut pending = self.state.pending_open_highlight;
             let _ = pending.try_write().map(|mut w| *w = None);
+            self.set_user_has_scrolled(false);
             self.set_highlighted(None, false);
             self.stop_dismiss_monitor();
             self.stop_position_monitor();
             let cid = self.current_content_id_untracked();
             unregister_active_overlay_layer(&cid);
         } else {
+            self.set_user_has_scrolled(false);
             self.start_dismiss_monitor();
         }
 
-        if let Some(ref cb) = self.on_open_change {
-            cb(next);
+        if let Ok(Some(cb)) = self.state.on_open_change.try_peek().map(|g| *g) {
+            cb.call(next);
         }
-        if let Some(ref cb) = self.on_open_change_complete {
-            cb(next);
+        if let Ok(Some(cb)) = self.state.on_open_change_complete.try_peek().map(|g| *g) {
+            cb.call(next);
         }
     }
 
@@ -346,8 +522,8 @@ impl ComboboxRuntime {
             let mut sig = self.state.value;
             let _ = sig.try_write().map(|mut w| *w = next.clone());
         }
-        if let Some(ref cb) = self.on_value_change {
-            cb(next);
+        if let Ok(Some(cb)) = self.state.on_value_change.try_peek().map(|g| *g) {
+            cb.call(next);
         }
     }
 
@@ -381,8 +557,8 @@ impl ComboboxRuntime {
             let mut sig = self.state.values;
             let _ = sig.try_write().map(|mut w| *w = next.clone());
         }
-        if let Some(ref cb) = self.on_values_change {
-            cb(next);
+        if let Ok(Some(cb)) = self.state.on_values_change.try_peek().map(|g| *g) {
+            cb.call(next);
         }
     }
 
@@ -427,10 +603,13 @@ impl ComboboxRuntime {
         if sync_dom {
             let iid = self.current_input_id_untracked();
             set_input_value_by_id(&iid, &next);
+            // ENG D-2: keep caret at UTF-16 end on programmatic input value updates.
+            let utf16_len = next.encode_utf16().count();
+            set_input_selection_range(&iid, utf16_len, utf16_len);
         }
         if changed {
-            if let Some(ref cb) = self.on_input_value_change {
-                cb(next);
+            if let Ok(Some(cb)) = self.state.on_input_value_change.try_peek().map(|g| *g) {
+                cb.call(next);
             }
         }
     }
@@ -489,12 +668,20 @@ impl ComboboxRuntime {
             .unwrap_or_else(|| self.relationships.item_id(value));
         let vp_id = self.current_viewport_id_untracked();
         let content_id = self.current_content_id_untracked();
-        super::monitors::scroll_item_in_viewport(&vp_id, &content_id, &item_id, self.scroll_alignment());
+        super::monitors::scroll_item_in_viewport(
+            &vp_id,
+            &content_id,
+            &item_id,
+            self.scroll_alignment_untracked(),
+        );
     }
 
     pub fn focus_input(&self) {
         let iid = self.current_input_id_untracked();
         focus_element_sync_or_defer(&iid, FocusOptions::new(true));
+        // ENG D-2: position caret at UTF-16 end so Blitz Native matches Web caret placement.
+        let utf16_len = self.input_value_untracked().encode_utf16().count();
+        set_input_selection_range(&iid, utf16_len, utf16_len);
     }
 
     pub fn seed_items(&self, items: &[ComboboxItemData]) {
@@ -512,6 +699,11 @@ impl ComboboxRuntime {
         if let Ok(mut w) = reg.try_write() {
             w.register(value, label, dom_id, disabled);
         }
+        self.bump_registry_version();
+        if self.is_open_untracked() {
+            let cid = self.current_content_id_untracked();
+            self.sync_dom_order(&cid);
+        }
         if !disabled && self.is_open_untracked() {
             if let Ok(Some(pending)) = self.state.pending_open_highlight.try_peek().map(|g| *g) {
                 let candidate = self.state.registry.try_peek().ok().and_then(|r| match pending {
@@ -520,19 +712,56 @@ impl ComboboxRuntime {
                 });
                 if let Some(val) = candidate {
                     self.set_highlighted(Some(val), true);
-                    if pending == ComboboxPendingHighlight::First {
-                        let mut p = self.state.pending_open_highlight;
-                        let _ = p.try_write().map(|mut w| *w = None);
-                    }
                 }
             }
         }
     }
 
     pub fn unregister_item(&self, dom_id: &str) {
+        let (removed_val, old_enabled_idx) = self
+            .state
+            .registry
+            .try_peek()
+            .ok()
+            .map(|r| {
+                let val = r
+                    .items()
+                    .iter()
+                    .find(|i| i.dom_id == dom_id)
+                    .map(|i| i.value.clone());
+                let idx = val.as_deref().and_then(|v| {
+                    r.enabled_items()
+                        .iter()
+                        .position(|i| i.value == v)
+                });
+                (val, idx)
+            })
+            .unwrap_or((None, None));
+
+        let mut removed = false;
         let mut reg = self.state.registry;
         if let Ok(mut w) = reg.try_write() {
-            w.unregister_by_dom_id(dom_id);
+            removed = w.unregister_by_dom_id(dom_id);
+        }
+        if removed {
+            self.bump_registry_version();
+            if self.is_open_untracked()
+                && removed_val.is_some()
+                && self.highlighted_value_untracked() == removed_val
+            {
+                let replacement = self.state.registry.try_peek().ok().and_then(|r| {
+                    let enabled = r.enabled_items();
+                    if enabled.is_empty() {
+                        None
+                    } else {
+                        let idx = old_enabled_idx
+                            .map(|i| i.min(enabled.len() - 1))
+                            .unwrap_or(0);
+                        enabled.get(idx).map(|i| i.value.clone())
+                    }
+                });
+                self.set_highlighted(replacement, false);
+            }
         }
     }
 
@@ -557,6 +786,91 @@ impl ComboboxRuntime {
         }
     }
 
+    pub fn flush_pending_open_and_input_reconcile(
+        &self,
+        seen_reconcile_ver: &mut u64,
+        current_reconcile_ver: u64,
+    ) {
+        if !self.is_open_untracked() {
+            return;
+        }
+
+        // Resolve and clear any pending open highlight (including `Last`) once items have mounted
+        // and `sync_dom_order` has run.
+        if let Ok(Some(pending)) = self.state.pending_open_highlight.try_peek().map(|g| *g) {
+            let has_items = self
+                .state
+                .registry
+                .try_peek()
+                .map(|r| !r.is_empty())
+                .unwrap_or(false);
+            if has_items {
+                let selected = match self.mode_untracked() {
+                    ComboboxMode::Single => self.value_untracked(),
+                    ComboboxMode::Multiple => self.values_untracked().first().cloned(),
+                };
+                let candidate = self.state.registry.try_peek().ok().and_then(|r| {
+                    selected
+                        .as_deref()
+                        .filter(|val| r.contains_enabled(val))
+                        .map(str::to_owned)
+                        .or_else(|| match pending {
+                            ComboboxPendingHighlight::First => {
+                                r.first_enabled().map(|i| i.value.clone())
+                            }
+                            ComboboxPendingHighlight::Last => {
+                                r.last_enabled().map(|i| i.value.clone())
+                            }
+                        })
+                });
+                self.set_highlighted(candidate, true);
+                // Defer clearing `pending_open_highlight` by one yield so sibling `ComboboxItem`
+                // mount effects in the same commit finish registering before the pending flag clears.
+                let settled_ver = self
+                    .state
+                    .registry_version
+                    .try_peek()
+                    .map(|g| *g)
+                    .unwrap_or(0);
+                let rt = self.clone();
+                crate::foundation::browser::spawn_root_task(async move {
+                    struct YieldOnce(bool);
+                    impl std::future::Future for YieldOnce {
+                        type Output = ();
+                        fn poll(
+                            mut self: std::pin::Pin<&mut Self>,
+                            cx: &mut std::task::Context<'_>,
+                        ) -> std::task::Poll<()> {
+                            if self.0 {
+                                std::task::Poll::Ready(())
+                            } else {
+                                self.0 = true;
+                                cx.waker().wake_by_ref();
+                                std::task::Poll::Pending
+                            }
+                        }
+                    }
+                    YieldOnce(false).await;
+                    let cur_ver = rt
+                        .state
+                        .registry_version
+                        .try_peek()
+                        .map(|g| *g)
+                        .unwrap_or(0);
+                    if cur_ver == settled_ver {
+                        let mut p = rt.state.pending_open_highlight;
+                        let _ = p.try_write().map(|mut w| *w = None);
+                    }
+                });
+            }
+        }
+
+        if current_reconcile_ver != *seen_reconcile_ver {
+            *seen_reconcile_ver = current_reconcile_ver;
+            self.reconcile_highlight_for_input();
+        }
+    }
+
     pub fn reconcile_highlight_for_input(&self) {
         if !self.is_open_untracked() {
             return;
@@ -571,19 +885,21 @@ impl ComboboxRuntime {
     }
 
     pub fn handle_input_change(&self, next_value: String) {
-        if self.is_disabled() {
+        if self.is_disabled_untracked() {
             return;
         }
         self.set_input_value(next_value, false);
         if !self.is_open_untracked() {
             self.open_menu();
         }
-        self.reconcile_highlight_for_input();
+        // Defer highlight reconciliation to post-render effect so filtered `ComboboxItem`
+        // mount/unmount effects and `sync_dom_order` complete first (DEF-CBX-04).
+        self.bump_pending_input_reconcile();
         self.refresh_scroll_buttons();
     }
 
     pub fn select_item(&self, target_value: &str) {
-        if self.is_disabled() {
+        if self.is_disabled_untracked() {
             return;
         }
         let (is_disabled, label) = self
@@ -604,14 +920,14 @@ impl ComboboxRuntime {
             return;
         }
 
-        match self.mode() {
+        match self.mode_untracked() {
             ComboboxMode::Single => {
                 let current = self.value_untracked();
                 let outcome = apply_single_toggle(
                     current.as_deref(),
                     target_value,
                     &label,
-                    self.allow_deselect(),
+                    self.allow_deselect_untracked(),
                     self.clear_on_deselect(),
                 );
                 if outcome.changed {
@@ -644,7 +960,7 @@ impl ComboboxRuntime {
     }
 
     pub fn handle_input_keydown(&self, evt: &KeyboardEvent) {
-        if self.is_disabled() {
+        if self.is_disabled_untracked() {
             return;
         }
         let Some(nav_key) = translate_combobox_key(&evt.key(), evt.modifiers()) else {
@@ -652,12 +968,47 @@ impl ComboboxRuntime {
         };
 
         let is_open = self.is_open_untracked();
+
+        // DEF-CBX-03: Invoke consumer `on_escape_key_down` BEFORE calling `evt.prevent_default()`
+        // so consumers can prevent dismissal while default Escape still preserves Blitz input focus.
+        if nav_key == ComboboxNavKey::Escape && is_open {
+            let mut consumer_prevented = false;
+            if let Ok(Some(cb)) = self.state.on_escape_key_down.try_peek().map(|g| *g) {
+                cb.call(evt.clone());
+                consumer_prevented = !evt.default_action_enabled();
+            }
+            evt.prevent_default();
+            if consumer_prevented {
+                return;
+            }
+            self.close_menu();
+            return;
+        }
+
+        // DEF-CBX-01/02: Sync live DOM order right before resolving keyboard navigation so
+        // recycled Dioxus ScopeIds and filter unmount/remount never scramble arrow order.
+        if is_open {
+            let cid = self.current_content_id_untracked();
+            self.sync_dom_order(&cid);
+        }
+
+        if matches!(
+            nav_key,
+            ComboboxNavKey::ArrowDown
+                | ComboboxNavKey::ArrowUp
+                | ComboboxNavKey::PageDown
+                | ComboboxNavKey::PageUp
+        ) {
+            self.set_user_has_scrolled(false);
+        }
+
         let highlighted = self.highlighted_value_untracked();
-        let selected = match self.mode() {
+        let selected = match self.mode_untracked() {
             ComboboxMode::Single => self.value_untracked(),
             ComboboxMode::Multiple => self.values_untracked().first().cloned(),
         };
-        let is_composing = evt.data().is_composing();
+        let is_composing = evt.data().is_composing() || self.is_composing_untracked();
+        let input_non_empty = !self.input_value_untracked().is_empty();
 
         let outcome = self
             .state
@@ -671,8 +1022,9 @@ impl ComboboxRuntime {
                     selected.as_deref(),
                     nav_key,
                     is_composing,
-                    self.loop_focus(),
-                    self.is_disabled(),
+                    self.loop_focus_untracked(),
+                    self.is_disabled_untracked(),
+                    input_non_empty,
                 )
             })
             .unwrap_or_default();
@@ -681,26 +1033,22 @@ impl ComboboxRuntime {
             evt.prevent_default();
         }
 
-        if nav_key == ComboboxNavKey::Escape && is_open {
-            if let Ok(Some(cb)) = self.state.on_escape_key_down.try_peek().map(|g| g.clone()) {
-                cb.call(evt.clone());
-                if !evt.default_action_enabled() {
-                    return;
-                }
-            }
-        }
-
         if let Some(next_open) = outcome.next_open {
             if next_open && !is_open {
                 let pending_mode = match nav_key {
                     ComboboxNavKey::ArrowUp => Some(ComboboxPendingHighlight::Last),
-                    ComboboxNavKey::ArrowDown | ComboboxNavKey::Printable => {
-                        Some(ComboboxPendingHighlight::First)
-                    }
+                    ComboboxNavKey::ArrowDown
+                    | ComboboxNavKey::Printable
+                    | ComboboxNavKey::Backspace => Some(ComboboxPendingHighlight::First),
                     _ => None,
                 };
                 if let Some(mode) = pending_mode {
-                    if outcome.next_highlighted.as_ref().and_then(|o| o.as_ref()).is_none() {
+                    if outcome
+                        .next_highlighted
+                        .as_ref()
+                        .and_then(|o| o.as_ref())
+                        .is_none()
+                    {
                         let mut p = self.state.pending_open_highlight;
                         let _ = p.try_write().map(|mut w| *w = Some(mode));
                     }
@@ -741,7 +1089,7 @@ impl ComboboxRuntime {
     }
 
     pub fn handle_form_reset(&self) {
-        match self.mode() {
+        match self.mode_untracked() {
             ComboboxMode::Single => {
                 let default_val = self
                     .state
@@ -799,7 +1147,13 @@ impl ComboboxRuntime {
 
     pub fn input_attributes(&self, id: String, disabled: bool) -> ComboboxInputAttrs {
         let is_open = self.is_open();
-        let content_id = self.current_content_id();
+        let force_mount = *self.state.force_mount.read();
+        let mounted = is_open || force_mount || self.is_content_mounted();
+        let content_id = if mounted {
+            Some(self.current_content_id())
+        } else {
+            None
+        };
         let highlighted_id = if is_open {
             self.highlighted_item_id()
         } else {
@@ -815,12 +1169,15 @@ impl ComboboxRuntime {
     }
 
     pub fn trigger_attributes(&self, id: String, disabled: bool) -> ComboboxTriggerAttrs {
-        ComboboxTriggerAttrs::new(
-            id,
-            self.current_content_id(),
-            self.is_open(),
-            disabled || self.is_disabled(),
-        )
+        let is_open = self.is_open();
+        let force_mount = *self.state.force_mount.read();
+        let mounted = is_open || force_mount || self.is_content_mounted();
+        let content_id = if mounted {
+            Some(self.current_content_id())
+        } else {
+            None
+        };
+        ComboboxTriggerAttrs::new(id, content_id, is_open, disabled || self.is_disabled())
     }
 
     pub fn content_attributes(
@@ -1026,6 +1383,7 @@ pub fn translate_combobox_key(key: &Key, modifiers: Modifiers) -> Option<Combobo
         Key::Named(NamedKey::Escape) => Some(ComboboxNavKey::Escape),
         Key::Named(NamedKey::Home) => Some(ComboboxNavKey::Home),
         Key::Named(NamedKey::End) => Some(ComboboxNavKey::End),
+        Key::Named(NamedKey::Backspace) => Some(ComboboxNavKey::Backspace),
         Key::Character(s) if !has_ctrl_or_meta && !has_alt && !s.is_empty() => {
             Some(ComboboxNavKey::Printable)
         }

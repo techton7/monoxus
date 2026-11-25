@@ -490,19 +490,54 @@ fn date_value_time_value_and_range_order_validation() {
         Err(FieldInvalidReason::Custom(vec!["custom error".to_string()]))
     );
 
-    let t_start = TimeValue::Time(time(14, 0, 0));
-    let t_end = TimeValue::Time(time(9, 0, 0));
-    let inverted_times = TimeRange::new(Some(t_start), Some(t_end));
-    assert!(inverted_times.is_inverted());
+    // Overnight time ranges (end < start, e.g. 20:00..05:00) are valid by default in validate_time_range (5C D-2)
+    let t_evening = TimeValue::Time(time(20, 0, 0));
+    let t_morning = TimeValue::Time(time(5, 0, 0));
+    let overnight_times = TimeRange::new(Some(t_evening), Some(t_morning));
+    assert!(overnight_times.is_inverted());
     assert_eq!(
-        validate_time_range(inverted_times, None, None, None),
+        overnight_times.validate_range_order(),
         Err(FieldInvalidReason::RangeOrder)
     );
-    let valid_times = TimeRange::new(Some(t_end), Some(t_start));
-    assert!(!valid_times.is_inverted());
+    assert_eq!(validate_time_range(overnight_times, None, None, None), Ok(()));
     assert_eq!(
         validate_time_range(
-            valid_times,
+            overnight_times,
+            None,
+            None,
+            Some(vec!["same-day order required".to_string()])
+        ),
+        Err(FieldInvalidReason::Custom(vec![
+            "same-day order required".to_string()
+        ]))
+    );
+    assert_eq!(
+        validate_time_range(
+            overnight_times,
+            Some(TimeValue::Time(time(6, 0, 0))),
+            None,
+            None
+        ),
+        Err(FieldInvalidReason::Min)
+    );
+    assert_eq!(
+        validate_time_range(
+            overnight_times,
+            None,
+            Some(TimeValue::Time(time(19, 0, 0))),
+            None
+        ),
+        Err(FieldInvalidReason::Max)
+    );
+
+    let t_start = TimeValue::Time(time(9, 0, 0));
+    let t_end = TimeValue::Time(time(14, 0, 0));
+    let same_day_times = TimeRange::new(Some(t_start), Some(t_end));
+    assert!(!same_day_times.is_inverted());
+    assert_eq!(same_day_times.validate_range_order(), Ok(()));
+    assert_eq!(
+        validate_time_range(
+            same_day_times,
             Some(TimeValue::Time(time(10, 0, 0))),
             None,
             None
@@ -760,5 +795,206 @@ fn segment_engine_iso_and_localized_paste_parsing() {
     assert_eq!(
         r.committed_date_value,
         Some(DateValue::Date(date(2026, 8, 15)))
+    );
+}
+
+#[test]
+fn empty_12h_day_period_initialization_commit_and_toggle() {
+    // DEF-5C-01 / 5C D-3: Empty 12h TimeField starts with placeholder "AM" and commits on numeric typing.
+    let mut t_engine = SegmentEngine::new_time(
+        FieldLocaleFormat::EnUs,
+        TimeGranularity::Minute,
+        Some(HourCycle::H12),
+        TimeValue::Time(CalendarTime::midnight()),
+    );
+    let initial_segs = t_engine.render_segments();
+    let dp = initial_segs
+        .iter()
+        .find(|s| s.kind == SegmentKind::DayPeriod)
+        .expect("dayPeriod segment");
+    assert_eq!(dp.value, "AM");
+    assert!(dp.is_placeholder);
+
+    // Typing 09:30 commits immediately without touching dayPeriod
+    t_engine.apply_intent(SegmentKind::Hour, FieldSegmentIntent::Digit(0));
+    t_engine.apply_intent(SegmentKind::Hour, FieldSegmentIntent::Digit(9));
+    t_engine.apply_intent(SegmentKind::Minute, FieldSegmentIntent::Digit(3));
+    let r = t_engine.apply_intent(SegmentKind::Minute, FieldSegmentIntent::Digit(0));
+    assert_eq!(r.committed_time_value, Some(TimeValue::Time(time(9, 30, 0))));
+    let dp_after = r
+        .updated_segments
+        .iter()
+        .find(|s| s.kind == SegmentKind::DayPeriod)
+        .expect("dayPeriod segment");
+    assert_eq!(dp_after.value, "AM");
+    assert!(!dp_after.is_placeholder);
+
+    // Typing 12:00 on empty 12h TimeField commits 00:00:00 (12 AM)
+    let mut t_midnight = SegmentEngine::new_time(
+        FieldLocaleFormat::EnUs,
+        TimeGranularity::Minute,
+        Some(HourCycle::H12),
+        TimeValue::Time(CalendarTime::midnight()),
+    );
+    t_midnight.apply_intent(SegmentKind::Hour, FieldSegmentIntent::Digit(1));
+    t_midnight.apply_intent(SegmentKind::Hour, FieldSegmentIntent::Digit(2));
+    t_midnight.apply_intent(SegmentKind::Minute, FieldSegmentIntent::Digit(0));
+    let r = t_midnight.apply_intent(SegmentKind::Minute, FieldSegmentIntent::Digit(0));
+    assert_eq!(
+        r.committed_time_value,
+        Some(TimeValue::Time(CalendarTime::midnight()))
+    );
+
+    // ArrowUp on empty 12h dayPeriod toggles AM -> PM without populating hour/minute
+    let mut t_toggle = SegmentEngine::new_time(
+        FieldLocaleFormat::EnUs,
+        TimeGranularity::Minute,
+        Some(HourCycle::H12),
+        TimeValue::Time(CalendarTime::midnight()),
+    );
+    let r = t_toggle.apply_intent(SegmentKind::DayPeriod, FieldSegmentIntent::Increment);
+    assert_eq!(r.committed_time_value, None);
+    assert_eq!(t_toggle.values().hour, None);
+    assert_eq!(t_toggle.values().minute, None);
+    let dp_pm = r
+        .updated_segments
+        .iter()
+        .find(|s| s.kind == SegmentKind::DayPeriod)
+        .expect("dayPeriod segment");
+    assert_eq!(dp_pm.value, "PM");
+    assert!(!dp_pm.is_placeholder);
+
+    let r2 = t_toggle.apply_intent(SegmentKind::DayPeriod, FieldSegmentIntent::Decrement);
+    let dp_am = r2
+        .updated_segments
+        .iter()
+        .find(|s| s.kind == SegmentKind::DayPeriod)
+        .expect("dayPeriod segment");
+    assert_eq!(dp_am.value, "AM");
+
+    // Empty 12h DateTime DateField commits immediately after numeric segments
+    let mut d_engine = SegmentEngine::new_date(
+        FieldLocaleFormat::EnUs,
+        Granularity::Minute,
+        Some(HourCycle::H12),
+        true,
+        DateValue::DateTime(CalendarDateTime::new(
+            date(2026, 4, 18),
+            CalendarTime::midnight(),
+        )),
+    );
+    d_engine.apply_intent(SegmentKind::Month, FieldSegmentIntent::Digit(4));
+    d_engine.apply_intent(SegmentKind::Day, FieldSegmentIntent::Digit(1));
+    d_engine.apply_intent(SegmentKind::Day, FieldSegmentIntent::Digit(8));
+    for dgt in [2, 0, 2, 6] {
+        d_engine.apply_intent(SegmentKind::Year, FieldSegmentIntent::Digit(dgt));
+    }
+    d_engine.apply_intent(SegmentKind::Hour, FieldSegmentIntent::Digit(9));
+    d_engine.apply_intent(SegmentKind::Minute, FieldSegmentIntent::Digit(3));
+    let r = d_engine.apply_intent(SegmentKind::Minute, FieldSegmentIntent::Digit(0));
+    assert_eq!(
+        r.committed_date_value,
+        Some(DateValue::DateTime(CalendarDateTime::new(
+            date(2026, 4, 18),
+            time(9, 30, 0)
+        )))
+    );
+}
+
+#[test]
+fn year_fifth_digit_cap_and_12h_backspace_padding() {
+    // DEF-5C-02 / 5C D-7: 5th+ digit typed into year without leaving focus is ignored
+    let mut d_engine = SegmentEngine::new_date(
+        FieldLocaleFormat::EnUs,
+        Granularity::Day,
+        None,
+        true,
+        DateValue::Date(date(2026, 1, 1)),
+    );
+    for _ in 0..6 {
+        d_engine.apply_intent(SegmentKind::Year, FieldSegmentIntent::Digit(2));
+    }
+    assert_eq!(d_engine.values().year.as_deref(), Some("2222"));
+
+    // After blur (leaving focus), typing overwrites cleanly
+    d_engine.apply_intent(SegmentKind::Year, FieldSegmentIntent::Blur);
+    for dgt in [1, 9, 9, 9] {
+        d_engine.apply_intent(SegmentKind::Year, FieldSegmentIntent::Digit(dgt));
+    }
+    assert_eq!(d_engine.values().year.as_deref(), Some("1999"));
+
+    // DEF-5C-16 / 5C D-7: Backspace on 12h "10" (22:30 PM) immediately displays "01" and commits 13:30
+    let mut t_engine = SegmentEngine::new_time(
+        FieldLocaleFormat::EnUs,
+        TimeGranularity::Minute,
+        Some(HourCycle::H12),
+        TimeValue::Time(time(22, 30, 0)),
+    );
+    t_engine.sync_from_time_value(Some(TimeValue::Time(time(22, 30, 0))));
+    assert_eq!(t_engine.values().hour.as_deref(), Some("10"));
+
+    let r = t_engine.apply_intent(SegmentKind::Hour, FieldSegmentIntent::Backspace);
+    assert_eq!(t_engine.values().hour.as_deref(), Some("01"));
+    assert_eq!(
+        r.committed_time_value,
+        Some(TimeValue::Time(time(13, 30, 0)))
+    );
+    let hour_seg = r
+        .updated_segments
+        .iter()
+        .find(|s| s.kind == SegmentKind::Hour)
+        .expect("hour segment");
+    assert_eq!(hour_seg.value, "01");
+
+    // Second Backspace clears "01" to placeholder
+    let r2 = t_engine.apply_intent(SegmentKind::Hour, FieldSegmentIntent::Backspace);
+    assert_eq!(t_engine.values().hour, None);
+    assert!(r2.cleared_value);
+}
+
+#[test]
+fn unavailable_validation_takes_precedence_over_min_max_range_order_and_custom() {
+    let d1 = DateValue::Date(date(2025, 1, 5));
+    let d2 = DateValue::Date(date(2025, 1, 10));
+    let d3 = DateValue::Date(date(2025, 1, 20));
+
+    // Single DateValue: Unavailable beats Custom, Min, Max
+    assert_eq!(
+        validate_date_value_with_unavailable(
+            Some(d1),
+            Some(d2),
+            Some(d3),
+            true,
+            Some(vec!["custom".into()]),
+        ),
+        Err(FieldInvalidReason::Unavailable)
+    );
+    // Empty value is never Unavailable
+    assert_eq!(
+        validate_date_value_with_unavailable(None, Some(d2), Some(d3), true, None),
+        Ok(())
+    );
+
+    // DateValueRange: Unavailable beats Custom, RangeOrder, Min, Max — even on partial range
+    let partial = DateValueRange::new(Some(d1), None);
+    assert_eq!(
+        validate_date_range_with_unavailable(partial, Some(d2), Some(d3), true, None),
+        Err(FieldInvalidReason::Unavailable)
+    );
+    let inverted = DateValueRange::new(Some(d3), Some(d1));
+    assert_eq!(
+        validate_date_range_with_unavailable(
+            inverted,
+            Some(d2),
+            Some(d2),
+            true,
+            Some(vec!["custom".into()]),
+        ),
+        Err(FieldInvalidReason::Unavailable)
+    );
+    // Empty range is never Unavailable
+    assert_eq!(
+        validate_date_range_with_unavailable(DateValueRange::default(), None, None, true, None),
+        Ok(())
     );
 }

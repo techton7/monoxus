@@ -178,3 +178,66 @@ fn date_field_attrs_boolean_omission_and_as_child_projection() {
         project_date_field_segment_as_child(&seg_attrs, "span", Slottable::new(3));
     assert_eq!(proj_seg, seg_attrs);
 }
+
+#[test]
+fn date_field_reset_value_clears_partial_buffers_and_required_timezone_attrs() {
+    let scope = ScopeHandle::root("date-field").child("reset-attrs");
+    let rels = DateFieldRelationships::new(scope);
+    let mut state = DateFieldState::new(
+        DateFieldDefinition::new()
+            .with_locale(CalendarLocale::EnUs)
+            .with_granularity(Some(Granularity::Minute))
+            .with_hide_time_zone(false)
+            .with_required(true),
+        None,
+        d(2026, 5, 1),
+    );
+
+    // Type partial month ("03") while committed value remains None
+    state.apply_intent(SegmentKind::Month, FieldSegmentIntent::Digit(3));
+    assert_eq!(state.value(), None);
+    assert_eq!(state.engine().values().month.as_deref(), Some("03"));
+
+    // DEF-5C-03: reset_value(None) unconditionally clears partial buffers
+    state.reset_value(None);
+    assert_eq!(state.engine().values().month, None);
+
+    // DEF-5C-15: required emits aria-required="true" & data-required=""
+    let req_attrs = DateFieldInputAttrs::new(
+        rels.input_id().to_string(),
+        DateFieldRangeRole::Standalone,
+        Some(rels.label_id().to_string()),
+        None,
+        Direction::Ltr,
+        false,
+        false,
+    )
+    .with_required(true);
+    assert_eq!(req_attrs.aria_required, Some("true"));
+    assert_eq!(req_attrs.data_required, Some(""));
+
+    // DEF-5C-14: TimeZoneName emits aria-invalid and aria-disabled consistently
+    let snap = state.snapshot(&rels);
+    let tz_item = snap
+        .segments
+        .iter()
+        .find(|s| s.kind() == SegmentKind::TimeZoneName)
+        .expect("timeZoneName segment");
+    let template = CalendarLocale::EnUs.field_template();
+    let tz_attrs = DateFieldSegmentAttrs::new(
+        tz_item,
+        None,
+        Some(rels.label_id()),
+        None,
+        None,
+        false,
+        &template,
+        true,
+        true,
+        true,
+    );
+    assert_eq!(tz_attrs.aria_invalid, Some("true"));
+    assert_eq!(tz_attrs.aria_disabled, Some("true"));
+    assert_eq!(tz_attrs.data_invalid, Some(""));
+    assert_eq!(tz_attrs.data_disabled, Some(""));
+}

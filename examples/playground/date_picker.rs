@@ -233,6 +233,7 @@ pub fn DatePickerShowcase() -> Element {
 
             StandardDatePickerScenario {}
             MultiPickerIsolationScenario {}
+            FormResetAndDisabledDatePickerScenario {}
         }
     }
 }
@@ -537,6 +538,122 @@ fn MultiPickerIsolationScenario() -> Element {
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+fn FormResetAndDisabledDatePickerScenario() -> Element {
+    let mut selected = use_signal(|| Some(dp_date(2024, 6, 15)));
+
+    rsx! {
+        div {
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
+            style: "{CARD_STYLE}",
+
+            div {
+                style: "display: flex; flex-direction: column; gap: 0.25rem;",
+                h3 {
+                    style: "margin: 0; font-size: 1rem; font-weight: 600; color: #0f172a;",
+                    "3. Form Reset, Disabled Dates & close_on_date_select: false (5C D-8, D-9)"
+                }
+                p {
+                    style: "margin: 0; font-size: 0.75rem; color: #64748b;",
+                    "Day 20 is disabled (blocked in calendar and invalidates typed input); selecting a date keeps the popover open; Reset restores 2024-06-15."
+                }
+            }
+
+            form {
+                id: "sw5c-dp-form",
+                style: "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem;",
+                DatePickerRoot {
+                    id: "sw5c-dp-form-picker",
+                    default_value: Some(dp_date(2024, 6, 15)),
+                    default_placeholder: Some(dp_date(2024, 6, 15)),
+                    close_on_date_select: false,
+                    is_date_disabled: move |date: CalendarDate| date.day == 20,
+                    on_value_change: move |next| selected.set(next),
+                    locale: CalendarLocale::EnUs,
+                    div {
+                        style: "display: flex; flex-direction: column; gap: 0.375rem;",
+                        DatePickerLabel { id: "sw5c-dp-form-label", "Booking Date" }
+                        DatePickerInput {
+                            id: "sw5c-dp-form-input",
+                            name: "booking_date",
+                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    DatePickerSegment {
+                                        key: "{seg.index}",
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        id: format!("sw5c-dp-form-seg-{}", seg.index),
+                                    }
+                                }
+                                DatePickerTrigger {
+                                    id: "sw5c-dp-form-trigger",
+                                    "Pick"
+                                }
+                            }
+                        }
+                    }
+                    DatePickerPortal {
+                        DatePickerContent {
+                            id: "sw5c-dp-form-content",
+                            collision_padding: 8.0,
+                            DatePickerCalendar {
+                                id: "sw5c-dp-form-calendar",
+                                render_children: move |snap: CalendarSnapshot| rsx! {
+                                    DatePickerHeader {
+                                        style: "{HEADER_STYLE}",
+                                        DatePickerPrevButton { "‹" }
+                                        DatePickerHeading { style: "font-size: 0.875rem; font-weight: 600;" }
+                                        DatePickerNextButton { "›" }
+                                    }
+                                    DatePickerGrid {
+                                        style: "{TABLE_STYLE}",
+                                        DatePickerGridHead {
+                                            DatePickerGridRow {
+                                                for (w_idx, wd) in snap.weekdays.iter().enumerate() {
+                                                    DatePickerHeadCell { key: "{w_idx}", style: "{TH_STYLE}", "{wd}" }
+                                                }
+                                            }
+                                        }
+                                        DatePickerGridBody {
+                                            for (r_idx, week) in snap.months[0].weeks.iter().enumerate() {
+                                                DatePickerGridRow {
+                                                    key: "{r_idx}",
+                                                    for date in week.iter().copied() {
+                                                        DatePickerCell {
+                                                            key: "{date}",
+                                                            date,
+                                                            month: snap.months[0].value,
+                                                            style: "{TD_STYLE}",
+                                                            DatePickerDay {
+                                                                id: "sw5c-dp-form-day-{date}",
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                button {
+                    id: "sw5c-dp-form-reset",
+                    r#type: "reset",
+                    style: "height: 36px; padding: 0 12px; border-radius: 0.5rem; border: 1px solid #cbd5e1; background: #f8fafc; font-size: 0.8125rem; font-weight: 600; cursor: pointer;",
+                    "Reset"
+                }
+                span {
+                    id: "sw5c-dp-form-value",
+                    style: "{BADGE_STYLE}",
+                    {selected().map_or_else(|| String::from("none"), |v| v.to_iso_string())}
                 }
             }
         }

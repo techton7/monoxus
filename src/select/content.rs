@@ -42,11 +42,33 @@ pub fn SelectContent(
     let portal_id = format!("{content_id}-portal-root");
 
     let parent_branch = try_consume_context::<crate::foundation::overlay::OverlayBranchContext>();
-    let mut layer_registered = use_signal(|| false);
+    let latest_ids = use_hook(|| {
+        std::rc::Rc::new(std::cell::RefCell::new((
+            content_id.clone(),
+            wrapper_id.clone(),
+            portal_id.clone(),
+        )))
+    });
+    {
+        let mut ids = latest_ids.borrow_mut();
+        if ids.0 != content_id {
+            crate::foundation::overlay::unregister_active_overlay_layer(&ids.0);
+            if let Some(ref branch_ctx) = parent_branch {
+                branch_ctx.unregister_branch(ids.0.clone());
+                branch_ctx.unregister_branch(ids.1.clone());
+                branch_ctx.unregister_branch(ids.2.clone());
+            }
+            *ids = (content_id.clone(), wrapper_id.clone(), portal_id.clone());
+        }
+    }
+    let mut registered_layer_id = use_signal(|| Option::<String>::None);
     if is_open {
-        if !*layer_registered.peek() {
+        if registered_layer_id.peek().as_deref() != Some(content_id.as_str()) {
+            if let Some(prev) = registered_layer_id.peek().as_deref() {
+                crate::foundation::overlay::unregister_active_overlay_layer(prev);
+            }
             crate::foundation::overlay::register_active_overlay_layer(&content_id);
-            layer_registered.set(true);
+            registered_layer_id.set(Some(content_id.clone()));
         }
         if let Some(ref branch_ctx) = parent_branch {
             branch_ctx.register_branch(content_id.clone());
@@ -54,9 +76,10 @@ pub fn SelectContent(
             branch_ctx.register_branch(portal_id.clone());
         }
     } else {
-        if *layer_registered.peek() {
-            crate::foundation::overlay::unregister_active_overlay_layer(&content_id);
-            layer_registered.set(false);
+        let prev = registered_layer_id.peek().clone();
+        if let Some(prev_id) = prev {
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev_id);
+            registered_layer_id.set(None);
         }
         if let Some(ref branch_ctx) = parent_branch {
             branch_ctx.unregister_branch(content_id.clone());
@@ -182,15 +205,15 @@ pub fn SelectContent(
         }
     }));
 
-    let drop_cid = content_id.clone();
-    let drop_wid = wrapper_id.clone();
-    let drop_pid = portal_id.clone();
+    let drop_ids = latest_ids.clone();
     let drop_parent_branch = parent_branch.clone();
     use_drop(move || {
+        let (drop_cid, drop_wid, drop_pid) = drop_ids.borrow().clone();
+        crate::foundation::overlay::unregister_active_overlay_layer(&drop_cid);
         if let Some(ref branch_ctx) = drop_parent_branch {
             branch_ctx.unregister_branch(drop_cid.clone());
-            branch_ctx.unregister_branch(drop_wid.clone());
-            branch_ctx.unregister_branch(drop_pid.clone());
+            branch_ctx.unregister_branch(drop_wid);
+            branch_ctx.unregister_branch(drop_pid);
         }
         let lock_id = format!("select-scroll-lock-{}", drop_cid);
         crate::foundation::browser::release_scroll_lock(&lock_id, Some(24));

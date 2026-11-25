@@ -184,6 +184,7 @@ impl ComboboxOptionRegistry {
         &self,
         current: Option<&str>,
         delta: isize,
+        loop_focus: bool,
     ) -> Option<&ComboboxRegisteredItem> {
         let enabled = self.enabled_items();
         if enabled.is_empty() {
@@ -193,13 +194,19 @@ impl ComboboxOptionRegistry {
         let curr_idx = current.and_then(|val| enabled.iter().position(|item| item.value == val));
         let next_idx = match curr_idx {
             Some(idx) => {
-                let target = idx as isize + delta;
-                if target <= 0 {
+                if loop_focus && delta > 0 && idx == last_idx {
                     0
-                } else if target as usize >= last_idx {
+                } else if loop_focus && delta < 0 && idx == 0 {
                     last_idx
                 } else {
-                    target as usize
+                    let target = idx as isize + delta;
+                    if target <= 0 {
+                        0
+                    } else if target as usize >= last_idx {
+                        last_idx
+                    } else {
+                        target as usize
+                    }
                 }
             }
             None => {

@@ -474,8 +474,10 @@ pub fn RangeCalendarRoot(props: RangeCalendarRootProps) -> Element {
                 }
                 if evt.default_action_enabled()
                     && evt.key() == Key::Named(NamedKey::Escape)
+                    && !crate::foundation::overlay::is_overlay_escape_consumed()
                     && (guard_consumed_escape.replace(false) || rt_for_key.handle_escape())
                 {
+                    crate::foundation::overlay::mark_overlay_escape_consumed();
                     evt.prevent_default();
                     evt.stop_propagation();
                 }

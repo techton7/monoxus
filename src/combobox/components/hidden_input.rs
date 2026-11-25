@@ -19,9 +19,7 @@ pub struct ComboboxHiddenInputProps {
 #[component]
 pub fn ComboboxHiddenInput(props: ComboboxHiddenInputProps) -> Element {
     let ctx = use_combobox_context();
-    let name = props
-        .name
-        .or_else(|| ctx.runtime.config().name().map(str::to_owned));
+    let name = props.name.or_else(|| ctx.runtime.name());
 
     let Some(name_str) = name.filter(|n| !n.is_empty()) else {
         return rsx! {};
@@ -29,9 +27,7 @@ pub fn ComboboxHiddenInput(props: ComboboxHiddenInputProps) -> Element {
 
     let disabled = props.disabled.unwrap_or_else(|| ctx.runtime.is_disabled());
     let required = props.required.unwrap_or_else(|| ctx.runtime.is_required());
-    let form = props
-        .form
-        .or_else(|| ctx.runtime.config().form().map(str::to_owned));
+    let form = props.form.or_else(|| ctx.runtime.form());
     let focus_target_id = Some(ctx.runtime.current_input_id());
     let reset_epoch = *ctx.runtime.state.reset_epoch.read();
 

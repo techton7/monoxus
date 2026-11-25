@@ -38,7 +38,36 @@ fn time_range_field_parts_and_relationships() {
 }
 
 #[test]
-fn time_range_field_validation_precedence_with_range_order() {
+fn time_range_field_validation_precedence_and_overnight_ranges() {
+    // Overnight range (20:00..05:00) is valid by default without min/max or custom validate
+    let mut overnight = TimeRangeFieldState::new(
+        TimeRangeFieldDefinition::new(),
+        TimeRange::new(Some(t(20, 0, 0)), Some(t(5, 0, 0))),
+        t(20, 0, 0),
+    );
+    assert_eq!(overnight.evaluate_validation(None), None);
+    assert!(!overnight.is_invalid());
+    assert!(!overnight.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(!overnight.is_part_invalid(RangeFieldInputKind::End));
+
+    // Same-day ordering can be enforced via consumer `validate` callback -> FieldInvalidReason::Custom
+    let custom_err = overnight.evaluate_validation(
+        overnight
+            .value()
+            .is_inverted()
+            .then(|| vec!["End time must be after start time".to_string()]),
+    );
+    assert_eq!(
+        custom_err,
+        Some(FieldInvalidReason::Custom(vec![
+            "End time must be after start time".to_string()
+        ]))
+    );
+    assert!(overnight.is_invalid());
+    assert!(overnight.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(overnight.is_part_invalid(RangeFieldInputKind::End));
+
+    // Bounded TimeRangeField: in-bounds end < start is still valid unless custom validate rejects it
     let def = TimeRangeFieldDefinition::new()
         .with_min_value(Some(t(8, 0, 0)))
         .with_max_value(Some(t(18, 0, 0)));
@@ -47,14 +76,6 @@ fn time_range_field_validation_precedence_with_range_order() {
         TimeRange::new(Some(t(14, 0, 0)), Some(t(10, 0, 0))),
         t(9, 0, 0),
     );
-
-    assert_eq!(
-        state.evaluate_validation(None),
-        Some(FieldInvalidReason::RangeOrder)
-    );
-    assert!(state.is_invalid());
-
-    state.set_part_value(RangeFieldInputKind::End, Some(t(16, 0, 0)));
     assert_eq!(state.evaluate_validation(None), None);
     assert!(!state.is_invalid());
 
@@ -63,6 +84,18 @@ fn time_range_field_validation_precedence_with_range_order() {
         state.evaluate_validation(None),
         Some(FieldInvalidReason::Min)
     );
+    assert!(state.is_invalid());
+    assert!(state.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(!state.is_part_invalid(RangeFieldInputKind::End));
+
+    state.set_part_value(RangeFieldInputKind::Start, Some(t(9, 0, 0)));
+    state.set_part_value(RangeFieldInputKind::End, Some(t(19, 0, 0)));
+    assert_eq!(
+        state.evaluate_validation(None),
+        Some(FieldInvalidReason::Max)
+    );
+    assert!(!state.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(state.is_part_invalid(RangeFieldInputKind::End));
 }
 
 #[test]
@@ -92,4 +125,46 @@ fn time_range_field_attrs_and_as_child() {
         project_time_range_field_label_as_child(&label_attrs, "span", Slottable::new("l"));
     assert_eq!(proj_root, root_attrs);
     assert_eq!(proj_label, label_attrs);
+}
+
+#[test]
+fn time_range_field_partial_min_max_scoping() {
+    let def = TimeRangeFieldDefinition::new()
+        .with_min_value(Some(t(8, 0, 0)))
+        .with_max_value(Some(t(18, 0, 0)));
+
+    // Only Start violates Min while End is empty -> only Start is invalid (5C D-8 / DEF-5C-13)
+    let mut state = TimeRangeFieldState::new(
+        def,
+        TimeRange::new(Some(t(7, 0, 0)), None),
+        t(8, 0, 0),
+    );
+    assert!(state.is_invalid());
+    assert!(state.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(!state.is_part_invalid(RangeFieldInputKind::End));
+
+    // Start in-bounds, End violates Max -> only End is invalid
+    state.set_value(TimeRange::new(Some(t(9, 0, 0)), Some(t(19, 0, 0))));
+    state.evaluate_validation(None);
+    assert!(state.is_invalid());
+    assert!(!state.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(state.is_part_invalid(RangeFieldInputKind::End));
+
+    // In-bounds overnight/inverted range is valid by default
+    state.set_value(TimeRange::new(Some(t(15, 0, 0)), Some(t(10, 0, 0))));
+    state.evaluate_validation(None);
+    assert_eq!(state.invalid_reason(), None);
+    assert!(!state.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(!state.is_part_invalid(RangeFieldInputKind::End));
+
+    // Custom validation (e.g. opt-in same-day order check) -> both Start and End are invalid
+    state.evaluate_validation(Some(vec!["End must be after start".to_string()]));
+    assert_eq!(
+        state.invalid_reason(),
+        Some(&FieldInvalidReason::Custom(vec![
+            "End must be after start".to_string()
+        ]))
+    );
+    assert!(state.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(state.is_part_invalid(RangeFieldInputKind::End));
 }

@@ -3,7 +3,9 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::foundation::browser::{WatcherGuard, start_element_scroll_monitor};
+use crate::foundation::browser::{
+    ResizeObserverBox, WatcherGuard, start_element_scroll_monitor, start_resize_monitor,
+};
 
 use crate::combobox::{attrs::ComboboxViewportAttrs, runtime::use_combobox_context};
 
@@ -12,6 +14,8 @@ pub struct ComboboxViewportRenderProps {
     pub attrs: ComboboxViewportAttrs,
     pub class: Option<String>,
     pub style: String,
+    pub on_wheel: EventHandler<WheelEvent>,
+    pub on_touch_move: EventHandler<TouchEvent>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
 }
@@ -44,37 +48,74 @@ pub fn ComboboxViewport(props: ComboboxViewportProps) -> Element {
 
     let is_open = ctx.runtime.is_open();
     let input_value = ctx.runtime.input_value();
+    let reg_ver = *ctx.runtime.state.registry_version.read();
     let scroll_guard: Rc<RefCell<Option<WatcherGuard>>> =
+        use_hook(|| Rc::new(RefCell::new(None)));
+    let resize_guard: Rc<RefCell<Option<WatcherGuard>>> =
         use_hook(|| Rc::new(RefCell::new(None)));
 
     {
         let rt = ctx.runtime.clone();
         let vid = vp_id.clone();
-        let guard_slot = Rc::clone(&scroll_guard);
-        use_effect(use_reactive((&is_open, &input_value), move |(open, _)| {
-            if let Some(prev) = guard_slot.borrow_mut().take() {
-                prev.stop();
-            }
-            if !open {
-                return;
-            }
-            rt.refresh_scroll_buttons();
-            let scroll_rt = rt.clone();
-            let guard = start_element_scroll_monitor(&vid, move || {
-                scroll_rt.refresh_scroll_buttons();
-            });
-            *guard_slot.borrow_mut() = Some(guard);
-        }));
+        let s_slot = Rc::clone(&scroll_guard);
+        let r_slot = Rc::clone(&resize_guard);
+        use_effect(use_reactive(
+            (&is_open, &input_value, &reg_ver, &vid),
+            move |(open, _, _, cur_vid)| {
+                if let Some(prev) = s_slot.borrow_mut().take() {
+                    prev.stop();
+                }
+                if let Some(prev) = r_slot.borrow_mut().take() {
+                    prev.stop();
+                }
+                if !open {
+                    return;
+                }
+                rt.refresh_scroll_buttons();
+                let scroll_rt = rt.clone();
+                let s_guard = start_element_scroll_monitor(&cur_vid, move || {
+                    scroll_rt.refresh_scroll_buttons();
+                });
+                *s_slot.borrow_mut() = Some(s_guard);
+
+                // CBX-10 / DEF-CBX-14: Re-align highlighted item on viewport resize until user scrolls.
+                let resize_rt = rt.clone();
+                let r_guard =
+                    start_resize_monitor(&cur_vid, ResizeObserverBox::BorderBox, move |_| {
+                        resize_rt.refresh_scroll_buttons();
+                        if !resize_rt.user_has_scrolled_untracked() {
+                            if let Some(hl) = resize_rt.highlighted_value_untracked() {
+                                resize_rt.scroll_value_into_view(&hl);
+                            }
+                        }
+                    });
+                *r_slot.borrow_mut() = Some(r_guard);
+            },
+        ));
     }
 
     {
-        let guard_slot = Rc::clone(&scroll_guard);
+        let s_slot = Rc::clone(&scroll_guard);
+        let r_slot = Rc::clone(&resize_guard);
         use_drop(move || {
-            if let Some(prev) = guard_slot.borrow_mut().take() {
+            if let Some(prev) = s_slot.borrow_mut().take() {
+                prev.stop();
+            }
+            if let Some(prev) = r_slot.borrow_mut().take() {
                 prev.stop();
             }
         });
     }
+
+    let wheel_rt = ctx.runtime.clone();
+    let on_wheel = EventHandler::new(move |_evt: WheelEvent| {
+        wheel_rt.set_user_has_scrolled(true);
+    });
+
+    let touch_rt = ctx.runtime.clone();
+    let on_touch_move = EventHandler::new(move |_evt: TouchEvent| {
+        touch_rt.set_user_has_scrolled(true);
+    });
 
     let attrs = ctx.runtime.viewport_attributes(vp_id);
     let default_style =
@@ -90,6 +131,8 @@ pub fn ComboboxViewport(props: ComboboxViewportProps) -> Element {
                 attrs,
                 class: props.class,
                 style: combined_style,
+                on_wheel,
+                on_touch_move,
                 attributes: props.attributes,
                 children: props.children,
             });
@@ -103,6 +146,8 @@ pub fn ComboboxViewport(props: ComboboxViewportProps) -> Element {
             "data-combobox-viewport": "",
             class: props.class.as_deref().unwrap_or_default(),
             style: "{combined_style}",
+            onwheel: move |evt| on_wheel.call(evt),
+            ontouchmove: move |evt| on_touch_move.call(evt),
             ..props.attributes,
             {props.children}
         }

@@ -216,3 +216,78 @@ fn attrs_and_relationships_contract() {
     let (_, proj, _) = project_command_part_as_child(&unselected, "el", Slottable::new("body"));
     assert_eq!(proj, unselected);
 }
+
+#[test]
+fn visual_order_matches_ranked_items_and_restores_on_clear() {
+    let mut reg = CommandRegistry::new();
+    reg.register_group("g-intro".into(), "g1".into(), Some("h1".into()), false);
+    reg.register_group("g-delegate".into(), "g2".into(), Some("h2".into()), false);
+
+    // Register an ungrouped item plus two groups where the second group has a stronger match for "d"
+    reg.register_item("dashboard".into(), "i-dash".into(), None, false, false, vec![]);
+    reg.register_item("Introduction".into(), "i-intro".into(), Some("g-intro".into()), false, false, vec![]);
+    reg.register_item("Documentation".into(), "i-doc".into(), Some("g-intro".into()), false, false, vec![]);
+    reg.register_item("Delegation".into(), "i-del".into(), Some("g-delegate".into()), false, false, vec![]);
+
+    // Search "d": ungrouped "dashboard" is order 0; inside g-intro, "Documentation" outranks "Introduction"
+    reg.recompute_filtered_default("d", true);
+    let ranked: Vec<&str> = reg
+        .ranked_visible_items("d", true)
+        .into_iter()
+        .map(|it| it.value.as_str())
+        .collect();
+    assert_eq!(ranked[0], "dashboard");
+    assert_eq!(reg.item_visual_order("dashboard", "d", true), Some(0));
+
+    let doc_ord = reg.item_visual_order("Documentation", "d", true).unwrap();
+    let intro_ord = reg.item_visual_order("Introduction", "d", true).unwrap();
+    assert!(doc_ord < intro_ord, "Documentation should precede Introduction visually");
+
+    // Groups are offset after the 1 visible ungrouped item
+    let g1_ord = reg.group_visual_order("g-intro", "d", true).unwrap();
+    let g2_ord = reg.group_visual_order("g-delegate", "d", true).unwrap();
+    assert!(g1_ord >= 1 && g2_ord >= 1);
+    assert_ne!(g1_ord, g2_ord);
+
+    // Search "del": only "Delegation" matches; "g-intro" and "dashboard" are hidden -> None
+    reg.recompute_filtered_default("del", true);
+    assert_eq!(reg.item_visual_order("dashboard", "del", true), None);
+    assert_eq!(reg.group_visual_order("g-intro", "del", true), None);
+    assert_eq!(reg.group_visual_order("g-delegate", "del", true), Some(0));
+    assert_eq!(reg.item_visual_order("Delegation", "del", true), Some(0));
+
+    // Clear search: registration order restored
+    reg.recompute_filtered_default("", true);
+    assert_eq!(reg.item_visual_order("Introduction", "", true), Some(0));
+    assert_eq!(reg.item_visual_order("Documentation", "", true), Some(1));
+    assert_eq!(reg.group_visual_order("g-intro", "", true), Some(1));
+    assert_eq!(reg.group_visual_order("g-delegate", "", true), Some(2));
+}
+
+#[test]
+fn style_merge_helpers_handle_grid_order_and_hidden_immunity() {
+    assert_eq!(
+        merge_flex_column_style(None, false).as_deref(),
+        Some("display: flex; flex-direction: column;")
+    );
+    assert_eq!(
+        merge_flex_column_style(Some("gap: 4px;"), false).as_deref(),
+        Some("display: flex; flex-direction: column; gap: 4px;")
+    );
+    assert_eq!(
+        merge_flex_column_style(Some("display: grid; grid-template-columns: repeat(3, 1fr);"), true).as_deref(),
+        Some("display: grid; grid-template-columns: repeat(3, 1fr);")
+    );
+    assert_eq!(
+        merge_ranked_item_style(false, Some(0), Some("display: flex;")).as_deref(),
+        Some("display: none;")
+    );
+    assert_eq!(
+        merge_ranked_item_style(true, Some(2), Some("color: red")).as_deref(),
+        Some("color: red; order: 2;")
+    );
+    assert_eq!(
+        merge_ranked_item_style(true, None, Some("color: red")).as_deref(),
+        Some("color: red")
+    );
+}

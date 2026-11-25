@@ -156,6 +156,7 @@ pub enum ComboboxNavKey {
     Escape,
     Home,
     End,
+    Backspace,
     Printable,
 }
 

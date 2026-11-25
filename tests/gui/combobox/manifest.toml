@@ -25,7 +25,7 @@ state = "open"
 
 [[scenarios]]
 name = "combobox-single-escape-dismiss"
-description = "Verify single-select Combobox closes on Escape without losing input focus"
+description = "Verify single-select Combobox closes on default Escape without losing input focus"
 viewports = ["desktop"]
 
 [[scenarios.actions]]
@@ -45,6 +45,97 @@ id = "sw4b-cbx-single-open"
 selector = "#sw4b-cbx-single-open"
 part = "readout"
 state = "closed"
+
+[[scenarios]]
+name = "combobox-single-escape-prevented"
+description = "Verify on_escape_key_down prevent_default keeps Combobox open on Escape"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-combobox"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cbx-single-prevent-esc-toggle"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cbx-single-trigger"
+
+[[scenarios.actions]]
+kind = "key"
+key = "Escape"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-single-open"
+selector = "#sw4b-cbx-single-open"
+part = "readout"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-single-content"
+selector = "#sw4b-cbx-single-content"
+part = "content"
+state = "open"
+
+[[scenarios]]
+name = "combobox-single-arrow-navigation"
+description = "Verify ArrowDown navigation advances active highlight in visual DOM order"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-combobox"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cbx-single-trigger"
+
+[[scenarios.actions]]
+kind = "key"
+key = "ArrowDown"
+
+[[scenarios.actions]]
+kind = "key"
+key = "ArrowDown"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-single-input"
+selector = "#sw4b-cbx-single-input"
+part = "input"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-single-content"
+selector = "#sw4b-cbx-single-content"
+part = "content"
+state = "open"
+
+[[scenarios]]
+name = "combobox-single-disabled-reactive"
+description = "Verify toggling ComboboxRoot disabled dynamically disables input and trigger"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-combobox"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cbx-single-disabled-toggle"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-single-input"
+selector = "#sw4b-cbx-single-input"
+part = "input"
+state = "disabled"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-single-trigger"
+selector = "#sw4b-cbx-single-trigger"
+part = "trigger"
+state = "disabled"
 
 [[scenarios]]
 name = "combobox-multi-open"
@@ -72,8 +163,8 @@ part = "content"
 state = "open"
 
 [[scenarios]]
-name = "combobox-scroll-open"
-description = "Open long-list scrollable Combobox and verify viewport geometry"
+name = "combobox-scroll-open-and-align-toggle"
+description = "Open long-list scrollable Combobox, toggle scroll_alignment live, and verify viewport geometry"
 viewports = ["desktop"]
 
 [[scenarios.actions]]
@@ -82,7 +173,15 @@ target = "#nav-link-combobox"
 
 [[scenarios.actions]]
 kind = "click"
+target = "#sw4b-cbx-scroll-align-toggle"
+
+[[scenarios.actions]]
+kind = "click"
 target = "#sw4b-cbx-scroll-trigger"
+
+[[scenarios.actions]]
+kind = "key"
+key = "PageDown"
 
 [[scenarios.targets]]
 id = "sw4b-cbx-scroll-content"

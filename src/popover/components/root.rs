@@ -32,6 +32,8 @@ pub struct PopoverRootProps {
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
     #[props(default)]
+    pub on_open_change_complete: Option<EventHandler<bool>>,
+    #[props(default)]
     pub modal: Option<bool>,
     #[props(default)]
     pub open_focus: Option<PopoverOpenFocusPolicy>,
@@ -51,6 +53,12 @@ pub struct PopoverRootProps {
     pub align: Option<PlacementAlign>,
     #[props(default)]
     pub align_offset: Option<f32>,
+    #[props(default)]
+    pub avoid_collisions: Option<bool>,
+    #[props(default)]
+    pub collision_padding: Option<f32>,
+    #[props(default)]
+    pub sticky: Option<bool>,
     pub children: Element,
 }
 
@@ -94,6 +102,8 @@ pub fn PopoverRoot(props: PopoverRootProps) -> Element {
     let side = props.side.unwrap_or(PlacementSide::Bottom);
     let mut floating = FloatingLayer::new(side)
         .with_side_offset(props.side_offset.unwrap_or(4.0))
+        .with_avoid_collisions(props.avoid_collisions.unwrap_or(true))
+        .with_collision_padding(props.collision_padding.unwrap_or(8.0))
         .with_namespace(POPOVER_GEOMETRY_NAMESPACE);
     if let Some(align) = props.align {
         floating = floating.with_align(align);
@@ -115,6 +125,10 @@ pub fn PopoverRoot(props: PopoverRootProps) -> Element {
     };
 
     let runtime = use_popover_runtime(popover, change_handler);
+    runtime.set_on_open_change_complete(props.on_open_change_complete);
+    if props.sticky.is_some() {
+        runtime.set_content_placement_overrides(None, None, None, None, None, None, props.sticky);
+    }
     let mut runtime_sig = use_signal(|| runtime.clone());
     runtime_sig.set(runtime.clone());
 

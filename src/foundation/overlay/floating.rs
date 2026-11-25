@@ -110,19 +110,27 @@ pub fn compute_virtual_overlay_position(
     )));
 
     if config.avoid_collisions {
+        let padding = config.collision_padding.max(0.0);
+        let mut overflow_opts =
+            oxidase_floating_ui::detect_overflow::DetectOverflowOptions::default()
+                .padding(oxidase_floating_ui::geometry::Padding::All(padding as f64));
+        if let Some(bid) = config.boundary_id {
+            overflow_opts = overflow_opts
+                .boundary(oxidase_floating_ui::types::Boundary::Element(bid.to_string()));
+        } else {
+            overflow_opts =
+                overflow_opts.boundary(oxidase_floating_ui::types::Boundary::ClippingAncestors);
+        }
+
         middlewares.push(Box::new(oxidase_floating_ui::middleware::Flip::new(
-            oxidase_floating_ui::middleware::FlipOptions::default(),
+            oxidase_floating_ui::middleware::FlipOptions::default()
+                .detect_overflow(overflow_opts.clone()),
         )));
 
-        let mut shift_overflow = oxidase_floating_ui::detect_overflow::DetectOverflowOptions::default()
-            .padding(oxidase_floating_ui::geometry::Padding::All(config.collision_padding as f64));
-        if let Some(bid) = config.boundary_id {
-            shift_overflow = shift_overflow.boundary(oxidase_floating_ui::types::Boundary::Element(bid.to_string()));
-        } else {
-            shift_overflow = shift_overflow.boundary(oxidase_floating_ui::types::Boundary::ClippingAncestors);
-        }
         middlewares.push(Box::new(oxidase_floating_ui::middleware::Shift::new(
-            oxidase_floating_ui::middleware::ShiftOptions::default().detect_overflow(shift_overflow),
+            oxidase_floating_ui::middleware::ShiftOptions::default()
+                .detect_overflow(overflow_opts)
+                .cross_axis(true),
         )));
     }
 
@@ -197,7 +205,6 @@ pub fn compute_virtual_overlay_position(
         oxidase_floating_ui::types::Boundary::ClippingAncestors
     };
     let clip_rect = platform.get_clipping_rect(&content_str, boundary).unwrap_or_default();
-    let available_size = Size::new(clip_rect.width as f32, clip_rect.height as f32);
 
     let compute_config = oxidase_floating_ui::types::ComputePositionConfig::new(&platform)
         .placement(placement)
@@ -243,8 +250,42 @@ pub fn compute_virtual_overlay_position(
         oxidase_floating_ui::geometry::Placement::LeftEnd => (PlacementSide::Left, PlacementAlign::End),
     };
 
-    let x = result.x as f32;
-    let y = result.y as f32;
+    let mut x = result.x as f32;
+    let mut y = result.y as f32;
+    let pad = config.collision_padding.max(0.0);
+
+    if config.avoid_collisions && clip_rect.width > 0.0 && clip_rect.height > 0.0 {
+        let min_x = clip_rect.x as f32 + pad;
+        let max_x = ((clip_rect.x + clip_rect.width) as f32 - content_size.width() - pad).max(min_x);
+        let min_y = clip_rect.y as f32 + pad;
+        let max_y = ((clip_rect.y + clip_rect.height) as f32 - content_size.height() - pad).max(min_y);
+        x = x.clamp(min_x, max_x);
+        y = y.clamp(min_y, max_y);
+    }
+
+    let available_size = if clip_rect.width > 0.0 && clip_rect.height > 0.0 {
+        let clip_left = clip_rect.x as f32 + pad;
+        let clip_top = clip_rect.y as f32 + pad;
+        let clip_right = ((clip_rect.x + clip_rect.width) as f32 - pad).max(clip_left);
+        let clip_bottom = ((clip_rect.y + clip_rect.height) as f32 - pad).max(clip_top);
+        let avail_w = match side {
+            PlacementSide::Left => (anchor_rect.x() - config.side_offset - clip_left).max(0.0),
+            PlacementSide::Right => {
+                (clip_right - (anchor_rect.right() + config.side_offset)).max(0.0)
+            }
+            PlacementSide::Top | PlacementSide::Bottom => (clip_right - clip_left).max(0.0),
+        };
+        let avail_h = match side {
+            PlacementSide::Top => (anchor_rect.y() - config.side_offset - clip_top).max(0.0),
+            PlacementSide::Bottom => {
+                (clip_bottom - (anchor_rect.bottom() + config.side_offset)).max(0.0)
+            }
+            PlacementSide::Left | PlacementSide::Right => (clip_bottom - clip_top).max(0.0),
+        };
+        Size::new(avail_w, avail_h)
+    } else {
+        Size::new(clip_rect.width as f32, clip_rect.height as f32)
+    };
 
     let transform_origin_x = match side {
         PlacementSide::Right => 0.0,

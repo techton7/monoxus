@@ -6,7 +6,10 @@ use crate::{
     date_field::DateFieldRuntime,
     foundation::{
         browser::focus_element_by_id,
-        date_time::{DateValue, DateValueRange, FieldInvalidEvent, FieldInvalidReason},
+        date_time::{
+            CalendarDate, DateValue, DateValueRange, FieldInvalidEvent, FieldInvalidReason,
+            validate_date_range_with_unavailable,
+        },
     },
 };
 
@@ -25,16 +28,19 @@ pub struct DateRangeFieldRuntime {
     pub start_value: Signal<Option<DateValue>>,
     pub end_value: Signal<Option<DateValue>>,
     pub placeholder: Signal<DateValue>,
+    pub custom_label_id: Signal<Option<String>>,
     pub last_invalid_reason: Signal<Option<FieldInvalidReason>>,
     pub trailing_trigger_id: Signal<Option<String>>,
     pub start_runtime: Rc<RefCell<Option<DateFieldRuntime>>>,
     pub end_runtime: Rc<RefCell<Option<DateFieldRuntime>>>,
+    pub default_value: Rc<RefCell<DateValueRange>>,
     pub controlled_value: Rc<RefCell<Option<Signal<DateValueRange>>>>,
     pub controlled_placeholder: Rc<RefCell<Option<Signal<DateValue>>>>,
     pub on_value_change: Rc<RefCell<Option<EventHandler<DateValueRange>>>>,
     pub on_start_value_change: Rc<RefCell<Option<EventHandler<Option<DateValue>>>>>,
     pub on_end_value_change: Rc<RefCell<Option<EventHandler<Option<DateValue>>>>>,
     pub on_placeholder_change: Rc<RefCell<Option<EventHandler<DateValue>>>>,
+    pub is_date_unavailable: Rc<RefCell<Option<Callback<CalendarDate, bool>>>>,
     pub validate: Rc<RefCell<Option<Callback<DateValueRange, Option<Vec<String>>>>>>,
     pub on_invalid: Rc<RefCell<Option<EventHandler<FieldInvalidEvent>>>>,
 }
@@ -50,6 +56,34 @@ impl DateRangeFieldRuntime {
         self.state.read().snapshot()
     }
 
+    pub fn effective_label_id(&self) -> String {
+        self.custom_label_id
+            .read()
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| self.rels.label_id().to_string())
+    }
+
+    /// Registers a custom `id` from `DateRangeFieldLabel` so `aria-labelledby` stays synced (`DEF-5C-07`).
+    pub fn register_custom_label_id(&mut self, id: Option<String>) {
+        let normalized = id.filter(|s| !s.is_empty());
+        if *self.custom_label_id.peek() != normalized {
+            self.custom_label_id.set(normalized);
+        }
+    }
+
+    pub fn default_part_value(&self, kind: RangeFieldInputKind) -> Option<DateValue> {
+        let dv = *self.default_value.borrow();
+        match kind {
+            RangeFieldInputKind::Start => dv.start,
+            RangeFieldInputKind::End => dv.end,
+        }
+    }
+
+    pub fn is_part_invalid(&self, kind: RangeFieldInputKind) -> bool {
+        self.state.read().is_part_invalid(kind)
+    }
+
     pub fn root_attrs(&self, id_override: Option<String>) -> DateRangeFieldRootAttrs {
         let st = self.state.read();
         let id = id_override
@@ -57,7 +91,7 @@ impl DateRangeFieldRuntime {
             .unwrap_or_else(|| self.rels.root_id().to_string());
         DateRangeFieldRootAttrs::new(
             id,
-            self.rels.label_id().to_string(),
+            self.effective_label_id(),
             st.def().dir,
             st.is_invalid(),
             st.def().disabled,
@@ -68,7 +102,7 @@ impl DateRangeFieldRuntime {
         let st = self.state.read();
         let id = id_override
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| self.rels.label_id().to_string());
+            .unwrap_or_else(|| self.effective_label_id());
         DateRangeFieldLabelAttrs::new(id, st.is_invalid(), st.def().disabled)
     }
 
@@ -127,8 +161,23 @@ impl DateRangeFieldRuntime {
     }
 
     pub fn sync_validation_and_notify(&mut self) {
-        let range = self.state.peek().value();
-        let custom_errors = if range.is_complete() {
+        let (range, min_val, max_val) = {
+            let st = self.state.peek();
+            (st.value(), st.def().min_value, st.def().max_value)
+        };
+        let (start_unavailable, end_unavailable) = {
+            let cb_ref = self.is_date_unavailable.borrow();
+            if let Some(cb) = cb_ref.as_ref() {
+                (
+                    range.start.is_some_and(|v| cb.call(v.date())),
+                    range.end.is_some_and(|v| cb.call(v.date())),
+                )
+            } else {
+                (false, false)
+            }
+        };
+        let is_unavailable = start_unavailable || end_unavailable;
+        let custom_errors = if !is_unavailable && range.is_complete() {
             self.validate
                 .borrow()
                 .as_ref()
@@ -137,7 +186,24 @@ impl DateRangeFieldRuntime {
             None
         };
 
-        let next_reason = self.state.write().evaluate_validation(custom_errors);
+        let next_reason = validate_date_range_with_unavailable(
+            range,
+            min_val,
+            max_val,
+            is_unavailable,
+            custom_errors,
+        )
+        .err();
+        let needs_state_update = {
+            let st = self.state.peek();
+            st.invalid_reason() != next_reason.as_ref()
+                || st.unavailable_endpoints() != (start_unavailable, end_unavailable)
+        };
+        if needs_state_update {
+            let mut st = self.state.write();
+            st.set_unavailable_endpoints(start_unavailable, end_unavailable);
+            st.set_local_invalid_reason(next_reason.clone());
+        }
         let prev_reason = self.last_invalid_reason.peek().clone();
         if next_reason != prev_reason {
             self.last_invalid_reason.set(next_reason.clone());
@@ -236,7 +302,9 @@ impl DateRangeFieldRuntime {
             self.placeholder.set(ph);
             self.state.write().set_placeholder(ph);
         }
-        if let Some(inv) = is_invalid_override {
+        if let Some(inv) = is_invalid_override
+            && self.state.peek().external_invalid() != inv
+        {
             self.state.write().set_external_invalid(inv);
         }
         self.sync_validation_and_notify();

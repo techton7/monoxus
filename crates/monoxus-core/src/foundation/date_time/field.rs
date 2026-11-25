@@ -318,16 +318,20 @@ pub fn parse_day_period_key(key: &str) -> Option<DayPeriod> {
 }
 
 /// Validates a single [`DateValue`] following Sub-wave 5C precedence:
-/// `Custom` -> `Min` -> `Max`.
-pub fn validate_date_value(
+/// `Unavailable` -> `Custom` -> `Min` -> `Max`.
+pub fn validate_date_value_with_unavailable(
     value: Option<DateValue>,
     min: Option<DateValue>,
     max: Option<DateValue>,
+    is_unavailable: bool,
     custom_errors: Option<Vec<String>>,
 ) -> Result<(), FieldInvalidReason> {
     let Some(val) = value else {
         return Ok(());
     };
+    if is_unavailable {
+        return Err(FieldInvalidReason::Unavailable);
+    }
     if let Some(msgs) = custom_errors
         && !msgs.is_empty()
     {
@@ -344,6 +348,17 @@ pub fn validate_date_value(
         return Err(FieldInvalidReason::Max);
     }
     Ok(())
+}
+
+/// Validates a single [`DateValue`] following Sub-wave 5C precedence:
+/// `Custom` -> `Min` -> `Max`.
+pub fn validate_date_value(
+    value: Option<DateValue>,
+    min: Option<DateValue>,
+    max: Option<DateValue>,
+    custom_errors: Option<Vec<String>>,
+) -> Result<(), FieldInvalidReason> {
+    validate_date_value_with_unavailable(value, min, max, false, custom_errors)
 }
 
 /// Validates a single [`TimeValue`] following Sub-wave 5C precedence:
@@ -388,9 +403,17 @@ pub struct SegmentEngine {
     values: SegmentValues,
     edit_states: SegmentEditStates,
     day_period_hint: DayPeriod,
+    day_period_touched: bool,
 }
 
 impl SegmentEngine {
+    fn includes_time(&self) -> bool {
+        match self.mode {
+            FieldMode::Date { granularity, .. } => granularity.includes_time(),
+            FieldMode::Time { .. } => true,
+        }
+    }
+
     /// Creates a [`SegmentEngine`] configured for a date or date-time field.
     pub fn new_date(
         locale: FieldLocaleFormat,
@@ -400,6 +423,11 @@ impl SegmentEngine {
         placeholder: DateValue,
     ) -> Self {
         let placeholder_time = placeholder.time().unwrap_or_else(CalendarTime::midnight);
+        let default_period = placeholder_time.day_period();
+        let mut values = SegmentValues::default();
+        if granularity.includes_time() {
+            values.day_period = Some(default_period);
+        }
         let mut edit_states = SegmentEditStates::default();
         edit_states.mark_all_left_focus();
         Self {
@@ -411,9 +439,10 @@ impl SegmentEngine {
             hour_cycle,
             placeholder_date: placeholder,
             placeholder_time: TimeValue::Time(placeholder_time),
-            values: SegmentValues::default(),
+            values,
             edit_states,
-            day_period_hint: placeholder_time.day_period(),
+            day_period_hint: default_period,
+            day_period_touched: false,
         }
     }
 
@@ -424,6 +453,9 @@ impl SegmentEngine {
         hour_cycle: Option<HourCycle>,
         placeholder: TimeValue,
     ) -> Self {
+        let default_period = placeholder.time().day_period();
+        let mut values = SegmentValues::default();
+        values.day_period = Some(default_period);
         let mut edit_states = SegmentEditStates::default();
         edit_states.mark_all_left_focus();
         Self {
@@ -434,9 +466,10 @@ impl SegmentEngine {
                 placeholder.date().unwrap_or_else(CalendarDate::default),
             ),
             placeholder_time: placeholder,
-            values: SegmentValues::default(),
+            values,
             edit_states,
-            day_period_hint: placeholder.time().day_period(),
+            day_period_hint: default_period,
+            day_period_touched: false,
         }
     }
 
@@ -484,6 +517,7 @@ impl SegmentEngine {
                     self.values.hour = Some(format!("{:02}", hour_12_display(parsed)));
                     self.values.day_period = Some(period);
                     self.day_period_hint = period;
+                    self.day_period_touched = true;
                 }
                 (HourCycle::H12, HourCycle::H24) => {
                     let period = self.values.day_period.unwrap_or(self.day_period_hint);
@@ -493,6 +527,12 @@ impl SegmentEngine {
                 }
                 _ => {}
             }
+        } else if next_cycle == HourCycle::H12
+            && self.includes_time()
+            && self.values.day_period.is_none()
+        {
+            self.values.day_period = Some(self.day_period_hint);
+            self.day_period_touched = false;
         }
     }
 
@@ -501,8 +541,12 @@ impl SegmentEngine {
         self.placeholder_date = placeholder;
         if let Some(t) = placeholder.time() {
             self.placeholder_time = TimeValue::Time(t);
-            if self.values.day_period.is_none() {
-                self.day_period_hint = t.day_period();
+            if !self.day_period_touched {
+                let period = t.day_period();
+                self.day_period_hint = period;
+                if self.includes_time() {
+                    self.values.day_period = Some(period);
+                }
             }
         }
     }
@@ -510,8 +554,12 @@ impl SegmentEngine {
     /// Updates the placeholder [`TimeValue`].
     pub fn set_placeholder_time(&mut self, placeholder: TimeValue) {
         self.placeholder_time = placeholder;
-        if self.values.day_period.is_none() {
-            self.day_period_hint = placeholder.time().day_period();
+        if !self.day_period_touched {
+            let period = placeholder.time().day_period();
+            self.day_period_hint = period;
+            if self.includes_time() {
+                self.values.day_period = Some(period);
+            }
         }
     }
 
@@ -538,6 +586,16 @@ impl SegmentEngine {
         match value {
             None => {
                 self.values.clear();
+                self.day_period_touched = false;
+                if self.includes_time() {
+                    let default_period = self
+                        .placeholder_date
+                        .time()
+                        .unwrap_or_else(CalendarTime::midnight)
+                        .day_period();
+                    self.day_period_hint = default_period;
+                    self.values.day_period = Some(default_period);
+                }
             }
             Some(dv) => {
                 let d = dv.date();
@@ -557,6 +615,7 @@ impl SegmentEngine {
                     self.values.minute = None;
                     self.values.second = None;
                     self.values.day_period = None;
+                    self.day_period_touched = false;
                 } else {
                     self.sync_time_components(CalendarTime::midnight());
                 }
@@ -572,7 +631,10 @@ impl SegmentEngine {
                 self.values.hour = None;
                 self.values.minute = None;
                 self.values.second = None;
-                self.values.day_period = None;
+                let default_period = self.placeholder_time.time().day_period();
+                self.day_period_hint = default_period;
+                self.values.day_period = Some(default_period);
+                self.day_period_touched = false;
             }
             Some(tv) => {
                 self.sync_time_components(tv.time());
@@ -596,6 +658,7 @@ impl SegmentEngine {
                 self.day_period_hint = t.day_period();
             }
         }
+        self.day_period_touched = true;
         self.values.minute = Some(format!("{:02}", t.minute));
         self.values.second = Some(format!("{:02}", t.second));
     }
@@ -655,7 +718,7 @@ impl SegmentEngine {
         let parsed_hour: u8 = raw_hour.parse().ok()?;
         let hour_24 = match cycle {
             HourCycle::H12 => {
-                let period = self.values.day_period?;
+                let period = self.values.day_period.unwrap_or(self.day_period_hint);
                 hour_12_to_24(parsed_hour, period)?
             }
             HourCycle::H24 => {
@@ -803,13 +866,9 @@ impl SegmentEngine {
                 value_text: None,
             },
             SegmentKind::DayPeriod => {
-                let is_placeholder = self.values.day_period.is_none();
+                let is_placeholder = !self.day_period_touched || self.values.day_period.is_none();
                 let effective_period = self.values.day_period.unwrap_or(self.day_period_hint);
-                let label = if is_placeholder {
-                    template.placeholders.day_period.to_string()
-                } else {
-                    template.day_period_label(effective_period).to_string()
-                };
+                let label = template.day_period_label(effective_period).to_string();
                 let now = if effective_period == DayPeriod::Pm {
                     12
                 } else {
@@ -933,6 +992,7 @@ impl SegmentEngine {
                 if kind == SegmentKind::DayPeriod {
                     self.values.day_period = Some(period);
                     self.day_period_hint = period;
+                    self.day_period_touched = true;
                     self.edit_states.day_period.reset_active();
                 }
             }
@@ -967,6 +1027,9 @@ impl SegmentEngine {
         let committed_date_value = self.to_date_value();
         let committed_time_value = self.to_time_value();
         let now_committed = committed_date_value.is_some() || committed_time_value.is_some();
+        if now_committed && self.values.day_period.is_some() {
+            self.day_period_touched = true;
+        }
         let cleared_value = was_committed && !now_committed;
         let updated_segments = self.render_segments();
 
@@ -1164,11 +1227,20 @@ impl SegmentEngine {
                     tail.to_string()
                 };
                 self.values.year = Some(normalized);
-                self.edit_states.year.reset_active();
+                self.edit_states.year.year_post_backspace_mode = false;
+                self.edit_states.year.year_backspace_count = 0;
+                self.edit_states.year.has_left_focus = false;
+                self.edit_states.year.year_pressed_digits = vec![0, 0, 0, 0];
                 self.clamp_day_if_needed(false);
                 return Some(SegmentFocusMove::Next);
             }
             self.values.year = Some(buf);
+            return None;
+        }
+
+        // 5C D-7 / DEF-5C-02: Once 4 digits have been typed into year without leaving focus,
+        // ignore 5th+ digits until blur, navigation, Backspace, or Delete.
+        if self.edit_states.year.year_pressed_digits.len() >= 4 {
             return None;
         }
 
@@ -1185,7 +1257,6 @@ impl SegmentEngine {
             let tail = &buf[start..];
             let parsed = tail.parse::<i32>().unwrap_or(1).clamp(1, 9999);
             self.values.year = Some(format!("{parsed:04}"));
-            self.edit_states.year.year_pressed_digits.clear();
             self.clamp_day_if_needed(false);
             return Some(SegmentFocusMove::Next);
         }
@@ -1200,12 +1271,10 @@ impl SegmentEngine {
         };
 
         if kind == SegmentKind::DayPeriod {
-            let next = match self.values.day_period {
-                None => self.placeholder_time.time().day_period(),
-                Some(curr) => curr.toggled(),
-            };
+            let next = self.values.day_period.unwrap_or(self.day_period_hint).toggled();
             self.values.day_period = Some(next);
             self.day_period_hint = next;
+            self.day_period_touched = true;
             self.edit_states.day_period.reset_active();
             return;
         }
@@ -1352,6 +1421,7 @@ impl SegmentEngine {
                 };
                 self.values.day_period = Some(period);
                 self.day_period_hint = period;
+                self.day_period_touched = true;
             }
             SegmentKind::TimeZoneName | SegmentKind::Literal => {}
         }
@@ -1365,6 +1435,7 @@ impl SegmentEngine {
         if kind == SegmentKind::DayPeriod {
             self.values.day_period = Some(DayPeriod::Am);
             self.day_period_hint = DayPeriod::Am;
+            self.day_period_touched = self.values.hour.is_some();
             self.edit_states.day_period.reset_active();
             return None;
         }
@@ -1397,8 +1468,10 @@ impl SegmentEngine {
             }
         } else {
             s.pop();
+            // 5C D-7 / DEF-5C-16: Zero-pad remaining single digit immediately (e.g. "10" -> "01").
+            let next = if s.len() == 1 { format!("0{s}") } else { s };
             if let Some(slot) = self.numeric_value_slot(kind) {
-                *slot = Some(s);
+                *slot = Some(next);
             }
         }
         self.edit_states.for_kind_mut(editable).reset_active();
@@ -1412,6 +1485,7 @@ impl SegmentEngine {
         if kind == SegmentKind::DayPeriod {
             self.values.day_period = Some(DayPeriod::Am);
             self.day_period_hint = DayPeriod::Am;
+            self.day_period_touched = self.values.hour.is_some();
             self.edit_states.day_period.reset_active();
             return;
         }

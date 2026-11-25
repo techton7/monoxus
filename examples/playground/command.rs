@@ -16,7 +16,7 @@ const CMD_SEP_STYLE: &str = "height: 1px; margin: 0.25rem 0.5rem; background-col
 const CMD_EMPTY_STYLE: &str = "padding: 1.25rem 0.75rem; text-align: center; font-size: 0.8125rem; color: #64748b;";
 const CMD_LOADING_STYLE: &str = "padding: 0.5rem 0.75rem; font-size: 0.75rem; color: #6d28d9; background-color: #f5f3ff; border-bottom: 1px solid #ede9fe;";
 const DIALOG_OVERLAY_STYLE: &str = "position: fixed; inset: 0; background-color: rgba(15, 23, 42, 0.45); z-index: 50;";
-const DIALOG_CONTENT_STYLE: &str = "position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 92vw; max-width: 460px; z-index: 60; border-radius: 0.75rem; background-color: #ffffff; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.28); overflow: hidden;";
+const DIALOG_CONTENT_STYLE: &str = "pointer-events: auto; width: 92vw; max-width: 460px; border-radius: 0.75rem; background-color: #ffffff; box-shadow: 0 20px 50px rgba(15, 23, 42, 0.28); overflow: hidden;";
 
 const COMMAND_PLAYGROUND_CSS: &str = r#"
 [data-command-item] {
@@ -360,7 +360,6 @@ fn CommandDialogScenario() -> Element {
 
                 CommandInput {
                     id: Some("sw4b-cmd-dialog-input".to_string()),
-                    autofocus: true,
                     placeholder: Some("Jump to file or run action...".to_string()),
                     style: Some(CMD_INPUT_STYLE.to_string()),
                 }
@@ -435,7 +434,7 @@ fn CommandGridScenario() -> Element {
                 }
                 p {
                     style: "margin: 0.2rem 0 0; font-size: 0.8125rem; color: #64748b;",
-                    "Uses ArrowLeft/ArrowRight/ArrowUp/ArrowDown (or Ctrl+h/l/k/j) across 3 columns while keeping all tiles mounted in manual mode."
+                    "Uses ArrowLeft/ArrowRight/ArrowUp/ArrowDown (or Ctrl+h/l/k/j) across 3 columns. In manual mode (should_filter: false), all tiles stay mounted and any search change resets the active tile to tile-1."
                 }
             }
 

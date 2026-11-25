@@ -1,5 +1,5 @@
 use std::borrow::Cow;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dioxus::prelude::*;
 
@@ -149,6 +149,7 @@ pub fn CommandRoot(props: CommandRootProps) -> Element {
     let is_composing = use_signal(|| false);
     let has_scrolled_initially = use_signal(|| false);
     let select_handlers = use_signal(BTreeMap::<String, EventHandler<()>>::new);
+    let link_items = use_signal(BTreeSet::<String>::new);
 
     let mut ctx = use_context_provider(|| CommandContext {
         relationships,
@@ -174,19 +175,30 @@ pub fn CommandRoot(props: CommandRootProps) -> Element {
         is_composing,
         has_scrolled_initially,
         select_handlers,
+        link_items,
     });
 
     if should_filter_changed || filter_changed {
-        ctx.recompute_filtered();
+        ctx.recompute_filtered(false);
     }
 
+    let mut ctx_for_init = ctx;
     use_effect(move || {
         if !*settled.peek() {
             settled.set(true);
         }
+        if !*ctx_for_init.has_scrolled_initially.peek() {
+            let current = ctx_for_init.value.peek().clone();
+            if !current.is_empty() {
+                ctx_for_init.has_scrolled_initially.set(true);
+                if !*ctx_for_init.disable_initial_scroll.peek() {
+                    ctx_for_init.scroll_selected_into_view(&current);
+                }
+            }
+        }
     });
 
-    let attrs = CommandRootAttrs::new(root_id.clone(), Some(&props.label));
+    let attrs = CommandRootAttrs::new(root_id.clone(), None);
     let label_attrs = CommandInputLabelAttrs::new(label_id.read().clone(), input_id.read().clone());
     let vh_attrs = VisuallyHiddenState::new().attributes();
 

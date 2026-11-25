@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 
 use crate::foundation::{
@@ -25,9 +28,7 @@ pub fn ComboboxPortal(props: ComboboxPortalProps) -> Element {
     let resolved_host = if props.disabled {
         PortalHost::inline()
     } else {
-        props
-            .host
-            .unwrap_or_else(|| ctx.runtime.config().portal_host().clone())
+        props.host.unwrap_or_else(|| ctx.runtime.portal_host())
     };
 
     use_context_provider(|| ComboboxPortalContext {
@@ -46,26 +47,37 @@ pub fn ComboboxPortal(props: ComboboxPortalProps) -> Element {
     let is_open = ctx.runtime.is_open();
     let force_mount = props.force_mount || ctx.runtime.force_mount();
 
+    // DEF-CBX-12: Track latest dynamic `portal_id` for `use_drop`.
+    let tracked_portal_id: Rc<RefCell<String>> =
+        use_hook(|| Rc::new(RefCell::new(portal_id.clone())));
+    if *tracked_portal_id.borrow() != portal_id {
+        *tracked_portal_id.borrow_mut() = portal_id.clone();
+    }
+
     {
         let pid = portal_id.clone();
         let target_host = resolved_host.clone();
         let disabled = props.disabled;
-        use_effect(use_reactive((&is_open, &force_mount), move |(open, fm)| {
-            if (!open && !fm) || disabled || target_host.is_inline() {
-                return;
-            }
-            let host_id = match &target_host {
-                PortalHost::Inline => None,
-                PortalHost::Named(name) => Some(name.as_ref()),
-                PortalHost::Default => None,
-            };
-            teleport_element_to_host(&pid, host_id);
-        }));
+        use_effect(use_reactive(
+            (&is_open, &force_mount, &pid),
+            move |(open, fm, cur_pid)| {
+                if (!open && !fm) || disabled || target_host.is_inline() {
+                    return;
+                }
+                let host_id = match &target_host {
+                    PortalHost::Inline => None,
+                    PortalHost::Named(name) => Some(name.as_ref()),
+                    PortalHost::Default => None,
+                };
+                teleport_element_to_host(&cur_pid, host_id);
+            },
+        ));
     }
 
     {
-        let pid_cleanup = portal_id.clone();
+        let tracked = Rc::clone(&tracked_portal_id);
         use_drop(move || {
+            let pid_cleanup = tracked.borrow().clone();
             remove_element_by_id(&pid_cleanup);
         });
     }

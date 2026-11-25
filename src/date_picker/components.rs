@@ -21,6 +21,7 @@ use crate::{
         state::DataState,
     },
     popover::{
+        CloseAutoFocusEvent, EscapeKeyDownEvent, InteractOutsideEvent, OpenAutoFocusEvent,
         PopoverCloseFocusPolicy, PopoverContext, PopoverOpenFocusPolicy,
         PopoverOutsideInteractionPolicy, PopoverRoot, PopoverScrollLockPolicy,
     },
@@ -58,6 +59,8 @@ pub struct DatePickerRootProps {
     pub default_open: bool,
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub on_open_change_complete: Option<EventHandler<bool>>,
     #[props(default = true)]
     pub close_on_date_select: bool,
     #[props(default)]
@@ -135,6 +138,12 @@ pub struct DatePickerRootProps {
     #[props(default)]
     pub align_offset: Option<f32>,
     #[props(default)]
+    pub avoid_collisions: Option<bool>,
+    #[props(default)]
+    pub collision_padding: Option<f32>,
+    #[props(default)]
+    pub sticky: Option<bool>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -204,10 +213,7 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
         disable_days_outside_month: props.disable_days_outside_month,
         initial_focus: props.initial_focus,
     };
-    let mut calendar_config = use_signal(|| next_cal_cfg.clone());
-    if *calendar_config.peek() != next_cal_cfg {
-        calendar_config.set(next_cal_cfg);
-    }
+    let calendar_config = use_signal(|| next_cal_cfg.clone());
 
     let controlled_value = use_hook(|| Rc::new(RefCell::new(props.value)));
     *controlled_value.borrow_mut() = props.value;
@@ -227,13 +233,10 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
     let on_open_change = use_hook(|| Rc::new(RefCell::new(props.on_open_change)));
     *on_open_change.borrow_mut() = props.on_open_change;
 
-    let is_date_disabled = use_hook(|| Rc::new(RefCell::new(props.is_date_disabled)));
-    *is_date_disabled.borrow_mut() = props.is_date_disabled;
+    let is_date_disabled = use_signal(|| props.is_date_disabled);
+    let is_date_unavailable = use_signal(|| props.is_date_unavailable);
 
-    let is_date_unavailable = use_hook(|| Rc::new(RefCell::new(props.is_date_unavailable)));
-    *is_date_unavailable.borrow_mut() = props.is_date_unavailable;
-
-    let mut runtime = DatePickerRuntime {
+    let runtime = DatePickerRuntime {
         state,
         rels: rels.clone(),
         value: value_sig,
@@ -252,13 +255,47 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
         is_date_unavailable,
     };
 
-    if *runtime.state.peek().def() != def {
-        runtime.state.write().sync_definition(def);
-    }
-    let ext_val = props.value.map(|s| *s.read());
-    let ext_ph = props.placeholder.map(|s| *s.read());
-    let ext_open = props.open.map(|s| *s.read());
-    runtime.reconcile_external_state(ext_val, ext_ph, ext_open);
+    // DEF-5C-09: Reconcile definition, calendar config, predicates, and controlled signals
+    // inside guarded effects instead of mutating reactive signals synchronously during render.
+    use_effect(use_reactive(
+        (
+            &def,
+            &next_cal_cfg,
+            &props.is_date_disabled,
+            &props.is_date_unavailable,
+        ),
+        {
+            let mut rt = runtime.clone();
+            move |(next_def, next_cfg, next_disabled, next_unavailable)| {
+                if *rt.calendar_config.peek() != next_cfg {
+                    rt.calendar_config.set(next_cfg);
+                }
+                if *rt.is_date_disabled.peek() != next_disabled {
+                    rt.is_date_disabled.set(next_disabled);
+                }
+                if *rt.is_date_unavailable.peek() != next_unavailable {
+                    rt.is_date_unavailable.set(next_unavailable);
+                }
+                if *rt.state.peek().def() != next_def {
+                    rt.state.write().sync_definition(next_def);
+                    rt.reconcile_external_state(None, None, None);
+                }
+            }
+        },
+    ));
+
+    use_effect(use_reactive(
+        (&props.value, &props.placeholder, &props.open),
+        {
+            let mut rt = runtime.clone();
+            move |(value_sig, placeholder_sig, open_sig)| {
+                let ext_val = value_sig.map(|s| *s.read());
+                let ext_ph = placeholder_sig.map(|s| *s.read());
+                let ext_open = open_sig.map(|s| *s.read());
+                rt.reconcile_external_state(ext_val, ext_ph, ext_open);
+            }
+        },
+    ));
 
     use_context_provider(|| DatePickerContext(runtime.clone()));
 
@@ -273,10 +310,26 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
         .close_focus
         .unwrap_or(PopoverCloseFocusPolicy::Trigger);
 
+    // DEF-5C-11 / 5C D-8: Forward combined disabled/unavailable predicate to DateFieldRoot
+    // so unavailable typed dates emit FieldInvalidReason::Unavailable without conflating with Custom.
+    let combined_unavailable =
+        if props.is_date_disabled.is_some() || props.is_date_unavailable.is_some() {
+            let is_disabled_sig = runtime.is_date_disabled;
+            let is_unavailable_sig = runtime.is_date_unavailable;
+            Some(Callback::new(move |date: CalendarDate| -> bool {
+                let disabled = is_disabled_sig.peek().is_some_and(|cb| cb.call(date));
+                let unavailable = is_unavailable_sig.peek().is_some_and(|cb| cb.call(date));
+                disabled || unavailable
+            }))
+        } else {
+            None
+        };
+
     rsx! {
         DateFieldRoot {
             id: Some(rels.field_scope().token().to_string()),
             value: Some(runtime.value),
+            default_value: props.default_value,
             on_value_change: move |next| rt_for_field_val.handle_field_value_change(next),
             placeholder: Some(runtime.placeholder),
             on_placeholder_change: move |next| rt_for_field_ph.handle_field_placeholder_change(next),
@@ -290,6 +343,7 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
             read_only: props.read_only,
             required: props.required,
             readonly_segments: props.readonly_segments,
+            is_date_unavailable: combined_unavailable,
             validate: props.validate,
             on_invalid: props.on_invalid,
             error_message_id: props.error_message_id,
@@ -298,6 +352,7 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
                 id: Some(rels.popover_scope().token().to_string()),
                 open: Some(runtime.open),
                 on_open_change: move |next| rt_for_popover_open.handle_popover_open_change(next),
+                on_open_change_complete: props.on_open_change_complete,
                 modal: props.modal,
                 open_focus: Some(resolved_open_focus),
                 close_focus: Some(resolved_close_focus),
@@ -308,6 +363,9 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
                 side_offset: props.side_offset,
                 align: props.align,
                 align_offset: props.align_offset,
+                avoid_collisions: props.avoid_collisions,
+                collision_padding: props.collision_padding,
+                sticky: props.sticky,
                 {props.children}
             }
         }
@@ -373,11 +431,20 @@ pub fn DatePickerTrigger(props: DatePickerTriggerProps) -> Element {
         .id
         .clone()
         .unwrap_or_else(|| trigger.id().to_string());
+    let latest_tid = use_hook(|| Rc::new(RefCell::new(trigger_id.clone())));
+    {
+        let mut prev = latest_tid.borrow_mut();
+        if *prev != trigger_id {
+            popover_rt.unregister_trigger_id(&prev);
+            *prev = trigger_id.clone();
+        }
+    }
     popover_rt.register_trigger_id(&trigger_id);
     let popover_rt_for_drop = popover_rt.clone();
-    let popover_tid_for_drop = trigger_id.clone();
+    let popover_tid_for_drop = latest_tid.clone();
     use_drop(move || {
-        popover_rt_for_drop.unregister_trigger_id(&popover_tid_for_drop);
+        let current = popover_tid_for_drop.borrow().clone();
+        popover_rt_for_drop.unregister_trigger_id(&current);
     });
 
     let picker_snap = picker_rt.snapshot();
@@ -393,11 +460,12 @@ pub fn DatePickerTrigger(props: DatePickerTriggerProps) -> Element {
     }
 
     let field_rt_for_drop = field_rt.clone();
-    let tid_for_drop = trigger_id.clone();
+    let tid_for_drop = latest_tid.clone();
     use_drop(move || {
+        let current = tid_for_drop.borrow().clone();
         if let Some(mut frt) = field_rt_for_drop {
             if frt.trailing_trigger_id.try_peek().ok().and_then(|v| v.clone()).as_deref()
-                == Some(tid_for_drop.as_str())
+                == Some(current.as_str())
             {
                 frt.register_trigger_id(None);
             }
@@ -511,6 +579,29 @@ pub fn DatePickerTrigger(props: DatePickerTriggerProps) -> Element {
     }
 }
 
+/// Render props passed to `as_child` for [`DatePickerContent`] and [`DatePickerContentStatic`].
+#[derive(Clone, PartialEq, Props)]
+pub struct DatePickerContentRenderProps {
+    pub attrs: DatePickerContentAttrs,
+    #[props(default)]
+    pub wrapper_id: Option<String>,
+    #[props(default)]
+    pub wrapper_style: Option<String>,
+    pub role: String,
+    pub aria_modal: bool,
+    pub aria_labelledby: Option<String>,
+    pub aria_describedby: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    pub style: String,
+    pub on_mounted: EventHandler<MountedEvent>,
+    pub on_key_down: EventHandler<KeyboardEvent>,
+    pub on_click: EventHandler<MouseEvent>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 /// Props for [`DatePickerContent`] and [`DatePickerContentStatic`].
 #[derive(Clone, PartialEq, Props)]
 pub struct DatePickerContentProps {
@@ -528,6 +619,32 @@ pub struct DatePickerContentProps {
     pub aria_describedby: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
+    #[props(default)]
+    pub side: Option<PlacementSide>,
+    #[props(default)]
+    pub align: Option<PlacementAlign>,
+    #[props(default)]
+    pub side_offset: Option<f32>,
+    #[props(default)]
+    pub align_offset: Option<f32>,
+    #[props(default)]
+    pub avoid_collisions: Option<bool>,
+    #[props(default)]
+    pub collision_padding: Option<f32>,
+    #[props(default)]
+    pub sticky: Option<bool>,
+    #[props(default)]
+    pub on_open_auto_focus: Option<EventHandler<OpenAutoFocusEvent>>,
+    #[props(default)]
+    pub on_close_auto_focus: Option<EventHandler<CloseAutoFocusEvent>>,
+    #[props(default)]
+    pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
+    #[props(default)]
+    pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
+    #[props(default = false)]
+    pub as_child: bool,
+    #[props(default)]
+    pub render_child: Option<Callback<DatePickerContentRenderProps, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -542,9 +659,38 @@ pub fn DatePickerContent(props: DatePickerContentProps) -> Element {
     let should_render = props.force_mount || runtime.should_render_content();
     let is_open = runtime.is_open();
 
+    runtime.set_content_placement_overrides(
+        props.side,
+        props.align,
+        props.side_offset,
+        props.align_offset,
+        props.avoid_collisions,
+        props.collision_padding,
+        props.sticky,
+    );
+    runtime.set_content_event_handlers(
+        props.on_open_auto_focus,
+        props.on_close_auto_focus,
+        props.on_escape_key_down,
+        props.on_interact_outside,
+    );
+
     let content = runtime.content();
     let content_id = props.id.unwrap_or_else(|| content.id().to_string());
     let wrapper_id = format!("{}-wrapper", content_id);
+
+    let latest_cid = use_hook(|| Rc::new(RefCell::new(content_id.clone())));
+    {
+        let mut prev = latest_cid.borrow_mut();
+        if *prev != content_id {
+            if ctx.content_id.peek().as_deref() == Some(prev.as_str()) {
+                ctx.content_id.set(None);
+            }
+            runtime.unregister_content_id(&prev);
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev);
+            *prev = content_id.clone();
+        }
+    }
 
     if should_render {
         if ctx.content_id.peek().as_deref() != Some(content_id.as_str()) {
@@ -557,17 +703,18 @@ pub fn DatePickerContent(props: DatePickerContentProps) -> Element {
         }
         runtime.unregister_content_id(&content_id);
     }
-    let cid_for_drop = content_id.clone();
+    let cid_for_drop = latest_cid.clone();
     let mut cid_sig_drop = ctx.content_id;
     let runtime_for_drop = runtime.clone();
     use_drop(move || {
+        let current_cid = cid_for_drop.borrow().clone();
         if let Ok(mut sig) = cid_sig_drop.try_write() {
-            if sig.as_deref() == Some(cid_for_drop.as_str()) {
+            if sig.as_deref() == Some(current_cid.as_str()) {
                 *sig = None;
             }
         }
-        runtime_for_drop.unregister_content_id(&cid_for_drop);
-        crate::foundation::overlay::unregister_active_overlay_layer(&cid_for_drop);
+        runtime_for_drop.unregister_content_id(&current_cid);
+        crate::foundation::overlay::unregister_active_overlay_layer(&current_cid);
     });
 
     let effect_wrapper_id = wrapper_id.clone();
@@ -613,13 +760,22 @@ pub fn DatePickerContent(props: DatePickerContentProps) -> Element {
         )
     });
 
-    let mut layer_registered = use_signal(|| false);
-    if is_open && !*layer_registered.peek() {
-        crate::foundation::overlay::register_active_overlay_layer(&content_id);
-        layer_registered.set(true);
-    } else if !is_open && *layer_registered.peek() {
-        crate::foundation::overlay::unregister_active_overlay_layer(&content_id);
-        layer_registered.set(false);
+    let mut registered_layer_id = use_signal(|| Option::<String>::None);
+    if is_open {
+        let prev = registered_layer_id.peek().clone();
+        if prev.as_deref() != Some(content_id.as_str()) {
+            if let Some(prev_id) = prev.as_deref() {
+                crate::foundation::overlay::unregister_active_overlay_layer(prev_id);
+            }
+            crate::foundation::overlay::register_active_overlay_layer(&content_id);
+            registered_layer_id.set(Some(content_id.clone()));
+        }
+    } else {
+        let prev = registered_layer_id.peek().clone();
+        if let Some(prev_id) = prev {
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev_id);
+            registered_layer_id.set(None);
+        }
     }
 
     if !should_render {
@@ -657,6 +813,41 @@ pub fn DatePickerContent(props: DatePickerContentProps) -> Element {
         inner_style.push_str(" pointer-events: auto;");
     }
 
+    let on_mounted = {
+        let mut cb = runtime.mount_content();
+        EventHandler::new(move |evt: MountedEvent| cb(evt))
+    };
+    let on_key_down = {
+        let mut cb = runtime.escape_keydown();
+        EventHandler::new(move |evt: KeyboardEvent| cb(evt))
+    };
+    let on_click = EventHandler::new(move |evt: MouseEvent| evt.stop_propagation());
+
+    if props.as_child {
+        if let Some(render_child) = props.render_child.as_ref() {
+            return render_child.call(DatePickerContentRenderProps {
+                attrs,
+                wrapper_id: Some(wrapper_id),
+                wrapper_style: Some(wrapper_style),
+                role: resolved_role.to_string(),
+                aria_modal: content.aria_modal(),
+                aria_labelledby: labelledby,
+                aria_describedby: describedby,
+                class: props.class,
+                style: inner_style,
+                on_mounted,
+                on_key_down,
+                on_click,
+                attributes: props.attributes,
+                children: props.children,
+            });
+        }
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "monoxus::DatePickerContent: as_child requires render_child; rendering the default div"
+        );
+    }
+
     rsx! {
         div {
             id: "{wrapper_id}",
@@ -675,9 +866,9 @@ pub fn DatePickerContent(props: DatePickerContentProps) -> Element {
                 "data-align": attrs.data_align,
                 "data-date-picker-content": attrs.data_date_picker_content,
                 tabindex: attrs.tabindex,
-                onmounted: runtime.mount_content(),
-                onkeydown: runtime.escape_keydown(),
-                onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                onmounted: move |evt| on_mounted.call(evt),
+                onkeydown: move |evt| on_key_down.call(evt),
+                onclick: move |evt| on_click.call(evt),
                 ..props.attributes,
                 {props.children}
             }
@@ -693,8 +884,28 @@ pub fn DatePickerContentStatic(props: DatePickerContentProps) -> Element {
     let should_render = props.force_mount || runtime.should_render_content();
     let is_open = runtime.is_open();
 
+    runtime.set_content_event_handlers(
+        props.on_open_auto_focus,
+        props.on_close_auto_focus,
+        props.on_escape_key_down,
+        props.on_interact_outside,
+    );
+
     let content = runtime.content();
     let content_id = props.id.unwrap_or_else(|| content.id().to_string());
+
+    let latest_cid = use_hook(|| Rc::new(RefCell::new(content_id.clone())));
+    {
+        let mut prev = latest_cid.borrow_mut();
+        if *prev != content_id {
+            if ctx.content_id.peek().as_deref() == Some(prev.as_str()) {
+                ctx.content_id.set(None);
+            }
+            runtime.unregister_content_id(&prev);
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev);
+            *prev = content_id.clone();
+        }
+    }
 
     if should_render {
         if ctx.content_id.peek().as_deref() != Some(content_id.as_str()) {
@@ -707,17 +918,18 @@ pub fn DatePickerContentStatic(props: DatePickerContentProps) -> Element {
         }
         runtime.unregister_content_id(&content_id);
     }
-    let cid_for_drop = content_id.clone();
+    let cid_for_drop = latest_cid.clone();
     let mut cid_sig_drop = ctx.content_id;
     let runtime_for_drop = runtime.clone();
     use_drop(move || {
+        let current_cid = cid_for_drop.borrow().clone();
         if let Ok(mut sig) = cid_sig_drop.try_write() {
-            if sig.as_deref() == Some(cid_for_drop.as_str()) {
+            if sig.as_deref() == Some(current_cid.as_str()) {
                 *sig = None;
             }
         }
-        runtime_for_drop.unregister_content_id(&cid_for_drop);
-        crate::foundation::overlay::unregister_active_overlay_layer(&cid_for_drop);
+        runtime_for_drop.unregister_content_id(&current_cid);
+        crate::foundation::overlay::unregister_active_overlay_layer(&current_cid);
     });
 
     let runtime_for_branch = runtime.clone();
@@ -748,13 +960,22 @@ pub fn DatePickerContentStatic(props: DatePickerContentProps) -> Element {
         )
     });
 
-    let mut layer_registered = use_signal(|| false);
-    if is_open && !*layer_registered.peek() {
-        crate::foundation::overlay::register_active_overlay_layer(&content_id);
-        layer_registered.set(true);
-    } else if !is_open && *layer_registered.peek() {
-        crate::foundation::overlay::unregister_active_overlay_layer(&content_id);
-        layer_registered.set(false);
+    let mut registered_layer_id = use_signal(|| Option::<String>::None);
+    if is_open {
+        let prev = registered_layer_id.peek().clone();
+        if prev.as_deref() != Some(content_id.as_str()) {
+            if let Some(prev_id) = prev.as_deref() {
+                crate::foundation::overlay::unregister_active_overlay_layer(prev_id);
+            }
+            crate::foundation::overlay::register_active_overlay_layer(&content_id);
+            registered_layer_id.set(Some(content_id.clone()));
+        }
+    } else {
+        let prev = registered_layer_id.peek().clone();
+        if let Some(prev_id) = prev {
+            crate::foundation::overlay::unregister_active_overlay_layer(&prev_id);
+            registered_layer_id.set(None);
+        }
     }
 
     if !should_render {
@@ -769,6 +990,41 @@ pub fn DatePickerContentStatic(props: DatePickerContentProps) -> Element {
 
     let attrs = DatePickerContentAttrs::new(content_id, is_open, None, None);
 
+    let on_mounted = {
+        let mut cb = runtime.mount_content();
+        EventHandler::new(move |evt: MountedEvent| cb(evt))
+    };
+    let on_key_down = {
+        let mut cb = runtime.escape_keydown();
+        EventHandler::new(move |evt: KeyboardEvent| cb(evt))
+    };
+    let on_click = EventHandler::new(move |evt: MouseEvent| evt.stop_propagation());
+
+    if props.as_child {
+        if let Some(render_child) = props.render_child.as_ref() {
+            return render_child.call(DatePickerContentRenderProps {
+                attrs,
+                wrapper_id: None,
+                wrapper_style: None,
+                role: resolved_role.to_string(),
+                aria_modal: content.aria_modal(),
+                aria_labelledby: labelledby,
+                aria_describedby: describedby,
+                class: props.class,
+                style: props.style.unwrap_or_default(),
+                on_mounted,
+                on_key_down,
+                on_click,
+                attributes: props.attributes,
+                children: props.children,
+            });
+        }
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "monoxus::DatePickerContentStatic: as_child requires render_child; rendering the default div"
+        );
+    }
+
     rsx! {
         div {
             id: "{attrs.id}",
@@ -781,9 +1037,9 @@ pub fn DatePickerContentStatic(props: DatePickerContentProps) -> Element {
             "data-state": content.data_state().as_str(),
             "data-date-picker-content": attrs.data_date_picker_content,
             tabindex: attrs.tabindex,
-            onmounted: runtime.mount_content(),
-            onkeydown: runtime.escape_keydown(),
-            onclick: move |evt: MouseEvent| evt.stop_propagation(),
+            onmounted: move |evt| on_mounted.call(evt),
+            onkeydown: move |evt| on_key_down.call(evt),
+            onclick: move |evt| on_click.call(evt),
             ..props.attributes,
             {props.children}
         }
@@ -821,8 +1077,8 @@ pub fn DatePickerCalendar(props: DatePickerCalendarProps) -> Element {
     let picker_rt = use_date_picker_context();
     let cfg = picker_rt.calendar_config.read().clone();
 
-    let is_date_disabled = *picker_rt.is_date_disabled.borrow();
-    let is_date_unavailable = *picker_rt.is_date_unavailable.borrow();
+    let is_date_disabled = *picker_rt.is_date_disabled.read();
+    let is_date_unavailable = *picker_rt.is_date_unavailable.read();
 
     let mut rt_for_val = picker_rt.clone();
     let mut rt_for_select = picker_rt.clone();

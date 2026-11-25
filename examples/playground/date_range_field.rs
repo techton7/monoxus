@@ -2,8 +2,11 @@ use dioxus::prelude::*;
 use monoxus::{
     date_field::DateFieldSegmentItem,
     date_range_field::*,
-    foundation::date_time::{
-        CalendarDate, CalendarLocale, DateValue, DateValueRange, FieldInvalidEvent,
+    foundation::{
+        date_time::{
+            CalendarDate, CalendarLocale, DateValue, DateValueRange, FieldInvalidEvent,
+        },
+        shared::Direction,
     },
 };
 
@@ -65,6 +68,7 @@ const DATE_RANGE_FIELD_PLAYGROUND_CSS: &str = r#"
 
 const CARD_STYLE: &str = "border-radius: 1rem; border: 1px solid #e2e8f0; background-color: #ffffff; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;";
 const BADGE_STYLE: &str = "display: inline-flex; align-items: center; border-radius: 0.25rem; padding: 0.125rem 0.5rem; background-color: #f1f5f9; color: #334155; font-size: 0.75rem; font-weight: 700; font-family: monospace;";
+const BTN_STYLE: &str = "display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 0.5rem; border: 1px solid #cbd5e1; background-color: #f8fafc; color: #334155; font-size: 0.75rem; font-weight: 600; cursor: pointer;";
 
 fn drf_date(year: i32, month: u8, day: u8) -> DateValue {
     DateValue::Date(CalendarDate::new(year, month, day).expect("valid playground range date"))
@@ -114,59 +118,74 @@ pub fn DateRangeFieldShowcase() -> Element {
                     }
                 }
 
-                DateRangeFieldRoot {
-                    id: "sw5c-drf-root",
-                    value: Some(range),
-                    default_placeholder: Some(drf_date(2024, 6, 10)),
-                    locale: CalendarLocale::EnUs,
-                    on_value_change: move |next: DateValueRange| {
-                        if !next.is_inverted() {
-                            invalid_reason.set(String::from("none"));
+                form {
+                    id: "sw5c-drf-form",
+                    style: "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem;",
+                    DateRangeFieldRoot {
+                        id: "sw5c-drf-root",
+                        value: Some(range),
+                        default_value: DateValueRange::new(
+                            Some(drf_date(2024, 6, 10)),
+                            Some(drf_date(2024, 6, 15)),
+                        ),
+                        default_placeholder: Some(drf_date(2024, 6, 10)),
+                        locale: CalendarLocale::EnUs,
+                        on_value_change: move |next: DateValueRange| {
+                            if !next.is_inverted() {
+                                invalid_reason.set(String::from("none"));
+                            }
+                        },
+                        on_invalid: move |evt: FieldInvalidEvent| {
+                            invalid_reason.set(format!("{:?}", evt.reason));
+                        },
+                        DateRangeFieldLabel {
+                            id: "sw5c-drf-label",
+                            "Booking Dates"
                         }
-                    },
-                    on_invalid: move |evt: FieldInvalidEvent| {
-                        invalid_reason.set(format!("{:?}", evt.reason));
-                    },
-                    DateRangeFieldLabel {
-                        id: "sw5c-drf-label",
-                        "Booking Dates"
+                        div {
+                            class: "drf-inputs-row",
+                            DateRangeFieldInput {
+                                kind: RangeFieldInputKind::Start,
+                                id: "sw5c-drf-start-input",
+                                name: "booking_start",
+                                render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                    for seg in segments {
+                                        DateRangeFieldSegment {
+                                            key: "{seg.index}",
+                                            part: seg.kind(),
+                                            index: Some(seg.index),
+                                            id: format!("sw5c-drf-start-seg-{}", seg.index),
+                                        }
+                                    }
+                                }
+                            }
+                            span {
+                                style: "color: #64748b; user-select: none;",
+                                "–"
+                            }
+                            DateRangeFieldInput {
+                                kind: RangeFieldInputKind::End,
+                                id: "sw5c-drf-end-input",
+                                name: "booking_end",
+                                render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                    for seg in segments {
+                                        DateRangeFieldSegment {
+                                            key: "{seg.index}",
+                                            part: seg.kind(),
+                                            index: Some(seg.index),
+                                            id: format!("sw5c-drf-end-seg-{}", seg.index),
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
-                    div {
-                        class: "drf-inputs-row",
-                        DateRangeFieldInput {
-                            kind: RangeFieldInputKind::Start,
-                            id: "sw5c-drf-start-input",
-                            name: "booking_start",
-                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
-                                for seg in segments {
-                                    DateRangeFieldSegment {
-                                        key: "{seg.index}",
-                                        part: seg.kind(),
-                                        index: Some(seg.index),
-                                        id: format!("sw5c-drf-start-seg-{}", seg.index),
-                                    }
-                                }
-                            }
-                        }
-                        span {
-                            style: "color: #64748b; user-select: none;",
-                            "–"
-                        }
-                        DateRangeFieldInput {
-                            kind: RangeFieldInputKind::End,
-                            id: "sw5c-drf-end-input",
-                            name: "booking_end",
-                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
-                                for seg in segments {
-                                    DateRangeFieldSegment {
-                                        key: "{seg.index}",
-                                        part: seg.kind(),
-                                        index: Some(seg.index),
-                                        id: format!("sw5c-drf-end-seg-{}", seg.index),
-                                    }
-                                }
-                            }
-                        }
+
+                    button {
+                        id: "sw5c-drf-reset-btn",
+                        r#type: "reset",
+                        style: "{BTN_STYLE}",
+                        "Reset Form"
                     }
                 }
 
@@ -197,6 +216,81 @@ pub fn DateRangeFieldShowcase() -> Element {
                             id: "sw5c-drf-invalid",
                             style: "{BADGE_STYLE}",
                             "{invalid_reason}"
+                        }
+                    }
+                }
+            }
+
+            RtlDateRangeFieldScenario {}
+        }
+    }
+}
+
+#[component]
+fn RtlDateRangeFieldScenario() -> Element {
+    let rtl_range = use_signal(|| {
+        DateValueRange::new(Some(drf_date(2025, 4, 10)), Some(drf_date(2025, 4, 20)))
+    });
+
+    rsx! {
+        div {
+            class: "rounded-2xl border border-slate-200 bg-white p-6 shadow-sm space-y-4",
+            style: "{CARD_STYLE}",
+
+            div {
+                style: "display: flex; flex-direction: column; gap: 0.25rem;",
+                h3 {
+                    style: "margin: 0; font-size: 1rem; font-weight: 600; color: #0f172a;",
+                    "2. RTL DateRangeField Cross-Field Traversal"
+                }
+                p {
+                    style: "margin: 0; font-size: 0.75rem; color: #64748b;",
+                    "Direction::Rtl reverses ArrowLeft (Next) and ArrowRight (Prev) across Start and End."
+                }
+            }
+
+            DateRangeFieldRoot {
+                id: "sw5c-drf-rtl",
+                dir: Some(Direction::Rtl),
+                value: Some(rtl_range),
+                default_value: DateValueRange::new(
+                    Some(drf_date(2025, 4, 10)),
+                    Some(drf_date(2025, 4, 20)),
+                ),
+                locale: CalendarLocale::EnUs,
+                DateRangeFieldLabel {
+                    id: "sw5c-drf-rtl-label",
+                    "RTL Booking Range"
+                }
+                div {
+                    class: "drf-inputs-row",
+                    DateRangeFieldInput {
+                        kind: RangeFieldInputKind::Start,
+                        id: "sw5c-drf-rtl-start-input",
+                        render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                    id: format!("sw5c-drf-rtl-start-seg-{}", seg.index),
+                                }
+                            }
+                        }
+                    }
+                    span { style: "color: #64748b; user-select: none;", "–" }
+                    DateRangeFieldInput {
+                        kind: RangeFieldInputKind::End,
+                        id: "sw5c-drf-rtl-end-input",
+                        render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                    id: format!("sw5c-drf-rtl-end-seg-{}", seg.index),
+                                }
+                            }
                         }
                     }
                 }

@@ -66,19 +66,32 @@ fn single_toggle_respects_allow_deselect_and_clear_on_deselect() {
     assert!(selected.should_close);
     assert!(selected.changed);
 
-    // Deselect with allow_deselect = true, clear_on_deselect = false
+    // Deselect with allow_deselect = true, clear_on_deselect = false (4B D-9: stays open)
     let deselected_keep = apply_single_toggle(Some("apple"), "apple", "Apple", true, false);
     assert_eq!(deselected_keep.next_value, None);
     assert_eq!(deselected_keep.next_input_value, None);
-    assert!(deselected_keep.should_close);
+    assert!(!deselected_keep.should_close);
     assert!(deselected_keep.changed);
 
-    // Deselect with allow_deselect = true, clear_on_deselect = true
+    // Deselect with allow_deselect = true, clear_on_deselect = true (4B D-9: stays open)
     let deselected_clear = apply_single_toggle(Some("apple"), "apple", "Apple", true, true);
     assert_eq!(deselected_clear.next_value, None);
     assert_eq!(deselected_clear.next_input_value.as_deref(), Some(""));
-    assert!(deselected_clear.should_close);
+    assert!(!deselected_clear.should_close);
     assert!(deselected_clear.changed);
+
+    // Empty-string "" is a valid option value distinct from None
+    let select_empty = apply_single_toggle(None, "", "None Option", true, true);
+    assert_eq!(select_empty.next_value.as_deref(), Some(""));
+    assert_eq!(select_empty.next_input_value.as_deref(), Some("None Option"));
+    assert!(select_empty.should_close);
+    assert!(select_empty.changed);
+
+    let deselect_empty = apply_single_toggle(Some(""), "", "None Option", true, true);
+    assert_eq!(deselect_empty.next_value, None);
+    assert_eq!(deselect_empty.next_input_value.as_deref(), Some(""));
+    assert!(!deselect_empty.should_close);
+    assert!(deselect_empty.changed);
 
     // Toggle selected item with allow_deselect = false closes without deselecting
     let locked = apply_single_toggle(Some("apple"), "apple", "Apple", false, true);
@@ -157,85 +170,108 @@ fn keyboard_reducer_covers_arrows_page_alt_tab_escape_enter_home_end() {
 
     // Home/End pass through to native <input> caret
     assert_eq!(
-        resolve_input_keydown(&reg, true, Some("opt-1"), None, ComboboxNavKey::Home, false, false, false),
+        resolve_input_keydown(&reg, true, Some("opt-1"), None, ComboboxNavKey::Home, false, false, false, true),
         ComboboxKeyOutcome::default()
     );
     assert_eq!(
-        resolve_input_keydown(&reg, true, Some("opt-1"), None, ComboboxNavKey::End, false, false, false),
+        resolve_input_keydown(&reg, true, Some("opt-1"), None, ComboboxNavKey::End, false, false, false, true),
         ComboboxKeyOutcome::default()
     );
 
     // ArrowDown when closed opens & highlights first enabled
-    let open_down = resolve_input_keydown(&reg, false, None, None, ComboboxNavKey::ArrowDown, false, false, false);
+    let open_down = resolve_input_keydown(&reg, false, None, None, ComboboxNavKey::ArrowDown, false, false, false, false);
     assert!(open_down.prevent_default);
     assert_eq!(open_down.next_open, Some(true));
     assert_eq!(open_down.next_highlighted, Some(Some("opt-0".to_string())));
 
     // ArrowUp when closed opens & highlights last enabled
-    let open_up = resolve_input_keydown(&reg, false, None, None, ComboboxNavKey::ArrowUp, false, false, false);
+    let open_up = resolve_input_keydown(&reg, false, None, None, ComboboxNavKey::ArrowUp, false, false, false, false);
     assert!(open_up.prevent_default);
     assert_eq!(open_up.next_open, Some(true));
     assert_eq!(open_up.next_highlighted, Some(Some("opt-14".to_string())));
 
     // PageDown moves +10 enabled items (skipping disabled opt-2)
-    let paged_down = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::PageDown, false, false, false);
+    let paged_down = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::PageDown, false, false, false, false);
     assert!(paged_down.prevent_default);
     assert_eq!(paged_down.next_highlighted, Some(Some("opt-11".to_string())));
 
-    // PageUp moves -10 enabled items back to opt-0
-    let paged_up = resolve_input_keydown(&reg, true, Some("opt-11"), None, ComboboxNavKey::PageUp, false, false, false);
+    // PageDown at last item wraps when loop_focus = true, clamps when false
+    let paged_down_clamp = resolve_input_keydown(&reg, true, Some("opt-14"), None, ComboboxNavKey::PageDown, false, false, false, false);
+    assert_eq!(paged_down_clamp.next_highlighted, Some(Some("opt-14".to_string())));
+    let paged_down_wrap = resolve_input_keydown(&reg, true, Some("opt-14"), None, ComboboxNavKey::PageDown, false, true, false, false);
+    assert_eq!(paged_down_wrap.next_highlighted, Some(Some("opt-0".to_string())));
+
+    // PageUp moves -10 enabled items back to opt-0, wraps from opt-0 when loop_focus = true
+    let paged_up = resolve_input_keydown(&reg, true, Some("opt-11"), None, ComboboxNavKey::PageUp, false, false, false, false);
     assert!(paged_up.prevent_default);
     assert_eq!(paged_up.next_highlighted, Some(Some("opt-0".to_string())));
+    let paged_up_wrap = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::PageUp, false, true, false, false);
+    assert_eq!(paged_up_wrap.next_highlighted, Some(Some("opt-14".to_string())));
 
     // Alt+ArrowUp closes with prevent_default
-    let alt_up = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::AltArrowUp, false, false, false);
+    let alt_up = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::AltArrowUp, false, false, false, false);
     assert!(alt_up.prevent_default);
     assert_eq!(alt_up.next_open, Some(false));
 
     // Tab closes without prevent_default
-    let tab = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::Tab, false, false, false);
+    let tab = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::Tab, false, false, false, false);
     assert!(!tab.prevent_default);
     assert_eq!(tab.next_open, Some(false));
 
     // Escape closes with prevent_default (preserving input focus on Blitz Native)
-    let esc = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::Escape, false, false, false);
+    let esc = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::Escape, false, false, false, false);
     assert!(esc.prevent_default);
     assert_eq!(esc.next_open, Some(false));
 
     // Enter selects only when not composing (4B D-5)
-    let enter_composing = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::Enter, true, false, false);
+    let enter_composing = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::Enter, true, false, false, false);
     assert!(!enter_composing.prevent_default);
     assert!(!enter_composing.trigger_select);
 
-    let enter_ready = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::Enter, false, false, false);
+    let enter_ready = resolve_input_keydown(&reg, true, Some("opt-0"), None, ComboboxNavKey::Enter, false, false, false, false);
     assert!(enter_ready.prevent_default);
     assert!(enter_ready.trigger_select);
 
+    // Backspace when closed opens menu iff input_non_empty == true
+    let bs_empty = resolve_input_keydown(&reg, false, None, None, ComboboxNavKey::Backspace, false, false, false, false);
+    assert_eq!(bs_empty, ComboboxKeyOutcome::default());
+    let bs_non_empty = resolve_input_keydown(&reg, false, None, None, ComboboxNavKey::Backspace, false, false, false, true);
+    assert!(!bs_non_empty.prevent_default);
+    assert_eq!(bs_non_empty.next_open, Some(true));
+
     // Printable when closed opens menu without prevent_default
-    let printable = resolve_input_keydown(&reg, false, None, None, ComboboxNavKey::Printable, false, false, false);
+    let printable = resolve_input_keydown(&reg, false, None, None, ComboboxNavKey::Printable, false, false, false, false);
     assert!(!printable.prevent_default);
     assert_eq!(printable.next_open, Some(true));
+
+    // Printable when open with no highlight highlights first enabled candidate
+    let printable_open = resolve_input_keydown(&reg, true, None, None, ComboboxNavKey::Printable, false, false, false, false);
+    assert!(!printable_open.prevent_default);
+    assert_eq!(printable_open.next_highlighted, Some(Some("opt-0".to_string())));
 }
 
 #[test]
 fn attrs_enforce_aria_disabled_4b_d6_and_boolean_data_omission() {
-    let input_closed = ComboboxInputAttrs::new("in", "ct", false, Some("it-1".into()), false);
+    let input_closed = ComboboxInputAttrs::new("in", None, false, Some("it-1".into()), false);
     assert_eq!(input_closed.role(), "combobox");
     assert_eq!(input_closed.aria_autocomplete(), "list");
     assert_eq!(input_closed.aria_expanded(), "false");
+    assert_eq!(input_closed.aria_controls(), None);
     assert_eq!(input_closed.aria_activedescendant(), None);
     assert_eq!(input_closed.data_state_str(), "closed");
     assert_eq!(input_closed.data_disabled(), None);
 
-    let input_open = ComboboxInputAttrs::new("in", "ct", true, Some("it-1".into()), true);
+    let input_open = ComboboxInputAttrs::new("in", Some("ct".into()), true, Some("it-1".into()), true);
     assert_eq!(input_open.aria_expanded(), "true");
+    assert_eq!(input_open.aria_controls(), Some("ct"));
     assert_eq!(input_open.aria_activedescendant(), Some("it-1"));
     assert_eq!(input_open.data_state_str(), "open");
     assert_eq!(input_open.data_disabled(), Some(""));
 
-    let trigger = ComboboxTriggerAttrs::new("tr", "ct", true, false);
+    let trigger = ComboboxTriggerAttrs::new("tr", Some("ct".into()), true, false);
     assert_eq!(trigger.aria_haspopup(), "listbox");
     assert_eq!(trigger.aria_expanded(), "true");
+    assert_eq!(trigger.aria_controls(), Some("ct"));
     assert_eq!(trigger.data_disabled(), None);
 
     let content_single = ComboboxContentAttrs::new(

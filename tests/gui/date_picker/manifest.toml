@@ -30,6 +30,85 @@ part = "day"
 state = "selected"
 
 [[scenarios]]
+name = "date-picker-select-day-and-close"
+description = "Open DatePicker, click 2024-06-18, and verify value updates and popover auto-closes"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-picker"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-dp-main-trigger"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-dp-main-day-2024-06-18"
+
+[[scenarios.targets]]
+id = "sw5c-dp-main-value"
+selector = "#sw5c-dp-main-value"
+part = "readout"
+state = "2024-06-18"
+
+[[scenarios.targets]]
+id = "sw5c-dp-main-open"
+selector = "#sw5c-dp-main-open"
+part = "readout"
+state = "closed"
+
+[[scenarios]]
+name = "date-picker-escape-dismiss"
+description = "Open DatePicker and press Escape to close popover and restore trigger focus"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-picker"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-dp-main-trigger"
+
+[[scenarios.actions]]
+kind = "key"
+key = "Escape"
+
+[[scenarios.targets]]
+id = "sw5c-dp-main-open"
+selector = "#sw5c-dp-main-open"
+part = "readout"
+state = "closed"
+
+[[scenarios]]
+name = "date-picker-form-reset"
+description = "Select a new date in close_on_date_select:false picker and click form Reset to restore 2024-06-15"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-picker"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-dp-form-trigger"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-dp-form-day-2024-06-18"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-dp-form-reset"
+
+[[scenarios.targets]]
+id = "sw5c-dp-form-value"
+selector = "#sw5c-dp-form-value"
+part = "readout"
+state = "2024-06-15"
+
+[[scenarios]]
 name = "date-picker-multi-isolation"
 description = "Verify two side-by-side DatePickers with id: None render independent triggers"
 viewports = ["desktop"]

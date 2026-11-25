@@ -158,10 +158,14 @@ pub fn TimeRangeFieldRoot(props: TimeRangeFieldRootProps) -> Element {
     let start_value = use_signal(|| initial_value.start);
     let end_value = use_signal(|| initial_value.end);
     let placeholder = use_signal(|| initial_placeholder);
+    let custom_label_id = use_signal(|| None::<String>);
     let last_invalid_reason = use_signal(|| None);
 
     let start_runtime = use_hook(|| Rc::new(RefCell::new(None)));
     let end_runtime = use_hook(|| Rc::new(RefCell::new(None)));
+
+    let default_value = use_hook(|| Rc::new(RefCell::new(props.default_value)));
+    *default_value.borrow_mut() = props.default_value;
 
     let controlled_value = use_hook(|| Rc::new(RefCell::new(props.value)));
     *controlled_value.borrow_mut() = props.value;
@@ -187,15 +191,17 @@ pub fn TimeRangeFieldRoot(props: TimeRangeFieldRootProps) -> Element {
     let on_invalid = use_hook(|| Rc::new(RefCell::new(props.on_invalid)));
     *on_invalid.borrow_mut() = props.on_invalid;
 
-    let mut runtime = TimeRangeFieldRuntime {
+    let runtime = TimeRangeFieldRuntime {
         state,
         rels: rels.clone(),
         start_value,
         end_value,
         placeholder,
+        custom_label_id,
         last_invalid_reason,
         start_runtime,
         end_runtime,
+        default_value,
         controlled_value,
         controlled_placeholder,
         on_value_change,
@@ -206,12 +212,26 @@ pub fn TimeRangeFieldRoot(props: TimeRangeFieldRootProps) -> Element {
         on_invalid,
     };
 
-    if *runtime.state.peek().def() != def {
-        runtime.state.write().sync_definition(def);
-    }
-    let ext_val = props.value.map(|s| *s.read());
-    let ext_ph = props.placeholder.map(|s| *s.read());
-    runtime.reconcile_external_state(ext_val, ext_ph, props.is_invalid_override);
+    // DEF-5C-09: Reconcile definition, controlled signals, and validation inside a guarded effect.
+    use_effect(use_reactive(
+        (
+            &def,
+            &props.value,
+            &props.placeholder,
+            &props.is_invalid_override,
+        ),
+        {
+            let mut rt = runtime.clone();
+            move |(next_def, value_sig, placeholder_sig, inv_override)| {
+                if *rt.state.peek().def() != next_def {
+                    rt.state.write().sync_definition(next_def);
+                }
+                let ext_val = value_sig.map(|s| *s.read());
+                let ext_ph = placeholder_sig.map(|s| *s.read());
+                rt.reconcile_external_state(ext_val, ext_ph, inv_override);
+            }
+        },
+    ));
 
     use_context_provider(|| TimeRangeFieldContext(runtime.clone()));
 
@@ -298,8 +318,10 @@ pub struct TimeRangeFieldInputProps {
 #[component]
 pub fn TimeRangeFieldInput(props: TimeRangeFieldInputProps) -> Element {
     let range_rt = use_time_range_field_context();
-    let snap = range_rt.snapshot();
+    let part_invalid = range_rt.is_part_invalid(props.kind);
     let def = range_rt.state.read().def().clone();
+    let part_default_value = range_rt.default_part_value(props.kind);
+    let effective_label_id = range_rt.effective_label_id();
 
     let (part_value_sig, range_role, part_scope_id) = match props.kind {
         RangeFieldInputKind::Start => (
@@ -324,6 +346,7 @@ pub fn TimeRangeFieldInput(props: TimeRangeFieldInputProps) -> Element {
         TimeFieldRoot {
             id: Some(part_scope_id),
             value: Some(part_value_sig),
+            default_value: part_default_value,
             on_value_change: move |next| rt_for_change.update_part_value(kind, next),
             placeholder: Some(range_rt.placeholder),
             on_placeholder_change: move |ph| rt_for_ph.update_placeholder(ph),
@@ -338,9 +361,9 @@ pub fn TimeRangeFieldInput(props: TimeRangeFieldInputProps) -> Element {
             readonly_segments: def.readonly_segments,
             error_message_id: def.error_message_id,
             dir: Some(def.dir),
-            is_invalid_override: Some(snap.is_invalid),
+            is_invalid_override: Some(part_invalid),
             range_role,
-            label_id_override: Some(range_rt.rels.label_id().to_string()),
+            label_id_override: Some(effective_label_id),
             on_prev_boundary: move |_| rt_for_prev.handle_part_prev_boundary(kind),
             on_next_boundary: move |_| rt_for_next.handle_part_next_boundary(kind),
             TimeRangePartBridge {
@@ -406,6 +429,18 @@ pub struct TimeRangeFieldLabelProps {
 #[component]
 pub fn TimeRangeFieldLabel(props: TimeRangeFieldLabelProps) -> Element {
     let runtime = use_time_range_field_context();
+    use_effect(use_reactive((&props.id,), {
+        let mut rt = runtime.clone();
+        move |(custom_id,)| {
+            rt.register_custom_label_id(custom_id);
+        }
+    }));
+    {
+        let mut rt_drop = runtime.clone();
+        use_drop(move || {
+            rt_drop.register_custom_label_id(None);
+        });
+    }
     let attrs = runtime.label_attrs(props.id.clone());
 
     let on_click = {

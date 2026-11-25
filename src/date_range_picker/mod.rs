@@ -14,6 +14,10 @@ pub use crate::popover::components::{
         PopoverPortal as DateRangePickerPortal, PopoverPortalProps as DateRangePickerPortalProps,
     },
 };
+pub use crate::popover::types::{
+    CloseAutoFocusEvent, EscapeKeyDownEvent, InteractOutsideEvent, OpenAutoFocusEvent,
+    PopoverPreventableEvent,
+};
 
 pub use crate::date_range_field::{
     DateRangeFieldInput as DateRangePickerInput,

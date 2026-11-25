@@ -495,11 +495,362 @@ mod native_tests {
             harness.attr("#native-cmd-dlg-content", "role").as_deref(),
             Some("dialog")
         );
-        assert!(harness.query("[data-command-dialog]").is_some());
+        assert_eq!(
+            harness
+                .attr("#native-cmd-dlg-content", "data-command-dialog")
+                .as_deref(),
+            Some("")
+        );
+        assert!(
+            harness
+                .query("#native-cmd-dlg-content [data-command-dialog]")
+                .is_none(),
+            "data-command-dialog must be attached directly on DialogContent without a separate inner wrapper"
+        );
 
         focus_node(&mut harness, "#native-dlg-input");
         send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
         advance_frame_and_pump(&mut harness, 0.30);
         assert!(harness.query("#native-cmd-dlg-content").is_none());
+    }
+
+    #[component]
+    fn NativeCommandFocusOwnershipScenario() -> Element {
+        let mut selected = use_signal(String::new);
+        rsx! {
+            div {
+                button { id: "outside-btn", r#type: "button", "Outside" }
+                div { id: "focus-log", "data-val": "{selected}", "{selected}" }
+                CommandRoot {
+                    id: "fm-cmd-focus",
+                    label: "Focus Test",
+                    loop_focus: true,
+                    CommandInput { id: "fm-cmd-focus-input" }
+                    CommandList {
+                        CommandViewport {
+                            CommandItem {
+                                id: "focus-item-1",
+                                value: "item-1",
+                                on_select: move |_| selected.set("item-1".to_string()),
+                                "Item 1"
+                            }
+                            CommandItem {
+                                id: "focus-item-2",
+                                value: "item-2",
+                                on_select: move |_| selected.set("item-2".to_string()),
+                                "Item 2"
+                            }
+                            CommandItem {
+                                id: "focus-item-3",
+                                value: "item-3",
+                                on_select: move |_| selected.set("item-3".to_string()),
+                                "Item 3"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_command_outside_click_and_inside_input_focus_ownership() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeCommandFocusOwnershipScenario);
+
+        // FM-CMD-1: Outside focus -> click item #2 -> CommandRoot gains focus -> ArrowDown moves to item #3
+        focus_node(&mut harness, "#outside-btn");
+        assert_native_focus_id(&harness, "outside-btn");
+
+        click_and_pump(&mut harness, "#focus-item-2");
+        assert_native_focus_id(&harness, "fm-cmd-focus");
+        assert_eq!(
+            harness.attr("#fm-cmd-focus-input", "aria-activedescendant").as_deref(),
+            Some("focus-item-2")
+        );
+
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowDown), Code::ArrowDown);
+        assert_eq!(
+            harness.attr("#fm-cmd-focus-input", "aria-activedescendant").as_deref(),
+            Some("focus-item-3")
+        );
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        assert_eq!(
+            harness.attr("#fm-cmd-focus-input", "aria-activedescendant").as_deref(),
+            Some("focus-item-2")
+        );
+
+        // FM-CMD-2: Focus inside CommandInput -> click item #3 -> focus stays on CommandInput
+        focus_node(&mut harness, "#fm-cmd-focus-input");
+        assert_native_focus_id(&harness, "fm-cmd-focus-input");
+
+        click_and_pump(&mut harness, "#focus-item-3");
+        assert_native_focus_id(&harness, "fm-cmd-focus-input");
+        assert_eq!(
+            harness.attr("#fm-cmd-focus-input", "aria-activedescendant").as_deref(),
+            Some("focus-item-3")
+        );
+    }
+
+    #[component]
+    fn NativeCommandVisualOrderAndManualScenario() -> Element {
+        let mut search_val = use_signal(String::new);
+        let mut manual_search = use_signal(String::new);
+        rsx! {
+            div {
+                button { id: "q-d", onclick: move |_| search_val.set("d".to_string()), "Search d" }
+                button { id: "q-clear", onclick: move |_| search_val.set(String::new()), "Clear" }
+                button { id: "m-a", onclick: move |_| manual_search.set("a".to_string()), "Manual a" }
+
+                CommandRoot {
+                    id: "fm-cmd-order",
+                    label: "Order Test",
+                    CommandInput { id: "fm-cmd-order-input", value: search_val }
+                    CommandList {
+                        CommandViewport { id: "fm-cmd-order-vp",
+                            CommandGroup {
+                                id: "fm-g-docs",
+                                value: "docs",
+                                style: "display: flex; flex-direction: column;",
+                                CommandGroupHeading { "Docs" }
+                                CommandGroupItems {
+                                    CommandItem { id: "fm-i-intro", value: "Introduction", "Introduction" }
+                                    CommandItem { id: "fm-i-del", value: "Delegation", "Delegation" }
+                                }
+                            }
+                            CommandGroup {
+                                id: "fm-g-other",
+                                value: "other",
+                                style: "display: flex; flex-direction: column;",
+                                CommandGroupHeading { "Other" }
+                                CommandGroupItems {
+                                    CommandItem { id: "fm-i-prof", value: "Profile", "Profile" }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                CommandRoot {
+                    id: "fm-cmd-manual",
+                    label: "Manual Test",
+                    should_filter: false,
+                    CommandInput { id: "fm-cmd-manual-input", value: manual_search }
+                    CommandList {
+                        CommandViewport {
+                            CommandItem { id: "fm-m1", value: "m1", "M1" }
+                            CommandItem { id: "fm-m2", value: "m2", "M2" }
+                            CommandItem { id: "fm-m3", value: "m3", "M3" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_command_visual_order_force_select_first_and_group_hidden() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeCommandVisualOrderAndManualScenario);
+
+        // Initial: Introduction precedes Delegation
+        assert_eq!(
+            harness.attr("#fm-cmd-order-input", "aria-activedescendant").as_deref(),
+            Some("fm-i-intro")
+        );
+        assert!(harness.layout_rect("#fm-i-intro").y < harness.layout_rect("#fm-i-del").y);
+
+        // FM-CMD-3 & FM-CMD-6: Search "d" -> Delegation outranks Introduction visually & by keyboard; Other group hidden with height 0
+        click_and_pump(&mut harness, "#q-d");
+        assert_eq!(
+            harness.attr("#fm-cmd-order-input", "aria-activedescendant").as_deref(),
+            Some("fm-i-del")
+        );
+        assert!(
+            harness.layout_rect("#fm-i-del").y < harness.layout_rect("#fm-i-intro").y,
+            "Delegation must render above Introduction when ranked higher"
+        );
+        assert!(harness.attr("#fm-g-other", "hidden").is_some());
+        assert_eq!(
+            harness.attr("#fm-g-other", "style").as_deref(),
+            Some("display: none;")
+        );
+        assert_eq!(harness.layout_rect("#fm-g-other").height, 0.0);
+
+        focus_node(&mut harness, "#fm-cmd-order-input");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowDown), Code::ArrowDown);
+        assert_eq!(
+            harness.attr("#fm-cmd-order-input", "aria-activedescendant").as_deref(),
+            Some("fm-i-intro")
+        );
+
+        // Clear search -> resets selection to Introduction and restores visual order
+        click_and_pump(&mut harness, "#q-clear");
+        assert_eq!(
+            harness.attr("#fm-cmd-order-input", "aria-activedescendant").as_deref(),
+            Some("fm-i-intro")
+        );
+        assert!(harness.layout_rect("#fm-i-intro").y < harness.layout_rect("#fm-i-del").y);
+
+        // FM-CMD-4: should_filter: false resets to first item on search change while keeping items mounted
+        focus_node(&mut harness, "#fm-cmd-manual-input");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowDown), Code::ArrowDown);
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowDown), Code::ArrowDown);
+        assert_eq!(
+            harness.attr("#fm-cmd-manual-input", "aria-activedescendant").as_deref(),
+            Some("fm-m3")
+        );
+        click_and_pump(&mut harness, "#m-a");
+        assert_eq!(
+            harness.attr("#fm-cmd-manual-input", "aria-activedescendant").as_deref(),
+            Some("fm-m1")
+        );
+        assert!(harness.query("#fm-m3").is_some());
+    }
+
+    #[component]
+    fn NativeCommandLinkAndImeScenario() -> Element {
+        let mut select_count = use_signal(|| 0usize);
+        let mut click_count = use_signal(|| 0usize);
+        rsx! {
+            div {
+                div {
+                    id: "link-counts",
+                    "data-select": "{select_count}",
+                    "data-click": "{click_count}",
+                }
+                CommandRoot {
+                    id: "fm-cmd-link",
+                    label: "Link Test",
+                    CommandInput { id: "fm-cmd-link-input" }
+                    CommandList {
+                        CommandViewport {
+                            CommandLinkItem {
+                                id: "fm-link-docs",
+                                value: "docs",
+                                href: "#docs",
+                                on_select: move |_| select_count += 1,
+                                on_click: move |_| click_count += 1,
+                                "Docs"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_command_link_item_enter_and_ime_composing_guard() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeCommandLinkAndImeScenario);
+
+        focus_node(&mut harness, "#fm-cmd-link-input");
+
+        // IME composing Enter must NOT activate item
+        let composing_down = blitz_traits::events::BlitzKeyEvent {
+            key: Key::Named(NamedKey::Enter),
+            code: Code::Enter,
+            modifiers: Modifiers::default(),
+            location: keyboard_types::Location::Standard,
+            is_auto_repeating: false,
+            is_composing: true,
+            state: blitz_traits::events::KeyState::Pressed,
+            text: None,
+        };
+        harness.dispatch(blitz_traits::events::UiEvent::KeyDown(composing_down));
+        drain_polls_and_resolve(&mut harness);
+        assert_eq!(
+            harness.attr("#link-counts", "data-select").as_deref(),
+            Some("0")
+        );
+
+        // FM-CMD-5: Non-composing Enter dispatches DOM click on <a> and fires on_select exactly once
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
+        assert_eq!(
+            harness.attr("#link-counts", "data-select").as_deref(),
+            Some("1")
+        );
+        assert_eq!(
+            harness.attr("#link-counts", "data-click").as_deref(),
+            Some("1")
+        );
+    }
+
+    #[component]
+    fn NativeCommandDialogCenteredScenario() -> Element {
+        let mut open = use_signal(|| false);
+        rsx! {
+            div {
+                style {
+                    "@keyframes dialog-scale-in {{ from {{ transform: scale(0.95); opacity: 0; }} to {{ transform: scale(1); opacity: 1; }} }}
+                     [role='dialog'][data-state='open'] {{ animation: dialog-scale-in 200ms cubic-bezier(0.16, 1, 0.3, 1); }}"
+                }
+                button {
+                    id: "open-centered-dlg",
+                    onclick: move |_| open.set(true),
+                    "Open"
+                }
+                CommandDialog {
+                    id: "fm-centered-dlg",
+                    content_id: "fm-centered-dlg-content",
+                    content_style: "width: 400px; height: 240px; background-color: #ffffff;",
+                    open: Some(open),
+                    on_open_change: move |next| open.set(next),
+                    // No autofocus prop: proves library-owned CommandDialog auto_focus_input
+                    CommandInput { id: "fm-centered-dlg-input" }
+                    CommandList {
+                        CommandViewport {
+                            CommandItem { id: "fm-centered-dlg-item", value: "Run", "Run" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_command_dialog_viewport_center_and_auto_focus() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeCommandDialogCenteredScenario);
+
+        click_and_pump(&mut harness, "#open-centered-dlg");
+        advance_frame_and_pump(&mut harness, 0.30);
+
+        // FM-CMD-7: Auto-focused CommandInput without consumer autofocus prop
+        assert_native_focus_id(&harness, "fm-centered-dlg-input");
+
+        // DEF-CMD-04 / 4B D-3: DialogContent itself carries both role="dialog" and data-command-dialog=""
+        assert_eq!(
+            harness.attr("#fm-centered-dlg-content", "role").as_deref(),
+            Some("dialog")
+        );
+        assert_eq!(
+            harness
+                .attr("#fm-centered-dlg-content", "data-command-dialog")
+                .as_deref(),
+            Some("")
+        );
+        assert!(
+            harness
+                .query("#fm-centered-dlg-content [data-command-dialog]")
+                .is_none(),
+            "data-command-dialog must be attached directly on DialogContent without a separate inner wrapper"
+        );
+
+        let pos_rect = harness.layout_rect("[data-command-dialog-positioner]");
+        let dlg_rect = harness.layout_rect("#fm-centered-dlg-content");
+        let pos_cx = pos_rect.x + pos_rect.width * 0.5;
+        let pos_cy = pos_rect.y + pos_rect.height * 0.5;
+        let dlg_cx = dlg_rect.x + dlg_rect.width * 0.5;
+        let dlg_cy = dlg_rect.y + dlg_rect.height * 0.5;
+        assert!(
+            (dlg_cx - pos_cx).abs() <= 2.0,
+            "Dialog X center {dlg_cx} diverged from positioner center {pos_cx}"
+        );
+        assert!(
+            (dlg_cy - pos_cy).abs() <= 2.0,
+            "Dialog Y center {dlg_cy} diverged from positioner center {pos_cy}"
+        );
     }
 }

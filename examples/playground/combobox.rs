@@ -105,20 +105,19 @@ fn SingleComboboxScenario() -> Element {
 
     let mut selected = use_signal(|| Some("dioxus".to_string()));
     let mut input_val = use_signal(|| "Dioxus".to_string());
+    let mut search_value = use_signal(String::new);
     let mut open = use_signal(|| false);
+    let mut is_disabled = use_signal(|| false);
+    let mut prevent_escape = use_signal(|| false);
 
-    let query = input_val().trim().to_lowercase();
-    let selected_label = selected()
-        .as_deref()
-        .and_then(|val| options.iter().find(|(v, _, _)| *v == val).map(|(_, l, _)| *l))
-        .unwrap_or("");
-    let show_all = query.is_empty() || query == selected_label.to_lowercase();
-
+    let query = search_value().trim().to_lowercase();
     let filtered: Vec<(&str, &str, bool)> = options
         .iter()
         .copied()
         .filter(|(v, l, _)| {
-            show_all || l.to_lowercase().contains(&query) || v.to_lowercase().contains(&query)
+            query.is_empty()
+                || l.to_lowercase().contains(&query)
+                || v.to_lowercase().contains(&query)
         })
         .collect();
 
@@ -140,7 +139,7 @@ fn SingleComboboxScenario() -> Element {
             }
 
             div {
-                style: "display: flex; flex-wrap: wrap; gap: 0.5rem;",
+                style: "display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;",
                 span {
                     id: "sw4b-cbx-single-value",
                     style: "{badge_style(selected().is_some())}",
@@ -150,6 +149,26 @@ fn SingleComboboxScenario() -> Element {
                     id: "sw4b-cbx-single-open",
                     style: "{badge_style(open())}",
                     if open() { "state: open" } else { "state: closed" }
+                }
+                button {
+                    id: "sw4b-cbx-single-disabled-toggle",
+                    r#type: "button",
+                    style: "{CTRL_BTN_STYLE}",
+                    onclick: move |_| {
+                        let next = !is_disabled();
+                        is_disabled.set(next);
+                    },
+                    if is_disabled() { "disabled: true" } else { "disabled: false" }
+                }
+                button {
+                    id: "sw4b-cbx-single-prevent-esc-toggle",
+                    r#type: "button",
+                    style: "{CTRL_BTN_STYLE}",
+                    onclick: move |_| {
+                        let next = !prevent_escape();
+                        prevent_escape.set(next);
+                    },
+                    if prevent_escape() { "prevent_escape: true" } else { "prevent_escape: false" }
                 }
             }
 
@@ -168,9 +187,20 @@ fn SingleComboboxScenario() -> Element {
                         on_value_change: move |v: Option<String>| selected.set(v),
                         input_value: Some(input_val),
                         default_input_value: Some("Dioxus".to_string()),
-                        on_input_value_change: move |iv: String| input_val.set(iv),
+                        on_input_value_change: move |iv: String| {
+                            if iv.is_empty() {
+                                search_value.set(String::new());
+                            }
+                            input_val.set(iv);
+                        },
                         open: Some(open),
                         on_open_change: move |next: bool| open.set(next),
+                        on_open_change_complete: move |is_open: bool| {
+                            if !is_open {
+                                search_value.set(String::new());
+                            }
+                        },
+                        disabled: is_disabled(),
                         name: Some("framework".to_string()),
                         items: items_data,
                         allow_deselect: true,
@@ -180,9 +210,10 @@ fn SingleComboboxScenario() -> Element {
                             style: "{INPUT_ROW_STYLE}",
                             ComboboxInput {
                                 id: Some("sw4b-cbx-single-input".to_string()),
-                                clear_on_deselect: true,
+                                clear_on_deselect: Some(true),
                                 placeholder: Some("Select a Rust UI framework...".to_string()),
                                 style: Some(INPUT_STYLE.to_string()),
+                                on_input: move |evt: FormEvent| search_value.set(evt.value()),
                             }
                             ComboboxTrigger {
                                 id: Some("sw4b-cbx-single-trigger".to_string()),
@@ -197,6 +228,11 @@ fn SingleComboboxScenario() -> Element {
                                 same_width: true,
                                 side_offset: 6.0,
                                 style: Some(CONTENT_STYLE.to_string()),
+                                on_escape_key_down: move |evt: KeyboardEvent| {
+                                    if prevent_escape() {
+                                        evt.prevent_default();
+                                    }
+                                },
                                 ComboboxViewport {
                                     id: Some("sw4b-cbx-single-viewport".to_string()),
                                     style: Some("max-height: 200px; overflow-y: auto;".to_string()),
@@ -236,6 +272,7 @@ fn SingleComboboxScenario() -> Element {
                         id: "sw4b-cbx-single-reset",
                         r#type: "reset",
                         style: "{CTRL_BTN_STYLE}",
+                        onclick: move |_| search_value.set(String::new()),
                         "Reset Form"
                     }
                 }
@@ -266,9 +303,10 @@ fn MultipleComboboxScenario() -> Element {
 
     let mut selected_values = use_signal(|| vec!["apple".to_string(), "mango".to_string()]);
     let mut input_val = use_signal(String::new);
+    let mut search_value = use_signal(String::new);
     let mut open = use_signal(|| false);
 
-    let query = input_val().trim().to_lowercase();
+    let query = search_value().trim().to_lowercase();
     let filtered: Vec<(&str, &str)> = fruits
         .iter()
         .copied()
@@ -326,6 +364,11 @@ fn MultipleComboboxScenario() -> Element {
                     on_input_value_change: move |iv: String| input_val.set(iv),
                     open: Some(open),
                     on_open_change: move |next: bool| open.set(next),
+                    on_open_change_complete: move |is_open: bool| {
+                        if !is_open {
+                            search_value.set(String::new());
+                        }
+                    },
                     name: Some("fruits".to_string()),
                     items: items_data,
 
@@ -335,6 +378,7 @@ fn MultipleComboboxScenario() -> Element {
                             id: Some("sw4b-cbx-multi-input".to_string()),
                             placeholder: Some("Filter fruits (multi-select)...".to_string()),
                             style: Some(INPUT_STYLE.to_string()),
+                            on_input: move |evt: FormEvent| search_value.set(evt.value()),
                         }
                         ComboboxTrigger {
                             id: Some("sw4b-cbx-multi-trigger".to_string()),
@@ -373,6 +417,7 @@ fn MultipleComboboxScenario() -> Element {
 fn ScrollableComboboxScenario() -> Element {
     let mut selected = use_signal(|| None::<String>);
     let mut input_val = use_signal(String::new);
+    let mut search_value = use_signal(String::new);
     let mut open = use_signal(|| false);
     let mut alignment = use_signal(|| ComboboxScrollAlignment::Nearest);
 
@@ -389,7 +434,7 @@ fn ScrollableComboboxScenario() -> Element {
         })
         .collect();
 
-    let query = input_val().trim().to_lowercase();
+    let query = search_value().trim().to_lowercase();
     let filtered: Vec<(String, String)> = all_items
         .into_iter()
         .filter(|(v, l)| {
@@ -456,6 +501,11 @@ fn ScrollableComboboxScenario() -> Element {
                     on_input_value_change: move |iv: String| input_val.set(iv),
                     open: Some(open),
                     on_open_change: move |next: bool| open.set(next),
+                    on_open_change_complete: move |is_open: bool| {
+                        if !is_open {
+                            search_value.set(String::new());
+                        }
+                    },
                     loop_focus: true,
                     scroll_alignment: alignment(),
                     items: items_data,
@@ -466,6 +516,7 @@ fn ScrollableComboboxScenario() -> Element {
                             id: Some("sw4b-cbx-scroll-input".to_string()),
                             placeholder: Some("Type or press PageDown / PageUp...".to_string()),
                             style: Some(INPUT_STYLE.to_string()),
+                            on_input: move |evt: FormEvent| search_value.set(evt.value()),
                         }
                         ComboboxTrigger {
                             id: Some("sw4b-cbx-scroll-trigger".to_string()),

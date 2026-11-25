@@ -78,3 +78,119 @@ id = "sw4b-cmd-dialog-state"
 selector = "#sw4b-cmd-dialog-state"
 part = "readout"
 state = "closed"
+
+[[scenarios]]
+name = "command-outside-click-and-arrow-nav"
+description = "FM-CMD-1: Click CommandItem from outside focus, verify CommandRoot takes focus and ArrowDown advances selection"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-command"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cmd-inline-loading-toggle"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cmd-item-calculator"
+
+[[scenarios.actions]]
+kind = "key"
+key = "ArrowDown"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-inline-active"
+selector = "#sw4b-cmd-inline-active"
+part = "readout"
+state = "search-emoji"
+
+[[scenarios]]
+name = "command-search-rank-order-and-group-hide"
+description = "FM-CMD-3 & FM-CMD-6: Type query, verify ranked visual order, forceSelectFirst, and hidden empty group"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-command"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cmd-inline-input"
+
+[[scenarios.actions]]
+kind = "type"
+target = "#sw4b-cmd-inline-input"
+text = "profile"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-group-suggestions"
+selector = "#sw4b-cmd-group-suggestions"
+part = "group"
+state = "hidden"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-item-profile"
+selector = "#sw4b-cmd-item-profile"
+part = "item"
+state = "selected"
+
+[[scenarios]]
+name = "command-dialog-centered-and-autofocused"
+description = "FM-CMD-7: Verify CommandDialog positioner centers DialogContent in viewport and auto-focuses CommandInput"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-command"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cmd-dialog-trigger"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-dialog-positioner"
+selector = "[data-command-dialog-positioner]"
+part = "positioner"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-dialog-content"
+selector = "#sw4b-cmd-dialog-content"
+part = "dialog"
+state = "centered"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-dialog-input"
+selector = "#sw4b-cmd-dialog-input"
+part = "input"
+state = "focused"
+
+[[scenarios]]
+name = "command-grid-manual-search-reset"
+description = "FM-CMD-4: Navigate 2D grid in manual mode (should_filter: false), type query, verify active tile resets to tile-1"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-command"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cmd-grid-tile-3"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cmd-grid-input"
+
+[[scenarios.actions]]
+kind = "type"
+target = "#sw4b-cmd-grid-input"
+text = "a"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-grid-active"
+selector = "#sw4b-cmd-grid-active"
+part = "readout"
+state = "tile-1"

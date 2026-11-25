@@ -31,6 +31,8 @@ pub struct CommandInputRenderProps {
     #[props(default)]
     pub style: Option<String>,
     pub on_input: EventHandler<FormEvent>,
+    pub on_compositionstart: EventHandler<CompositionEvent>,
+    pub on_compositionend: EventHandler<CompositionEvent>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -83,11 +85,23 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
     let fallback_val = use_signal(|| props.default_value.clone().unwrap_or_default());
     let mut val_sig = props.value.unwrap_or(fallback_val);
 
-    // Sync controlled or seeded input value into command root search
+    // Sync controlled or seeded input value into command root search via effect (not mid-render).
     let current_val = val_sig();
-    if *ctx.search.peek() != current_val {
-        ctx.set_search(current_val.clone());
-    }
+    let mut initialized_search = use_signal(|| false);
+    let mut ctx_for_sync = ctx;
+    use_effect(move || {
+        let current = val_sig();
+        let was_init = *initialized_search.peek();
+        if !was_init {
+            initialized_search.set(true);
+            if *ctx_for_sync.search.peek() != current {
+                ctx_for_sync.search.set(current);
+                ctx_for_sync.recompute_filtered(false);
+            }
+        } else if *ctx_for_sync.search.peek() != current {
+            ctx_for_sync.set_search(current);
+        }
+    });
 
     let autofocus_id = resolved_id.clone();
     let autofocus = props.autofocus;
@@ -123,6 +137,15 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
         }
     });
 
+    let mut ctx_for_comp_start = ctx;
+    let handle_compositionstart = EventHandler::new(move |_evt: CompositionEvent| {
+        ctx_for_comp_start.set_composing(true);
+    });
+    let mut ctx_for_comp_end = ctx;
+    let handle_compositionend = EventHandler::new(move |_evt: CompositionEvent| {
+        ctx_for_comp_end.set_composing(false);
+    });
+
     if props.as_child {
         if let Some(render_child) = props.render_child.as_ref() {
             return render_child.call(CommandInputRenderProps {
@@ -144,6 +167,8 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
                 class: props.class,
                 style: props.style,
                 on_input: handle_input,
+                on_compositionstart: handle_compositionstart,
+                on_compositionend: handle_compositionend,
                 on_mounted: props.on_mounted,
                 attributes: props.attributes,
             });
@@ -170,6 +195,8 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
             class: props.class,
             style: props.style,
             oninput: move |evt| handle_input.call(evt),
+            oncompositionstart: move |evt| handle_compositionstart.call(evt),
+            oncompositionend: move |evt| handle_compositionend.call(evt),
             onmounted: move |evt| {
                 if let Some(handler) = props.on_mounted.as_ref() {
                     handler.call(evt);

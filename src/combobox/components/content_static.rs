@@ -1,3 +1,6 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
@@ -65,49 +68,75 @@ pub fn ComboboxContentStatic(props: ComboboxContentStaticProps) -> Element {
         let _ = oek.try_write().map(|mut w| *w = props.on_escape_key_down);
     }
 
+    let should_render = is_open || props.force_mount;
+    {
+        let rt = ctx.runtime.clone();
+        use_effect(use_reactive((&should_render,), move |(mounted,)| {
+            rt.set_content_mounted(mounted);
+        }));
+    }
+
     let parent_branch = try_consume_context::<OverlayBranchContext>();
+    let tracked_id: Rc<RefCell<Option<String>>> = use_hook(|| Rc::new(RefCell::new(None)));
     {
         let cid = content_id.clone();
         let branch = parent_branch.clone();
-        use_effect(use_reactive((&is_open,), move |(open,)| {
+        let tracked = Rc::clone(&tracked_id);
+        use_effect(use_reactive((&is_open, &cid), move |(open, cur_cid)| {
+            if let Some(prev_cid) = tracked.borrow_mut().take() {
+                if prev_cid != cur_cid || !open {
+                    unregister_active_overlay_layer(&prev_cid);
+                    if let Some(ref b) = branch {
+                        b.unregister_branch(prev_cid);
+                    }
+                }
+            }
             if open {
-                register_active_overlay_layer(&cid);
+                register_active_overlay_layer(&cur_cid);
                 if let Some(ref b) = branch {
-                    b.register_branch(cid.clone());
+                    b.register_branch(cur_cid.clone());
                 }
-            } else {
-                unregister_active_overlay_layer(&cid);
-                if let Some(ref b) = branch {
-                    b.unregister_branch(cid.clone());
-                }
+                *tracked.borrow_mut() = Some(cur_cid);
             }
         }));
     }
 
     {
-        let cid = content_id.clone();
+        let tracked = Rc::clone(&tracked_id);
         let branch = parent_branch;
+        let rt = ctx.runtime.clone();
         use_drop(move || {
-            unregister_active_overlay_layer(&cid);
-            if let Some(ref b) = branch {
-                b.unregister_branch(cid);
+            rt.set_content_mounted(false);
+            if let Some(cid) = tracked.borrow_mut().take() {
+                unregister_active_overlay_layer(&cid);
+                if let Some(ref b) = branch {
+                    b.unregister_branch(cid);
+                }
             }
         });
     }
 
+    // DEF-CBX-01/02/04: Tracked DOM order sync + post-render open/input highlight reconciliation.
+    let reg_ver = *ctx.runtime.state.registry_version.read();
+    let reconcile_ver = *ctx.runtime.state.pending_input_reconcile.read();
+    let seen_reconcile: Rc<RefCell<u64>> = use_hook(|| Rc::new(RefCell::new(0)));
     {
         let cid = content_id.clone();
         let rt = ctx.runtime.clone();
-        let reg_sig = ctx.runtime.state.registry;
-        use_effect(use_reactive((&is_open, &reg_sig), move |(open, _)| {
-            if open {
-                rt.sync_dom_order(&cid);
-                rt.refresh_scroll_buttons();
-            }
-        }));
+        let seen = Rc::clone(&seen_reconcile);
+        use_effect(use_reactive(
+            (&is_open, &reg_ver, &reconcile_ver, &cid),
+            move |(open, _ver, r_ver, cur_cid)| {
+                if open {
+                    rt.sync_dom_order(&cur_cid);
+                    rt.flush_pending_open_and_input_reconcile(&mut seen.borrow_mut(), r_ver);
+                    rt.refresh_scroll_buttons();
+                }
+            },
+        ));
     }
 
-    if !is_open && !props.force_mount {
+    if !should_render {
         return rsx! {};
     }
 
@@ -135,12 +164,15 @@ pub fn ComboboxContentStatic(props: ComboboxContentStaticProps) -> Element {
             if !is_topmost_overlay_layer(&esc_cid) {
                 return;
             }
-            evt.prevent_default();
+            // DEF-CBX-03: Invoke consumer callback BEFORE `evt.prevent_default()`.
+            let mut consumer_prevented = false;
             if let Some(ref cb) = esc_cb {
                 cb.call(evt.clone());
-                if !evt.default_action_enabled() {
-                    return;
-                }
+                consumer_prevented = !evt.default_action_enabled();
+            }
+            evt.prevent_default();
+            if consumer_prevented {
+                return;
             }
             key_rt.close_menu();
         }

@@ -125,3 +125,38 @@ fn time_field_attrs_emit_data_time_field_segment_and_as_child() {
     assert_eq!(p_lbl, label_attrs);
     assert_eq!(p_seg, seg_attrs);
 }
+
+#[test]
+fn time_field_reset_value_clears_partial_buffers_and_required_attrs() {
+    let scope = ScopeHandle::root("time-field").child("reset-attrs");
+    let rels = TimeFieldRelationships::new(scope);
+    let mut state = TimeFieldState::new(
+        TimeFieldDefinition::new()
+            .with_hour_cycle(Some(HourCycle::H12))
+            .with_required(true),
+        None,
+        t(9, 0, 0),
+    );
+
+    state.apply_intent(SegmentKind::Hour, FieldSegmentIntent::Digit(5));
+    assert_eq!(state.value(), None);
+    assert_eq!(state.engine().values().hour.as_deref(), Some("05"));
+
+    // DEF-5C-03: reset_value(None) clears partial buffers even when value == None
+    state.reset_value(None);
+    assert_eq!(state.engine().values().hour, None);
+
+    // DEF-5C-15: required emits aria-required="true" & data-required=""
+    let req_attrs = TimeFieldInputAttrs::new(
+        rels.input_id().to_string(),
+        TimeFieldRangeRole::Standalone,
+        Some(rels.label_id().to_string()),
+        None,
+        Direction::Ltr,
+        false,
+        false,
+    )
+    .with_required(true);
+    assert_eq!(req_attrs.aria_required, Some("true"));
+    assert_eq!(req_attrs.data_required, Some(""));
+}

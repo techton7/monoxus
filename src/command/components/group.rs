@@ -5,7 +5,10 @@ use dioxus::prelude::*;
 use crate::foundation::shared::use_stable_id;
 
 use super::super::{
-    attrs::{CommandGroupAttrs, CommandGroupHeadingAttrs, CommandGroupItemsAttrs},
+    attrs::{
+        CommandGroupAttrs, CommandGroupHeadingAttrs, CommandGroupItemsAttrs,
+        merge_flex_column_style, merge_ranked_item_style,
+    },
     runtime::{CommandContext, CommandGroupContext},
 };
 
@@ -105,6 +108,8 @@ pub fn CommandGroup(props: CommandGroupProps) -> Element {
     });
 
     let should_render = ctx.should_render_group_value(&resolved_value, props.force_mount);
+    let visual_order = ctx.group_visual_order(&resolved_value);
+    let rendered_style = merge_ranked_item_style(should_render, visual_order, props.style.as_deref());
     let attrs = CommandGroupAttrs::new(group_id, resolved_value, should_render);
 
     if props.as_child {
@@ -116,7 +121,7 @@ pub fn CommandGroup(props: CommandGroupProps) -> Element {
                 data_command_group: attrs.data_command_group,
                 data_value: attrs.data_value,
                 class: props.class,
-                style: props.style,
+                style: rendered_style,
                 on_mounted: props.on_mounted,
                 attributes: props.attributes,
                 children: props.children,
@@ -132,7 +137,7 @@ pub fn CommandGroup(props: CommandGroupProps) -> Element {
             "data-command-group": attrs.data_command_group,
             "data-value": "{attrs.data_value}",
             class: props.class,
-            style: props.style,
+            style: rendered_style,
             onmounted: move |evt| {
                 if let Some(handler) = props.on_mounted.as_ref() {
                     handler.call(evt);
@@ -193,19 +198,23 @@ pub fn CommandGroupHeading(props: CommandGroupHeadingProps) -> Element {
         }
     });
 
+    let mut tracked_heading_id = use_signal(|| heading_id.clone());
+    if *tracked_heading_id.peek() != heading_id {
+        tracked_heading_id.set(heading_id.clone());
+    }
     if group_ctx.heading_id.peek().as_deref() != Some(heading_id.as_str()) {
         group_ctx.heading_id.set(Some(heading_id.clone()));
     }
     let gv = group_ctx.value.peek().clone();
     ctx.set_group_heading(&gv, Some(heading_id.clone()));
 
-    let hid_drop = heading_id.clone();
     let mut heading_sig = group_ctx.heading_id;
     let group_val_sig = group_ctx.value;
     let mut ctx_drop = ctx;
     use_drop(move || {
+        let latest_id = tracked_heading_id.try_peek().ok().map(|s| s.clone());
         if let Ok(mut sig) = heading_sig.try_write() {
-            if sig.as_deref() == Some(hid_drop.as_str()) {
+            if latest_id.is_none() || sig.as_deref() == latest_id.as_deref() {
                 *sig = None;
             }
         }
@@ -294,6 +303,8 @@ pub fn CommandGroupItems(props: CommandGroupItemsProps) -> Element {
         ctx.relationships.peek().group_items_id(&gv)
     });
     let heading_id = group_ctx.heading_id.read().clone();
+    let is_grid = ctx.columns.read().is_some();
+    let merged_style = merge_flex_column_style(props.style.as_deref(), is_grid);
     let attrs = CommandGroupItemsAttrs::new(items_id, heading_id);
 
     if props.as_child {
@@ -304,7 +315,7 @@ pub fn CommandGroupItems(props: CommandGroupItemsProps) -> Element {
                 aria_labelledby: attrs.aria_labelledby,
                 data_command_group_items: attrs.data_command_group_items,
                 class: props.class,
-                style: props.style,
+                style: merged_style,
                 on_mounted: props.on_mounted,
                 attributes: props.attributes,
                 children: props.children,
@@ -319,7 +330,7 @@ pub fn CommandGroupItems(props: CommandGroupItemsProps) -> Element {
             aria_labelledby: attrs.aria_labelledby.as_deref(),
             "data-command-group-items": attrs.data_command_group_items,
             class: props.class,
-            style: props.style,
+            style: merged_style,
             onmounted: move |evt| {
                 if let Some(handler) = props.on_mounted.as_ref() {
                     handler.call(evt);

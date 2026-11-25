@@ -1,4 +1,4 @@
-use std::{borrow::Cow, rc::Rc};
+use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
@@ -15,7 +15,7 @@ use super::hidden_input::ComboboxHiddenInput;
 use crate::combobox::{
     relationships::ComboboxRelationships,
     runtime::{ComboboxRuntime, ComboboxRuntimeState},
-    state::{ComboboxOptionRegistry, ComboboxState},
+    state::ComboboxOptionRegistry,
     types::{ComboboxContext, ComboboxItemData, ComboboxMode, ComboboxScrollAlignment},
 };
 
@@ -95,6 +95,71 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
         }
     };
 
+    // 4B D-4: Reactive config signals synced on every render (zero mount-time snapshot).
+    let mut mode_sig = use_signal(|| props.mode);
+    if *mode_sig.peek() != props.mode {
+        mode_sig.set(props.mode);
+    }
+    let mut disabled_sig = use_signal(|| props.disabled);
+    if *disabled_sig.peek() != props.disabled {
+        disabled_sig.set(props.disabled);
+    }
+    let mut required_sig = use_signal(|| props.required);
+    if *required_sig.peek() != props.required {
+        required_sig.set(props.required);
+    }
+    let mut loop_focus_sig = use_signal(|| props.loop_focus);
+    if *loop_focus_sig.peek() != props.loop_focus {
+        loop_focus_sig.set(props.loop_focus);
+    }
+    let mut scroll_alignment_sig = use_signal(|| props.scroll_alignment);
+    if *scroll_alignment_sig.peek() != props.scroll_alignment {
+        scroll_alignment_sig.set(props.scroll_alignment);
+    }
+    let mut allow_deselect_sig = use_signal(|| props.allow_deselect);
+    if *allow_deselect_sig.peek() != props.allow_deselect {
+        allow_deselect_sig.set(props.allow_deselect);
+    }
+    let mut root_clear_on_deselect_sig = use_signal(|| props.clear_on_deselect);
+    if *root_clear_on_deselect_sig.peek() != props.clear_on_deselect {
+        root_clear_on_deselect_sig.set(props.clear_on_deselect);
+    }
+    let input_clear_on_deselect_sig = use_signal(|| None::<bool>);
+    let mut name_sig = use_signal(|| props.name.clone());
+    if *name_sig.peek() != props.name {
+        name_sig.set(props.name.clone());
+    }
+    let mut form_sig = use_signal(|| props.form.clone());
+    if *form_sig.peek() != props.form {
+        form_sig.set(props.form.clone());
+    }
+    let mut portal_host_sig = use_signal(|| props.portal_host.clone());
+    if *portal_host_sig.peek() != props.portal_host {
+        portal_host_sig.set(props.portal_host.clone());
+    }
+
+    // 4B D-4: Reactive callback signals synced on every render.
+    let mut on_open_change_sig = use_signal(|| props.on_open_change);
+    if *on_open_change_sig.peek() != props.on_open_change {
+        on_open_change_sig.set(props.on_open_change);
+    }
+    let mut on_open_change_complete_sig = use_signal(|| props.on_open_change_complete);
+    if *on_open_change_complete_sig.peek() != props.on_open_change_complete {
+        on_open_change_complete_sig.set(props.on_open_change_complete);
+    }
+    let mut on_value_change_sig = use_signal(|| props.on_value_change);
+    if *on_value_change_sig.peek() != props.on_value_change {
+        on_value_change_sig.set(props.on_value_change);
+    }
+    let mut on_values_change_sig = use_signal(|| props.on_values_change);
+    if *on_values_change_sig.peek() != props.on_values_change {
+        on_values_change_sig.set(props.on_values_change);
+    }
+    let mut on_input_value_change_sig = use_signal(|| props.on_input_value_change);
+    if *on_input_value_change_sig.peek() != props.on_input_value_change {
+        on_input_value_change_sig.set(props.on_input_value_change);
+    }
+
     let open_sig = use_signal(|| props.default_open);
     let mut controlled_open_sig = use_signal(|| props.open);
     if *controlled_open_sig.peek() != props.open {
@@ -121,13 +186,18 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
 
     let highlighted_value = use_signal(|| None::<String>);
     let pending_open_highlight = use_signal(|| None);
+    let pending_input_reconcile = use_signal(|| 0_u64);
     let registry = use_signal(|| {
         let mut reg = ComboboxOptionRegistry::new();
         reg.seed_items(&props.items);
         reg
     });
+    let registry_version = use_signal(|| 0_u64);
     let pressed_item = use_signal(|| None);
-    let clear_on_deselect_sig = use_signal(|| props.clear_on_deselect);
+    let suppress_next_click = use_signal(|| false);
+    let is_composing = use_signal(|| false);
+    let user_has_scrolled = use_signal(|| false);
+    let content_mounted = use_signal(|| false);
     let default_value_initial = use_signal(|| props.default_value.clone());
     let default_values_initial = use_signal(|| props.default_values.clone().unwrap_or_default());
     let default_input_value_initial = use_signal(|| initial_input_value);
@@ -167,22 +237,25 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
     let dismiss_monitor = use_signal(|| None);
     let position_monitor = use_signal(|| None);
 
-    let config = ComboboxState::new()
-        .with_mode(props.mode)
-        .with_disabled(props.disabled)
-        .with_required(props.required)
-        .with_loop_focus(props.loop_focus)
-        .with_scroll_alignment(props.scroll_alignment)
-        .with_allow_deselect(props.allow_deselect)
-        .with_clear_on_deselect(props.clear_on_deselect)
-        .with_name(props.name.clone())
-        .with_form(props.form.clone())
-        .with_portal_host(props.portal_host.clone());
-
     let runtime = ComboboxRuntime {
-        config,
         relationships: relationships.clone(),
         state: ComboboxRuntimeState {
+            mode: mode_sig,
+            disabled: disabled_sig,
+            required: required_sig,
+            loop_focus: loop_focus_sig,
+            scroll_alignment: scroll_alignment_sig,
+            allow_deselect: allow_deselect_sig,
+            root_clear_on_deselect: root_clear_on_deselect_sig,
+            input_clear_on_deselect: input_clear_on_deselect_sig,
+            name: name_sig,
+            form: form_sig,
+            portal_host: portal_host_sig,
+            on_open_change: on_open_change_sig,
+            on_open_change_complete: on_open_change_complete_sig,
+            on_value_change: on_value_change_sig,
+            on_values_change: on_values_change_sig,
+            on_input_value_change: on_input_value_change_sig,
             open: open_sig,
             controlled_open: controlled_open_sig,
             value: value_sig,
@@ -193,9 +266,14 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
             controlled_input_value: controlled_input_value_sig,
             highlighted_value,
             pending_open_highlight,
+            pending_input_reconcile,
             registry,
+            registry_version,
             pressed_item,
-            clear_on_deselect: clear_on_deselect_sig,
+            suppress_next_click,
+            is_composing,
+            user_has_scrolled,
+            content_mounted,
             default_value_initial,
             default_values_initial,
             default_input_value_initial,
@@ -229,29 +307,33 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
             dismiss_monitor,
             position_monitor,
         },
-        on_open_change: props.on_open_change.map(|h| {
-            let h = h;
-            Rc::new(move |v| h.call(v)) as Rc<dyn Fn(bool)>
-        }),
-        on_open_change_complete: props.on_open_change_complete.map(|h| {
-            let h = h;
-            Rc::new(move |v| h.call(v)) as Rc<dyn Fn(bool)>
-        }),
-        on_value_change: props.on_value_change.map(|h| {
-            let h = h;
-            Rc::new(move |v| h.call(v)) as Rc<dyn Fn(Option<String>)>
-        }),
-        on_values_change: props.on_values_change.map(|h| {
-            let h = h;
-            Rc::new(move |v| h.call(v)) as Rc<dyn Fn(Vec<String>)>
-        }),
-        on_input_value_change: props.on_input_value_change.map(|h| {
-            let h = h;
-            Rc::new(move |v| h.call(v)) as Rc<dyn Fn(String)>
-        }),
     };
 
     runtime.seed_items(&props.items);
+
+    // CBX-3 / DEF-CBX-09: Watch selection non-empty -> empty transitions so programmatic
+    // deselection also clears `input_value` when `clear_on_deselect` is enabled.
+    let has_selection = match runtime.mode() {
+        ComboboxMode::Single => runtime.value().is_some(),
+        ComboboxMode::Multiple => !runtime.values().is_empty(),
+    };
+    let mut prev_has_selection = use_signal(|| has_selection);
+    {
+        let rt = runtime.clone();
+        use_effect(use_reactive((&has_selection,), move |(now_has_sel,)| {
+            let was_has_sel = *prev_has_selection.peek();
+            if was_has_sel != now_has_sel {
+                prev_has_selection.set(now_has_sel);
+                if was_has_sel
+                    && !now_has_sel
+                    && rt.clear_on_deselect()
+                    && !rt.input_value_untracked().is_empty()
+                {
+                    rt.set_input_value(String::new(), true);
+                }
+            }
+        }));
+    }
 
     let current_input_id = runtime.current_input_id();
     let reset_rt = runtime.clone();

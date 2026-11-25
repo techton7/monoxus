@@ -1,3 +1,5 @@
+use std::{cell::RefCell, rc::Rc};
+
 use dioxus::prelude::*;
 
 use crate::popover::components::PopoverContext;
@@ -21,11 +23,20 @@ pub fn PopoverTrigger(props: PopoverTriggerProps) -> Element {
     let runtime = ctx.runtime.read();
     let trigger = runtime.trigger();
     let trigger_id = props.id.unwrap_or_else(|| trigger.id().to_string());
+    let latest_tid = use_hook(|| Rc::new(RefCell::new(trigger_id.clone())));
+    {
+        let mut prev = latest_tid.borrow_mut();
+        if *prev != trigger_id {
+            runtime.unregister_trigger_id(&prev);
+            *prev = trigger_id.clone();
+        }
+    }
     runtime.register_trigger_id(&trigger_id);
-    let tid_for_drop = trigger_id.clone();
+    let tid_for_drop = latest_tid.clone();
     let runtime_for_drop = runtime.clone();
     use_drop(move || {
-        runtime_for_drop.unregister_trigger_id(&tid_for_drop);
+        let current = tid_for_drop.borrow().clone();
+        runtime_for_drop.unregister_trigger_id(&current);
     });
 
     rsx! {

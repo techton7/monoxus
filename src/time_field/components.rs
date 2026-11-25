@@ -125,13 +125,17 @@ pub fn TimeFieldRoot(props: TimeFieldRootProps) -> Element {
         st
     });
 
-    let mut label_id_override = use_signal(|| props.label_id_override.clone());
-    if *label_id_override.peek() != props.label_id_override {
-        label_id_override.set(props.label_id_override.clone());
-    }
+    let label_id_override = use_signal(|| props.label_id_override.clone());
+    let custom_label_id = use_signal(|| None::<String>);
 
     let announcement = use_signal(String::new);
     let last_invalid_reason = use_signal(|| None);
+
+    let range_role = use_hook(|| Rc::new(RefCell::new(props.range_role)));
+    *range_role.borrow_mut() = props.range_role;
+
+    let default_value = use_hook(|| Rc::new(RefCell::new(props.default_value)));
+    *default_value.borrow_mut() = props.default_value;
 
     let controlled_value = use_hook(|| Rc::new(RefCell::new(props.value)));
     *controlled_value.borrow_mut() = props.value;
@@ -159,17 +163,18 @@ pub fn TimeFieldRoot(props: TimeFieldRootProps) -> Element {
 
     let segment_dom_ids = use_hook(|| Rc::new(RefCell::new(std::collections::BTreeMap::new())));
 
-    let mut runtime = TimeFieldRuntime {
+    let runtime = TimeFieldRuntime {
         state,
         rels: rels.clone(),
-        range_role: props.range_role,
+        range_role,
         label_id_override,
+        custom_label_id,
         segment_dom_ids,
         announcement,
         last_invalid_reason,
         controlled_value,
         controlled_placeholder,
-        default_value: props.default_value,
+        default_value,
         on_value_change,
         on_placeholder_change,
         validate,
@@ -178,12 +183,30 @@ pub fn TimeFieldRoot(props: TimeFieldRootProps) -> Element {
         on_next_boundary,
     };
 
-    if *runtime.state.peek().def() != def {
-        runtime.state.write().sync_definition(def);
-    }
-    let ext_val = props.value.map(|s| *s.read());
-    let ext_ph = props.placeholder.map(|s| *s.read());
-    runtime.reconcile_external_state(ext_val, ext_ph, props.is_invalid_override);
+    // DEF-5C-09: Reconcile definition, controlled signals, and validation inside a guarded effect.
+    use_effect(use_reactive(
+        (
+            &def,
+            &props.value,
+            &props.placeholder,
+            &props.is_invalid_override,
+            &props.label_id_override,
+        ),
+        {
+            let mut rt = runtime.clone();
+            move |(next_def, value_sig, placeholder_sig, inv_override, label_override)| {
+                if *rt.label_id_override.peek() != label_override {
+                    rt.label_id_override.set(label_override);
+                }
+                if *rt.state.peek().def() != next_def {
+                    rt.state.write().sync_definition(next_def);
+                }
+                let ext_val = value_sig.map(|s| *s.read());
+                let ext_ph = placeholder_sig.map(|s| *s.read());
+                rt.reconcile_external_state(ext_val, ext_ph, inv_override);
+            }
+        },
+    ));
 
     use_context_provider(|| TimeFieldContext(runtime.clone()));
 
@@ -327,11 +350,13 @@ pub fn TimeFieldInput(props: TimeFieldInputProps) -> Element {
             "aria-labelledby": attrs.aria_labelledby,
             "aria-describedby": attrs.aria_describedby,
             "aria-disabled": attrs.aria_disabled,
+            "aria-required": attrs.aria_required,
             dir: attrs.dir,
             "data-time-field-input": attrs.data_time_field_input,
             "data-range-field-part": attrs.data_range_field_part,
             "data-invalid": attrs.data_invalid,
             "data-disabled": attrs.data_disabled,
+            "data-required": attrs.data_required,
             onmounted: move |evt| {
                 if let Some(ref handler) = props.on_mounted {
                     handler.call(evt);
@@ -588,6 +613,18 @@ pub struct TimeFieldLabelProps {
 #[component]
 pub fn TimeFieldLabel(props: TimeFieldLabelProps) -> Element {
     let runtime = use_time_field_context();
+    use_effect(use_reactive((&props.id,), {
+        let mut rt = runtime.clone();
+        move |(custom_id,)| {
+            rt.register_custom_label_id(custom_id);
+        }
+    }));
+    {
+        let mut rt_drop = runtime.clone();
+        use_drop(move || {
+            rt_drop.register_custom_label_id(None);
+        });
+    }
     let attrs = runtime.label_attrs(props.id.clone());
 
     let on_click = {

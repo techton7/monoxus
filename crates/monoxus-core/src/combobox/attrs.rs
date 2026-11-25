@@ -25,7 +25,7 @@ pub struct ComboboxInputAttrs {
     pub role: &'static str,
     pub aria_autocomplete: &'static str,
     pub aria_expanded: &'static str,
-    pub aria_controls: String,
+    pub aria_controls: Option<String>,
     pub aria_activedescendant: Option<String>,
     pub disabled: bool,
     pub data_state: DataState,
@@ -35,7 +35,7 @@ pub struct ComboboxInputAttrs {
 impl ComboboxInputAttrs {
     pub fn new(
         id: impl Into<String>,
-        content_id: impl Into<String>,
+        content_id: Option<String>,
         is_open: bool,
         highlighted_item_id: Option<String>,
         disabled: bool,
@@ -45,7 +45,7 @@ impl ComboboxInputAttrs {
             role: "combobox",
             aria_autocomplete: "list",
             aria_expanded: if is_open { "true" } else { "false" },
-            aria_controls: content_id.into(),
+            aria_controls: content_id,
             aria_activedescendant: if is_open { highlighted_item_id } else { None },
             disabled,
             data_state: if is_open {
@@ -73,8 +73,8 @@ impl ComboboxInputAttrs {
         self.aria_expanded
     }
 
-    pub fn aria_controls(&self) -> &str {
-        &self.aria_controls
+    pub fn aria_controls(&self) -> Option<&str> {
+        self.aria_controls.as_deref()
     }
 
     pub fn aria_activedescendant(&self) -> Option<&str> {
@@ -103,7 +103,7 @@ pub struct ComboboxTriggerAttrs {
     pub id: String,
     pub aria_haspopup: &'static str,
     pub aria_expanded: &'static str,
-    pub aria_controls: String,
+    pub aria_controls: Option<String>,
     pub disabled: bool,
     pub data_state: DataState,
 }
@@ -111,7 +111,7 @@ pub struct ComboboxTriggerAttrs {
 impl ComboboxTriggerAttrs {
     pub fn new(
         id: impl Into<String>,
-        content_id: impl Into<String>,
+        content_id: Option<String>,
         is_open: bool,
         disabled: bool,
     ) -> Self {
@@ -119,7 +119,7 @@ impl ComboboxTriggerAttrs {
             id: id.into(),
             aria_haspopup: "listbox",
             aria_expanded: if is_open { "true" } else { "false" },
-            aria_controls: content_id.into(),
+            aria_controls: content_id,
             disabled,
             data_state: if is_open {
                 DataState::Open
@@ -141,8 +141,8 @@ impl ComboboxTriggerAttrs {
         self.aria_expanded
     }
 
-    pub fn aria_controls(&self) -> &str {
-        &self.aria_controls
+    pub fn aria_controls(&self) -> Option<&str> {
+        self.aria_controls.as_deref()
     }
 
     pub const fn is_disabled(&self) -> bool {

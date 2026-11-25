@@ -294,6 +294,37 @@ impl CommandSeparatorAttrs {
     }
 }
 
+pub fn merge_flex_column_style(extra_style: Option<&str>, is_grid: bool) -> Option<String> {
+    let trimmed = extra_style.map(str::trim).filter(|s| !s.is_empty());
+    if is_grid {
+        return trimmed.map(str::to_string);
+    }
+    match trimmed {
+        Some(extra) => Some(format!("display: flex; flex-direction: column; {extra}")),
+        None => Some("display: flex; flex-direction: column;".to_string()),
+    }
+}
+
+pub fn merge_ranked_item_style(
+    should_render: bool,
+    visual_order: Option<usize>,
+    extra_style: Option<&str>,
+) -> Option<String> {
+    if !should_render {
+        return Some("display: none;".to_string());
+    }
+    let trimmed = extra_style.map(str::trim).filter(|s| !s.is_empty());
+    match (trimmed, visual_order) {
+        (Some(extra), Some(rank)) => {
+            let sep = if extra.ends_with(';') { " " } else { "; " };
+            Some(format!("{extra}{sep}order: {rank};"))
+        }
+        (None, Some(rank)) => Some(format!("order: {rank};")),
+        (Some(extra), None) => Some(extra.to_string()),
+        (None, None) => None,
+    }
+}
+
 pub fn project_command_part_as_child<A, T, C>(
     attrs: &A,
     target: T,

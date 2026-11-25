@@ -12,6 +12,10 @@ pub use crate::popover::components::{
     close::{PopoverClose as DatePickerClose, PopoverCloseProps as DatePickerCloseProps},
     portal::{PopoverPortal as DatePickerPortal, PopoverPortalProps as DatePickerPortalProps},
 };
+pub use crate::popover::types::{
+    CloseAutoFocusEvent, EscapeKeyDownEvent, InteractOutsideEvent, OpenAutoFocusEvent,
+    PopoverPreventableEvent,
+};
 
 pub use crate::date_field::{
     DateFieldInput as DatePickerInput, DateFieldInputProps as DatePickerInputProps,

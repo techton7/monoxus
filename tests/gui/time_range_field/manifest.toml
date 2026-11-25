@@ -30,3 +30,42 @@ id = "sw5c-trf-24h"
 selector = "#sw5c-trf-24h"
 part = "root"
 state = "24h"
+
+[[scenarios]]
+name = "time-range-field-range-order-and-reset"
+description = "Verify End < Start triggers RangeOrder invalidation and form reset restores both default endpoints"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-time-range-field"
+
+[[scenarios.actions]]
+kind = "focus"
+target = "#sw5c-trf-12h-end-seg-4"
+
+[[scenarios.actions]]
+kind = "key"
+key = "a"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-trf-reset-btn"
+
+[[scenarios.targets]]
+id = "sw5c-trf-12h-start-value"
+selector = "#sw5c-trf-12h-start-value"
+part = "readout"
+state = "09:00:00"
+
+[[scenarios.targets]]
+id = "sw5c-trf-12h-end-value"
+selector = "#sw5c-trf-12h-end-value"
+part = "readout"
+state = "17:00:00"
+
+[[scenarios.targets]]
+id = "sw5c-trf-12h-invalid"
+selector = "#sw5c-trf-12h-invalid"
+part = "readout"
+state = "none"

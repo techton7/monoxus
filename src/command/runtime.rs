@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
-use crate::foundation::browser::scroll_element_into_view_nearest;
+use crate::foundation::browser::{click_element_by_id, scroll_element_into_view_nearest};
 
 use super::{
     relationships::CommandRelationships,
@@ -42,6 +42,7 @@ pub struct CommandContext {
     pub is_composing: Signal<bool>,
     pub has_scrolled_initially: Signal<bool>,
     pub select_handlers: Signal<BTreeMap<String, EventHandler<()>>>,
+    pub link_items: Signal<BTreeSet<String>>,
 }
 
 #[derive(Clone, Copy)]
@@ -53,7 +54,7 @@ pub struct CommandGroupContext {
 }
 
 impl CommandContext {
-    pub fn recompute_filtered(&mut self) {
+    pub fn recompute_filtered(&mut self, force_select_first: bool) {
         let search = self.search.peek().clone();
         let should_filter = *self.should_filter.peek();
         let custom_filter = *self.filter.peek();
@@ -69,7 +70,17 @@ impl CommandContext {
             }
         }
 
-        self.ensure_valid_selection(true);
+        if force_select_first {
+            let first = {
+                let reg = self.registry.peek();
+                select_first_valid_item(&reg, &search, should_filter).unwrap_or_default()
+            };
+            if *self.value.peek() != first {
+                self.set_value(first, true);
+            }
+        } else {
+            self.ensure_valid_selection(true);
+        }
         self.emit_state_change();
     }
 
@@ -89,7 +100,26 @@ impl CommandContext {
             return;
         }
         self.search.set(next);
-        self.recompute_filtered();
+        self.recompute_filtered(true);
+    }
+
+    pub fn set_composing(&mut self, composing: bool) {
+        if *self.is_composing.peek() != composing {
+            self.is_composing.set(composing);
+        }
+    }
+
+    pub fn set_link_item(&mut self, value: &str, is_link: bool) {
+        let normalized = value.trim();
+        if normalized.is_empty() {
+            return;
+        }
+        let already_set = self.link_items.peek().contains(normalized);
+        if is_link && !already_set {
+            self.link_items.write().insert(normalized.to_string());
+        } else if !is_link && already_set {
+            self.link_items.write().remove(normalized);
+        }
     }
 
     pub fn set_value(&mut self, next: String, prevent_scroll: bool) {
@@ -103,19 +133,11 @@ impl CommandContext {
         }
 
         if !prevent_scroll && !next.is_empty() {
-            let already_scrolled = *self.has_scrolled_initially.peek();
-            let disable_init = *self.disable_initial_scroll.peek();
-            if !already_scrolled {
-                self.has_scrolled_initially.set(true);
-                if disable_init {
-                    return;
-                }
-            }
             self.scroll_selected_into_view(&next);
         }
     }
 
-    fn scroll_selected_into_view(&self, value: &str) {
+    pub(crate) fn scroll_selected_into_view(&self, value: &str) {
         let search = self.search.peek().clone();
         let should_filter = *self.should_filter.peek();
         let reg = self.registry.peek();
@@ -198,7 +220,7 @@ impl CommandContext {
                 force_mount,
                 cleaned_keywords,
             );
-            self.recompute_filtered();
+            self.recompute_filtered(false);
         }
     }
 
@@ -206,6 +228,9 @@ impl CommandContext {
         let normalized = value.trim().to_string();
         if let Ok(mut handlers) = self.select_handlers.try_write() {
             handlers.remove(&normalized);
+        }
+        if let Ok(mut links) = self.link_items.try_write() {
+            links.remove(&normalized);
         }
         let removed = if let Ok(mut reg) = self.registry.try_write() {
             reg.unregister_item(&normalized)
@@ -282,7 +307,7 @@ impl CommandContext {
             self.registry
                 .write()
                 .register_group(normalized, dom_id, heading_id, force_mount);
-            self.recompute_filtered();
+            self.recompute_filtered(false);
         }
     }
 
@@ -351,6 +376,28 @@ impl CommandContext {
         should_render_group(group_force_mount, should_filter, &search, visible)
     }
 
+    pub fn item_visual_order(&self, value: &str) -> Option<usize> {
+        let search = self.search.read();
+        let should_filter = *self.should_filter.read();
+        if !should_filter || search.is_empty() {
+            return None;
+        }
+        self.registry
+            .read()
+            .item_visual_order(value, &search, should_filter)
+    }
+
+    pub fn group_visual_order(&self, group_value: &str) -> Option<usize> {
+        let search = self.search.read();
+        let should_filter = *self.should_filter.read();
+        if !should_filter || search.is_empty() {
+            return None;
+        }
+        self.registry
+            .read()
+            .group_visual_order(group_value, &search, should_filter)
+    }
+
     pub fn valid_items(&self) -> Vec<String> {
         let search = self.search.peek().clone();
         let should_filter = *self.should_filter.peek();
@@ -409,14 +456,18 @@ impl CommandContext {
         }
         let search = self.search.peek().clone();
         let should_filter = *self.should_filter.peek();
-        let is_valid = self
-            .registry
-            .peek()
-            .valid_items(&search, should_filter)
-            .iter()
-            .any(|it| it.value == current);
-        if !is_valid {
+        let dom_id = {
+            let reg = self.registry.peek();
+            reg.valid_items(&search, should_filter)
+                .into_iter()
+                .find(|it| it.value == current)
+                .map(|it| it.dom_id.clone())
+        };
+        let Some(dom_id) = dom_id else {
             return false;
+        };
+        if self.link_items.peek().contains(&current) && click_element_by_id(&dom_id) {
+            return true;
         }
         if let Some(handler) = self.select_handlers.peek().get(&current).copied() {
             handler.call(());

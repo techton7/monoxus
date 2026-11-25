@@ -150,7 +150,7 @@ pub fn ComboboxTrigger(props: ComboboxTriggerProps) -> Element {
             r#type: "button",
             "aria-haspopup": "{attrs.aria_haspopup()}",
             "aria-expanded": "{attrs.aria_expanded()}",
-            "aria-controls": "{attrs.aria_controls()}",
+            "aria-controls": attrs.aria_controls(),
             disabled: is_disabled,
             "data-combobox-trigger": "",
             "data-state": "{attrs.data_state_str()}",

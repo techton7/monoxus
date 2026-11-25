@@ -30,3 +30,42 @@ id = "sw5c-df-datetime-input"
 selector = "#sw5c-df-datetime-input"
 part = "input"
 state = "datetime-minute"
+
+[[scenarios.targets]]
+id = "sw5c-df-empty-12h-input"
+selector = "#sw5c-df-empty-12h-input"
+part = "input"
+state = "empty-12h-required"
+
+[[scenarios]]
+name = "date-field-edit-invalid-and-reset"
+description = "Verify ArrowDown triggers min_value invalidation and form reset restores default_value"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-field"
+
+[[scenarios.actions]]
+kind = "focus"
+target = "#sw5c-df-enus-seg-4"
+
+[[scenarios.actions]]
+kind = "key"
+key = "ArrowDown"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-df-reset-btn"
+
+[[scenarios.targets]]
+id = "sw5c-df-enus-value"
+selector = "#sw5c-df-enus-value"
+part = "readout"
+state = "2024-06-15"
+
+[[scenarios.targets]]
+id = "sw5c-df-enus-invalid"
+selector = "#sw5c-df-enus-invalid"
+part = "readout"
+state = "none"

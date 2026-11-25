@@ -73,8 +73,8 @@ mod native_tests {
 
     use super::*;
     use crate::common::native_fixture::{
-        NATIVE_TEST_LOCK, assert_native_focus_id, focus_node, mount_native_scenario,
-        send_key_and_pump,
+        NATIVE_TEST_LOCK, assert_native_focus_id, click_and_pump, focus_node,
+        mount_native_scenario, send_key_and_pump,
     };
 
     #[component]
@@ -142,5 +142,165 @@ mod native_tests {
             harness.attr("input[name='meeting_time']", "value").as_deref(),
             Some("")
         );
+    }
+
+    #[component]
+    fn NativeTimeFieldRemediationScenario() -> Element {
+        rsx! {
+            div {
+                style: "padding: 16px;",
+                form {
+                    id: "tf-rem-form",
+                    TimeFieldRoot {
+                        id: "tf-empty-12h",
+                        locale: CalendarLocale::EnUs,
+                        granularity: TimeGranularity::Minute,
+                        hour_cycle: HourCycle::H12,
+                        required: true,
+                        TimeFieldLabel { id: "tf-custom-lbl", "Empty 12h" }
+                        TimeFieldInput {
+                            id: "tf-empty-input",
+                            name: Some("empty_12h".to_string()),
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<TimeFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    TimeFieldSegment {
+                                        key: "{seg.index}",
+                                        id: format!("tf-empty-seg-{}", seg.index),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        style: "display: inline-block; min-width: 24px; height: 24px;",
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    TimeFieldRoot {
+                        id: "tf-toggle-12h",
+                        locale: CalendarLocale::EnUs,
+                        granularity: TimeGranularity::Minute,
+                        hour_cycle: HourCycle::H12,
+                        TimeFieldLabel { id: "tf-toggle-lbl", "Toggle 12h" }
+                        TimeFieldInput {
+                            id: "tf-toggle-input",
+                            name: Some("toggle_12h".to_string()),
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<TimeFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    TimeFieldSegment {
+                                        key: "{seg.index}",
+                                        id: format!("tf-toggle-seg-{}", seg.index),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        style: "display: inline-block; min-width: 24px; height: 24px;",
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    TimeFieldRoot {
+                        id: "tf-bs-12h",
+                        locale: CalendarLocale::EnUs,
+                        granularity: TimeGranularity::Minute,
+                        hour_cycle: HourCycle::H12,
+                        default_value: t(22, 30, 0),
+                        TimeFieldLabel { id: "tf-bs-lbl", "Backspace 12h" }
+                        TimeFieldInput {
+                            id: "tf-bs-input",
+                            name: Some("bs_12h".to_string()),
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<TimeFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    TimeFieldSegment {
+                                        key: "{seg.index}",
+                                        id: format!("tf-bs-seg-{}", seg.index),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        style: "display: inline-block; min-width: 24px; height: 24px;",
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    button {
+                        id: "tf-rem-reset",
+                        r#type: "reset",
+                        style: "width: 80px; height: 28px;",
+                        "Reset"
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_time_field_empty_12h_commit_day_period_toggle_backspace_and_reset() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeTimeFieldRemediationScenario);
+
+        // DEF-5C-07 & DEF-5C-15: custom label id & required attrs
+        assert_eq!(
+            harness.attr("#tf-empty-input", "aria-labelledby").as_deref(),
+            Some("tf-custom-lbl")
+        );
+        assert_eq!(
+            harness.attr("#tf-empty-input", "aria-required").as_deref(),
+            Some("true")
+        );
+        assert_eq!(
+            harness.attr("#tf-empty-input", "data-required").as_deref(),
+            Some("")
+        );
+
+        // DEF-5C-01: Empty 12h starts with placeholder "AM", typing 09 30 commits immediately
+        assert_eq!(harness.text_content("#tf-empty-seg-4"), "AM");
+        assert_eq!(
+            harness.attr("#tf-empty-seg-4", "data-placeholder").as_deref(),
+            Some("")
+        );
+        focus_node(&mut harness, "#tf-empty-seg-0");
+        send_key_and_pump(&mut harness, Key::Character("0".into()), Code::Digit0);
+        send_key_and_pump(&mut harness, Key::Character("9".into()), Code::Digit9);
+        assert_native_focus_id(&harness, "tf-empty-seg-2");
+        send_key_and_pump(&mut harness, Key::Character("3".into()), Code::Digit3);
+        send_key_and_pump(&mut harness, Key::Character("0".into()), Code::Digit0);
+        assert_eq!(
+            harness.attr("input[name='empty_12h']", "value").as_deref(),
+            Some("09:30:00")
+        );
+        assert_eq!(harness.attr("#tf-empty-seg-4", "data-placeholder"), None);
+
+        // DEF-5C-01: ArrowUp on empty 12h dayPeriod toggles AM -> PM without filling hour/minute
+        focus_node(&mut harness, "#tf-toggle-seg-4");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        assert_eq!(harness.text_content("#tf-toggle-seg-4"), "PM");
+        assert_eq!(harness.text_content("#tf-toggle-seg-0"), "––");
+        assert_eq!(harness.text_content("#tf-toggle-seg-2"), "––");
+        assert_eq!(
+            harness.attr("input[name='toggle_12h']", "value").as_deref(),
+            Some("")
+        );
+
+        // DEF-5C-16: Backspace on 12h "10" (22:30 PM) immediately displays "01" and commits 13:30:00
+        focus_node(&mut harness, "#tf-bs-seg-0");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Backspace), Code::Backspace);
+        assert_eq!(harness.text_content("#tf-bs-seg-0"), "01");
+        assert_eq!(
+            harness.attr("input[name='bs_12h']", "value").as_deref(),
+            Some("13:30:00")
+        );
+
+        // DEF-5C-03 & DEF-5C-08: form reset restores default_value (22:30:00) and clears empty field
+        click_and_pump(&mut harness, "#tf-rem-reset");
+        assert_eq!(
+            harness.attr("input[name='bs_12h']", "value").as_deref(),
+            Some("22:30:00")
+        );
+        assert_eq!(harness.text_content("#tf-bs-seg-0"), "10");
+        assert_eq!(
+            harness.attr("input[name='empty_12h']", "value").as_deref(),
+            Some("")
+        );
+        assert_eq!(harness.text_content("#tf-empty-seg-0"), "––");
     }
 }

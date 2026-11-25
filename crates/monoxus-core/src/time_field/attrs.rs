@@ -14,11 +14,13 @@ pub struct TimeFieldInputAttrs {
     pub aria_labelledby: Option<String>,
     pub aria_describedby: Option<String>,
     pub aria_disabled: &'static str,
+    pub aria_required: Option<&'static str>,
     pub dir: &'static str,
     pub data_time_field_input: &'static str,
     pub data_range_field_part: Option<&'static str>,
     pub data_invalid: Option<&'static str>,
     pub data_disabled: Option<&'static str>,
+    pub data_required: Option<&'static str>,
 }
 
 impl TimeFieldInputAttrs {
@@ -38,12 +40,20 @@ impl TimeFieldInputAttrs {
             aria_labelledby: label_id.filter(|s| !s.is_empty()),
             aria_describedby: description_id.filter(|s| !s.is_empty()),
             aria_disabled: if disabled { "true" } else { "false" },
+            aria_required: None,
             dir: dir.as_str(),
             data_time_field_input: "",
             data_range_field_part: range_role.range_part_attr(),
             data_invalid: data_disabled_attr(is_invalid),
             data_disabled: data_disabled_attr(disabled),
+            data_required: None,
         }
+    }
+
+    pub fn with_required(mut self, required: bool) -> Self {
+        self.aria_required = if required { Some("true") } else { None };
+        self.data_required = data_disabled_attr(required);
+        self
     }
 }
 

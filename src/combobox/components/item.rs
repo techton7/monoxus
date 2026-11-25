@@ -1,8 +1,13 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use dioxus::prelude::*;
 
 use crate::combobox::{
     attrs::ComboboxItemAttrs, runtime::use_combobox_context, types::ComboboxItemRenderState,
 };
+
+const DRAG_THRESHOLD_PX: f64 = 4.0;
 
 #[derive(Clone, PartialEq)]
 pub struct ComboboxItemRenderProps {
@@ -57,22 +62,39 @@ pub fn ComboboxItem(props: ComboboxItemProps) -> Element {
         .clone()
         .unwrap_or_else(|| ctx.runtime.relationships().item_id(&props.value));
 
+    // DEF-CBX-12: Track latest dynamic `item_id` so prop ID changes unregister the stale ID
+    // and `use_drop` always unregisters the current ID.
+    let tracked_dom_id: Rc<RefCell<Option<String>>> = use_hook(|| Rc::new(RefCell::new(None)));
+
     {
         let rt = ctx.runtime.clone();
         let v = props.value.clone();
         let l = label_str.clone();
         let dom_id = item_id.clone();
         let dis = props.disabled;
-        use_effect(use_reactive((&v, &l, &dom_id, &dis), move |(val, lbl, id, disabled)| {
-            rt.register_item(val, lbl, id, disabled);
-        }));
+        let tracked = Rc::clone(&tracked_dom_id);
+        use_effect(use_reactive(
+            (&v, &l, &dom_id, &dis),
+            move |(val, lbl, id, disabled)| {
+                let prev = tracked.borrow().clone();
+                if let Some(prev_id) = prev {
+                    if prev_id != id {
+                        rt.unregister_item(&prev_id);
+                    }
+                }
+                *tracked.borrow_mut() = Some(id.clone());
+                rt.register_item(val, lbl, id, disabled);
+            },
+        ));
     }
 
     {
         let rt = ctx.runtime.clone();
-        let dom_id = item_id.clone();
+        let tracked = Rc::clone(&tracked_dom_id);
         use_drop(move || {
-            rt.unregister_item(&dom_id);
+            if let Some(dom_id) = tracked.borrow_mut().take() {
+                rt.unregister_item(&dom_id);
+            }
         });
     }
 
@@ -116,12 +138,15 @@ pub fn ComboboxItem(props: ComboboxItemProps) -> Element {
     let pd_val = props.value.clone();
     let on_pointer_down = EventHandler::new(move |evt: PointerEvent| {
         evt.prevent_default();
+        pd_rt.set_suppress_next_click(false);
         if !is_dis {
             let coords = evt.client_coordinates();
             pd_rt.record_pressed_item(&pd_val, coords.x, coords.y);
         }
     });
 
+    // DEF-CBX-07 / CBX-9: Enforce 4px drag threshold suppressing `onclick`, and prevent
+    // double-selection on stationary scroll cross-item release.
     let pu_rt = ctx.runtime.clone();
     let pu_val = props.value.clone();
     let on_pointer_up = EventHandler::new(move |evt: PointerEvent| {
@@ -129,14 +154,16 @@ pub fn ComboboxItem(props: ComboboxItemProps) -> Element {
             return;
         }
         if let Some(press) = pu_rt.take_pressed_item() {
-            if press.value != pu_val {
-                let coords = evt.client_coordinates();
-                let dx = coords.x - press.client_x;
-                let dy = coords.y - press.client_y;
-                if dx.hypot(dy) < 4.0 {
-                    evt.prevent_default();
-                    pu_rt.select_item(&press.value);
-                }
+            let coords = evt.client_coordinates();
+            let dx = coords.x - press.client_x;
+            let dy = coords.y - press.client_y;
+            let dist = dx.hypot(dy);
+            if dist >= DRAG_THRESHOLD_PX {
+                pu_rt.set_suppress_next_click(true);
+            } else if press.value != pu_val {
+                evt.prevent_default();
+                pu_rt.set_suppress_next_click(true);
+                pu_rt.select_item(&press.value);
             }
         }
     });
@@ -148,6 +175,9 @@ pub fn ComboboxItem(props: ComboboxItemProps) -> Element {
             return;
         }
         evt.stop_propagation();
+        if clk_rt.take_suppress_next_click() {
+            return;
+        }
         clk_rt.select_item(&clk_val);
     });
 

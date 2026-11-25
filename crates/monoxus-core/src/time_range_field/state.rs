@@ -1,7 +1,7 @@
 use crate::foundation::{
     date_time::{
         CalendarLocale, EditableSegmentKind, FieldInvalidReason, HourCycle, TimeGranularity,
-        TimeRange, TimeValue, validate_time_range,
+        TimeRange, TimeValue, validate_time_range, validate_time_value,
     },
     shared::Direction,
 };
@@ -104,7 +104,11 @@ impl TimeRangeFieldDefinition {
     }
 }
 
-/// Pure-Rust state machine for `TimeRangeField`, including built-in `end < start` `RangeOrder` validation (`5C D-2`).
+/// Pure-Rust state machine for `TimeRangeField`.
+///
+/// Overnight ranges (`end < start`, e.g. `20:00..05:00`) are valid by default (`5C D-2`),
+/// matching `bits-ui` (`time-range-field.svelte.ts:186-224`); same-day ordering is opt-in
+/// via the consumer `validate` callback.
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct TimeRangeFieldState {
@@ -152,8 +156,40 @@ impl TimeRangeFieldState {
         self.local_invalid_reason.as_ref()
     }
 
+    pub const fn external_invalid(&self) -> bool {
+        self.external_invalid
+    }
+
     pub fn set_external_invalid(&mut self, invalid: bool) {
         self.external_invalid = invalid;
+    }
+
+    pub fn set_local_invalid_reason(&mut self, reason: Option<FieldInvalidReason>) {
+        self.local_invalid_reason = reason;
+    }
+
+    /// Returns whether a specific range endpoint (`Start` or `End`) should be marked invalid (`5C D-8` / `DEF-5C-13`).
+    ///
+    /// - `RangeOrder`, `Custom`, `Unavailable`, or external overrides mark both endpoints invalid.
+    /// - `Min` / `Max` mark ONLY the endpoint(s) whose value actually violates the bound,
+    ///   leaving an untouched empty or in-bounds sibling valid.
+    pub fn is_part_invalid(&self, kind: RangeFieldInputKind) -> bool {
+        if self.external_invalid {
+            return true;
+        }
+        match &self.local_invalid_reason {
+            None => false,
+            Some(FieldInvalidReason::RangeOrder)
+            | Some(FieldInvalidReason::Custom(_))
+            | Some(FieldInvalidReason::Unavailable) => true,
+            Some(FieldInvalidReason::Min) | Some(FieldInvalidReason::Max) => {
+                let part_val = match kind {
+                    RangeFieldInputKind::Start => self.value.start,
+                    RangeFieldInputKind::End => self.value.end,
+                };
+                validate_time_value(part_val, self.def.min_value, self.def.max_value, None).is_err()
+            }
+        }
     }
 
     pub fn sync_definition(&mut self, def: TimeRangeFieldDefinition) {
@@ -178,7 +214,8 @@ impl TimeRangeFieldState {
         self.placeholder = placeholder;
     }
 
-    /// Evaluates range validation (`Custom -> RangeOrder -> Min -> Max`) per `5C D-2`.
+    /// Evaluates range validation (`Custom -> Min -> Max`) per `5C D-2`.
+    /// Overnight ranges (`end < start`) are valid by default unless rejected by `custom_errors` or `min`/`max` bounds.
     pub fn evaluate_validation(
         &mut self,
         custom_errors: Option<Vec<String>>,

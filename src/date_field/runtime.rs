@@ -8,6 +8,7 @@ use crate::foundation::{
     date_time::{
         CalendarDate, DateValue, FieldInvalidEvent, FieldInvalidReason, FieldSegmentIntent,
         SegmentFocusMove, SegmentKind, parse_day_period_key, parse_pasted_date_value,
+        validate_date_value_with_unavailable,
     },
     shared::Direction,
 };
@@ -68,7 +69,7 @@ pub fn translate_segment_keydown(
             };
             (Some(intent), true)
         }
-        Key::Named(NamedKey::Enter) => (None, true),
+        Key::Named(NamedKey::Enter) => (None, false),
         Key::Character(s) => {
             if s == " " {
                 return (None, true);
@@ -95,17 +96,19 @@ pub fn translate_segment_keydown(
 pub struct DateFieldRuntime {
     pub state: Signal<DateFieldState>,
     pub rels: DateFieldRelationships,
-    pub range_role: DateFieldRangeRole,
+    pub range_role: Rc<RefCell<DateFieldRangeRole>>,
     pub label_id_override: Signal<Option<String>>,
+    pub custom_label_id: Signal<Option<String>>,
     pub trailing_trigger_id: Signal<Option<String>>,
     pub segment_dom_ids: Rc<RefCell<BTreeMap<usize, String>>>,
     pub announcement: Signal<String>,
     pub last_invalid_reason: Signal<Option<FieldInvalidReason>>,
     pub controlled_value: Rc<RefCell<Option<Signal<Option<DateValue>>>>>,
     pub controlled_placeholder: Rc<RefCell<Option<Signal<DateValue>>>>,
-    pub default_value: Option<DateValue>,
+    pub default_value: Rc<RefCell<Option<DateValue>>>,
     pub on_value_change: Rc<RefCell<Option<EventHandler<Option<DateValue>>>>>,
     pub on_placeholder_change: Rc<RefCell<Option<EventHandler<DateValue>>>>,
+    pub is_date_unavailable: Rc<RefCell<Option<Callback<CalendarDate, bool>>>>,
     pub validate: Rc<RefCell<Option<Callback<DateValue, Option<Vec<String>>>>>>,
     pub on_invalid: Rc<RefCell<Option<EventHandler<FieldInvalidEvent>>>>,
     pub on_prev_boundary: Rc<RefCell<Option<EventHandler<()>>>>,
@@ -128,11 +131,25 @@ impl DateFieldRuntime {
     }
 
     pub fn effective_label_id(&self) -> String {
-        self.label_id_override
+        self.custom_label_id
             .read()
             .clone()
             .filter(|s| !s.is_empty())
+            .or_else(|| {
+                self.label_id_override
+                    .read()
+                    .clone()
+                    .filter(|s| !s.is_empty())
+            })
             .unwrap_or_else(|| self.rels.label_id().to_string())
+    }
+
+    /// Registers a custom `id` from `DateFieldLabel` so `aria-labelledby` stays synced (`DEF-5C-07`).
+    pub fn register_custom_label_id(&mut self, id: Option<String>) {
+        let normalized = id.filter(|s| !s.is_empty());
+        if *self.custom_label_id.peek() != normalized {
+            self.custom_label_id.set(normalized);
+        }
     }
 
     /// Registers an optional trailing picker trigger button ID (`data-segment="trigger"`)
@@ -191,13 +208,14 @@ impl DateFieldRuntime {
         };
         DateFieldInputAttrs::new(
             id,
-            self.range_role,
+            *self.range_role.borrow(),
             Some(self.effective_label_id()),
             desc,
             st.def().dir,
             st.is_invalid(),
             st.def().disabled,
         )
+        .with_required(st.def().required)
     }
 
     pub fn label_attrs(&self, id_override: Option<String>) -> DateFieldLabelAttrs {
@@ -239,16 +257,39 @@ impl DateFieldRuntime {
         )
     }
 
-    fn sync_validation_and_notify(&mut self) {
-        let current_val = self.state.peek().value();
-        let custom_errors = current_val.and_then(|v| {
-            self.validate
+    pub fn sync_validation_and_notify(&mut self) {
+        let (current_val, min_val, max_val) = {
+            let st = self.state.peek();
+            (st.value(), st.def().min_value, st.def().max_value)
+        };
+        let is_unavailable = current_val.map(|v| v.date()).is_some_and(|date| {
+            self.is_date_unavailable
                 .borrow()
                 .as_ref()
-                .and_then(|cb| cb.call(v))
+                .is_some_and(|cb| cb.call(date))
         });
+        let custom_errors = if is_unavailable {
+            None
+        } else {
+            current_val.and_then(|v| {
+                self.validate
+                    .borrow()
+                    .as_ref()
+                    .and_then(|cb| cb.call(v))
+            })
+        };
 
-        let next_reason = self.state.write().evaluate_validation(custom_errors);
+        let next_reason = validate_date_value_with_unavailable(
+            current_val,
+            min_val,
+            max_val,
+            is_unavailable,
+            custom_errors,
+        )
+        .err();
+        if self.state.peek().local_invalid_reason() != next_reason.as_ref() {
+            self.state.write().set_local_invalid_reason(next_reason.clone());
+        }
         let prev_reason = self.last_invalid_reason.peek().clone();
         if next_reason != prev_reason {
             self.last_invalid_reason.set(next_reason.clone());
@@ -328,6 +369,10 @@ impl DateFieldRuntime {
         evt: &KeyboardEvent,
     ) {
         if evt.data().is_composing() {
+            return;
+        }
+        // DEF-5C-12: Do not prevent_default() when the field is disabled.
+        if self.state.peek().def().disabled {
             return;
         }
         let mods = evt.data().modifiers();
@@ -413,7 +458,8 @@ impl DateFieldRuntime {
             let st = self.state.peek();
             (st.value(), st.placeholder())
         };
-        self.state.write().set_value(self.default_value);
+        let default_val = *self.default_value.borrow();
+        self.state.write().reset_value(default_val);
         self.emit_value_and_placeholder_changes(prev_val, prev_ph);
         self.sync_validation_and_notify();
     }
@@ -434,7 +480,9 @@ impl DateFieldRuntime {
         {
             self.state.write().set_placeholder(ph);
         }
-        if let Some(inv) = is_invalid_override {
+        if let Some(inv) = is_invalid_override
+            && self.state.peek().external_invalid() != inv
+        {
             self.state.write().set_external_invalid(inv);
         }
         self.sync_validation_and_notify();

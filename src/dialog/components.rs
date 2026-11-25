@@ -297,17 +297,40 @@ pub fn DialogOverlay(
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct DialogContentProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(default)]
+    pub aria_labelledby: Option<String>,
+    #[props(default)]
+    pub aria_describedby: Option<String>,
+    #[props(default = false)]
+    pub force_mount: bool,
+    #[props(default)]
+    pub prevent_body_pointer_events: Option<bool>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn DialogContent(
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    #[props(default)] aria_labelledby: Option<String>,
-    #[props(default)] aria_describedby: Option<String>,
-    #[props(default = false)] force_mount: bool,
-    #[props(default)] prevent_body_pointer_events: Option<bool>,
-    children: Element,
-) -> Element {
+pub fn DialogContent(props: DialogContentProps) -> Element {
+    let DialogContentProps {
+        id,
+        class,
+        style,
+        aria_labelledby,
+        aria_describedby,
+        force_mount,
+        prevent_body_pointer_events,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<DialogContext>();
     let runtime = ctx.runtime.read();
     let should_render = force_mount || runtime.should_render_content();
@@ -462,6 +485,7 @@ pub fn DialogContent(
             onmounted: runtime.mount_content(),
             onkeydown: on_keydown,
             onclick: move |evt: MouseEvent| evt.stop_propagation(),
+            ..attributes,
             {children}
         }
     }

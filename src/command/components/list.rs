@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use super::super::{attrs::CommandListAttrs, runtime::CommandContext};
+use super::super::{
+    attrs::{CommandListAttrs, merge_flex_column_style},
+    runtime::CommandContext,
+};
 
 #[derive(Clone, PartialEq, Props)]
 pub struct CommandListRenderProps {
@@ -53,7 +56,17 @@ pub fn CommandList(props: CommandListProps) -> Element {
 
     let attrs = CommandListAttrs::new(resolved_id, props.aria_label.as_deref());
     let height_px = *ctx.list_height.read();
-    let merged_style = CommandListAttrs::format_height_style(height_px, props.style.as_deref());
+    let is_grid = ctx.columns.read().is_some();
+    let base_style = CommandListAttrs::format_height_style(height_px, props.style.as_deref());
+    let merged_style = merge_flex_column_style(
+        if base_style.is_empty() {
+            None
+        } else {
+            Some(base_style.as_str())
+        },
+        is_grid,
+    )
+    .unwrap_or_default();
 
     if props.as_child {
         if let Some(render_child) = props.render_child.as_ref() {

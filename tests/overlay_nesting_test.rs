@@ -384,3 +384,126 @@ fn range_calendar_partial_selection_intercepts_first_escape_before_popover_dismi
     drop(dom);
     clear_active_overlay_stack();
 }
+
+#[test]
+fn select_content_unmount_while_open_does_not_leak_active_overlay_layers() {
+    clear_active_overlay_stack();
+    let popover_rt_slot = RuntimeSlot::new();
+    let select_rt_slot = RuntimeSlot::new();
+
+    let mut dom = VirtualDom::new_with_props(
+        PopoverWithNestedSelectHarness,
+        PopoverWithNestedSelectHarnessProps {
+            popover_rt: popover_rt_slot.clone(),
+            select_rt: select_rt_slot.clone(),
+        },
+    );
+    dom.rebuild_in_place();
+
+    let select_rt = select_rt_slot.get().expect("select runtime captured");
+    let select_content_id = select_rt.relationships().content_id().to_string();
+    assert!(is_topmost_overlay_layer(&select_content_id));
+
+    // Drop the entire VDOM while BOTH Popover and nested Select are still open (DEF-5C-05).
+    drop(dom);
+    assert!(
+        active_overlay_layers_snapshot().is_empty(),
+        "unmounting open SelectContent/PopoverContent must clean up ACTIVE_OVERLAY_LAYERS, left: {:?}",
+        active_overlay_layers_snapshot()
+    );
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn native_floating_overlay_clamps_tall_flipped_content_inside_800x600_viewport() {
+    use blitz_dom::{Attribute, BaseDocument, DocumentConfig, LocalName, QualName, ns};
+    use monoxus::foundation::overlay::{
+        OverlayAnchor, PlacementAlign, PlacementSide, VirtualOverlayPositionConfig,
+        compute_virtual_overlay_position,
+    };
+    use oxidase::dom::Document;
+
+    let qname = |tag: &'static str| QualName::new(None, ns!(html), LocalName::from(tag));
+    let attr = |name: &'static str, val: &str| Attribute {
+        name: QualName::new(None, ns!(), LocalName::from(name)),
+        value: val.to_string(),
+    };
+
+    let mut base_doc_raw = BaseDocument::new(DocumentConfig::default());
+    {
+        let mut vp = base_doc_raw.viewport_mut();
+        vp.window_size = (800, 600);
+        vp.hidpi_scale = 1.0;
+    }
+    let base_doc = Rc::new(RefCell::new(base_doc_raw));
+    let doc = Document::from_base(base_doc.clone());
+
+    {
+        let mut base = base_doc.borrow_mut();
+        let root_id = base.root_node().id;
+        let mut mutator = base.mutate();
+        let html = mutator.create_element(qname("html"), vec![]);
+        let body = mutator.create_element(
+            qname("body"),
+            vec![attr("style", "margin: 0; padding: 0;")],
+        );
+        let content = mutator.create_element(
+            qname("div"),
+            vec![
+                attr("id", "tall-picker-content"),
+                attr(
+                    "style",
+                    "position: fixed; width: 280px; height: 350px; display: block;",
+                ),
+            ],
+        );
+        mutator.append_children(body, &[content]);
+        mutator.append_children(html, &[body]);
+        mutator.append_children(root_id, &[html]);
+    }
+    doc.resolve(0.0);
+
+    Document::with_current(doc, || {
+        // Trigger at y = 280..318 on an 800x600 viewport with a 350px-tall popover (ENG D-2 / DEF-5C-04).
+        let placement = compute_virtual_overlay_position(&VirtualOverlayPositionConfig {
+            anchor: OverlayAnchor::VirtualPoint {
+                x: 100.0,
+                y: 280.0,
+                width: 180.0,
+                height: 38.0,
+                context_element_id: None,
+            },
+            content_id: "tall-picker-content",
+            arrow_id: None,
+            boundary_id: None,
+            side: PlacementSide::Bottom,
+            align: PlacementAlign::Start,
+            side_offset: 4.0,
+            align_offset: 0.0,
+            avoid_collisions: true,
+            collision_padding: 8.0,
+            arrow_padding: 0.0,
+            hide_when_detached: false,
+            sticky: false,
+            namespace: Some("popover"),
+        })
+        .expect("floating placement must succeed");
+
+        let geom = placement.geometry();
+        assert!(
+            geom.y() >= 8.0,
+            "flipped tall popover must clamp y >= 8.0, got {}",
+            geom.y()
+        );
+        assert!(
+            geom.y() + geom.content_height() <= 592.0,
+            "clamped popover bottom {} must stay within 592.0",
+            geom.y() + geom.content_height()
+        );
+        assert!(
+            geom.available_height() <= 584.0 && geom.available_height() < 600.0,
+            "available_height must reflect remaining side space (<= 584.0), got {}",
+            geom.available_height()
+        );
+    });
+}

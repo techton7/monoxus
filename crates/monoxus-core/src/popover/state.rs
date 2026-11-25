@@ -76,6 +76,7 @@ impl PopoverLifecycle {
             dismiss_layer,
             floating: FloatingLayer::new(PlacementSide::Bottom)
                 .with_side_offset(4.0)
+                .with_collision_padding(8.0)
                 .with_namespace(POPOVER_GEOMETRY_NAMESPACE),
             modal,
             open_focus_policy: PopoverOpenFocusPolicy::FirstFocusable,

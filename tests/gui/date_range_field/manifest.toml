@@ -36,3 +36,48 @@ id = "sw5c-drf-end-value"
 selector = "#sw5c-drf-end-value"
 part = "readout"
 state = "2024-06-15"
+
+[[scenarios.targets]]
+id = "sw5c-drf-rtl"
+selector = "#sw5c-drf-rtl"
+part = "root"
+state = "rtl"
+
+[[scenarios]]
+name = "date-range-field-range-order-and-reset"
+description = "Verify Start > End triggers RangeOrder invalidation and form reset restores both default endpoints"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-range-field"
+
+[[scenarios.actions]]
+kind = "focus"
+target = "#sw5c-drf-start-seg-4"
+
+[[scenarios.actions]]
+kind = "key"
+key = "ArrowUp"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-drf-reset-btn"
+
+[[scenarios.targets]]
+id = "sw5c-drf-start-value"
+selector = "#sw5c-drf-start-value"
+part = "readout"
+state = "2024-06-10"
+
+[[scenarios.targets]]
+id = "sw5c-drf-end-value"
+selector = "#sw5c-drf-end-value"
+part = "readout"
+state = "2024-06-15"
+
+[[scenarios.targets]]
+id = "sw5c-drf-invalid"
+selector = "#sw5c-drf-invalid"
+part = "readout"
+state = "none"

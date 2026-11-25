@@ -65,6 +65,7 @@ const TIME_RANGE_FIELD_PLAYGROUND_CSS: &str = r#"
 
 const CARD_STYLE: &str = "border-radius: 1rem; border: 1px solid #e2e8f0; background-color: #ffffff; padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem;";
 const BADGE_STYLE: &str = "display: inline-flex; align-items: center; border-radius: 0.25rem; padding: 0.125rem 0.5rem; background-color: #f1f5f9; color: #334155; font-size: 0.75rem; font-weight: 700; font-family: monospace;";
+const BTN_STYLE: &str = "display: inline-flex; align-items: center; height: 32px; padding: 0 12px; border-radius: 0.5rem; border: 1px solid #cbd5e1; background-color: #f8fafc; color: #334155; font-size: 0.75rem; font-weight: 600; cursor: pointer;";
 
 fn trf_time(iso: &str) -> TimeValue {
     TimeValue::from_iso_str(iso).expect("valid playground time")
@@ -89,7 +90,7 @@ pub fn TimeRangeFieldShowcase() -> Element {
                 p {
                     class: "text-sm text-slate-500",
                     style: "margin: 0; font-size: 0.875rem; color: #64748b;",
-                    "Paired Start & End segmented time inputs (12h and 24h) with cross-field traversal, built-in end < start RangeOrder validation, and dual hidden form inputs."
+                    "Paired Start & End segmented time inputs (12h and 24h) with cross-field traversal, overnight range support (20:00–05:00 valid by default), optional custom validate / min-max bounds, and dual hidden form inputs."
                 }
             }
 
@@ -113,69 +114,88 @@ fn TwelveHourTimeRangeScenario() -> Element {
                 style: "display: flex; flex-direction: column; gap: 0.25rem;",
                 h3 {
                     style: "margin: 0; font-size: 1rem; font-weight: 600; color: #0f172a;",
-                    "1. 12-Hour TimeRangeField with Cross-Field Traversal & RangeOrder Validation (SW5C-3)"
+                    "1. 12-Hour TimeRangeField with Cross-Field Traversal & Optional Same-Day Validation (SW5C-3)"
                 }
                 p {
                     style: "margin: 0; font-size: 0.75rem; color: #64748b;",
-                    "ArrowRight crosses from Start dayPeriod into End hour. Setting End < Start triggers RangeOrder and data-invalid."
+                    "ArrowRight crosses from Start dayPeriod into End hour. Overnight ranges are valid by default; this scenario opts into same-day ordering via the validate callback (TimeRange::is_inverted)."
                 }
             }
 
-            TimeRangeFieldRoot {
-                id: "sw5c-trf-12h",
-                value: Some(range),
-                default_placeholder: Some(trf_time("09:00:00")),
-                granularity: TimeGranularity::Minute,
-                hour_cycle: Some(HourCycle::H12),
-                locale: CalendarLocale::EnUs,
-                on_value_change: move |next: TimeRange| {
-                    if !next.is_inverted() {
-                        invalid_reason.set(String::from("none"));
+            form {
+                id: "sw5c-trf-form",
+                style: "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem;",
+                TimeRangeFieldRoot {
+                    id: "sw5c-trf-12h",
+                    value: Some(range),
+                    default_value: TimeRange::new(
+                        Some(trf_time("09:00:00")),
+                        Some(trf_time("17:00:00")),
+                    ),
+                    default_placeholder: Some(trf_time("09:00:00")),
+                    granularity: TimeGranularity::Minute,
+                    hour_cycle: Some(HourCycle::H12),
+                    locale: CalendarLocale::EnUs,
+                    validate: Callback::new(|next: TimeRange| {
+                        next.is_inverted()
+                            .then(|| vec!["End time must be on or after start time".to_string()])
+                    }),
+                    on_value_change: move |next: TimeRange| {
+                        if !next.is_inverted() {
+                            invalid_reason.set(String::from("none"));
+                        }
+                    },
+                    on_invalid: move |evt: FieldInvalidEvent| {
+                        invalid_reason.set(format!("{:?}", evt.reason));
+                    },
+                    TimeRangeFieldLabel {
+                        id: "sw5c-trf-12h-label",
+                        "Business Hours (12h)"
                     }
-                },
-                on_invalid: move |evt: FieldInvalidEvent| {
-                    invalid_reason.set(format!("{:?}", evt.reason));
-                },
-                TimeRangeFieldLabel {
-                    id: "sw5c-trf-12h-label",
-                    "Business Hours (12h)"
+                    div {
+                        class: "trf-inputs-row",
+                        TimeRangeFieldInput {
+                            kind: RangeFieldInputKind::Start,
+                            id: "sw5c-trf-12h-start-input",
+                            name: "hours_start",
+                            render_children: move |segments: Vec<TimeFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    TimeRangeFieldSegment {
+                                        key: "{seg.index}",
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        id: format!("sw5c-trf-12h-start-seg-{}", seg.index),
+                                    }
+                                }
+                            }
+                        }
+                        span {
+                            style: "color: #64748b; user-select: none;",
+                            "–"
+                        }
+                        TimeRangeFieldInput {
+                            kind: RangeFieldInputKind::End,
+                            id: "sw5c-trf-12h-end-input",
+                            name: "hours_end",
+                            render_children: move |segments: Vec<TimeFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    TimeRangeFieldSegment {
+                                        key: "{seg.index}",
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        id: format!("sw5c-trf-12h-end-seg-{}", seg.index),
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                div {
-                    class: "trf-inputs-row",
-                    TimeRangeFieldInput {
-                        kind: RangeFieldInputKind::Start,
-                        id: "sw5c-trf-12h-start-input",
-                        name: "hours_start",
-                        render_children: move |segments: Vec<TimeFieldSegmentItem>| rsx! {
-                            for seg in segments {
-                                TimeRangeFieldSegment {
-                                    key: "{seg.index}",
-                                    part: seg.kind(),
-                                    index: Some(seg.index),
-                                    id: format!("sw5c-trf-12h-start-seg-{}", seg.index),
-                                }
-                            }
-                        }
-                    }
-                    span {
-                        style: "color: #64748b; user-select: none;",
-                        "–"
-                    }
-                    TimeRangeFieldInput {
-                        kind: RangeFieldInputKind::End,
-                        id: "sw5c-trf-12h-end-input",
-                        name: "hours_end",
-                        render_children: move |segments: Vec<TimeFieldSegmentItem>| rsx! {
-                            for seg in segments {
-                                TimeRangeFieldSegment {
-                                    key: "{seg.index}",
-                                    part: seg.kind(),
-                                    index: Some(seg.index),
-                                    id: format!("sw5c-trf-12h-end-seg-{}", seg.index),
-                                }
-                            }
-                        }
-                    }
+
+                button {
+                    id: "sw5c-trf-reset-btn",
+                    r#type: "reset",
+                    style: "{BTN_STYLE}",
+                    "Reset Form"
                 }
             }
 
@@ -215,7 +235,7 @@ fn TwelveHourTimeRangeScenario() -> Element {
 
 #[component]
 fn TwentyFourHourTimeRangeScenario() -> Element {
-    let range = use_signal(|| TimeRange::new(Some(trf_time("08:30:00")), Some(trf_time("16:45:00"))));
+    let range = use_signal(|| TimeRange::new(Some(trf_time("20:00:00")), Some(trf_time("05:00:00"))));
 
     rsx! {
         div {
@@ -226,23 +246,23 @@ fn TwentyFourHourTimeRangeScenario() -> Element {
                 style: "display: flex; flex-direction: column; gap: 0.25rem;",
                 h3 {
                     style: "margin: 0; font-size: 1rem; font-weight: 600; color: #0f172a;",
-                    "2. 24-Hour TimeRangeField"
+                    "2. 24-Hour Overnight TimeRangeField (20:00 – 05:00 Valid by Default)"
                 }
                 p {
                     style: "margin: 0; font-size: 0.75rem; color: #64748b;",
-                    "24-hour Start & End time inputs with cross-field traversal."
+                    "Overnight time ranges (End < Start, e.g. 20:00 – 05:00) are valid by default, matching bits-ui. Add min_value/max_value or a custom validate callback when same-day ordering is needed."
                 }
             }
 
             TimeRangeFieldRoot {
                 id: "sw5c-trf-24h",
                 value: Some(range),
-                default_placeholder: Some(trf_time("08:00:00")),
+                default_placeholder: Some(trf_time("20:00:00")),
                 granularity: TimeGranularity::Minute,
                 hour_cycle: Some(HourCycle::H24),
                 TimeRangeFieldLabel {
                     id: "sw5c-trf-24h-label",
-                    "Maintenance Window (24h)"
+                    "Night Shift Window (24h)"
                 }
                 div {
                     class: "trf-inputs-row",

@@ -1,7 +1,8 @@
 use crate::foundation::{
     date_time::{
         CalendarLocale, DateValue, DateValueRange, EditableSegmentKind, FieldInvalidReason,
-        Granularity, HourCycle, validate_date_value_range,
+        Granularity, HourCycle, validate_date_range_with_unavailable, validate_date_value,
+        validate_date_value_range,
     },
     shared::Direction,
 };
@@ -137,6 +138,8 @@ pub struct DateRangeFieldState {
     placeholder: DateValue,
     external_invalid: bool,
     local_invalid_reason: Option<FieldInvalidReason>,
+    start_unavailable: bool,
+    end_unavailable: bool,
 }
 
 impl DateRangeFieldState {
@@ -153,6 +156,8 @@ impl DateRangeFieldState {
             placeholder,
             external_invalid: false,
             local_invalid_reason,
+            start_unavailable: false,
+            end_unavailable: false,
         }
     }
 
@@ -180,8 +185,62 @@ impl DateRangeFieldState {
         self.local_invalid_reason.as_ref()
     }
 
+    pub const fn external_invalid(&self) -> bool {
+        self.external_invalid
+    }
+
     pub fn set_external_invalid(&mut self, invalid: bool) {
         self.external_invalid = invalid;
+    }
+
+    pub fn set_local_invalid_reason(&mut self, reason: Option<FieldInvalidReason>) {
+        self.local_invalid_reason = reason;
+    }
+
+    pub const fn unavailable_endpoints(&self) -> (bool, bool) {
+        (self.start_unavailable, self.end_unavailable)
+    }
+
+    pub fn set_unavailable_endpoints(&mut self, start_unavailable: bool, end_unavailable: bool) {
+        self.start_unavailable = start_unavailable;
+        self.end_unavailable = end_unavailable;
+    }
+
+    /// Returns whether a specific range endpoint (`Start` or `End`) should be marked invalid (`5C D-8` / `DEF-5C-13`).
+    ///
+    /// - `RangeOrder`, `Custom`, or external overrides mark both endpoints invalid.
+    /// - `Unavailable` marks ONLY the endpoint(s) whose date is unavailable (or present endpoints if
+    ///   per-endpoint flags were not explicitly set).
+    /// - `Min` / `Max` mark ONLY the endpoint(s) whose value actually violates the bound,
+    ///   leaving an untouched empty or in-bounds sibling valid.
+    pub fn is_part_invalid(&self, kind: RangeFieldInputKind) -> bool {
+        if self.external_invalid {
+            return true;
+        }
+        match &self.local_invalid_reason {
+            None => false,
+            Some(FieldInvalidReason::RangeOrder) | Some(FieldInvalidReason::Custom(_)) => true,
+            Some(FieldInvalidReason::Unavailable) => {
+                if self.start_unavailable || self.end_unavailable {
+                    match kind {
+                        RangeFieldInputKind::Start => self.start_unavailable,
+                        RangeFieldInputKind::End => self.end_unavailable,
+                    }
+                } else {
+                    match kind {
+                        RangeFieldInputKind::Start => self.value.start.is_some(),
+                        RangeFieldInputKind::End => self.value.end.is_some(),
+                    }
+                }
+            }
+            Some(FieldInvalidReason::Min) | Some(FieldInvalidReason::Max) => {
+                let part_val = match kind {
+                    RangeFieldInputKind::Start => self.value.start,
+                    RangeFieldInputKind::End => self.value.end,
+                };
+                validate_date_value(part_val, self.def.min_value, self.def.max_value, None).is_err()
+            }
+        }
     }
 
     pub fn sync_definition(&mut self, def: DateRangeFieldDefinition) {
@@ -206,19 +265,32 @@ impl DateRangeFieldState {
         self.placeholder = placeholder;
     }
 
+    /// Evaluates range validation (`Unavailable -> Custom -> RangeOrder -> Min -> Max`) per `5C D-2` / `5C D-8`.
+    pub fn evaluate_validation_with_unavailable(
+        &mut self,
+        start_unavailable: bool,
+        end_unavailable: bool,
+        custom_errors: Option<Vec<String>>,
+    ) -> Option<FieldInvalidReason> {
+        self.start_unavailable = start_unavailable;
+        self.end_unavailable = end_unavailable;
+        self.local_invalid_reason = validate_date_range_with_unavailable(
+            self.value,
+            self.def.min_value,
+            self.def.max_value,
+            start_unavailable || end_unavailable,
+            custom_errors,
+        )
+        .err();
+        self.local_invalid_reason.clone()
+    }
+
     /// Evaluates range validation (`Custom -> RangeOrder -> Min -> Max`) per `5C D-2`.
     pub fn evaluate_validation(
         &mut self,
         custom_errors: Option<Vec<String>>,
     ) -> Option<FieldInvalidReason> {
-        self.local_invalid_reason = validate_date_value_range(
-            self.value,
-            self.def.min_value,
-            self.def.max_value,
-            custom_errors,
-        )
-        .err();
-        self.local_invalid_reason.clone()
+        self.evaluate_validation_with_unavailable(false, false, custom_errors)
     }
 
     pub fn snapshot(&self) -> DateRangeFieldSnapshot {

@@ -200,8 +200,16 @@ impl TimeFieldState {
         self.local_invalid_reason.as_ref()
     }
 
+    pub const fn external_invalid(&self) -> bool {
+        self.external_invalid
+    }
+
     pub fn set_external_invalid(&mut self, invalid: bool) {
         self.external_invalid = invalid;
+    }
+
+    pub fn set_local_invalid_reason(&mut self, reason: Option<FieldInvalidReason>) {
+        self.local_invalid_reason = reason;
     }
 
     pub fn set_value(&mut self, value: Option<TimeValue>) {
@@ -209,6 +217,12 @@ impl TimeFieldState {
             self.value = value;
             self.engine.sync_from_time_value(value);
         }
+    }
+
+    /// Unconditionally resets `value` and clears any uncommitted partial segment buffers (`5C D-9` / `DEF-5C-03`).
+    pub fn reset_value(&mut self, value: Option<TimeValue>) {
+        self.value = value;
+        self.engine.sync_from_time_value(value);
     }
 
     pub fn set_placeholder(&mut self, placeholder: TimeValue) {

@@ -151,10 +151,11 @@ pub fn apply_single_toggle(
 ) -> ComboboxSingleToggleOutcome {
     if current == Some(target_value) {
         if allow_deselect {
+            // 4B D-9: single-mode deselect keeps the menu open so users can pick a replacement.
             ComboboxSingleToggleOutcome {
                 next_value: None,
                 next_input_value: clear_on_deselect.then(String::new),
-                should_close: true,
+                should_close: false,
                 changed: true,
             }
         } else {
@@ -229,6 +230,7 @@ pub fn resolve_input_keydown(
     is_composing: bool,
     loop_focus: bool,
     disabled: bool,
+    input_non_empty: bool,
 ) -> ComboboxKeyOutcome {
     if disabled {
         return ComboboxKeyOutcome::default();
@@ -293,7 +295,7 @@ pub fn resolve_input_keydown(
                 return ComboboxKeyOutcome::default();
             }
             let next = registry
-                .step_enabled(highlighted, COMBOBOX_PAGE_STEP)
+                .step_enabled(highlighted, COMBOBOX_PAGE_STEP, loop_focus)
                 .map(|item| item.value.clone());
             ComboboxKeyOutcome {
                 prevent_default: true,
@@ -308,7 +310,7 @@ pub fn resolve_input_keydown(
                 return ComboboxKeyOutcome::default();
             }
             let prev = registry
-                .step_enabled(highlighted, -COMBOBOX_PAGE_STEP)
+                .step_enabled(highlighted, -COMBOBOX_PAGE_STEP, loop_focus)
                 .map(|item| item.value.clone());
             ComboboxKeyOutcome {
                 prevent_default: true,
@@ -368,12 +370,33 @@ pub fn resolve_input_keydown(
             }
         }
 
+        ComboboxNavKey::Backspace => {
+            if !is_open && input_non_empty {
+                ComboboxKeyOutcome {
+                    prevent_default: false,
+                    next_open: Some(true),
+                    next_highlighted: None,
+                    trigger_select: false,
+                }
+            } else {
+                ComboboxKeyOutcome::default()
+            }
+        }
+
         ComboboxNavKey::Printable => {
             if !is_open {
                 ComboboxKeyOutcome {
                     prevent_default: false,
                     next_open: Some(true),
                     next_highlighted: None,
+                    trigger_select: false,
+                }
+            } else if highlighted.is_none() {
+                let first = registry.first_enabled().map(|item| item.value.clone());
+                ComboboxKeyOutcome {
+                    prevent_default: false,
+                    next_open: None,
+                    next_highlighted: first.map(Some),
                     trigger_select: false,
                 }
             } else {

@@ -106,3 +106,63 @@ fn date_range_field_attrs_and_as_child() {
     assert_eq!(proj_root, root_attrs);
     assert_eq!(proj_label, label_attrs);
 }
+
+#[test]
+fn date_range_field_partial_min_max_scoping() {
+    let def = DateRangeFieldDefinition::new()
+        .with_min_value(Some(d(2025, 1, 10)))
+        .with_max_value(Some(d(2025, 1, 20)));
+
+    // Only Start violates Min while End is empty -> only Start is invalid (5C D-8 / DEF-5C-13)
+    let mut state = DateRangeFieldState::new(
+        def,
+        DateValueRange::new(Some(d(2025, 1, 5)), None),
+        d(2025, 1, 10),
+    );
+    assert!(state.is_invalid());
+    assert!(state.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(!state.is_part_invalid(RangeFieldInputKind::End));
+
+    // Start in-bounds, End violates Max -> only End is invalid
+    state.set_value(DateValueRange::new(Some(d(2025, 1, 12)), Some(d(2025, 1, 25))));
+    state.evaluate_validation(None);
+    assert!(state.is_invalid());
+    assert!(!state.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(state.is_part_invalid(RangeFieldInputKind::End));
+
+    // RangeOrder violation -> both Start and End are invalid
+    state.set_value(DateValueRange::new(Some(d(2025, 1, 16)), Some(d(2025, 1, 12))));
+    state.evaluate_validation(None);
+    assert_eq!(state.invalid_reason(), Some(&FieldInvalidReason::RangeOrder));
+    assert!(state.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(state.is_part_invalid(RangeFieldInputKind::End));
+}
+
+#[test]
+fn date_range_field_partial_unavailable_scoping() {
+    let def = DateRangeFieldDefinition::new();
+    let mut state = DateRangeFieldState::new(
+        def,
+        DateValueRange::new(Some(d(2025, 1, 15)), None),
+        d(2025, 1, 1),
+    );
+
+    // Start unavailable while End is empty -> root invalid with Unavailable, only Start part invalid
+    assert_eq!(
+        state.evaluate_validation_with_unavailable(true, false, None),
+        Some(FieldInvalidReason::Unavailable)
+    );
+    assert!(state.is_invalid());
+    assert!(state.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(!state.is_part_invalid(RangeFieldInputKind::End));
+
+    // Start valid, End unavailable -> only End part invalid
+    state.set_value(DateValueRange::new(Some(d(2025, 1, 10)), Some(d(2025, 1, 22))));
+    assert_eq!(
+        state.evaluate_validation_with_unavailable(false, true, None),
+        Some(FieldInvalidReason::Unavailable)
+    );
+    assert!(state.is_invalid());
+    assert!(!state.is_part_invalid(RangeFieldInputKind::Start));
+    assert!(state.is_part_invalid(RangeFieldInputKind::End));
+}
