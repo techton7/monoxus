@@ -1057,3 +1057,609 @@ fn test_native_tooltip_custom_trigger_id_positioning_and_scroll_dismiss() {
         "Tooltip content must unmount after scrollable ancestor dismisses it"
     );
 }
+
+/// Test 15: LMB pointerdown closes open tooltip immediately and cancels pending open timer
+#[test]
+fn test_native_tooltip_pointer_down_closes_immediately_and_cancels_pending_open() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    use blitz_traits::events::UiEvent;
+
+    #[component]
+    fn PointerDownCloseScenario() -> Element {
+        use monoxus::tooltip::{
+            TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger,
+        };
+        rsx! {
+            div {
+                style: "width: 600px; height: 400px; padding: 40px; display: flex; gap: 32px;",
+                TooltipProvider {
+                    delay_duration: 0,
+                    disable_hoverable_content: true,
+                    TooltipRoot {
+                        id: "tt-immediate",
+                        TooltipTrigger {
+                            id: "tt-immediate-trigger",
+                            "Immediate Trigger"
+                        }
+                        TooltipPortal {
+                            TooltipContent {
+                                id: "tt-immediate-content",
+                                "Immediate Tooltip"
+                            }
+                        }
+                    }
+                }
+                TooltipRoot {
+                    id: "tt-delayed",
+                    delay_duration: 180,
+                    disable_hoverable_content: true,
+                    TooltipTrigger {
+                        id: "tt-delayed-trigger",
+                        "Delayed Trigger"
+                    }
+                    TooltipPortal {
+                        TooltipContent {
+                            id: "tt-delayed-content",
+                            "Delayed Tooltip"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(PointerDownCloseScenario);
+
+    // Part 1: Open tooltip via hover, then press LMB down (without releasing yet)
+    let (tx, ty) = harness.center_of("#tt-immediate-trigger");
+    harness.move_mouse_to(tx, ty);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(
+        harness.query("#tt-immediate-content").is_some(),
+        "Tooltip must open on hover"
+    );
+
+    let down_event = blitz_test_harness::mouse_pointer_event(tx, ty);
+    harness.dispatch(UiEvent::PointerDown(down_event));
+    drain_polls_and_resolve(&mut harness);
+    assert_eq!(
+        harness.attr("#tt-immediate-trigger", "data-state").as_deref(),
+        Some("closed"),
+        "LMB pointerdown on trigger must transition tooltip to closed immediately before pointerup/click"
+    );
+    advance_frame_and_pump(&mut harness, 0.25);
+    assert!(
+        harness.query("#tt-immediate-content").is_none(),
+        "Tooltip content must unmount after pointerdown close"
+    );
+
+    // Release pointer outside to keep state clean
+    harness.dispatch(UiEvent::PointerUp(blitz_test_harness::mouse_pointer_event(5.0, 5.0)));
+    drain_polls_and_resolve(&mut harness);
+
+    // Part 2: Hover delayed trigger, press LMB down before delay expires -> pending open timer cancelled
+    let (dx, dy) = harness.center_of("#tt-delayed-trigger");
+    harness.move_mouse_to(dx, dy);
+    drain_polls_and_resolve(&mut harness);
+    std::thread::sleep(std::time::Duration::from_millis(40));
+    drain_polls_and_resolve(&mut harness);
+    assert!(
+        harness.query("#tt-delayed-content").is_none(),
+        "Delayed tooltip must still be closed before delay_duration"
+    );
+
+    harness.dispatch(UiEvent::PointerDown(blitz_test_harness::mouse_pointer_event(dx, dy)));
+    harness.dispatch(UiEvent::PointerUp(blitz_test_harness::mouse_pointer_event(dx, dy)));
+    drain_polls_and_resolve(&mut harness);
+
+    std::thread::sleep(std::time::Duration::from_millis(220));
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert_eq!(
+        harness.attr("#tt-delayed-trigger", "data-state").as_deref(),
+        Some("closed"),
+        "Pending open timer must remain cancelled after trigger pointerdown"
+    );
+    assert!(
+        harness.query("#tt-delayed-content").is_none(),
+        "Delayed tooltip must NOT open after trigger pointerdown cancelled pending timer"
+    );
+}
+
+/// Test 16: LMB pointerdown does NOT close tooltip when close_on_trigger_click == false
+#[test]
+fn test_native_tooltip_pointer_down_respects_close_on_trigger_click_false() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    use blitz_traits::events::UiEvent;
+
+    #[component]
+    fn KeepOpenOnClickScenario() -> Element {
+        use monoxus::tooltip::{
+            TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger,
+        };
+        rsx! {
+            div {
+                style: "width: 400px; height: 300px; padding: 40px;",
+                TooltipProvider {
+                    delay_duration: 0,
+                    close_on_trigger_click: false,
+                    disable_hoverable_content: true,
+                    TooltipRoot {
+                        id: "tt-keep-open",
+                        TooltipTrigger {
+                            id: "tt-keep-open-trigger",
+                            "Keep Open Trigger"
+                        }
+                        TooltipPortal {
+                            TooltipContent {
+                                id: "tt-keep-open-content",
+                                "Stays Open"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(KeepOpenOnClickScenario);
+    let (tx, ty) = harness.center_of("#tt-keep-open-trigger");
+    harness.move_mouse_to(tx, ty);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#tt-keep-open-content").is_some());
+
+    harness.dispatch(UiEvent::PointerDown(blitz_test_harness::mouse_pointer_event(tx, ty)));
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert_eq!(
+        harness.attr("#tt-keep-open-trigger", "data-state").as_deref(),
+        Some("open"),
+        "LMB pointerdown must NOT close tooltip when close_on_trigger_click is false"
+    );
+    assert!(harness.query("#tt-keep-open-content").is_some());
+
+    harness.dispatch(UiEvent::PointerUp(blitz_test_harness::mouse_pointer_event(tx, ty)));
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert_eq!(
+        harness.attr("#tt-keep-open-trigger", "data-state").as_deref(),
+        Some("open"),
+        "Click release must NOT close tooltip when close_on_trigger_click is false"
+    );
+    assert!(harness.query("#tt-keep-open-content").is_some());
+}
+
+/// Test 17: Hover open -> LMB down -> native DOM focus on trigger -> pointer leave closes instead of sticking open
+#[test]
+fn test_native_tooltip_outside_pointer_up_does_not_stick_open_on_native_focus() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    use blitz_traits::events::UiEvent;
+
+    #[component]
+    fn HoverPressLeaveScenario() -> Element {
+        use monoxus::tooltip::{
+            TooltipContent, TooltipPortal, TooltipRoot, TooltipTrigger,
+        };
+        rsx! {
+            div {
+                style: "width: 600px; height: 400px; padding: 40px; display: flex; gap: 32px;",
+                TooltipRoot {
+                    id: "tt-c1",
+                    delay_duration: 0,
+                    disable_hoverable_content: true,
+                    close_on_trigger_click: true,
+                    TooltipTrigger {
+                        id: "tt-c1-trigger",
+                        "Default Close Trigger"
+                    }
+                    TooltipPortal {
+                        TooltipContent {
+                            id: "tt-c1-content",
+                            "Tooltip C1"
+                        }
+                    }
+                }
+                TooltipRoot {
+                    id: "tt-c2",
+                    delay_duration: 0,
+                    disable_hoverable_content: true,
+                    close_on_trigger_click: false,
+                    TooltipTrigger {
+                        id: "tt-c2-trigger",
+                        "Opt-out Trigger"
+                    }
+                    TooltipPortal {
+                        TooltipContent {
+                            id: "tt-c2-content",
+                            "Tooltip C2"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(HoverPressLeaveScenario);
+
+    // Part 1 (close_on_trigger_click: true):
+    // Hover open -> LMB down -> native focus on button -> drag outside -> LMB up outside -> re-hover -> leave closes
+    let (tx1, ty1) = harness.center_of("#tt-c1-trigger");
+    harness.move_mouse_to(tx1, ty1);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#tt-c1-content").is_some());
+
+    harness.dispatch(UiEvent::PointerDown(blitz_test_harness::mouse_pointer_event(tx1, ty1)));
+    drain_polls_and_resolve(&mut harness);
+    assert_eq!(harness.attr("#tt-c1-trigger", "data-state").as_deref(), Some("closed"));
+    // Ensure native DOM focus is on trigger (non-focus-visible pointer focus)
+    if let Some(doc) = oxidase::Document::current()
+        && let Some(el) = doc.element_by_id("tt-c1-trigger")
+        && !el.has_focus()
+    {
+        focus_node(&mut harness, "#tt-c1-trigger");
+    }
+    assert_native_focus_id(&harness, "tt-c1-trigger");
+
+    harness.move_mouse_to(5.0, 5.0);
+    harness.dispatch(UiEvent::PointerUp(blitz_test_harness::mouse_pointer_event(5.0, 5.0)));
+    advance_frame_and_pump(&mut harness, 0.25);
+    assert!(
+        harness.query("#tt-c1-content").is_none(),
+        "Tooltip must stay closed after LMB down + drag outside + LMB up outside"
+    );
+
+    // Re-hover while button STILL has raw DOM focus, then leave -> must close, NOT stick open
+    harness.move_mouse_to(tx1, ty1);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#tt-c1-content").is_some());
+    assert_native_focus_id(&harness, "tt-c1-trigger");
+
+    harness.move_mouse_to(5.0, 5.0);
+    advance_frame_and_pump(&mut harness, 0.25);
+    assert!(
+        harness.query("#tt-c1-content").is_none(),
+        "Raw DOM focus from pointer click must NOT block hover-leave dismissal"
+    );
+
+    // Part 2 (close_on_trigger_click: false):
+    // Hover open -> LMB down -> native focus on button (opened_via_focus == false) -> leave + LMB up outside -> closes
+    let (tx2, ty2) = harness.center_of("#tt-c2-trigger");
+    harness.move_mouse_to(tx2, ty2);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#tt-c2-content").is_some());
+
+    harness.dispatch(UiEvent::PointerDown(blitz_test_harness::mouse_pointer_event(tx2, ty2)));
+    drain_polls_and_resolve(&mut harness);
+    if let Some(doc) = oxidase::Document::current()
+        && let Some(el) = doc.element_by_id("tt-c2-trigger")
+        && !el.has_focus()
+    {
+        focus_node(&mut harness, "#tt-c2-trigger");
+    }
+    assert_native_focus_id(&harness, "tt-c2-trigger");
+    assert_eq!(harness.attr("#tt-c2-trigger", "data-state").as_deref(), Some("open"));
+
+    harness.move_mouse_to(5.0, 5.0);
+    harness.dispatch(UiEvent::PointerUp(blitz_test_harness::mouse_pointer_event(5.0, 5.0)));
+    advance_frame_and_pump(&mut harness, 0.25);
+    assert_eq!(
+        harness.attr("#tt-c2-trigger", "data-state").as_deref(),
+        Some("closed"),
+        "Pointer leave must close hover-opened tooltip even when trigger has raw DOM focus"
+    );
+    assert!(
+        harness.query("#tt-c2-content").is_none(),
+        "Tooltip C2 must not stick open after pointer leave while button has raw DOM focus"
+    );
+}
+
+/// Test 18: pointer_down_inside suppresses trigger_focus even when ignore_non_keyboard_focus == false, and resets cleanly
+#[test]
+fn test_native_tooltip_pointer_down_inside_suppresses_focus_even_when_ignore_non_keyboard_focus_false() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    use blitz_traits::events::UiEvent;
+
+    #[component]
+    fn IgnoreNonKeyboardFalseScenario() -> Element {
+        use monoxus::tooltip::{
+            TooltipContent, TooltipPortal, TooltipRoot, TooltipTrigger,
+        };
+        rsx! {
+            div {
+                style: "width: 600px; height: 400px; padding: 40px; display: flex; gap: 24px;",
+                button { id: "lead-btn-d", "Before" }
+                TooltipRoot {
+                    id: "tt-d",
+                    delay_duration: 0,
+                    ignore_non_keyboard_focus: false,
+                    TooltipTrigger {
+                        id: "tt-d-trigger",
+                        "Focus Guard Trigger"
+                    }
+                    TooltipPortal {
+                        TooltipContent {
+                            id: "tt-d-content",
+                            "Tooltip D"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(IgnoreNonKeyboardFalseScenario);
+    let (tx, ty) = harness.center_of("#tt-d-trigger");
+
+    // 1. LMB down on trigger sets pointer_down_inside = true; native focus during pointerdown MUST be suppressed
+    //    even though ignore_non_keyboard_focus == false
+    harness.dispatch(UiEvent::PointerDown(blitz_test_harness::mouse_pointer_event(tx, ty)));
+    drain_polls_and_resolve(&mut harness);
+    // Explicitly drive focus while pointer is still down if Blitz defers focus to pointerup/click
+    focus_node(&mut harness, "#tt-d-trigger");
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert_eq!(
+        harness.attr("#tt-d-trigger", "data-state").as_deref(),
+        Some("closed"),
+        "pointer_down_inside must suppress trigger_focus even when ignore_non_keyboard_focus == false"
+    );
+    assert!(harness.query("#tt-d-content").is_none());
+
+    // 2. Release LMB outside trigger -> document pointerup observer resets pointer_down_inside cleanly
+    harness.dispatch(UiEvent::PointerUp(blitz_test_harness::mouse_pointer_event(5.0, 5.0)));
+    drain_polls_and_resolve(&mut harness);
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    // 3. Move focus to #lead-btn-d and Tab back to trigger -> pointer_down_inside is false, so focus opens tooltip
+    click_and_pump(&mut harness, "#lead-btn-d");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Tab), Code::Tab);
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert_eq!(
+        harness.attr("#tt-d-trigger", "data-state").as_deref(),
+        Some("open"),
+        "After outside pointerup resets pointer_down_inside, subsequent focus must open tooltip"
+    );
+    assert!(harness.query("#tt-d-content").is_some());
+}
+
+/// Test 19: Keyboard focus (opened_via_focus == true) stays open on pointerleave and closes on blur / Escape
+#[test]
+fn test_native_tooltip_keyboard_focus_stays_open_on_pointer_leave_and_closes_on_blur_or_escape() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    #[component]
+    fn KeyboardFocusScenario() -> Element {
+        use monoxus::tooltip::{
+            TooltipContent, TooltipPortal, TooltipRoot, TooltipTrigger,
+        };
+        rsx! {
+            div {
+                style: "width: 600px; height: 400px; padding: 40px; display: flex; gap: 24px;",
+                button { id: "lead-btn-e", "Before" }
+                TooltipRoot {
+                    id: "tt-e",
+                    delay_duration: 0,
+                    disable_hoverable_content: true,
+                    TooltipTrigger {
+                        id: "tt-e-trigger",
+                        "Keyboard Trigger"
+                    }
+                    TooltipPortal {
+                        TooltipContent {
+                            id: "tt-e-content",
+                            "Keyboard Tooltip"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(KeyboardFocusScenario);
+
+    // 1. Focus #lead-btn-e and Tab into trigger -> opens via keyboard focus
+    click_and_pump(&mut harness, "#lead-btn-e");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Tab), Code::Tab);
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert_native_focus_visible(&harness, "tt-e-trigger", true);
+    assert!(
+        harness.query("#tt-e-content").is_some(),
+        "Keyboard Tab focus must open tooltip"
+    );
+
+    // 2. Move pointer across trigger and leave -> MUST stay open while opened_via_focus == true
+    let (tx, ty) = harness.center_of("#tt-e-trigger");
+    harness.move_mouse_to(tx, ty);
+    harness.pump();
+    harness.move_mouse_to(5.0, 5.0);
+    advance_frame_and_pump(&mut harness, 0.25);
+    assert_eq!(
+        harness.attr("#tt-e-trigger", "data-state").as_deref(),
+        Some("open"),
+        "pointerleave must NOT close tooltip opened via keyboard focus"
+    );
+    assert!(harness.query("#tt-e-content").is_some());
+
+    // 3. Escape closes keyboard-focus-opened tooltip
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+    advance_frame_and_pump(&mut harness, 0.25);
+    assert_eq!(harness.attr("#tt-e-trigger", "data-state").as_deref(), Some("closed"));
+    assert!(harness.query("#tt-e-content").is_none());
+
+    // 4. Re-open via Tab, then blur by clicking #lead-btn-e -> closes tooltip
+    click_and_pump(&mut harness, "#lead-btn-e");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Tab), Code::Tab);
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert!(harness.query("#tt-e-content").is_some());
+
+    click_and_pump(&mut harness, "#lead-btn-e");
+    advance_frame_and_pump(&mut harness, 0.25);
+    assert_eq!(
+        harness.attr("#tt-e-trigger", "data-state").as_deref(),
+        Some("closed"),
+        "Blur must close tooltip opened via keyboard focus"
+    );
+    assert!(harness.query("#tt-e-content").is_none());
+}
+
+/// Test 20: Hoverable grace corridor leave fallback (40ms) and transit-intent timeout (180ms)
+#[test]
+fn test_native_tooltip_grace_corridor_leave_fallback_and_transit_intent_timeout() {
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    use std::{cell::RefCell, rc::Rc};
+
+    #[derive(Clone)]
+    struct GraceTestRuntime(Rc<RefCell<Option<monoxus::tooltip::TooltipRuntime>>>);
+    impl PartialEq for GraceTestRuntime {
+        fn eq(&self, other: &Self) -> bool {
+            Rc::ptr_eq(&self.0, &other.0)
+        }
+    }
+
+    #[component]
+    fn GraceRuntimeProbe(out: GraceTestRuntime) -> Element {
+        let ctx = use_context::<monoxus::tooltip::TooltipRootContext>();
+        *out.0.borrow_mut() = Some(ctx.runtime.read().clone());
+        rsx! {}
+    }
+
+    let captured_runtime = GraceTestRuntime(Rc::new(RefCell::new(None)));
+    let captured_for_app = captured_runtime.clone();
+
+    let mut harness = {
+        let opts = blitz_test_harness::HarnessOptions::default();
+        let mut doc = dioxus_native_dom::DioxusDocument::new(
+            VirtualDom::new_with_props(
+                move |out: GraceTestRuntime| {
+                    use monoxus::tooltip::{
+                        TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger,
+                    };
+                    rsx! {
+                        div {
+                            style: "width: 600px; height: 400px; padding: 120px;",
+                            TooltipProvider {
+                                delay_duration: 0,
+                                disable_hoverable_content: false,
+                                TooltipRoot {
+                                    id: "tt-grace-fallback",
+                                    TooltipTrigger {
+                                        id: "tt-grace-trigger",
+                                        "Hoverable Trigger"
+                                    }
+                                    TooltipPortal {
+                                        TooltipContent {
+                                            id: "tt-grace-content",
+                                            "Hoverable Tooltip"
+                                        }
+                                    }
+                                    GraceRuntimeProbe { out }
+                                }
+                            }
+                        }
+                    }
+                },
+                captured_for_app,
+            ),
+            blitz_dom::DocumentConfig {
+                viewport: Some(blitz_traits::shell::Viewport::new(
+                    opts.width,
+                    opts.height,
+                    opts.scale,
+                    opts.color_scheme,
+                )),
+                base_url: opts.base_url,
+                net_provider: opts.net_provider,
+                ..Default::default()
+            },
+        );
+        let native_doc = oxidase::dom::Document::from_base(doc.inner.clone());
+        native_doc.attach_engine_bridges();
+        oxidase::dom::Document::set_current(Some(native_doc.clone()));
+        doc.vdom.in_scope(dioxus::core::ScopeId::ROOT, move || {
+            provide_context(native_doc);
+        });
+        doc.initial_build();
+        let mut harness = blitz_test_harness::Harness::wrap(doc);
+        drain_polls_and_resolve(&mut harness);
+        harness
+    };
+
+    let trigger_rect = harness.layout_rect("#tt-grace-trigger");
+    let (tx, ty) = harness.center_of("#tt-grace-trigger");
+
+    // 1. Hover open -> click trigger to leave pointer-induced DOM focus -> re-hover ->
+    //    jump straight outside (500, 350) -> closes cleanly (does not stick open)
+    harness.move_mouse_to(tx, ty);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#tt-grace-content").is_some());
+
+    click_and_pump(&mut harness, "#tt-grace-trigger");
+    advance_frame_and_pump(&mut harness, 0.25);
+    assert!(harness.query("#tt-grace-content").is_none());
+
+    harness.move_mouse_to(5.0, 5.0);
+    harness.pump();
+    harness.move_mouse_to(tx, ty);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#tt-grace-content").is_some());
+
+    harness.move_mouse_to(500.0, 350.0);
+    harness.pump();
+    std::thread::sleep(std::time::Duration::from_millis(220));
+    drain_polls_and_resolve(&mut harness);
+    advance_frame_and_pump(&mut harness, 0.25);
+    drain_polls_and_resolve(&mut harness);
+    assert_eq!(
+        harness.attr("#tt-grace-trigger", "data-state").as_deref(),
+        Some("closed"),
+        "Hoverable tooltip must close when pointer jumps out of trigger even with pointer-induced DOM focus"
+    );
+    assert!(harness.query("#tt-grace-content").is_none());
+
+    // 2. Transit-intent timeout (180ms): move into gap between trigger and content (InTransit) ->
+    //    stays open past 40ms fallback, then closes after 180ms transit-intent timeout when pointer stalls
+    let runtime = captured_runtime
+        .0
+        .borrow()
+        .as_ref()
+        .expect("probe must capture TooltipRuntime")
+        .clone();
+    harness.move_mouse_to(tx, ty);
+    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#tt-grace-content").is_some());
+
+    let gap_y = trigger_rect.y - 2.0;
+    harness.move_mouse_to(tx, gap_y);
+    harness.pump();
+    // Move slightly inside corridor so document pointermove fires InTransit while grace monitor is active
+    harness.move_mouse_to(tx + 1.0, gap_y);
+    harness.pump();
+    std::thread::sleep(std::time::Duration::from_millis(60));
+    drain_polls_and_resolve(&mut harness);
+    advance_frame_and_pump(&mut harness, 0.01);
+    assert_eq!(
+        harness.attr("#tt-grace-trigger", "data-state").as_deref(),
+        Some("open"),
+        "InTransit pointermove must extend close deadline from 40ms fallback to 180ms transit-intent timeout"
+    );
+
+    // Wait past 180ms transit-intent timeout without entering content -> closes cleanly
+    std::thread::sleep(std::time::Duration::from_millis(160));
+    drain_polls_and_resolve(&mut harness);
+    advance_frame_and_pump(&mut harness, 0.25);
+    drain_polls_and_resolve(&mut harness);
+    assert_eq!(
+        harness.attr("#tt-grace-trigger", "data-state").as_deref(),
+        Some("closed"),
+        "Hoverable tooltip must close after 180ms transit-intent timeout when pointer stalls in corridor"
+    );
+    assert!(harness.query("#tt-grace-content").is_none());
+    assert!(
+        !runtime.has_active_grace_monitor(),
+        "Grace monitor must be torn down after transit-intent timeout closes tooltip"
+    );
+}

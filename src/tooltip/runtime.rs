@@ -11,7 +11,8 @@ use crate::foundation::{
     browser::{
         DocumentPointerStreamGuard, FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard,
         get_element_client_rect, start_document_pointer_stream,
-        start_floating_auto_update_monitor, start_presence_monitor,
+        start_document_pointer_up_observer, start_floating_auto_update_monitor,
+        start_presence_monitor,
     },
     overlay::{
         compute_overlay_position, create_grace_area, is_point_in_polygon, FloatingPlacement,
@@ -33,6 +34,7 @@ use super::{
 
 const TOOLTIP_RADIX_COMPATIBILITY_PREFIX: &str = "radix-tooltip";
 const TOOLTIP_RADIX_ANCHOR_LABEL: &str = "trigger";
+const TOOLTIP_TRANSIT_INTENT_TIMEOUT_MS: u64 = 180;
 
 type TooltipOpenChangeHandler = Rc<dyn Fn(bool)>;
 
@@ -365,6 +367,8 @@ struct TooltipRuntimeState {
     pending_standalone_open: Signal<bool>,
     position_loop_token: Signal<u64>,
     position_monitor: Signal<Option<WatcherGuard>>,
+    pointer_up_token: Signal<u64>,
+    pointer_up_monitor: Signal<Option<WatcherGuard>>,
     grace_monitor: Signal<Option<DocumentPointerStreamGuard>>,
     opened_via_focus: Signal<bool>,
     focus_scroll_guard_pending: Signal<bool>,
@@ -418,6 +422,8 @@ where
         pending_standalone_open: use_signal(|| false),
         position_loop_token: use_signal(|| 0),
         position_monitor: use_signal(|| None),
+        pointer_up_token: use_signal(|| 0),
+        pointer_up_monitor: use_signal(|| None),
         grace_monitor: use_signal(|| None),
         opened_via_focus: use_signal(|| false),
         focus_scroll_guard_pending: use_signal(|| false),
@@ -457,12 +463,6 @@ where
                     *ch = false;
                 }
             }
-            if reset_state.pointer_down_inside.try_peek().map(|p| *p).unwrap_or(false) {
-                let mut pointer_down_inside = reset_state.pointer_down_inside;
-                if let Ok(mut pdi) = pointer_down_inside.try_write() {
-                    *pdi = false;
-                }
-            }
             stop_tooltip_grace_monitor_state(reset_state);
         }
 
@@ -486,7 +486,9 @@ where
         advance_tooltip_token(cleanup_state.hover_transfer_token);
         advance_tooltip_token(cleanup_state.open_request_token);
         advance_tooltip_token(cleanup_state.position_loop_token);
+        advance_tooltip_token(cleanup_state.pointer_up_token);
         stop_tooltip_position_monitor(cleanup_state);
+        stop_tooltip_pointer_up_monitor(cleanup_state);
         stop_tooltip_grace_monitor_state(cleanup_state);
     });
 
@@ -747,15 +749,24 @@ impl TooltipRuntime {
         let transit = TooltipGraceTransit::new(exit_point, from_rect, to_rect, Some(5.0));
         let state = self.state;
         let runtime = self.clone();
+        let active = Rc::new(Cell::new(true));
 
         let guard = start_document_pointer_stream(move |point| {
+            if !active.get() || !runtime.is_alive() {
+                return;
+            }
             match transit.inspect_point(point) {
-                GraceTransitStatus::InTransit => {}
+                GraceTransitStatus::InTransit => {
+                    runtime.schedule_hover_transfer_close_after(TOOLTIP_TRANSIT_INTENT_TIMEOUT_MS);
+                }
                 GraceTransitStatus::ReachedTarget => {
-                    stop_tooltip_grace_monitor_state(state);
+                    active.set(false);
+                    runtime.cancel_hover_transfer();
+                    defer_drop_tooltip_grace_monitor(state);
                 }
                 GraceTransitStatus::ExitedCorridor => {
-                    stop_tooltip_grace_monitor_state(state);
+                    active.set(false);
+                    defer_drop_tooltip_grace_monitor(state);
                     runtime.request_close();
                 }
             }
@@ -763,6 +774,7 @@ impl TooltipRuntime {
 
         let mut grace_monitor = self.state.grace_monitor;
         grace_monitor.set(Some(guard));
+        self.schedule_hover_transfer_close();
         true
     }
 
@@ -904,11 +916,27 @@ impl TooltipRuntime {
     pub fn trigger_pointer_down(&self) -> impl FnMut(Event<PointerData>) + 'static {
         let runtime = self.clone();
         move |event| {
-            event.stop_propagation();
+            if runtime.close_on_trigger_click() {
+                runtime.request_close();
+            }
             let mut pointer_down_inside = runtime.state.pointer_down_inside;
-            pointer_down_inside.set(true);
+            if let Ok(mut pdi) = pointer_down_inside.try_write() {
+                *pdi = true;
+            }
             let mut last_pointer_type = runtime.state.last_pointer_type;
-            last_pointer_type.set(Some(event.data().pointer_type().to_string()));
+            if let Ok(mut lpt) = last_pointer_type.try_write() {
+                *lpt = Some(event.data().pointer_type().to_string());
+            }
+            runtime.arm_pointer_up_reset();
+        }
+    }
+
+    pub fn trigger_pointer_cancel(&self) -> impl FnMut(Event<PointerData>) + 'static {
+        let runtime = self.clone();
+        move |_| {
+            runtime.clear_pointer_down_inside();
+            advance_tooltip_token(runtime.state.pointer_up_token);
+            stop_tooltip_pointer_up_monitor(runtime.state);
         }
     }
 
@@ -939,7 +967,7 @@ impl TooltipRuntime {
             let mut trigger_hovered = runtime.state.trigger_hovered;
             trigger_hovered.set(false);
 
-            if *runtime.state.opened_via_focus.peek() || runtime.trigger_has_focus() {
+            if *runtime.state.opened_via_focus.peek() {
                 return;
             }
 
@@ -960,9 +988,14 @@ impl TooltipRuntime {
     pub fn trigger_focus(&self) -> impl FnMut(Event<FocusData>) + 'static {
         let runtime = self.clone();
         move |_| {
-            let opened_from_pointer = *runtime.state.pointer_down_inside.peek();
-            let mut pointer_down_inside = runtime.state.pointer_down_inside;
-            pointer_down_inside.set(false);
+            if runtime
+                .state
+                .pointer_down_inside
+                .try_peek()
+                .is_ok_and(|down| *down)
+            {
+                return;
+            }
 
             let is_touch = runtime
                 .state
@@ -977,9 +1010,6 @@ impl TooltipRuntime {
             }
 
             if runtime.ignore_non_keyboard_focus() {
-                if opened_from_pointer {
-                    return;
-                }
                 let focus_visible = runtime
                     .state
                     .trigger_handle
@@ -1021,8 +1051,9 @@ impl TooltipRuntime {
     pub fn trigger_blur(&self) -> impl FnMut(Event<FocusData>) + 'static {
         let runtime = self.clone();
         move |_| {
-            let mut pointer_down_inside = runtime.state.pointer_down_inside;
-            pointer_down_inside.set(false);
+            runtime.clear_pointer_down_inside();
+            advance_tooltip_token(runtime.state.pointer_up_token);
+            stop_tooltip_pointer_up_monitor(runtime.state);
             let mut last_pointer_type = runtime.state.last_pointer_type;
             last_pointer_type.set(None);
             let mut opened_via_focus = runtime.state.opened_via_focus;
@@ -1037,6 +1068,7 @@ impl TooltipRuntime {
     pub fn trigger_click(&self) -> impl FnMut(Event<MouseData>) + 'static {
         let runtime = self.clone();
         move |_| {
+            runtime.clear_pointer_down_inside();
             if runtime.close_on_trigger_click() {
                 runtime.request_close();
             }
@@ -1064,7 +1096,7 @@ impl TooltipRuntime {
             let mut content_hovered = runtime.state.content_hovered;
             content_hovered.set(false);
 
-            if *runtime.state.opened_via_focus.peek() || runtime.trigger_has_focus() {
+            if *runtime.state.opened_via_focus.peek() {
                 return;
             }
 
@@ -1166,11 +1198,15 @@ impl TooltipRuntime {
     }
 
     fn schedule_hover_transfer_close(&self) {
+        self.schedule_hover_transfer_close_after(TOOLTIP_HOVER_TRANSFER_GRACE_MS);
+    }
+
+    fn schedule_hover_transfer_close_after(&self, delay_ms: u64) {
         let request_token = advance_tooltip_token(self.state.hover_transfer_token);
         let runtime = self.clone();
 
         crate::foundation::browser::spawn_root_task(async move {
-            Delay::new(Duration::from_millis(TOOLTIP_HOVER_TRANSFER_GRACE_MS)).await;
+            Delay::new(Duration::from_millis(delay_ms)).await;
             if !runtime.is_alive() {
                 return;
             }
@@ -1200,14 +1236,50 @@ impl TooltipRuntime {
                 .try_peek()
                 .map(|o| *o)
                 .unwrap_or(false);
-            if !trigger_hovered
-                && !content_hovered
-                && !opened_via_focus
-                && !runtime.trigger_has_focus()
-            {
+            if !trigger_hovered && !content_hovered && !opened_via_focus {
                 runtime.request_close();
             }
         });
+    }
+
+    fn clear_pointer_down_inside(&self) {
+        if !self.is_alive() {
+            return;
+        }
+        let mut pointer_down_inside = self.state.pointer_down_inside;
+        if let Ok(mut pdi) = pointer_down_inside.try_write() {
+            *pdi = false;
+        }
+    }
+
+    fn arm_pointer_up_reset(&self) {
+        stop_tooltip_pointer_up_monitor(self.state);
+        let token = advance_tooltip_token(self.state.pointer_up_token);
+        let runtime = self.clone();
+        let watcher = start_document_pointer_up_observer(move || {
+            if !runtime.is_alive() {
+                return;
+            }
+            runtime.clear_pointer_down_inside();
+            let rt_cleanup = runtime.clone();
+            crate::foundation::browser::spawn_root_task(async move {
+                // Yield once so wasm32 does not drop the WatcherGuard Closure on its own JS stack.
+                Delay::new(Duration::ZERO).await;
+                if rt_cleanup.is_alive()
+                    && rt_cleanup
+                        .state
+                        .pointer_up_token
+                        .try_peek()
+                        .is_ok_and(|current| *current == token)
+                {
+                    stop_tooltip_pointer_up_monitor(rt_cleanup.state);
+                }
+            });
+        });
+        let mut pointer_up_monitor = self.state.pointer_up_monitor;
+        if let Ok(mut pm) = pointer_up_monitor.try_write() {
+            *pm = Some(watcher);
+        }
     }
 
     fn cancel_hover_transfer(&self) {
@@ -1487,6 +1559,13 @@ fn stop_tooltip_position_monitor(state: TooltipRuntimeState) {
     }
 }
 
+fn stop_tooltip_pointer_up_monitor(state: TooltipRuntimeState) {
+    let mut pointer_up_monitor = state.pointer_up_monitor;
+    if let Ok(mut pm) = pointer_up_monitor.try_write() {
+        *pm = None;
+    }
+}
+
 fn clear_tooltip_content_handle(state: TooltipRuntimeState) {
     if state.content_handle.try_peek().map(|h| h.is_some()).unwrap_or(false) {
         let mut content_handle = state.content_handle;
@@ -1533,6 +1612,21 @@ fn clear_tooltip_retained_content_state(state: TooltipRuntimeState) {
 fn stop_tooltip_grace_monitor_state(mut state: TooltipRuntimeState) {
     if let Ok(mut gm) = state.grace_monitor.try_write() {
         *gm = None;
+    }
+}
+
+fn defer_drop_tooltip_grace_monitor(mut state: TooltipRuntimeState) {
+    let guard = state
+        .grace_monitor
+        .try_write()
+        .ok()
+        .and_then(|mut gm| gm.take());
+    if let Some(guard) = guard {
+        crate::foundation::browser::spawn_root_task(async move {
+            // Yield once so wasm32 does not drop the WatcherGuard Closure on its own JS stack.
+            Delay::new(Duration::ZERO).await;
+            drop(guard);
+        });
     }
 }
 

@@ -71,6 +71,7 @@ pub fn TooltipTrigger(props: TooltipTriggerProps) -> Element {
             "data-disabled": data_disabled_attr(props.disabled),
             onmounted: runtime.mount_trigger(),
             onpointerdown: runtime.trigger_pointer_down(),
+            onpointercancel: runtime.trigger_pointer_cancel(),
             onmouseenter: runtime.trigger_pointer_enter(),
             onmouseleave: runtime.trigger_pointer_leave(),
             onfocus: runtime.trigger_focus(),
