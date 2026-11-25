@@ -1,0 +1,10 @@
+/target
+/dist
+/.cargo/
+/Cargo.lock
+/assets/tailwind.css
+/public/llms.txt
+/public/docs/
+/public/search-index.json
+/node_modules/
+.DS_Store

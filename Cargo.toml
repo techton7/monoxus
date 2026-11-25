@@ -2,6 +2,7 @@
 resolver = "2"
 members = [".", "crates/monoxus-core"]
 default-members = ["."]
+exclude = ["site"]
 
 [package]
 name = "monoxus"
@@ -11,7 +12,7 @@ description = "Headless Dioxus primitives and shared foundations for accessible,
 readme = "README.md"
 license = "MIT"
 repository = "https://github.com/techton7/monoxus"
-exclude = ["tests/gui/**"]
+exclude = ["tests/gui/**", "site/**"]
 autotests = false
 
 [dependencies]

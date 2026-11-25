@@ -1,0 +1,12 @@
+[application]
+name = "monoxus-site"
+asset_dir = "assets"
+tailwind_input = "assets/input.css"
+tailwind_output = "assets/tailwind.css"
+
+[web.app]
+title = "Monoxus — Headless Primitives for Dioxus"
+
+[web.watcher]
+reload_html = true
+watch_path = ["src", "assets", "content"]

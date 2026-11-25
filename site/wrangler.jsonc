@@ -1,0 +1,37 @@
+// Cloudflare Workers config for monoxus.com.
+// The site is a Dioxus WebAssembly SPA served as static assets from ./dist.
+// The edge worker in worker/index.ts only runs for paths in `run_worker_first`
+// (legacy/convenience redirects and `Accept: text/markdown` negotiation on
+// `/docs/*`); all other requests are served directly from `ASSETS`.
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "monoxus-site",
+	"main": "./worker/index.ts",
+	"compatibility_date": "2026-11-01",
+	"assets": {
+		"directory": "./dist",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application",
+		"html_handling": "drop-trailing-slash",
+		"run_worker_first": ["/docs", "/docs/*"]
+	},
+	"observability": {
+		"enabled": true
+	},
+	// Custom domain routes for monoxus.com. Uncomment once the domain is
+	// registered and onboarded to Cloudflare, then set `workers_dev` to false.
+	// "routes": [
+	// 	{
+	// 		"pattern": "monoxus.com",
+	// 		"custom_domain": true
+	// 	},
+	// 	{
+	// 		"pattern": "www.monoxus.com",
+	// 		"custom_domain": true
+	// 	}
+	// ],
+	// Enabled for initial *.workers.dev preview deployments; set to `false` once
+	// the monoxus.com custom domain routes above are live.
+	"workers_dev": true,
+	"preview_urls": true
+}

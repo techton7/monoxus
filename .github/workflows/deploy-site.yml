@@ -1,0 +1,59 @@
+name: Deploy Site to Cloudflare Workers
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "site/**"
+      - "src/**"
+      - "crates/monoxus-core/**"
+      - ".github/workflows/deploy-site.yml"
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: site
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "site -> target"
+          cache-on-failure: false
+
+      - name: Install dioxus-cli
+        run: cargo install dioxus-cli --version 0.8.0-alpha.3 --locked
+
+      - name: Build web bundle
+        run: dx build --release --platform web
+
+      - name: Assemble release dist bundle
+        run: |
+          rm -rf dist
+          mkdir -p dist
+          cp -R target/dx/monoxus-site/release/web/public/. dist/
+          cp -R public/. dist/
+
+      - name: Verify export bundle
+        run: ./scripts/check_export.sh
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          workingDirectory: site
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

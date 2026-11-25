@@ -1,0 +1,49 @@
+[workspace]
+
+[package]
+name = "monoxus-site"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Official documentation and interactive showcase website for Monoxus headless Dioxus primitives."
+license = "MIT"
+
+[dependencies]
+dioxus = { version = "0.8.0-alpha.3", features = ["web", "router"] }
+monoxus = { path = ".." }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = [
+    "Clipboard",
+    "Document",
+    "DomTokenList",
+    "Element",
+    "Event",
+    "EventTarget",
+    "HtmlElement",
+    "KeyboardEvent",
+    "MediaQueryList",
+    "Navigator",
+    "Storage",
+    "Window",
+] }
+
+[build-dependencies]
+pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
+
+[dev-dependencies]
+syn = { version = "2", features = ["full"] }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
