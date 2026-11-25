@@ -9,7 +9,13 @@ pub mod button;
 pub mod calendar;
 pub mod checkbox;
 pub mod collapsible;
+pub mod combobox;
+pub mod command;
 pub mod context_menu;
+pub mod date_field;
+pub mod date_picker;
+pub mod date_range_field;
+pub mod date_range_picker;
 pub mod dialog;
 pub mod dropdown_menu;
 pub mod form_1b;
@@ -32,6 +38,8 @@ pub mod separator;
 pub mod slider;
 pub mod switch;
 pub mod tabs;
+pub mod time_field;
+pub mod time_range_field;
 pub mod toggle;
 pub mod toggle_group;
 pub mod toolbar;
@@ -41,11 +49,13 @@ pub mod visually_hidden;
 use dioxus::prelude::*;
 use pages::{
     AccessibleIconPage, AccordionPage, AlertDialogPage, AspectRatioPage, AvatarPage, ButtonPage,
-    CalendarPage, CheckboxPage, CollapsiblePage, ContextMenuPage, DialogPage, DropdownMenuPage,
-    Form1bPage, HoverCardPage, LabelPage, MenubarPage, MeterPage, NavigationMenuPage,
-    PaginationPage, PinInputPage, PopoverPage, ProgressPage, RadioGroupPage, RangeCalendarPage,
-    RatingGroupPage, ScrollAreaPage, SelectPage, SeparatorPage, SliderPage, SwitchPage, TabsPage,
-    ToastPage, ToggleGroupPage, TogglePage, ToolbarPage, TooltipPage, VisuallyHiddenPage,
+    CalendarPage, CheckboxPage, CollapsiblePage, ComboboxPage, CommandPage, ContextMenuPage,
+    DateFieldPage, DatePickerPage, DateRangeFieldPage, DateRangePickerPage, DialogPage,
+    DropdownMenuPage, Form1bPage, HoverCardPage, LabelPage, MenubarPage, MeterPage,
+    NavigationMenuPage, PaginationPage, PinInputPage, PopoverPage, ProgressPage, RadioGroupPage,
+    RangeCalendarPage, RatingGroupPage, ScrollAreaPage, SelectPage, SeparatorPage, SliderPage,
+    SwitchPage, TabsPage, TimeFieldPage, TimeRangeFieldPage, ToastPage, ToggleGroupPage,
+    TogglePage, ToolbarPage, TooltipPage, VisuallyHiddenPage,
 };
 
 #[component]
@@ -145,11 +155,19 @@ pub enum ComponentPage {
     NavigationMenu,
     Pagination,
     PinInput,
+    Command,
+    Combobox,
     VisuallyHidden,
     AccessibleIcon,
     RatingGroup,
     Calendar,
     RangeCalendar,
+    DateField,
+    TimeField,
+    DateRangeField,
+    TimeRangeField,
+    DatePicker,
+    DateRangePicker,
     Form1B,
     Select,
     Collapsible,
@@ -187,11 +205,19 @@ impl ComponentPage {
             Self::NavigationMenu => "Navigation Menu",
             Self::Pagination => "Pagination",
             Self::PinInput => "Pin Input",
+            Self::Command => "Command",
+            Self::Combobox => "Combobox",
             Self::VisuallyHidden => "Visually Hidden",
             Self::AccessibleIcon => "Accessible Icon",
             Self::RatingGroup => "Rating Group",
             Self::Calendar => "Calendar",
             Self::RangeCalendar => "Range Calendar",
+            Self::DateField => "Date Field",
+            Self::TimeField => "Time Field",
+            Self::DateRangeField => "Date Range Field",
+            Self::TimeRangeField => "Time Range Field",
+            Self::DatePicker => "Date Picker",
+            Self::DateRangePicker => "Date Range Picker",
             Self::Form1B => "Form (1B)",
             Self::Select => "Select",
             Self::Collapsible => "Collapsible",
@@ -229,11 +255,19 @@ impl ComponentPage {
             Self::NavigationMenu => "⇥",
             Self::Pagination => "⋯",
             Self::PinInput => "⌸",
+            Self::Command => "⌘",
+            Self::Combobox => "⌕",
             Self::VisuallyHidden => "◌",
             Self::AccessibleIcon => "★",
             Self::RatingGroup => "☆",
             Self::Calendar => "▦",
             Self::RangeCalendar => "◫",
+            Self::DateField => "📅",
+            Self::TimeField => "⏱",
+            Self::DateRangeField => "⇄",
+            Self::TimeRangeField => "⏲",
+            Self::DatePicker => "📆",
+            Self::DateRangePicker => "🗓",
             Self::Form1B => "📝",
             Self::Select => "▾",
             Self::Collapsible => "◰",
@@ -271,11 +305,19 @@ impl ComponentPage {
             Self::NavigationMenu => "Viewport/Nav",
             Self::Pagination => "Page Range",
             Self::PinInput => "OTP Overlay",
+            Self::Command => "Palette/Score",
+            Self::Combobox => "Filter List",
             Self::VisuallyHidden => "SR-Only",
             Self::AccessibleIcon => "Icon A11y",
             Self::RatingGroup => "Half-Star",
             Self::Calendar => "2D Grid",
             Self::RangeCalendar => "Range Grid",
+            Self::DateField => "Spinbutton",
+            Self::TimeField => "12h/24h",
+            Self::DateRangeField => "Start/End",
+            Self::TimeRangeField => "Time Range",
+            Self::DatePicker => "Popover Cal",
+            Self::DateRangePicker => "Range Picker",
             Self::Form1B => "FormData Reset",
             Self::Select => "7 Scenarios",
             Self::Collapsible => "Disclosure",
@@ -317,11 +359,19 @@ pub fn App() -> Element {
         ComponentPage::NavigationMenu,
         ComponentPage::Pagination,
         ComponentPage::PinInput,
+        ComponentPage::Command,
+        ComponentPage::Combobox,
         ComponentPage::VisuallyHidden,
         ComponentPage::AccessibleIcon,
         ComponentPage::RatingGroup,
         ComponentPage::Calendar,
         ComponentPage::RangeCalendar,
+        ComponentPage::DateField,
+        ComponentPage::TimeField,
+        ComponentPage::DateRangeField,
+        ComponentPage::TimeRangeField,
+        ComponentPage::DatePicker,
+        ComponentPage::DateRangePicker,
         ComponentPage::Form1B,
         ComponentPage::Select,
         ComponentPage::Collapsible,
@@ -475,11 +525,19 @@ pub fn App() -> Element {
                     ComponentPage::NavigationMenu => rsx! { NavigationMenuPage {} },
                     ComponentPage::Pagination => rsx! { PaginationPage {} },
                     ComponentPage::PinInput => rsx! { PinInputPage {} },
+                    ComponentPage::Command => rsx! { CommandPage {} },
+                    ComponentPage::Combobox => rsx! { ComboboxPage {} },
                     ComponentPage::VisuallyHidden => rsx! { VisuallyHiddenPage {} },
                     ComponentPage::AccessibleIcon => rsx! { AccessibleIconPage {} },
                     ComponentPage::RatingGroup => rsx! { RatingGroupPage {} },
                     ComponentPage::Calendar => rsx! { CalendarPage {} },
                     ComponentPage::RangeCalendar => rsx! { RangeCalendarPage {} },
+                    ComponentPage::DateField => rsx! { DateFieldPage {} },
+                    ComponentPage::TimeField => rsx! { TimeFieldPage {} },
+                    ComponentPage::DateRangeField => rsx! { DateRangeFieldPage {} },
+                    ComponentPage::TimeRangeField => rsx! { TimeRangeFieldPage {} },
+                    ComponentPage::DatePicker => rsx! { DatePickerPage {} },
+                    ComponentPage::DateRangePicker => rsx! { DateRangePickerPage {} },
                     ComponentPage::Form1B => rsx! { Form1bPage {} },
                     ComponentPage::Select => rsx! { SelectPage {} },
                     ComponentPage::Collapsible => rsx! { CollapsiblePage {} },

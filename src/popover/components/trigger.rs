@@ -21,6 +21,12 @@ pub fn PopoverTrigger(props: PopoverTriggerProps) -> Element {
     let runtime = ctx.runtime.read();
     let trigger = runtime.trigger();
     let trigger_id = props.id.unwrap_or_else(|| trigger.id().to_string());
+    runtime.register_trigger_id(&trigger_id);
+    let tid_for_drop = trigger_id.clone();
+    let runtime_for_drop = runtime.clone();
+    use_drop(move || {
+        runtime_for_drop.unregister_trigger_id(&tid_for_drop);
+    });
 
     rsx! {
         button {

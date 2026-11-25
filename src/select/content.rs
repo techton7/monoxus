@@ -38,6 +38,51 @@ pub fn SelectContent(
     let is_open = ctx.runtime.is_open();
     let rels = ctx.runtime.relationships();
     let content_id = rels.content_id().to_owned();
+    let wrapper_id = format!("{content_id}-wrapper");
+    let portal_id = format!("{content_id}-portal-root");
+
+    let parent_branch = try_consume_context::<crate::foundation::overlay::OverlayBranchContext>();
+    let mut layer_registered = use_signal(|| false);
+    if is_open {
+        if !*layer_registered.peek() {
+            crate::foundation::overlay::register_active_overlay_layer(&content_id);
+            layer_registered.set(true);
+        }
+        if let Some(ref branch_ctx) = parent_branch {
+            branch_ctx.register_branch(content_id.clone());
+            branch_ctx.register_branch(wrapper_id.clone());
+            branch_ctx.register_branch(portal_id.clone());
+        }
+    } else {
+        if *layer_registered.peek() {
+            crate::foundation::overlay::unregister_active_overlay_layer(&content_id);
+            layer_registered.set(false);
+        }
+        if let Some(ref branch_ctx) = parent_branch {
+            branch_ctx.unregister_branch(content_id.clone());
+            branch_ctx.unregister_branch(wrapper_id.clone());
+            branch_ctx.unregister_branch(portal_id.clone());
+        }
+    }
+    use_effect(use_reactive((&is_open,), {
+        let parent_branch = parent_branch.clone();
+        let cid = content_id.clone();
+        let wid = wrapper_id.clone();
+        let pid = portal_id.clone();
+        move |(open,)| {
+            if let Some(ref branch_ctx) = parent_branch {
+                if open {
+                    branch_ctx.register_branch(cid.clone());
+                    branch_ctx.register_branch(wid.clone());
+                    branch_ctx.register_branch(pid.clone());
+                } else {
+                    branch_ctx.unregister_branch(cid.clone());
+                    branch_ctx.unregister_branch(wid.clone());
+                    branch_ctx.unregister_branch(pid.clone());
+                }
+            }
+        }
+    }));
 
     // Sync placement props and behaviors to runtime state
     ctx.runtime.set_side(side);
@@ -138,7 +183,15 @@ pub fn SelectContent(
     }));
 
     let drop_cid = content_id.clone();
+    let drop_wid = wrapper_id.clone();
+    let drop_pid = portal_id.clone();
+    let drop_parent_branch = parent_branch.clone();
     use_drop(move || {
+        if let Some(ref branch_ctx) = drop_parent_branch {
+            branch_ctx.unregister_branch(drop_cid.clone());
+            branch_ctx.unregister_branch(drop_wid.clone());
+            branch_ctx.unregister_branch(drop_pid.clone());
+        }
         let lock_id = format!("select-scroll-lock-{}", drop_cid);
         crate::foundation::browser::release_scroll_lock(&lock_id, Some(24));
         crate::foundation::browser::restore_body_user_select();
@@ -213,6 +266,7 @@ pub fn SelectContent(
 
     rsx! {
         div {
+            id: "{wrapper_id}",
             "data-monoxus-floating-content-wrapper": "",
             style: "{wrapper_style}",
             "data-reference-hidden": "{ref_hidden_str}",
@@ -236,15 +290,30 @@ pub fn SelectContent(
                 onkeydown: {
                     let runtime = ctx.runtime.clone();
                     let esc_cb = on_escape_keydown;
+                    let keydown_cid = content_id.clone();
                     move |evt| {
                         if evt.key() == Key::Named(NamedKey::Escape) {
+                            if !runtime.is_open() {
+                                evt.prevent_default();
+                                evt.stop_propagation();
+                                return;
+                            }
+                            if crate::foundation::overlay::is_overlay_escape_consumed()
+                                || !crate::foundation::overlay::is_topmost_overlay_layer(&keydown_cid)
+                            {
+                                return;
+                            }
                             if let Some(ref cb) = esc_cb {
                                 cb.call(evt.clone());
                             }
                             if !evt.default_action_enabled() {
                                 runtime.set_escape_prevented(true);
+                                evt.stop_propagation();
                                 return;
                             }
+                            crate::foundation::overlay::mark_overlay_escape_consumed();
+                            evt.prevent_default();
+                            evt.stop_propagation();
                             runtime.close_dropdown();
                             return;
                         }

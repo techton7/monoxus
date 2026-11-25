@@ -1,0 +1,32 @@
+[[scenarios]]
+name = "time-field-initial"
+description = "Verify 12h TimeField with dayPeriod and 24h TimeField with seconds and min/max bounds"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-time-field"
+
+[[scenarios.targets]]
+id = "sw5c-tf-12h-input"
+selector = "#sw5c-tf-12h-input"
+part = "input"
+state = "12h"
+
+[[scenarios.targets]]
+id = "sw5c-tf-12h-value"
+selector = "#sw5c-tf-12h-value"
+part = "readout"
+state = "09:30:00"
+
+[[scenarios.targets]]
+id = "sw5c-tf-24h-input"
+selector = "#sw5c-tf-24h-input"
+part = "input"
+state = "24h-second"
+
+[[scenarios.targets]]
+id = "sw5c-tf-24h-value"
+selector = "#sw5c-tf-24h-value"
+part = "readout"
+state = "14:15:30"

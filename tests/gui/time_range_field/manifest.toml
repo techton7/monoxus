@@ -1,0 +1,32 @@
+[[scenarios]]
+name = "time-range-field-initial"
+description = "Verify 12h and 24h TimeRangeField Start/End inputs and range readouts"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-time-range-field"
+
+[[scenarios.targets]]
+id = "sw5c-trf-12h"
+selector = "#sw5c-trf-12h"
+part = "root"
+state = "12h"
+
+[[scenarios.targets]]
+id = "sw5c-trf-12h-start-input"
+selector = "#sw5c-trf-12h-start-input"
+part = "input"
+state = "start"
+
+[[scenarios.targets]]
+id = "sw5c-trf-12h-end-input"
+selector = "#sw5c-trf-12h-end-input"
+part = "input"
+state = "end"
+
+[[scenarios.targets]]
+id = "sw5c-trf-24h"
+selector = "#sw5c-trf-24h"
+part = "root"
+state = "24h"

@@ -372,3 +372,393 @@ fn range_validation_and_highlighted_preview() {
         None
     );
 }
+
+fn time(h: u8, m: u8, s: u8) -> CalendarTime {
+    CalendarTime::from_hms(h, m, s).expect("valid test time")
+}
+
+#[test]
+fn calendar_time_and_datetime_parsing_arithmetic_cycling_and_clamping() {
+    assert_eq!(CalendarTime::from_iso_str("09:30"), Some(time(9, 30, 0)));
+    assert_eq!(
+        CalendarTime::from_iso_str("14:05:09"),
+        Some(time(14, 5, 9))
+    );
+    assert_eq!(
+        CalendarTime::from_iso_str("14:05:09.25"),
+        CalendarTime::new(14, 5, 9, 250)
+    );
+    assert_eq!(CalendarTime::from_iso_str("24:00:00"), None);
+    assert_eq!("23:59:59".parse::<CalendarTime>(), Ok(time(23, 59, 59)));
+
+    assert_eq!(hour_12_display(0), 12);
+    assert_eq!(hour_12_display(1), 1);
+    assert_eq!(hour_12_display(12), 12);
+    assert_eq!(hour_12_display(13), 1);
+    assert_eq!(hour_12_display(23), 11);
+
+    assert_eq!(hour_12_to_24(12, DayPeriod::Am), Some(0));
+    assert_eq!(hour_12_to_24(1, DayPeriod::Am), Some(1));
+    assert_eq!(hour_12_to_24(12, DayPeriod::Pm), Some(12));
+    assert_eq!(hour_12_to_24(1, DayPeriod::Pm), Some(13));
+    assert_eq!(hour_12_to_24(0, DayPeriod::Am), None);
+    assert_eq!(hour_12_to_24(13, DayPeriod::Pm), None);
+
+    // Arithmetic wrap vs clamp
+    assert_eq!(time(23, 30, 0).add_hours(2), time(1, 30, 0));
+    assert_eq!(time(0, 15, 0).add_minutes(-30), time(23, 45, 0));
+    assert_eq!(time(23, 59, 50).add_seconds(20), time(0, 0, 10));
+    assert_eq!(
+        time(23, 30, 0).add_hours_clamped(2),
+        CalendarTime::new(23, 59, 59, 999).unwrap()
+    );
+    assert_eq!(time(0, 15, 0).add_minutes_clamped(-30), CalendarTime::midnight());
+
+    // Cycling without carry
+    assert_eq!(time(11, 59, 59).cycle_hour(1, HourCycle::H12), time(0, 59, 59));
+    assert_eq!(time(0, 0, 0).cycle_hour(-1, HourCycle::H12), time(11, 0, 0));
+    assert_eq!(time(23, 0, 0).cycle_hour(1, HourCycle::H12), time(12, 0, 0));
+    assert_eq!(time(23, 0, 0).cycle_hour(1, HourCycle::H24), time(0, 0, 0));
+    assert_eq!(time(10, 59, 0).cycle_minute(1), time(10, 0, 0));
+    assert_eq!(time(10, 0, 59).cycle_second(1), time(10, 0, 0));
+    assert_eq!(time(9, 15, 0).toggle_day_period(), time(21, 15, 0));
+
+    // Clamp
+    assert_eq!(
+        time(7, 0, 0).clamp(Some(time(9, 0, 0)), Some(time(17, 0, 0))),
+        time(9, 0, 0)
+    );
+    assert_eq!(
+        time(19, 0, 0).clamp(Some(time(9, 0, 0)), Some(time(17, 0, 0))),
+        time(17, 0, 0)
+    );
+
+    // CalendarDateTime ISO + carry
+    let dt = CalendarDateTime::from_iso_str("2024-02-28T23:30:00").expect("valid dt");
+    assert_eq!(
+        dt.add_hours(2),
+        CalendarDateTime::new(date(2024, 2, 29), time(1, 30, 0))
+    );
+    assert_eq!(
+        dt.cycle_hour(2, HourCycle::H24),
+        CalendarDateTime::new(date(2024, 2, 28), time(1, 30, 0))
+    );
+}
+
+#[test]
+fn date_value_time_value_and_range_order_validation() {
+    let d1 = DateValue::Date(date(2024, 5, 10));
+    let dt1 = DateValue::DateTime(CalendarDateTime::new(date(2024, 5, 10), time(9, 0, 0)));
+    let d2 = DateValue::Date(date(2024, 5, 11));
+    assert!(d1 < dt1);
+    assert!(dt1 < d2);
+    assert_eq!(DateValue::from_iso_str("2024-05-10"), Some(d1));
+    assert_eq!(DateValue::from_iso_str("2024-05-10T09:00:00"), Some(dt1));
+    assert_eq!(
+        Granularity::infer_from_date_value(None, d1),
+        Granularity::Day
+    );
+    assert_eq!(
+        Granularity::infer_from_date_value(None, dt1),
+        Granularity::Minute
+    );
+
+    // DateRange <-> DateValueRange conversions
+    let dr = DateRange::new(Some(date(2024, 5, 10)), Some(date(2024, 5, 15)));
+    let dvr: DateValueRange = dr.into();
+    assert_eq!(dvr.start, Some(DateValue::Date(date(2024, 5, 10))));
+    assert_eq!(DateRange::from(dvr), dr);
+
+    // Built-in end < start RangeOrder validation (5C D-2)
+    let inverted_dates = DateValueRange::new(Some(d2), Some(d1));
+    assert!(inverted_dates.is_inverted());
+    assert_eq!(
+        inverted_dates.validate_range_order(),
+        Err(FieldInvalidReason::RangeOrder)
+    );
+    assert_eq!(
+        validate_date_value_range(inverted_dates, Some(d1), Some(d2), None),
+        Err(FieldInvalidReason::RangeOrder)
+    );
+    assert_eq!(
+        validate_date_value_range(
+            inverted_dates,
+            Some(d1),
+            Some(d2),
+            Some(vec!["custom error".to_string()])
+        ),
+        Err(FieldInvalidReason::Custom(vec!["custom error".to_string()]))
+    );
+
+    let t_start = TimeValue::Time(time(14, 0, 0));
+    let t_end = TimeValue::Time(time(9, 0, 0));
+    let inverted_times = TimeRange::new(Some(t_start), Some(t_end));
+    assert!(inverted_times.is_inverted());
+    assert_eq!(
+        validate_time_range(inverted_times, None, None, None),
+        Err(FieldInvalidReason::RangeOrder)
+    );
+    let valid_times = TimeRange::new(Some(t_end), Some(t_start));
+    assert!(!valid_times.is_inverted());
+    assert_eq!(
+        validate_time_range(
+            valid_times,
+            Some(TimeValue::Time(time(10, 0, 0))),
+            None,
+            None
+        ),
+        Err(FieldInvalidReason::Min)
+    );
+}
+
+#[test]
+fn field_locale_formats_and_granularity_hour_omits_second() {
+    let en_us = FieldLocaleFormat::EnUs.template();
+    assert_eq!(en_us.default_hour_cycle, HourCycle::H12);
+    assert_eq!(en_us.placeholders.year, "yyyy");
+    assert_eq!(en_us.aria_labels.month, "month");
+
+    // 5C D-4 fix: Granularity::Hour omits both minute and second
+    let hour_tokens = en_us.date_field_tokens(Granularity::Hour, Some(HourCycle::H12), false);
+    assert!(!hour_tokens.contains(&FieldTemplateToken::Segment(SegmentKind::Minute)));
+    assert!(!hour_tokens.contains(&FieldTemplateToken::Segment(SegmentKind::Second)));
+    assert!(hour_tokens.contains(&FieldTemplateToken::Segment(SegmentKind::Hour)));
+    assert!(hour_tokens.contains(&FieldTemplateToken::Segment(SegmentKind::DayPeriod)));
+
+    let en_gb = FieldLocaleFormat::EnGb.template();
+    assert_eq!(en_gb.default_hour_cycle, HourCycle::H24);
+    assert_eq!(
+        en_gb.date_tokens[0],
+        FieldTemplateToken::Segment(SegmentKind::Day)
+    );
+
+    let ko_kr = FieldLocaleFormat::KoKr.template();
+    assert_eq!(ko_kr.default_hour_cycle, HourCycle::H12);
+    assert_eq!(ko_kr.placeholders.year, "연도");
+    assert_eq!(ko_kr.placeholders.month, "월");
+    assert_eq!(ko_kr.placeholders.day, "일");
+    assert_eq!(ko_kr.am_label, "오전");
+    assert_eq!(ko_kr.pm_label, "오후");
+    let ko_hour = ko_kr.time_tokens(HourCycle::H12, TimeGranularity::Hour);
+    assert_eq!(
+        ko_hour,
+        vec![
+            FieldTemplateToken::Segment(SegmentKind::DayPeriod),
+            FieldTemplateToken::Literal(Cow::Borrowed(" ")),
+            FieldTemplateToken::Segment(SegmentKind::Hour),
+        ]
+    );
+
+    let iso = FieldLocaleFormat::Iso.template();
+    assert_eq!(iso.default_hour_cycle, HourCycle::H24);
+    assert_eq!(
+        iso.date_tokens[0],
+        FieldTemplateToken::Segment(SegmentKind::Year)
+    );
+    assert_eq!(
+        CalendarLocale::from_tag("en-GB"),
+        CalendarLocale::EnGb
+    );
+    assert_eq!(
+        CalendarLocale::from_tag("iso"),
+        CalendarLocale::Iso
+    );
+}
+
+#[test]
+fn segment_engine_digit_entry_auto_advance_overflow_and_zero_rules() {
+    let mut engine = SegmentEngine::new_date(
+        FieldLocaleFormat::EnUs,
+        Granularity::Day,
+        None,
+        true,
+        DateValue::Date(date(2026, 6, 15)),
+    );
+
+    // Leading 0 waits; 0 then 0 stays "0" on 1-based month; 0 then 5 -> "05" + advance
+    let r = engine.apply_intent(SegmentKind::Month, FieldSegmentIntent::Digit(0));
+    assert_eq!(engine.values().month.as_deref(), Some("0"));
+    assert_eq!(r.move_focus, None);
+    let r = engine.apply_intent(SegmentKind::Month, FieldSegmentIntent::Digit(0));
+    assert_eq!(engine.values().month.as_deref(), Some("0"));
+    assert_eq!(r.move_focus, None);
+    let r = engine.apply_intent(SegmentKind::Month, FieldSegmentIntent::Digit(5));
+    assert_eq!(engine.values().month.as_deref(), Some("05"));
+    assert_eq!(r.move_focus, Some(SegmentFocusMove::Next));
+
+    // Immediate auto-advance when d > max / 10 (day: 4 > 3 -> "04" + advance)
+    let r = engine.apply_intent(SegmentKind::Day, FieldSegmentIntent::Digit(4));
+    assert_eq!(engine.values().day.as_deref(), Some("04"));
+    assert_eq!(r.move_focus, Some(SegmentFocusMove::Next));
+
+    // Overflow overwrite (month: blur -> 1 -> 5 -> "05" + advance)
+    engine.apply_intent(SegmentKind::Month, FieldSegmentIntent::Blur);
+    let r = engine.apply_intent(SegmentKind::Month, FieldSegmentIntent::Digit(1));
+    assert_eq!(engine.values().month.as_deref(), Some("1"));
+    assert_eq!(r.move_focus, None);
+    let r = engine.apply_intent(SegmentKind::Month, FieldSegmentIntent::Digit(5));
+    assert_eq!(engine.values().month.as_deref(), Some("05"));
+    assert_eq!(r.move_focus, Some(SegmentFocusMove::Next));
+
+    // 4-digit year entry + commit
+    for (digit, expected_move) in [
+        (2, None),
+        (0, None),
+        (2, None),
+        (6, Some(SegmentFocusMove::Next)),
+    ] {
+        let r = engine.apply_intent(SegmentKind::Year, FieldSegmentIntent::Digit(digit));
+        assert_eq!(r.move_focus, expected_move);
+    }
+    assert_eq!(
+        engine.to_date_value(),
+        Some(DateValue::Date(date(2026, 5, 4)))
+    );
+
+    // 00 allowed on 0-based segments (24h hour & minute)
+    let mut time_engine = SegmentEngine::new_time(
+        FieldLocaleFormat::Iso,
+        TimeGranularity::Minute,
+        Some(HourCycle::H24),
+        TimeValue::Time(CalendarTime::midnight()),
+    );
+    let r = time_engine.apply_intent(SegmentKind::Hour, FieldSegmentIntent::Digit(0));
+    assert_eq!(r.move_focus, None);
+    let r = time_engine.apply_intent(SegmentKind::Hour, FieldSegmentIntent::Digit(0));
+    assert_eq!(time_engine.values().hour.as_deref(), Some("00"));
+    assert_eq!(r.move_focus, Some(SegmentFocusMove::Next));
+    let r = time_engine.apply_intent(SegmentKind::Minute, FieldSegmentIntent::Digit(0));
+    assert_eq!(r.move_focus, None);
+    let r = time_engine.apply_intent(SegmentKind::Minute, FieldSegmentIntent::Digit(0));
+    assert_eq!(time_engine.values().minute.as_deref(), Some("00"));
+    assert_eq!(r.move_focus, Some(SegmentFocusMove::Next));
+    assert_eq!(
+        r.committed_time_value,
+        Some(TimeValue::Time(CalendarTime::midnight()))
+    );
+}
+
+#[test]
+fn segment_engine_leap_year_clamping_backspace_blur_and_day_period() {
+    let mut engine = SegmentEngine::new_date(
+        FieldLocaleFormat::Iso,
+        Granularity::Day,
+        None,
+        true,
+        DateValue::Date(date(2024, 2, 29)),
+    );
+    engine.sync_from_date_value(Some(DateValue::Date(date(2024, 2, 29))));
+
+    // Year Backspace -> post-backspace edit mode -> 3 -> 2023 -> day clamps 29 -> 28
+    let r = engine.apply_intent(SegmentKind::Year, FieldSegmentIntent::Backspace);
+    assert_eq!(engine.values().year.as_deref(), Some("202"));
+    assert_eq!(r.move_focus, None);
+    let r = engine.apply_intent(SegmentKind::Year, FieldSegmentIntent::Digit(3));
+    assert_eq!(engine.values().year.as_deref(), Some("2023"));
+    assert_eq!(engine.values().day.as_deref(), Some("28"));
+    assert_eq!(r.move_focus, Some(SegmentFocusMove::Next));
+    assert_eq!(
+        r.committed_date_value,
+        Some(DateValue::Date(date(2023, 2, 28)))
+    );
+
+    // Delete clears segment and marks cleared_value = true
+    let r = engine.apply_intent(SegmentKind::Day, FieldSegmentIntent::Delete);
+    assert_eq!(engine.values().day, None);
+    assert!(r.cleared_value);
+    assert_eq!(r.committed_date_value, None);
+
+    // Backspace on empty segment moves focus Prev
+    let r = engine.apply_intent(SegmentKind::Day, FieldSegmentIntent::Backspace);
+    assert_eq!(r.move_focus, Some(SegmentFocusMove::Prev));
+
+    // Blur zero-pads single-digit day
+    engine.apply_intent(SegmentKind::Day, FieldSegmentIntent::Digit(2));
+    assert_eq!(engine.values().day.as_deref(), Some("2"));
+    engine.apply_intent(SegmentKind::Day, FieldSegmentIntent::Blur);
+    assert_eq!(engine.values().day.as_deref(), Some("02"));
+
+    // 12h TimeField dayPeriod a/p toggle (5C D-4)
+    assert_eq!(parse_day_period_key("a"), Some(DayPeriod::Am));
+    assert_eq!(parse_day_period_key("A"), Some(DayPeriod::Am));
+    assert_eq!(parse_day_period_key("p"), Some(DayPeriod::Pm));
+    assert_eq!(parse_day_period_key("P"), Some(DayPeriod::Pm));
+    assert_eq!(parse_day_period_key("x"), None);
+
+    let mut t_engine = SegmentEngine::new_time(
+        FieldLocaleFormat::EnUs,
+        TimeGranularity::Minute,
+        Some(HourCycle::H12),
+        TimeValue::Time(time(9, 30, 0)),
+    );
+    t_engine.sync_from_time_value(Some(TimeValue::Time(time(9, 30, 0))));
+    let r = t_engine.apply_intent(
+        SegmentKind::DayPeriod,
+        FieldSegmentIntent::DayPeriodKey(DayPeriod::Pm),
+    );
+    assert_eq!(
+        r.committed_time_value,
+        Some(TimeValue::Time(time(21, 30, 0)))
+    );
+    let r = t_engine.apply_intent(SegmentKind::Hour, FieldSegmentIntent::Increment);
+    assert_eq!(
+        r.committed_time_value,
+        Some(TimeValue::Time(time(22, 30, 0)))
+    );
+}
+
+#[test]
+fn segment_engine_iso_and_localized_paste_parsing() {
+    assert_eq!(
+        parse_pasted_date_value("2026-08-15", Granularity::Day),
+        Some(DateValue::Date(date(2026, 8, 15)))
+    );
+    assert_eq!(
+        parse_pasted_date_value("2026-08-15T14:35:00", Granularity::Minute),
+        Some(DateValue::DateTime(CalendarDateTime::new(
+            date(2026, 8, 15),
+            time(14, 35, 0)
+        )))
+    );
+    assert_eq!(
+        parse_pasted_date_value("08/15/2026", Granularity::Day),
+        Some(DateValue::Date(date(2026, 8, 15)))
+    );
+    assert_eq!(
+        parse_pasted_date_value("2026. 08. 15.", Granularity::Day),
+        Some(DateValue::Date(date(2026, 8, 15)))
+    );
+
+    assert_eq!(
+        parse_pasted_time_value("14:35:00"),
+        Some(TimeValue::Time(time(14, 35, 0)))
+    );
+    assert_eq!(
+        parse_pasted_time_value("2:35 PM"),
+        Some(TimeValue::Time(time(14, 35, 0)))
+    );
+    assert_eq!(
+        parse_pasted_time_value("12:00 AM"),
+        Some(TimeValue::Time(time(0, 0, 0)))
+    );
+    assert_eq!(
+        parse_pasted_time_value("오후 02:15:30"),
+        Some(TimeValue::Time(time(14, 15, 30)))
+    );
+
+    let mut engine = SegmentEngine::new_date(
+        FieldLocaleFormat::EnUs,
+        Granularity::Day,
+        None,
+        true,
+        DateValue::Date(date(2026, 1, 1)),
+    );
+    let r = engine.apply_intent(
+        SegmentKind::Month,
+        FieldSegmentIntent::Paste("2026-08-15".to_string()),
+    );
+    assert_eq!(
+        r.committed_date_value,
+        Some(DateValue::Date(date(2026, 8, 15)))
+    );
+}

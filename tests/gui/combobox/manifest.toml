@@ -1,0 +1,97 @@
+[[scenarios]]
+name = "combobox-single-open"
+description = "Open single-select Combobox via trigger and verify floating listbox geometry"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-combobox"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cbx-single-trigger"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-single-input"
+selector = "#sw4b-cbx-single-input"
+part = "input"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-single-content"
+selector = "#sw4b-cbx-single-content"
+part = "content"
+state = "open"
+
+[[scenarios]]
+name = "combobox-single-escape-dismiss"
+description = "Verify single-select Combobox closes on Escape without losing input focus"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-combobox"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cbx-single-trigger"
+
+[[scenarios.actions]]
+kind = "key"
+key = "Escape"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-single-open"
+selector = "#sw4b-cbx-single-open"
+part = "readout"
+state = "closed"
+
+[[scenarios]]
+name = "combobox-multi-open"
+description = "Open multiple-select Combobox and verify static listbox and selected pills"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-combobox"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cbx-multi-trigger"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-multi-pills"
+selector = "#sw4b-cbx-multi-pills"
+part = "readout"
+state = "multi-selected"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-multi-content"
+selector = "#sw4b-cbx-multi-content"
+part = "content"
+state = "open"
+
+[[scenarios]]
+name = "combobox-scroll-open"
+description = "Open long-list scrollable Combobox and verify viewport geometry"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-combobox"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cbx-scroll-trigger"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-scroll-content"
+selector = "#sw4b-cbx-scroll-content"
+part = "content"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw4b-cbx-scroll-viewport"
+selector = "#sw4b-cbx-scroll-viewport"
+part = "viewport"
+state = "scrollable"

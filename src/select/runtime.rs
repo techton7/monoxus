@@ -214,6 +214,7 @@ where
     let cleanup_state = state;
     let cleanup_content_id = select.relationships().content_id().to_owned();
     dioxus::core::use_drop(move || {
+        crate::foundation::overlay::unregister_active_overlay_layer(cleanup_content_id.as_str());
         stop_select_presence_monitor(cleanup_state, cleanup_content_id.as_str());
         let mut dm_sig = cleanup_state.dismiss_monitor;
         if let Ok(mut dm) = dm_sig.try_write() {
@@ -231,8 +232,18 @@ where
 
     let presence_sync_state = state;
     let presence_content_id = select.relationships().content_id().to_owned();
+    let mut layer_registered = use_signal(|| false);
     use_effect(use_reactive((&state.open,), move |(open,)| {
-        sync_select_presence(&presence_content_id, presence_sync_state, *open.read());
+        let is_open = *open.read();
+        sync_select_presence(&presence_content_id, presence_sync_state, is_open);
+        let registered = *layer_registered.peek();
+        if is_open && !registered {
+            crate::foundation::overlay::register_active_overlay_layer(&presence_content_id);
+            layer_registered.set(true);
+        } else if !is_open && registered {
+            crate::foundation::overlay::unregister_active_overlay_layer(&presence_content_id);
+            layer_registered.set(false);
+        }
     }));
 
     let effect_state = state;
@@ -765,6 +776,9 @@ impl SelectRuntime {
         self.clear_pointer_dismiss();
         let mut open_sig = self.state.open;
         open_sig.set(true);
+        crate::foundation::overlay::register_active_overlay_layer(
+            self.relationships().content_id(),
+        );
         sync_select_presence(self.relationships().content_id(), self.state, true);
 
         let mut tb_sig = self.state.typeahead_buffer;

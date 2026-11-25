@@ -12,7 +12,112 @@ pub use self::grace::*;
 pub use self::portal::*;
 pub use self::presence::*;
 
-use std::{cell::RefCell, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    rc::Rc,
+};
+
+thread_local! {
+    static ACTIVE_OVERLAY_LAYERS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    static OVERLAY_ESCAPE_CONSUMED_GENERATION: Cell<u64> = const { Cell::new(0) };
+    static OVERLAY_ESCAPE_CONSUMED: Cell<bool> = const { Cell::new(false) };
+}
+
+pub fn mark_overlay_escape_consumed() {
+    let generation = OVERLAY_ESCAPE_CONSUMED_GENERATION.with(|g| {
+        let next = g.get().wrapping_add(1);
+        g.set(next);
+        next
+    });
+    OVERLAY_ESCAPE_CONSUMED.with(|flag| flag.set(true));
+    crate::foundation::browser::spawn_root_task(async move {
+        let _ = oxidase::frame::next_frame().await;
+        OVERLAY_ESCAPE_CONSUMED_GENERATION.with(|g| {
+            if g.get() == generation {
+                OVERLAY_ESCAPE_CONSUMED.with(|flag| flag.set(false));
+            }
+        });
+    });
+}
+
+pub fn is_overlay_escape_consumed() -> bool {
+    OVERLAY_ESCAPE_CONSUMED.with(|flag| flag.get())
+}
+
+pub fn clear_overlay_escape_consumed() {
+    OVERLAY_ESCAPE_CONSUMED.with(|flag| flag.set(false));
+}
+
+pub fn register_active_overlay_layer(layer_id: &str) {
+    if layer_id.is_empty() {
+        return;
+    }
+    ACTIVE_OVERLAY_LAYERS.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        stack.retain(|existing| existing != layer_id);
+        stack.push(layer_id.to_owned());
+    });
+}
+
+pub fn unregister_active_overlay_layer(layer_id: &str) {
+    ACTIVE_OVERLAY_LAYERS.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        stack.retain(|existing| existing != layer_id);
+    });
+}
+
+pub fn is_topmost_overlay_layer(layer_id: &str) -> bool {
+    ACTIVE_OVERLAY_LAYERS.with(|stack| {
+        let stack = stack.borrow();
+        match stack.last() {
+            None => true,
+            Some(top) => top == layer_id,
+        }
+    })
+}
+
+pub fn active_overlay_layers_snapshot() -> Vec<String> {
+    ACTIVE_OVERLAY_LAYERS.with(|stack| stack.borrow().clone())
+}
+
+pub type OverlayEscapeGuardFn = Rc<RefCell<dyn FnMut() -> bool>>;
+
+#[derive(Clone)]
+pub struct OverlayEscapeGuardContext {
+    register: Rc<RefCell<dyn FnMut(String, OverlayEscapeGuardFn)>>,
+    unregister: Rc<RefCell<dyn FnMut(String)>>,
+}
+
+impl PartialEq for OverlayEscapeGuardContext {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.register, &other.register)
+            && Rc::ptr_eq(&self.unregister, &other.unregister)
+    }
+}
+
+impl OverlayEscapeGuardContext {
+    pub fn new(
+        register_guard: impl FnMut(String, OverlayEscapeGuardFn) + 'static,
+        unregister_guard: impl FnMut(String) + 'static,
+    ) -> Self {
+        Self {
+            register: Rc::new(RefCell::new(register_guard)),
+            unregister: Rc::new(RefCell::new(unregister_guard)),
+        }
+    }
+
+    pub fn register_guard(&self, id: impl Into<String>, guard: impl FnMut() -> bool + 'static) {
+        if let Ok(mut cb) = self.register.try_borrow_mut() {
+            cb(id.into(), Rc::new(RefCell::new(guard)));
+        }
+    }
+
+    pub fn unregister_guard(&self, id: impl Into<String>) {
+        if let Ok(mut cb) = self.unregister.try_borrow_mut() {
+            cb(id.into());
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct OverlayBranchContext {

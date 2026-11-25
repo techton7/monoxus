@@ -219,7 +219,7 @@ impl PopoverLifecycle {
 
     pub fn set_open_focus_policy(&mut self, policy: PopoverOpenFocusPolicy) {
         match &policy {
-            PopoverOpenFocusPolicy::FirstFocusable => {
+            PopoverOpenFocusPolicy::FirstFocusable | PopoverOpenFocusPolicy::Selector(_) => {
                 self.focus_scope.set_autofocus_enabled(true);
                 self.focus_scope.set_autofocus_target(None);
             }

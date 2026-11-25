@@ -1,0 +1,51 @@
+[[scenarios]]
+name = "date-picker-open-and-select"
+description = "Open DatePicker popover, verify calendar content and nested Month/Year Select triggers, and select a date"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-picker"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-dp-main-trigger"
+
+[[scenarios.targets]]
+id = "sw5c-dp-main-content"
+selector = "#sw5c-dp-main-content"
+part = "content"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw5c-dp-main-calendar"
+selector = "#sw5c-dp-main-calendar"
+part = "calendar"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw5c-dp-main-day-2024-06-15"
+selector = "#sw5c-dp-main-day-2024-06-15"
+part = "day"
+state = "selected"
+
+[[scenarios]]
+name = "date-picker-multi-isolation"
+description = "Verify two side-by-side DatePickers with id: None render independent triggers"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-picker"
+
+[[scenarios.targets]]
+id = "sw5c-dp-iso-a-trigger"
+selector = "#sw5c-dp-iso-a-trigger"
+part = "trigger"
+state = "closed"
+
+[[scenarios.targets]]
+id = "sw5c-dp-iso-b-trigger"
+selector = "#sw5c-dp-iso-b-trigger"
+part = "trigger"
+state = "closed"

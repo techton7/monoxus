@@ -1,0 +1,42 @@
+[[scenarios]]
+name = "date-range-picker-open"
+description = "Open 2-month DateRangePicker popover and verify RangeCalendar grids and range readouts"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-range-picker"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw5c-drp-main-trigger"
+
+[[scenarios.targets]]
+id = "sw5c-drp-main-content"
+selector = "#sw5c-drp-main-content"
+part = "content"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw5c-drp-main-grid-0"
+selector = "#sw5c-drp-main-grid-0"
+part = "grid"
+state = "month-0"
+
+[[scenarios.targets]]
+id = "sw5c-drp-main-grid-1"
+selector = "#sw5c-drp-main-grid-1"
+part = "grid"
+state = "month-1"
+
+[[scenarios.targets]]
+id = "sw5c-drp-start-value"
+selector = "#sw5c-drp-start-value"
+part = "readout"
+state = "2024-06-10"
+
+[[scenarios.targets]]
+id = "sw5c-drp-end-value"
+selector = "#sw5c-drp-end-value"
+part = "readout"
+state = "2024-06-15"

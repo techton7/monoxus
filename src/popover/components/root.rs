@@ -1,8 +1,10 @@
+use std::borrow::Cow;
+
 use dioxus::prelude::*;
 
 use crate::foundation::{
     overlay::{FloatingLayer, PlacementAlign, PlacementSide, PortalHost},
-    shared::ScopeHandle,
+    shared::{ScopeHandle, use_stable_id},
 };
 use crate::popover::{
     components::PopoverContext,
@@ -57,7 +59,7 @@ pub fn PopoverRoot(props: PopoverRootProps) -> Element {
     let fallback_open = use_signal(|| props.default_open.unwrap_or(false));
     let open_signal = props.open.unwrap_or(fallback_open);
 
-    let scope_id = props.id.clone().unwrap_or_else(|| "popover".to_string());
+    let scope_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
     let scope = ScopeHandle::root("popover").child(scope_id);
     let relationships = PopoverRelationships::new(scope.clone());
 

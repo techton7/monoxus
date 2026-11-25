@@ -1,0 +1,80 @@
+[[scenarios]]
+name = "command-initial"
+description = "Verify initial Command inline palette, groups, disabled item, CommandDialog trigger, and 2D grid layout"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-command"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-inline"
+selector = "#sw4b-cmd-inline"
+part = "root"
+state = "default"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-inline-input"
+selector = "#sw4b-cmd-inline-input"
+part = "input"
+state = "default"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-inline-viewport"
+selector = "#sw4b-cmd-inline-viewport"
+part = "viewport"
+state = "scrollable"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-grid"
+selector = "#sw4b-cmd-grid"
+part = "root"
+state = "grid-3col"
+
+[[scenarios]]
+name = "command-dialog-open"
+description = "Open CommandDialog via trigger button and verify modal dialog content mounts"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-command"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cmd-dialog-trigger"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-dialog-content"
+selector = "#sw4b-cmd-dialog-content"
+part = "dialog"
+state = "open"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-dialog-input"
+selector = "#sw4b-cmd-dialog-input"
+part = "input"
+state = "focused"
+
+[[scenarios]]
+name = "command-dialog-escape-dismiss"
+description = "Dismiss CommandDialog with Escape key and verify closed state"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-command"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#sw4b-cmd-dialog-trigger"
+
+[[scenarios.actions]]
+kind = "key"
+key = "Escape"
+
+[[scenarios.targets]]
+id = "sw4b-cmd-dialog-state"
+selector = "#sw4b-cmd-dialog-state"
+part = "readout"
+state = "closed"

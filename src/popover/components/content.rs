@@ -84,6 +84,29 @@ pub fn PopoverContent(props: PopoverContentProps) -> Element {
         )
     });
 
+    let runtime_for_escape_guard = runtime.clone();
+    use_context_provider(|| {
+        let rt_reg = runtime_for_escape_guard.clone();
+        let rt_unreg = runtime_for_escape_guard.clone();
+        crate::foundation::overlay::OverlayEscapeGuardContext::new(
+            move |id: String, guard: crate::foundation::overlay::OverlayEscapeGuardFn| {
+                rt_reg.register_escape_guard(id, guard);
+            },
+            move |id: String| {
+                rt_unreg.unregister_escape_guard(&id);
+            },
+        )
+    });
+
+    let mut layer_registered = use_signal(|| false);
+    if is_open && !*layer_registered.peek() {
+        crate::foundation::overlay::register_active_overlay_layer(&content_id);
+        layer_registered.set(true);
+    } else if !is_open && *layer_registered.peek() {
+        crate::foundation::overlay::unregister_active_overlay_layer(&content_id);
+        layer_registered.set(false);
+    }
+
     if !should_render {
         return rsx! {};
     }

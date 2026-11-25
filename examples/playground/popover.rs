@@ -365,6 +365,7 @@ fn open_focus_policy_label(policy: &PopoverOpenFocusPolicy) -> String {
     match policy {
         PopoverOpenFocusPolicy::FirstFocusable => String::from("first focusable"),
         PopoverOpenFocusPolicy::Target(target) => format!("target:{target}"),
+        PopoverOpenFocusPolicy::Selector(selector) => format!("selector:{selector}"),
         PopoverOpenFocusPolicy::Suppress => String::from("suppressed"),
     }
 }

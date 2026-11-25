@@ -1,6 +1,9 @@
 use std::borrow::Cow;
 
-use super::date::{CalendarDate, Weekday};
+use super::{
+    date::{CalendarDate, DayPeriod, Granularity, HourCycle, TimeGranularity, Weekday},
+    field::SegmentKind,
+};
 
 /// Weekday column header display width (`narrow` by default, matching `bits-ui`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -231,6 +234,21 @@ impl CalendarLabels {
             empty_announcement: Cow::Borrowed("Selected date is now empty."),
         }
     }
+
+    /// Built-in `en-GB` labels (Monday week start, English month/weekday names).
+    pub fn en_gb() -> Self {
+        let mut labels = Self::en_us();
+        labels.week_starts_on = Weekday::Monday;
+        labels
+    }
+
+    /// Built-in ISO labels (Monday week start, year-first ordering, English month/weekday names).
+    pub fn iso() -> Self {
+        let mut labels = Self::en_us();
+        labels.week_starts_on = Weekday::Monday;
+        labels.date_order = CalendarDateOrder::YearFirst;
+        labels
+    }
 }
 
 impl Default for CalendarLabels {
@@ -239,22 +257,28 @@ impl Default for CalendarLabels {
     }
 }
 
-/// Pure-Rust calendar locale configuration (`en-US`, `ko-KR`, or consumer-injected [`CalendarLabels`]).
+/// Pure-Rust calendar locale configuration (`en-US`, `en-GB`, `ko-KR`, `iso`, or consumer-injected [`CalendarLabels`]).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum CalendarLocale {
     #[default]
     EnUs,
+    EnGb,
     KoKr,
+    Iso,
     Custom(CalendarLabels),
 }
 
 impl CalendarLocale {
-    /// Parses common BCP-47 tags (`"en-US"`, `"ko-KR"`) or falls back to `EnUs`.
+    /// Parses common BCP-47 tags (`"en-US"`, `"en-GB"`, `"ko-KR"`, `"iso"`) or falls back to `EnUs`.
     pub fn from_tag(tag: &str) -> Self {
         let normalized = tag.trim().to_ascii_lowercase();
         if normalized == "ko" || normalized.starts_with("ko-") {
             Self::KoKr
+        } else if normalized == "en-gb" || normalized.starts_with("en-gb-") {
+            Self::EnGb
+        } else if normalized == "iso" || normalized == "sv-se" {
+            Self::Iso
         } else {
             Self::EnUs
         }
@@ -264,9 +288,21 @@ impl CalendarLocale {
     pub fn labels(&self) -> Cow<'_, CalendarLabels> {
         match self {
             Self::EnUs => Cow::Owned(CalendarLabels::en_us()),
+            Self::EnGb => Cow::Owned(CalendarLabels::en_gb()),
             Self::KoKr => Cow::Owned(CalendarLabels::ko_kr()),
+            Self::Iso => Cow::Owned(CalendarLabels::iso()),
             Self::Custom(labels) => Cow::Borrowed(labels),
         }
+    }
+
+    /// Resolves the pure-Rust [`FieldLocaleFormat`] for segmented date/time fields.
+    pub fn field_format(&self) -> FieldLocaleFormat {
+        FieldLocaleFormat::from_calendar_locale(self)
+    }
+
+    /// Resolves the owned [`FieldLocaleTemplate`] for segmented date/time fields.
+    pub fn field_template(&self) -> FieldLocaleTemplate {
+        self.field_format().template().into_owned()
     }
 
     /// Returns the locale's default first day of week.
@@ -412,5 +448,382 @@ impl CalendarLocale {
     /// Formats the live-region announcement when the selection becomes empty.
     pub fn empty_announcement(&self) -> String {
         self.labels().empty_announcement.to_string()
+    }
+}
+
+/// A single token in a pure-Rust date/time field segment template.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum FieldTemplateToken {
+    Segment(SegmentKind),
+    Literal(Cow<'static, str>),
+}
+
+/// Localized placeholder strings for empty date/time spinbutton segments.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SegmentPlaceholders {
+    pub year: Cow<'static, str>,
+    pub month: Cow<'static, str>,
+    pub day: Cow<'static, str>,
+    pub hour: Cow<'static, str>,
+    pub minute: Cow<'static, str>,
+    pub second: Cow<'static, str>,
+    pub day_period: Cow<'static, str>,
+    pub time_zone_name: Cow<'static, str>,
+}
+
+impl SegmentPlaceholders {
+    /// English / ISO placeholders (`yyyy`, `mm`, `dd`, `––`, `AM`, `UTC`).
+    pub fn en_us() -> Self {
+        Self {
+            year: Cow::Borrowed("yyyy"),
+            month: Cow::Borrowed("mm"),
+            day: Cow::Borrowed("dd"),
+            hour: Cow::Borrowed("––"),
+            minute: Cow::Borrowed("––"),
+            second: Cow::Borrowed("––"),
+            day_period: Cow::Borrowed("AM"),
+            time_zone_name: Cow::Borrowed("UTC"),
+        }
+    }
+
+    /// Korean placeholders (`연도`, `월`, `일`, `––`, `오전`, `UTC`).
+    pub fn ko_kr() -> Self {
+        Self {
+            year: Cow::Borrowed("연도"),
+            month: Cow::Borrowed("월"),
+            day: Cow::Borrowed("일"),
+            hour: Cow::Borrowed("––"),
+            minute: Cow::Borrowed("––"),
+            second: Cow::Borrowed("––"),
+            day_period: Cow::Borrowed("오전"),
+            time_zone_name: Cow::Borrowed("UTC"),
+        }
+    }
+
+    /// Returns the placeholder text for a given [`SegmentKind`].
+    pub fn for_kind(&self, kind: SegmentKind) -> &str {
+        match kind {
+            SegmentKind::Year => self.year.as_ref(),
+            SegmentKind::Month => self.month.as_ref(),
+            SegmentKind::Day => self.day.as_ref(),
+            SegmentKind::Hour => self.hour.as_ref(),
+            SegmentKind::Minute => self.minute.as_ref(),
+            SegmentKind::Second => self.second.as_ref(),
+            SegmentKind::DayPeriod => self.day_period.as_ref(),
+            SegmentKind::TimeZoneName => self.time_zone_name.as_ref(),
+            SegmentKind::Literal => "",
+        }
+    }
+}
+
+impl Default for SegmentPlaceholders {
+    fn default() -> Self {
+        Self::en_us()
+    }
+}
+
+/// Localized `aria-label` names for date/time spinbutton segments.
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct SegmentAriaLabels {
+    pub year: Cow<'static, str>,
+    pub month: Cow<'static, str>,
+    pub day: Cow<'static, str>,
+    pub hour: Cow<'static, str>,
+    pub minute: Cow<'static, str>,
+    pub second: Cow<'static, str>,
+    pub day_period: Cow<'static, str>,
+    pub time_zone_name: Cow<'static, str>,
+}
+
+impl SegmentAriaLabels {
+    /// English `aria-label` names (`year`, `month`, `day`, `hour`, `minute`, `second`, `AM/PM`, `timezone`).
+    pub fn en_us() -> Self {
+        Self {
+            year: Cow::Borrowed("year"),
+            month: Cow::Borrowed("month"),
+            day: Cow::Borrowed("day"),
+            hour: Cow::Borrowed("hour"),
+            minute: Cow::Borrowed("minute"),
+            second: Cow::Borrowed("second"),
+            day_period: Cow::Borrowed("AM/PM"),
+            time_zone_name: Cow::Borrowed("timezone"),
+        }
+    }
+
+    /// Korean `aria-label` names (`연도`, `월`, `일`, `시`, `분`, `초`, `오전/오후`, `시간대`).
+    pub fn ko_kr() -> Self {
+        Self {
+            year: Cow::Borrowed("연도"),
+            month: Cow::Borrowed("월"),
+            day: Cow::Borrowed("일"),
+            hour: Cow::Borrowed("시"),
+            minute: Cow::Borrowed("분"),
+            second: Cow::Borrowed("초"),
+            day_period: Cow::Borrowed("오전/오후"),
+            time_zone_name: Cow::Borrowed("시간대"),
+        }
+    }
+
+    /// Returns the localized `aria-label` for a given [`SegmentKind`].
+    pub fn for_kind(&self, kind: SegmentKind) -> &str {
+        match kind {
+            SegmentKind::Year => self.year.as_ref(),
+            SegmentKind::Month => self.month.as_ref(),
+            SegmentKind::Day => self.day.as_ref(),
+            SegmentKind::Hour => self.hour.as_ref(),
+            SegmentKind::Minute => self.minute.as_ref(),
+            SegmentKind::Second => self.second.as_ref(),
+            SegmentKind::DayPeriod => self.day_period.as_ref(),
+            SegmentKind::TimeZoneName => self.time_zone_name.as_ref(),
+            SegmentKind::Literal => "",
+        }
+    }
+}
+
+impl Default for SegmentAriaLabels {
+    fn default() -> Self {
+        Self::en_us()
+    }
+}
+
+/// Pure-Rust segmented date/time locale template (zero JS `Intl`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct FieldLocaleTemplate {
+    pub default_hour_cycle: HourCycle,
+    pub date_tokens: Vec<FieldTemplateToken>,
+    pub time_12h_tokens: Vec<FieldTemplateToken>,
+    pub time_24h_tokens: Vec<FieldTemplateToken>,
+    pub date_time_separator: Cow<'static, str>,
+    pub placeholders: SegmentPlaceholders,
+    pub aria_labels: SegmentAriaLabels,
+    pub am_label: Cow<'static, str>,
+    pub pm_label: Cow<'static, str>,
+    pub empty_value_text: Cow<'static, str>,
+    pub selected_time_prefix: Cow<'static, str>,
+}
+
+impl FieldLocaleTemplate {
+    /// Built-in `en-US` template (`MM/DD/YYYY`, 12-hour `hh:mm[:ss] AM/PM`).
+    pub fn en_us() -> Self {
+        Self {
+            default_hour_cycle: HourCycle::H12,
+            date_tokens: vec![
+                FieldTemplateToken::Segment(SegmentKind::Month),
+                FieldTemplateToken::Literal(Cow::Borrowed("/")),
+                FieldTemplateToken::Segment(SegmentKind::Day),
+                FieldTemplateToken::Literal(Cow::Borrowed("/")),
+                FieldTemplateToken::Segment(SegmentKind::Year),
+            ],
+            time_12h_tokens: vec![
+                FieldTemplateToken::Segment(SegmentKind::Hour),
+                FieldTemplateToken::Literal(Cow::Borrowed(":")),
+                FieldTemplateToken::Segment(SegmentKind::Minute),
+                FieldTemplateToken::Literal(Cow::Borrowed(":")),
+                FieldTemplateToken::Segment(SegmentKind::Second),
+                FieldTemplateToken::Literal(Cow::Borrowed(" ")),
+                FieldTemplateToken::Segment(SegmentKind::DayPeriod),
+            ],
+            time_24h_tokens: vec![
+                FieldTemplateToken::Segment(SegmentKind::Hour),
+                FieldTemplateToken::Literal(Cow::Borrowed(":")),
+                FieldTemplateToken::Segment(SegmentKind::Minute),
+                FieldTemplateToken::Literal(Cow::Borrowed(":")),
+                FieldTemplateToken::Segment(SegmentKind::Second),
+            ],
+            date_time_separator: Cow::Borrowed(", "),
+            placeholders: SegmentPlaceholders::en_us(),
+            aria_labels: SegmentAriaLabels::en_us(),
+            am_label: Cow::Borrowed("AM"),
+            pm_label: Cow::Borrowed("PM"),
+            empty_value_text: Cow::Borrowed("Empty"),
+            selected_time_prefix: Cow::Borrowed("Selected Time: "),
+        }
+    }
+
+    /// Built-in `en-GB` template (`DD/MM/YYYY`, 24-hour `HH:mm[:ss]`).
+    pub fn en_gb() -> Self {
+        let mut tpl = Self::en_us();
+        tpl.default_hour_cycle = HourCycle::H24;
+        tpl.date_tokens = vec![
+            FieldTemplateToken::Segment(SegmentKind::Day),
+            FieldTemplateToken::Literal(Cow::Borrowed("/")),
+            FieldTemplateToken::Segment(SegmentKind::Month),
+            FieldTemplateToken::Literal(Cow::Borrowed("/")),
+            FieldTemplateToken::Segment(SegmentKind::Year),
+        ];
+        tpl
+    }
+
+    /// Built-in `ko-KR` template (`YYYY. MM. DD.`, 12-hour `오전/오후 hh:mm[:ss]`).
+    pub fn ko_kr() -> Self {
+        Self {
+            default_hour_cycle: HourCycle::H12,
+            date_tokens: vec![
+                FieldTemplateToken::Segment(SegmentKind::Year),
+                FieldTemplateToken::Literal(Cow::Borrowed(". ")),
+                FieldTemplateToken::Segment(SegmentKind::Month),
+                FieldTemplateToken::Literal(Cow::Borrowed(". ")),
+                FieldTemplateToken::Segment(SegmentKind::Day),
+                FieldTemplateToken::Literal(Cow::Borrowed(".")),
+            ],
+            time_12h_tokens: vec![
+                FieldTemplateToken::Segment(SegmentKind::DayPeriod),
+                FieldTemplateToken::Literal(Cow::Borrowed(" ")),
+                FieldTemplateToken::Segment(SegmentKind::Hour),
+                FieldTemplateToken::Literal(Cow::Borrowed(":")),
+                FieldTemplateToken::Segment(SegmentKind::Minute),
+                FieldTemplateToken::Literal(Cow::Borrowed(":")),
+                FieldTemplateToken::Segment(SegmentKind::Second),
+            ],
+            time_24h_tokens: vec![
+                FieldTemplateToken::Segment(SegmentKind::Hour),
+                FieldTemplateToken::Literal(Cow::Borrowed(":")),
+                FieldTemplateToken::Segment(SegmentKind::Minute),
+                FieldTemplateToken::Literal(Cow::Borrowed(":")),
+                FieldTemplateToken::Segment(SegmentKind::Second),
+            ],
+            date_time_separator: Cow::Borrowed(" "),
+            placeholders: SegmentPlaceholders::ko_kr(),
+            aria_labels: SegmentAriaLabels::ko_kr(),
+            am_label: Cow::Borrowed("오전"),
+            pm_label: Cow::Borrowed("오후"),
+            empty_value_text: Cow::Borrowed("비어 있음"),
+            selected_time_prefix: Cow::Borrowed("Selected Time: "),
+        }
+    }
+
+    /// Built-in ISO template (`YYYY-MM-DD`, 24-hour `HH:mm[:ss]`).
+    pub fn iso() -> Self {
+        let mut tpl = Self::en_us();
+        tpl.default_hour_cycle = HourCycle::H24;
+        tpl.date_tokens = vec![
+            FieldTemplateToken::Segment(SegmentKind::Year),
+            FieldTemplateToken::Literal(Cow::Borrowed("-")),
+            FieldTemplateToken::Segment(SegmentKind::Month),
+            FieldTemplateToken::Literal(Cow::Borrowed("-")),
+            FieldTemplateToken::Segment(SegmentKind::Day),
+        ];
+        tpl.date_time_separator = Cow::Borrowed(" ");
+        tpl
+    }
+
+    /// Returns the localized meridiem label (`AM`/`PM` or `오전`/`오후`).
+    pub fn day_period_label(&self, period: DayPeriod) -> &str {
+        match period {
+            DayPeriod::Am => self.am_label.as_ref(),
+            DayPeriod::Pm => self.pm_label.as_ref(),
+        }
+    }
+
+    /// Returns the filtered time token sequence for `hour_cycle` and `granularity`.
+    ///
+    /// Fixes `bits-ui`'s `granularity == Hour` bug (`5C D-4`) by omitting both `Minute` and `Second`
+    /// along with their preceding separator literals.
+    pub fn time_tokens(
+        &self,
+        hour_cycle: HourCycle,
+        granularity: TimeGranularity,
+    ) -> Vec<FieldTemplateToken> {
+        let source = match hour_cycle {
+            HourCycle::H12 => &self.time_12h_tokens,
+            HourCycle::H24 => &self.time_24h_tokens,
+        };
+        let mut out: Vec<FieldTemplateToken> = Vec::with_capacity(source.len());
+        for token in source {
+            match token {
+                FieldTemplateToken::Segment(SegmentKind::Minute)
+                    if !granularity.includes_minute() =>
+                {
+                    if matches!(out.last(), Some(FieldTemplateToken::Literal(_))) {
+                        out.pop();
+                    }
+                }
+                FieldTemplateToken::Segment(SegmentKind::Second)
+                    if !granularity.includes_second() =>
+                {
+                    if matches!(out.last(), Some(FieldTemplateToken::Literal(_))) {
+                        out.pop();
+                    }
+                }
+                _ => out.push(token.clone()),
+            }
+        }
+        out
+    }
+
+    /// Returns the full date (or date + time) token sequence for `DateField`.
+    pub fn date_field_tokens(
+        &self,
+        granularity: Granularity,
+        hour_cycle: Option<HourCycle>,
+        include_time_zone: bool,
+    ) -> Vec<FieldTemplateToken> {
+        let mut out = self.date_tokens.clone();
+        if let Some(time_granularity) = granularity.to_time_granularity() {
+            let cycle = hour_cycle.unwrap_or(self.default_hour_cycle);
+            out.push(FieldTemplateToken::Literal(
+                self.date_time_separator.clone(),
+            ));
+            out.extend(self.time_tokens(cycle, time_granularity));
+            if include_time_zone {
+                out.push(FieldTemplateToken::Literal(Cow::Borrowed(" ")));
+                out.push(FieldTemplateToken::Segment(SegmentKind::TimeZoneName));
+            }
+        }
+        out
+    }
+}
+
+impl Default for FieldLocaleTemplate {
+    fn default() -> Self {
+        Self::en_us()
+    }
+}
+
+/// Pure-Rust locale format selector for segmented date and time fields.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum FieldLocaleFormat {
+    #[default]
+    EnUs,
+    EnGb,
+    KoKr,
+    Iso,
+    Custom(FieldLocaleTemplate),
+}
+
+impl FieldLocaleFormat {
+    /// Derives a [`FieldLocaleFormat`] from a [`CalendarLocale`].
+    pub fn from_calendar_locale(locale: &CalendarLocale) -> Self {
+        match locale {
+            CalendarLocale::EnUs => Self::EnUs,
+            CalendarLocale::EnGb => Self::EnGb,
+            CalendarLocale::KoKr => Self::KoKr,
+            CalendarLocale::Iso => Self::Iso,
+            CalendarLocale::Custom(labels) => match labels.date_order {
+                CalendarDateOrder::YearFirst => Self::Iso,
+                CalendarDateOrder::MonthFirst => Self::EnUs,
+            },
+        }
+    }
+
+    /// Resolves the [`FieldLocaleTemplate`] for this format.
+    pub fn template(&self) -> Cow<'_, FieldLocaleTemplate> {
+        match self {
+            Self::EnUs => Cow::Owned(FieldLocaleTemplate::en_us()),
+            Self::EnGb => Cow::Owned(FieldLocaleTemplate::en_gb()),
+            Self::KoKr => Cow::Owned(FieldLocaleTemplate::ko_kr()),
+            Self::Iso => Cow::Owned(FieldLocaleTemplate::iso()),
+            Self::Custom(tpl) => Cow::Borrowed(tpl),
+        }
+    }
+
+    /// Returns the default [`HourCycle`] for this locale format.
+    pub fn default_hour_cycle(&self) -> HourCycle {
+        self.template().default_hour_cycle
     }
 }

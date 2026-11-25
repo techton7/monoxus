@@ -55,7 +55,13 @@ mod avatar_test;
 mod button_test;
 mod calendar_test;
 mod collapsible_test;
+mod combobox_test;
+mod command_test;
 mod context_menu_test;
+mod date_field_test;
+mod date_picker_test;
+mod date_range_field_test;
+mod date_range_picker_test;
 mod disclosure_dimensions_test;
 mod dropdown_menu_test;
 mod form_hidden_input_test;
@@ -66,6 +72,7 @@ mod label_test;
 mod menubar_test;
 mod meter_test;
 mod navigation_menu_test;
+mod overlay_nesting_test;
 mod overlay_presence_phase_3_7_step_4;
 mod pagination_test;
 mod pin_input_test;
@@ -78,6 +85,8 @@ mod scroll_area_test;
 mod separator_test;
 mod slider_test;
 mod switch_test;
+mod time_field_test;
+mod time_range_field_test;
 mod toast_test;
 mod toggle_test;
 mod toolbar_test;
@@ -114,7 +123,13 @@ fn all_test_files_are_included() {
         "button_test.rs",
         "calendar_test.rs",
         "collapsible_test.rs",
+        "combobox_test.rs",
+        "command_test.rs",
         "context_menu_test.rs",
+        "date_field_test.rs",
+        "date_picker_test.rs",
+        "date_range_field_test.rs",
+        "date_range_picker_test.rs",
         "disclosure_dimensions_test.rs",
         "dropdown_menu_test.rs",
         "form_hidden_input_test.rs",
@@ -133,6 +148,7 @@ fn all_test_files_are_included() {
         "native_pin_input_test.rs",
         "native_presence_exit_test.rs",
         "native_select_test.rs",
+        "overlay_nesting_test.rs",
         "overlay_presence_phase_3_7_step_4.rs",
         "pagination_test.rs",
         "pin_input_test.rs",
@@ -145,6 +161,8 @@ fn all_test_files_are_included() {
         "separator_test.rs",
         "slider_test.rs",
         "switch_test.rs",
+        "time_field_test.rs",
+        "time_range_field_test.rs",
         "toast_test.rs",
         "toggle_test.rs",
         "toolbar_test.rs",

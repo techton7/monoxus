@@ -1,4 +1,9 @@
-use std::{borrow::Cow, cell::RefCell, collections::HashMap, rc::Rc};
+use std::{
+    borrow::Cow,
+    cell::{Cell, RefCell},
+    collections::HashMap,
+    rc::Rc,
+};
 
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
@@ -16,6 +21,7 @@ use crate::{
             CalendarDate, CalendarLocale, DateRange, MonthFormat, Weekday, WeekdayFormat,
             YearFormat, build_visible_months, default_placeholder_date,
         },
+        overlay::OverlayEscapeGuardContext,
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
     },
     visually_hidden::VisuallyHidden,
@@ -371,6 +377,33 @@ pub fn RangeCalendarRoot(props: RangeCalendarRootProps) -> Element {
         runtime: CalendarSharedRuntime::Range(runtime.clone()),
     });
 
+    let overlay_escape_guard = try_consume_context::<OverlayEscapeGuardContext>();
+    let guard_consumed_escape = use_hook(|| Rc::new(Cell::new(false)));
+    {
+        let guard_ctx = overlay_escape_guard.clone();
+        let guard_id = rels.root_id().to_string();
+        let mut rt_for_guard = runtime.clone();
+        let consumed_flag = Rc::clone(&guard_consumed_escape);
+        use_hook(move || {
+            if let Some(ref ctx) = guard_ctx {
+                ctx.register_guard(guard_id, move || {
+                    let handled = rt_for_guard.handle_escape();
+                    consumed_flag.set(handled);
+                    handled
+                });
+            }
+        });
+    }
+    {
+        let guard_ctx = overlay_escape_guard;
+        let guard_id = rels.root_id().to_string();
+        use_drop(move || {
+            if let Some(ref ctx) = guard_ctx {
+                ctx.unregister_guard(guard_id);
+            }
+        });
+    }
+
     let snapshot = runtime.snapshot();
     let root_attrs = runtime.root_attrs(None);
     let accessible_heading_id = rels.accessible_heading_id();
@@ -441,7 +474,7 @@ pub fn RangeCalendarRoot(props: RangeCalendarRootProps) -> Element {
                 }
                 if evt.default_action_enabled()
                     && evt.key() == Key::Named(NamedKey::Escape)
-                    && rt_for_key.handle_escape()
+                    && (guard_consumed_escape.replace(false) || rt_for_key.handle_escape())
                 {
                     evt.prevent_default();
                     evt.stop_propagation();

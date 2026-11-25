@@ -86,6 +86,11 @@ impl SelectRuntime {
         let watcher =
             start_document_dismiss_monitor_with_boundaries(&boundaries, move |event| match event {
                 DocumentDismissEvent::Escape => {
+                    if crate::foundation::overlay::is_overlay_escape_consumed()
+                        || !crate::foundation::overlay::is_topmost_overlay_layer(&content_id_clone)
+                    {
+                        return;
+                    }
                     if let Some(cb) = runtime.state.on_escape_keydown.read().clone() {
                         let synth = SyntheticEscapeKey;
                         let kb_data = dioxus::html::KeyboardData::new(synth);
@@ -99,6 +104,7 @@ impl SelectRuntime {
                         runtime.set_escape_prevented(false);
                         return;
                     }
+                    crate::foundation::overlay::mark_overlay_escape_consumed();
                     runtime.clear_pointer_dismiss();
                     runtime.close_dropdown();
                 }

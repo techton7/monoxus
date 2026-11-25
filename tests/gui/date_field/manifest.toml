@@ -1,0 +1,32 @@
+[[scenarios]]
+name = "date-field-initial"
+description = "Verify DateField en-US form input, ko-KR locale, and Granularity::Minute datetime segments"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-field"
+
+[[scenarios.targets]]
+id = "sw5c-df-enus-input"
+selector = "#sw5c-df-enus-input"
+part = "input"
+state = "default"
+
+[[scenarios.targets]]
+id = "sw5c-df-enus-value"
+selector = "#sw5c-df-enus-value"
+part = "readout"
+state = "2024-06-15"
+
+[[scenarios.targets]]
+id = "sw5c-df-kokr-input"
+selector = "#sw5c-df-kokr-input"
+part = "input"
+state = "ko-kr"
+
+[[scenarios.targets]]
+id = "sw5c-df-datetime-input"
+selector = "#sw5c-df-datetime-input"
+part = "input"
+state = "datetime-minute"

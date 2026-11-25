@@ -1,0 +1,38 @@
+[[scenarios]]
+name = "date-range-field-initial"
+description = "Verify DateRangeField Start/End inputs, cross-field group structure, and range readouts"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-date-range-field"
+
+[[scenarios.targets]]
+id = "sw5c-drf-root"
+selector = "#sw5c-drf-root"
+part = "root"
+state = "default"
+
+[[scenarios.targets]]
+id = "sw5c-drf-start-input"
+selector = "#sw5c-drf-start-input"
+part = "input"
+state = "start"
+
+[[scenarios.targets]]
+id = "sw5c-drf-end-input"
+selector = "#sw5c-drf-end-input"
+part = "input"
+state = "end"
+
+[[scenarios.targets]]
+id = "sw5c-drf-start-value"
+selector = "#sw5c-drf-start-value"
+part = "readout"
+state = "2024-06-10"
+
+[[scenarios.targets]]
+id = "sw5c-drf-end-value"
+selector = "#sw5c-drf-end-value"
+part = "readout"
+state = "2024-06-15"

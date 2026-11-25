@@ -6,6 +6,7 @@ pub const POPOVER_GEOMETRY_NAMESPACE: &str = "popover";
 pub enum PopoverOpenFocusPolicy {
     FirstFocusable,
     Target(String),
+    Selector(String),
     Suppress,
 }
 
