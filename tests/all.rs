@@ -232,34 +232,57 @@ fn all_primitives_have_gui_test_manifests() {
     use std::path::{Path, PathBuf};
 
     const PRIMITIVES: &[&str] = &[
+        "accessible_icon",
         "accordion",
         "alert_dialog",
         "aspect_ratio",
         "avatar",
         "button",
+        "calendar",
         "checkbox",
         "collapsible",
+        "combobox",
+        "command",
+        "context_menu",
+        "date_field",
+        "date_picker",
+        "date_range_field",
+        "date_range_picker",
         "dialog",
+        "dropdown_menu",
+        "hover_card",
         "label",
+        "menubar",
         "meter",
+        "navigation_menu",
+        "pagination",
+        "pin_input",
         "popover",
         "progress",
         "radio_group",
+        "range_calendar",
+        "rating_group",
+        "scroll_area",
         "select",
         "separator",
+        "slider",
         "switch",
         "tabs",
+        "time_field",
+        "time_range_field",
         "toast",
         "toggle",
         "toggle_group",
+        "toolbar",
         "tooltip",
+        "visually_hidden",
     ];
 
     let expected_primitives: BTreeSet<_> = PRIMITIVES.iter().map(PathBuf::from).collect();
     assert_eq!(
         expected_primitives.len(),
-        21,
-        "the primitive coverage guard must enumerate all 21 primitives"
+        44,
+        "the primitive coverage guard must enumerate all 44 standalone primitives"
     );
 
     let src_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -270,7 +293,7 @@ fn all_primitives_have_gui_test_manifests() {
             let path = entry.path();
             let name: PathBuf = entry.file_name().into();
             if path.is_dir() {
-                if name == Path::new("foundation") {
+                if name == Path::new("foundation") || name == Path::new("menu") {
                     None
                 } else {
                     Some(name)
