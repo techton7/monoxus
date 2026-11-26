@@ -190,6 +190,7 @@ pub fn SelectItem(props: SelectItemProps) -> Element {
                 let v = value.clone();
                 move |evt| {
                     if !is_dis {
+                        runtime.set_suppress_next_click(false);
                         runtime.mark_pointer_dismiss();
                         let coords = evt.client_coordinates();
                         runtime.record_pressed_item(&v, coords.x, coords.y);
@@ -211,7 +212,20 @@ pub fn SelectItem(props: SelectItemProps) -> Element {
                             let dy = coords.y - press.client_y;
                             if dx.hypot(dy) < 4.0 {
                                 evt.prevent_default();
-                                runtime.select_item(&press.value);
+                                evt.stop_propagation();
+                                runtime.set_suppress_next_click(true);
+                                let selected_val = press.value;
+                                let rt_for_select = runtime.clone();
+                                // Keep Select open, topmost, and registered as a parent overlay
+                                // branch until after the trailing capture `click` event from this
+                                // pointerup turn finishes so enclosing Popover/DatePicker stays open (`L-4`).
+                                crate::foundation::browser::spawn_root_task(async move {
+                                    let _ = oxidase::frame::next_frame().await;
+                                    rt_for_select.set_suppress_next_click(false);
+                                    if rt_for_select.state.open.try_peek().is_ok() {
+                                        rt_for_select.select_item(&selected_val);
+                                    }
+                                });
                             }
                         }
                     }
@@ -226,6 +240,9 @@ pub fn SelectItem(props: SelectItemProps) -> Element {
                         return;
                     }
                     evt.stop_propagation();
+                    if runtime.take_suppress_next_click() {
+                        return;
+                    }
                     runtime.select_item(&v);
                 }
             },

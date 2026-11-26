@@ -6,8 +6,8 @@ use crate::foundation::{
     compose::{join_styles, merge_attributes_with_part, merge_global_attributes},
     overlay::{
         FloatingPlacement, FloatingReadiness, OverlayBranchContext, PlacementAlign, PlacementSide,
-        StickyStrategy, serialize_css_custom_properties, use_overlay_branch_provider,
-        use_register_parent_overlay_branches,
+        StickyStrategy, is_modal_pointer_lock_active, serialize_css_custom_properties,
+        use_overlay_branch_provider, use_register_parent_overlay_branches,
     },
     shared::Direction,
     state::sync_signal,
@@ -92,7 +92,7 @@ pub(crate) fn render_menu_surface(spec: MenuSurfaceViewSpec) -> Element {
     } else {
         vec![content_id.clone(), portal_id]
     };
-    use_register_parent_overlay_branches(parent_branch, should_render, branch_ids);
+    use_register_parent_overlay_branches(parent_branch, spec.is_open, branch_ids);
 
     {
         let surf_reg = spec.surface.clone();
@@ -157,6 +157,10 @@ pub(crate) fn render_menu_surface(spec: MenuSurfaceViewSpec) -> Element {
         spec.part,
     );
 
+    let has_pointer_events = spec
+        .style
+        .as_deref()
+        .is_some_and(|s| s.contains("pointer-events:"));
     let base_content_style = if spec.is_floating {
         let vars_inline = placement
             .as_ref()
@@ -167,14 +171,29 @@ pub(crate) fn render_menu_surface(spec: MenuSurfaceViewSpec) -> Element {
         } else {
             ""
         };
+        let pointer_events_part = if spec.is_open {
+            "pointer-events: auto; outline: none;"
+        } else {
+            "pointer-events: none; outline: none;"
+        };
         join_styles([
             vars_inline.as_str(),
-            "pointer-events: auto; outline: none;",
+            pointer_events_part,
             hidden_part,
             spec.style.as_deref().unwrap_or_default(),
         ])
     } else {
-        spec.style.as_deref().and_then(|s| join_styles([s]))
+        let pointer_events_part = if !spec.is_open {
+            "pointer-events: none;"
+        } else if is_modal_pointer_lock_active() && !has_pointer_events {
+            "pointer-events: auto;"
+        } else {
+            ""
+        };
+        join_styles([
+            pointer_events_part,
+            spec.style.as_deref().unwrap_or_default(),
+        ])
     };
 
     let part_attrs = merge_attributes_with_part(
@@ -273,12 +292,20 @@ pub(crate) fn render_menu_surface(spec: MenuSurfaceViewSpec) -> Element {
 
     if spec.is_floating {
         let content_z_index = spec.surface.content_z_index();
-        let wrapper_style = build_menu_wrapper_style(
+        let mut wrapper_style = build_menu_wrapper_style(
             &spec.root,
             placement.as_ref(),
             readiness,
             content_z_index.as_deref(),
         );
+        if !spec.is_open {
+            if wrapper_style.contains("pointer-events: auto;") {
+                wrapper_style =
+                    wrapper_style.replace("pointer-events: auto;", "pointer-events: none;");
+            } else if !wrapper_style.contains("pointer-events: none;") {
+                wrapper_style.push_str(" pointer-events: none;");
+            }
+        }
         rsx! {
             div {
                 id: "{wrapper_id}",

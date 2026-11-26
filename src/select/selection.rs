@@ -15,10 +15,10 @@ impl SelectRuntime {
             let mut vals_sig = self.state.values;
             vals_sig.set(Vec::new());
 
-            if let Some(ref cb) = self.on_value_change {
+            if let Some(cb) = self.on_value_change.try_read().ok().and_then(|g| g.clone()) {
                 cb(None);
             }
-            if let Some(ref cb) = self.on_values_change {
+            if let Some(cb) = self.on_values_change.try_read().ok().and_then(|g| g.clone()) {
                 cb(Vec::new());
             }
 
@@ -33,7 +33,8 @@ impl SelectRuntime {
             }
         }
 
-        match self.select.mode() {
+        let mode = self.select.read().mode();
+        match mode {
             SelectMode::Single { allow_deselect } => {
                 let is_current = self.value().as_deref() == Some(val);
                 let next_val = if allow_deselect && is_current {
@@ -52,10 +53,10 @@ impl SelectRuntime {
                         .unwrap_or_default(),
                 );
 
-                if let Some(ref cb) = self.on_value_change {
+                if let Some(cb) = self.on_value_change.try_read().ok().and_then(|g| g.clone()) {
                     cb(next_val.clone());
                 }
-                if let Some(ref cb) = self.on_values_change {
+                if let Some(cb) = self.on_values_change.try_read().ok().and_then(|g| g.clone()) {
                     cb(next_val.map(|v| vec![v]).unwrap_or_default());
                 }
 
@@ -74,10 +75,10 @@ impl SelectRuntime {
                 let mut val_sig = self.state.value;
                 val_sig.set(list.first().cloned());
 
-                if let Some(ref cb) = self.on_values_change {
+                if let Some(cb) = self.on_values_change.try_read().ok().and_then(|g| g.clone()) {
                     cb(list.clone());
                 }
-                if let Some(ref cb) = self.on_value_change {
+                if let Some(cb) = self.on_value_change.try_read().ok().and_then(|g| g.clone()) {
                     cb(list.first().cloned());
                 }
             }

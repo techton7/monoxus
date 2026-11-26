@@ -15,9 +15,9 @@ use crate::foundation::{
         FloatingMonitorSpec, FloatingPlacement, FloatingReadiness, FocusScopeConfig,
         FocusScopeHandle, GeometryVars, ModalLayerConfig, ModalLayerHandle, ModalShieldPolicy,
         OverlayEscapeGuardFn, PlacementAlign, PlacementSide, PresenceHandle, Rect, Size,
-        active_overlay_layers_snapshot, is_overlay_escape_consumed, is_topmost_overlay_layer,
-        mark_overlay_escape_consumed, use_dismissable_layer, use_floating_layer, use_focus_scope,
-        use_modal_layer, use_presence,
+        StickyStrategy, active_overlay_layers_snapshot, is_overlay_escape_consumed,
+        is_topmost_overlay_layer, mark_overlay_escape_consumed, use_dismissable_layer,
+        use_floating_layer, use_focus_scope, use_modal_layer, use_presence,
     },
     shared::PreventableEvent,
     state::{DataState, sync_signal},
@@ -165,7 +165,8 @@ where
         (*collision_padding_override.read()).unwrap_or_else(|| floating_cfg.collision_padding());
     floating_spec.arrow_padding = floating_cfg.arrow_padding();
     floating_spec.hide_when_detached = floating_cfg.hide_when_detached();
-    floating_spec.sticky = (*sticky_override.read()).unwrap_or(false);
+    floating_spec.sticky = (*sticky_override.read())
+        .unwrap_or_else(|| floating_cfg.sticky() == StickyStrategy::Always);
     floating_spec.namespace = Some(POPOVER_GEOMETRY_NAMESPACE.to_owned());
 
     let floating = use_floating_layer(
@@ -475,6 +476,13 @@ impl PopoverRuntime {
         if let Some(placement) = self.placement() {
             content.data_side = placement.side().as_str();
             content.data_align = placement.align().as_str();
+        } else {
+            if let Some(side) = *self.state.side_override.read() {
+                content.data_side = side.as_str();
+            }
+            if let Some(align) = *self.state.align_override.read() {
+                content.data_align = align.as_str();
+            }
         }
         content
     }
@@ -484,6 +492,13 @@ impl PopoverRuntime {
         if let Some(placement) = self.placement() {
             arrow.data_side = placement.side().as_str();
             arrow.data_align = placement.align().as_str();
+        } else {
+            if let Some(side) = *self.state.side_override.read() {
+                arrow.data_side = side.as_str();
+            }
+            if let Some(align) = *self.state.align_override.read() {
+                arrow.data_align = align.as_str();
+            }
         }
         arrow
     }

@@ -8,7 +8,7 @@ use crate::foundation::{
     keyboard::{is_escape_key, is_ime_composing_key},
     overlay::{
         FloatingReadiness, OverlayBranchContext, PlacementAlign, PlacementSide, PresenceState,
-        is_modal_pointer_lock_active, use_overlay_branch_provider, use_overlay_layer_registration,
+        is_modal_pointer_lock_active, use_overlay_branch_provider,
         use_register_parent_overlay_branches,
     },
     shared::EscapeKeyDownEvent,
@@ -92,7 +92,7 @@ pub(crate) fn render_combobox_surface(spec: ComboboxSurfaceSpec) -> Element {
     } else {
         vec![content_id.clone(), portal_id]
     };
-    use_register_parent_overlay_branches(parent_branch, should_render, branch_ids);
+    use_register_parent_overlay_branches(parent_branch, is_open, branch_ids);
 
     {
         let dismiss_handle = ctx.runtime.state.dismiss;
@@ -101,9 +101,6 @@ pub(crate) fn render_combobox_surface(spec: ComboboxSurfaceSpec) -> Element {
             move |branch: String| dismiss_handle.unregister_branch(&branch),
         );
     }
-
-    // Idempotent same-node LIFO registration (`bits#2143`).
-    use_overlay_layer_registration(&content_id, is_open);
 
     {
         let rt = ctx.runtime.clone();

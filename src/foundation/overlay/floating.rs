@@ -295,11 +295,18 @@ pub fn compute_virtual_overlay_position(
         Size::new(clip_rect.width as f32, clip_rect.height as f32)
     };
 
+    let direction = if platform.is_rtl(&content_str) {
+        Direction::Rtl
+    } else {
+        Direction::Ltr
+    };
+    let resolved_inline_align = resolve_inline_align(align, direction);
+
     let transform_origin_x = match side {
         PlacementSide::Right => 0.0,
         PlacementSide::Left => content_size.width(),
         PlacementSide::Top | PlacementSide::Bottom => clamp_to_extent(
-            aligned_horizontal_point(anchor_rect, align) - x,
+            aligned_horizontal_point(anchor_rect, resolved_inline_align) - x,
             content_size.width(),
         ),
     };
@@ -977,6 +984,118 @@ mod tests {
             assert!((without_ctx.geometry().x() - 204.0).abs() < 1.0);
             assert!((without_ctx.geometry().y() - 120.0).abs() < 1.0);
             assert!(!without_ctx.reference_hidden());
+        });
+    }
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn native_virtual_overlay_position_resolves_rtl_transform_origin_x() {
+        use blitz_dom::{Attribute, BaseDocument, DocumentConfig, LocalName, QualName, ns};
+        use oxidase::dom::Document;
+        use std::cell::RefCell;
+        use std::rc::Rc;
+
+        let qname = |tag: &'static str| QualName::new(None, ns!(html), LocalName::from(tag));
+        let attr = |name: &'static str, val: &str| Attribute {
+            name: QualName::new(None, ns!(), LocalName::from(name)),
+            value: val.to_string(),
+        };
+
+        let mut base_doc_raw = BaseDocument::new(DocumentConfig::default());
+        {
+            let mut vp = base_doc_raw.viewport_mut();
+            vp.window_size = (800, 600);
+            vp.hidpi_scale = 1.0;
+        }
+        let base_doc = Rc::new(RefCell::new(base_doc_raw));
+        let doc = Document::from_base(base_doc.clone());
+
+        {
+            let mut base = base_doc.borrow_mut();
+            let root_id = base.root_node().id;
+            let mut mutator = base.mutate();
+            let html = mutator.create_element(qname("html"), vec![]);
+            let body = mutator.create_element(
+                qname("body"),
+                vec![attr("style", "margin: 0; padding: 0;")],
+            );
+            let anchor = mutator.create_element(
+                qname("div"),
+                vec![
+                    attr("id", "rtl-anchor"),
+                    attr(
+                        "style",
+                        "position: fixed; left: 300px; top: 50px; width: 80px; height: 30px; display: block;",
+                    ),
+                ],
+            );
+            let content = mutator.create_element(
+                qname("div"),
+                vec![
+                    attr("id", "rtl-content"),
+                    attr("dir", "rtl"),
+                    attr(
+                        "style",
+                        "direction: rtl; position: fixed; width: 200px; height: 60px; display: block;",
+                    ),
+                ],
+            );
+            mutator.append_children(body, &[anchor, content]);
+            mutator.append_children(html, &[body]);
+            mutator.append_children(root_id, &[html]);
+        }
+        doc.resolve(0.0);
+
+        Document::with_current(doc, || {
+            let start_rtl = compute_overlay_position(&OverlayPositionConfig {
+                anchor_id: "rtl-anchor",
+                content_id: "rtl-content",
+                arrow_id: None,
+                boundary_id: None,
+                side: PlacementSide::Bottom,
+                align: PlacementAlign::Start,
+                side_offset: 4.0,
+                align_offset: 0.0,
+                avoid_collisions: false,
+                collision_padding: 0.0,
+                arrow_padding: 0.0,
+                hide_when_detached: false,
+                sticky: false,
+                namespace: Some("hover-card"),
+            })
+            .expect("RTL BottomStart placement must succeed");
+
+            // Under RTL, Start aligns to anchor right edge (380) => content x=180, transform_origin_x=200.
+            assert!(
+                (start_rtl.geometry().transform_origin_x() - 200.0).abs() < 1.0,
+                "Expected RTL Start transform_origin_x ~ 200.0, got {}",
+                start_rtl.geometry().transform_origin_x()
+            );
+
+            let end_rtl = compute_overlay_position(&OverlayPositionConfig {
+                anchor_id: "rtl-anchor",
+                content_id: "rtl-content",
+                arrow_id: None,
+                boundary_id: None,
+                side: PlacementSide::Bottom,
+                align: PlacementAlign::End,
+                side_offset: 4.0,
+                align_offset: 0.0,
+                avoid_collisions: false,
+                collision_padding: 0.0,
+                arrow_padding: 0.0,
+                hide_when_detached: false,
+                sticky: false,
+                namespace: Some("hover-card"),
+            })
+            .expect("RTL BottomEnd placement must succeed");
+
+            // Under RTL, End aligns to anchor left edge (300) => content x=300, transform_origin_x=0.
+            assert!(
+                (end_rtl.geometry().transform_origin_x() - 0.0).abs() < 1.0,
+                "Expected RTL End transform_origin_x ~ 0.0, got {}",
+                end_rtl.geometry().transform_origin_x()
+            );
         });
     }
 }

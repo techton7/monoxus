@@ -107,10 +107,9 @@ pub fn DialogRoot(props: DialogRootProps) -> Element {
     }
 
     let runtime = use_dialog_runtime(dialog);
+    runtime.set_on_open_change(on_open_change);
     let mut runtime_sig = use_signal(|| runtime.clone());
-    if runtime_sig.peek().is_open() != runtime.is_open()
-        || runtime_sig.peek().root().id() != runtime.root().id()
-    {
+    if runtime_sig.peek().dialog() != runtime.dialog() {
         runtime_sig.set(runtime.clone());
     }
 
@@ -125,20 +124,6 @@ pub fn DialogRoot(props: DialogRootProps) -> Element {
         description_id,
         on_open_change,
         is_alert_dialog: false,
-    });
-
-    let mut was_open_sig = use_signal(|| open_signal());
-    use_effect(move || {
-        let is_curr = open_signal();
-        let was_open = *was_open_sig.peek();
-        if was_open && !is_curr {
-            runtime_sig
-                .peek()
-                .restore_close_focus_with_fallback(trigger_id.peek().as_deref());
-        }
-        if was_open != is_curr {
-            was_open_sig.set(is_curr);
-        }
     });
 
     let attrs = runtime.root();
@@ -200,9 +185,7 @@ pub fn DialogTrigger(props: DialogTriggerProps) -> Element {
         }
         runtime_for_click.clear_pointer_dismiss();
         open.set(true);
-        if let Some(h) = on_change {
-            h.call(true);
-        }
+        runtime_for_click.notify_open_change(true, on_change);
     };
 
     let controls = trigger.aria_controls();
@@ -293,7 +276,6 @@ pub fn DialogOverlay(props: DialogOverlayProps) -> Element {
     let on_change = ctx.on_open_change;
     let outside_policy = *runtime.lifecycle().outside_interaction_policy();
 
-    let trigger_sig = ctx.trigger_id;
     let runtime_for_ptr = runtime.clone();
     let runtime_for_click = runtime.clone();
 
@@ -310,10 +292,7 @@ pub fn DialogOverlay(props: DialogOverlayProps) -> Element {
         if !ctx.is_alert_dialog && outside_policy.pointer_down_outside().dismisses() {
             runtime_for_click.mark_pointer_dismiss();
             open.set(false);
-            if let Some(h) = on_change {
-                h.call(false);
-            }
-            runtime_for_click.restore_close_focus_with_fallback(trigger_sig.peek().as_deref());
+            runtime_for_click.notify_open_change(false, on_change);
         }
     };
 
@@ -416,17 +395,17 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
         runtime.unregister_content_id(&content_id);
     }
 
+    let is_open = (ctx.open)();
     let parent_branch = try_consume_context::<crate::foundation::overlay::OverlayBranchContext>();
     crate::foundation::overlay::use_register_parent_overlay_branches(
         parent_branch.clone(),
-        should_render,
+        is_open,
         vec![content_id.clone(), overlay_id, portal_id],
     );
 
     let dismiss_handler = use_hook(move || {
         let mut open_for_dismiss = ctx.open;
         let on_change_for_dismiss = ctx.on_open_change;
-        let trigger_sig_for_dismiss = ctx.trigger_id;
         let runtime_sig = ctx.runtime;
         EventHandler::new(move |was_pointer: bool| {
             let is_currently_open = open_for_dismiss.try_peek().map(|o| *o).unwrap_or(false);
@@ -442,14 +421,7 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
             if let Ok(mut o) = open_for_dismiss.try_write() {
                 *o = false;
             }
-            if let Some(h) = on_change_for_dismiss {
-                h.call(false);
-            }
-            let fallback_tid = trigger_sig_for_dismiss
-                .try_peek()
-                .ok()
-                .and_then(|t| t.clone());
-            rt_close.restore_close_focus_with_fallback(fallback_tid.as_deref());
+            rt_close.notify_open_change(false, on_change_for_dismiss);
         })
     });
     runtime.set_dismiss_callback(ctx.is_alert_dialog, Some(dismiss_handler));
@@ -465,27 +437,6 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
             runtime_for_drop.set_prevent_body_pointer_events_override(None);
         }
     });
-
-    let is_open = (ctx.open)();
-    let effect_content_id = content_id.clone();
-    let runtime_for_effect = runtime.clone();
-    let last_focused_open_cid =
-        use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(Option::<String>::None)));
-    let focused_cid_effect = last_focused_open_cid.clone();
-    use_effect(use_reactive(
-        (&should_render, &is_open, &effect_content_id),
-        move |(render_val, open_val, cid)| {
-            if !render_val || !open_val {
-                *focused_cid_effect.borrow_mut() = None;
-                return;
-            }
-            let needs_open_focus = focused_cid_effect.borrow().as_deref() != Some(cid.as_str());
-            if needs_open_focus {
-                *focused_cid_effect.borrow_mut() = Some(cid.clone());
-                runtime_for_effect.apply_open_focus_for_content(&cid);
-            }
-        },
-    ));
 
     let runtime_for_branch = runtime.clone();
     let parent_for_reg = parent_branch.clone();
@@ -699,7 +650,6 @@ pub fn DialogClose(props: DialogCloseProps) -> Element {
     let mut open = ctx.open;
     let on_change = ctx.on_open_change;
 
-    let trigger_sig = ctx.trigger_id;
     let runtime_for_ptr = runtime.clone();
     let runtime_for_key = runtime.clone();
     let runtime_for_click = runtime.clone();
@@ -709,10 +659,7 @@ pub fn DialogClose(props: DialogCloseProps) -> Element {
             return;
         }
         open.set(false);
-        if let Some(h) = on_change {
-            h.call(false);
-        }
-        runtime_for_click.restore_close_focus_with_fallback(trigger_sig.peek().as_deref());
+        runtime_for_click.notify_open_change(false, on_change);
     };
 
     let data_disabled = crate::foundation::shared::data_disabled_attr(disabled);
@@ -777,17 +724,13 @@ pub fn AlertDialogAction(props: AlertDialogActionProps) -> Element {
     let mut open = ctx.open;
     let on_change = ctx.on_open_change;
 
-    let trigger_sig = ctx.trigger_id;
     let runtime_for_ptr = runtime.clone();
     let runtime_for_key = runtime.clone();
     let runtime_for_click = runtime.clone();
 
     let click_handler = move |evt: MouseEvent| {
         open.set(false);
-        if let Some(h) = on_change {
-            h.call(false);
-        }
-        runtime_for_click.restore_close_focus_with_fallback(trigger_sig.peek().as_deref());
+        runtime_for_click.notify_open_change(false, on_change);
         if let Some(cb) = on_click {
             cb.call(evt);
         }
@@ -851,17 +794,13 @@ pub fn AlertDialogCancel(props: AlertDialogCancelProps) -> Element {
     let mut open = ctx.open;
     let on_change = ctx.on_open_change;
 
-    let trigger_sig = ctx.trigger_id;
     let runtime_for_ptr = runtime.clone();
     let runtime_for_key = runtime.clone();
     let runtime_for_click = runtime.clone();
 
     let click_handler = move |evt: MouseEvent| {
         open.set(false);
-        if let Some(h) = on_change {
-            h.call(false);
-        }
-        runtime_for_click.restore_close_focus_with_fallback(trigger_sig.peek().as_deref());
+        runtime_for_click.notify_open_change(false, on_change);
         if let Some(cb) = on_click {
             cb.call(evt);
         }

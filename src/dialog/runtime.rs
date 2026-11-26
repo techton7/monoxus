@@ -48,6 +48,9 @@ struct DialogRuntimeState {
     open_focus_target: Signal<Option<String>>,
     is_alert_override: Signal<bool>,
     on_dismiss_request: CopyValue<Option<EventHandler<bool>>>,
+    on_open_change: CopyValue<Option<EventHandler<bool>>>,
+    has_on_open_change_slot: CopyValue<bool>,
+    close_focus_applied: CopyValue<bool>,
 }
 
 #[derive(Clone)]
@@ -68,6 +71,9 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
     let open_focus_target_sig = use_signal(|| None::<String>);
     let is_alert_override = use_signal(|| false);
     let on_dismiss_request = use_hook(|| CopyValue::new(Option::<EventHandler<bool>>::None));
+    let on_open_change_slot = use_hook(|| CopyValue::new(Option::<EventHandler<bool>>::None));
+    let has_on_open_change_slot = use_hook(|| CopyValue::new(false));
+    let close_focus_applied = use_hook(|| CopyValue::new(false));
 
     let is_open = dialog.is_open();
     let retain_mount = dialog.lifecycle().presence().retain_mount();
@@ -203,12 +209,46 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         None,
     );
 
+    let custom_open_target = open_focus_target_sig.read().clone();
+    let mut last_custom_open_target = use_hook(|| CopyValue::new(Option::<String>::None));
+    use_effect(use_reactive(
+        (&is_open, &custom_open_target),
+        move |(open_now, target_opt)| {
+            let prev = last_custom_open_target
+                .try_read()
+                .ok()
+                .and_then(|g| g.clone());
+            if !open_now {
+                if prev.is_some()
+                    && let Ok(mut w) = last_custom_open_target.try_write()
+                {
+                    *w = None;
+                }
+                return;
+            }
+            if let Some(target) = target_opt
+                && prev.as_deref() != Some(target.as_str())
+            {
+                if let Ok(mut w) = last_custom_open_target.try_write() {
+                    *w = Some(target.clone());
+                }
+                if !crate::foundation::browser::is_element_focused_by_id(&target) {
+                    focus_scope.apply_open_focus();
+                }
+            }
+        },
+    ));
+
     let mut was_open = use_hook(|| CopyValue::new(is_open));
     let mut ptr_dismiss_for_effect = last_dismiss_was_pointer;
+    let mut close_focus_applied_for_effect = close_focus_applied;
     use_effect(use_reactive((&is_open,), move |(open_now,)| {
         let prev = was_open.try_read().map(|g| *g).unwrap_or(false);
         if open_now && !prev {
             if let Ok(mut w) = ptr_dismiss_for_effect.try_write() {
+                *w = false;
+            }
+            if let Ok(mut w) = close_focus_applied_for_effect.try_write() {
                 *w = false;
             }
         } else if !open_now && prev {
@@ -216,6 +256,9 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
                 .try_read()
                 .map(|g| *g)
                 .unwrap_or(false);
+            if let Ok(mut w) = close_focus_applied_for_effect.try_write() {
+                *w = true;
+            }
             focus_scope.apply_close_focus(was_pointer);
         }
         if prev != open_now
@@ -242,6 +285,9 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         open_focus_target: open_focus_target_sig,
         is_alert_override,
         on_dismiss_request,
+        on_open_change: on_open_change_slot,
+        has_on_open_change_slot,
+        close_focus_applied,
     };
 
     DialogRuntime { dialog, state }
@@ -555,7 +601,48 @@ impl DialogRuntime {
             .unwrap_or(false)
     }
 
+    pub(crate) fn set_on_open_change(&self, callback: Option<EventHandler<bool>>) {
+        let mut slot = self.state.on_open_change;
+        if let Ok(mut w) = slot.try_write() {
+            *w = callback;
+        }
+        let mut has_slot = self.state.has_on_open_change_slot;
+        if let Ok(mut w) = has_slot.try_write() {
+            *w = true;
+        }
+    }
+
+    pub(crate) fn notify_open_change(
+        &self,
+        next: bool,
+        fallback: Option<EventHandler<bool>>,
+    ) {
+        let use_slot = self
+            .state
+            .has_on_open_change_slot
+            .try_read()
+            .map(|g| *g)
+            .unwrap_or(false);
+        let handler = if use_slot {
+            self.state.on_open_change.try_read().ok().and_then(|g| *g)
+        } else {
+            fallback
+        };
+        if let Some(h) = handler {
+            h.call(next);
+        }
+    }
+
     pub(crate) fn restore_close_focus_with_fallback(&self, fallback_trigger_id: Option<&str>) {
+        if self
+            .state
+            .close_focus_applied
+            .try_read()
+            .map(|g| *g)
+            .unwrap_or(false)
+        {
+            return;
+        }
         if matches!(
             self.dialog.lifecycle().close_focus_policy(),
             DialogCloseFocusPolicy::Trigger
@@ -565,6 +652,10 @@ impl DialogRuntime {
             self.state
                 .focus_scope
                 .set_restore_target(Some(fb.to_string()));
+        }
+        let mut applied = self.state.close_focus_applied;
+        if let Ok(mut w) = applied.try_write() {
+            *w = true;
         }
         self.state
             .focus_scope

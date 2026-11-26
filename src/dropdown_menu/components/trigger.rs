@@ -1,6 +1,7 @@
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 
+use crate::foundation::keyboard::is_ime_composing_key;
 use crate::menu::{
     MenuKey, MenuOpenFocusTarget, MenuPart, MenuRootContext, MenuTriggerAttributes, MenuVariant,
     merge_attributes_with_part, translate_menu_key,
@@ -113,7 +114,7 @@ pub fn DropdownMenuTrigger(props: DropdownMenuTriggerProps) -> Element {
 
     let kd_root = root;
     let on_key_down = EventHandler::new(move |evt: KeyboardEvent| {
-        if props.disabled {
+        if props.disabled || is_ime_composing_key(&evt) {
             return;
         }
         let Some(key) = translate_menu_key(&evt.key()) else {

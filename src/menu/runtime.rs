@@ -1221,7 +1221,7 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
     floating_spec.namespace = Some(root.variant.geometry_namespace().to_owned());
     floating_spec.scroll_policy = FloatingScrollPolicy::Reposition;
 
-    let floating = use_floating_layer(should_render && !is_static, floating_spec, None);
+    let floating = use_floating_layer(is_open && should_render && !is_static, floating_spec, None);
     let mut floating_slot = surface.floating;
     floating_slot.set(Some(floating));
 

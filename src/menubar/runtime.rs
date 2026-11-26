@@ -2,7 +2,9 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{FocusOptions, focus_element_sync_or_defer, query_descendant_order},
+    keyboard::is_ime_composing_key,
     shared::Direction,
+    state::sync_signal,
 };
 use crate::menu::{MenuKey, MenuOpenFocusTarget, translate_menu_key};
 
@@ -24,10 +26,11 @@ pub struct MenubarMenuHandles {
 #[derive(Clone)]
 pub struct MenubarRuntimeContext {
     pub relationships: MenubarRelationships,
+    pub root_id: Signal<String>,
     pub state: Signal<MenubarState>,
     pub handles: Signal<Vec<MenubarMenuHandles>>,
-    pub is_controlled: bool,
-    pub on_value_change: Option<EventHandler<String>>,
+    pub is_controlled: CopyValue<bool>,
+    pub on_value_change: CopyValue<Option<EventHandler<String>>>,
     pub submenu_open_delay_ms: Signal<Option<u64>>,
 }
 
@@ -45,14 +48,34 @@ impl MenubarRuntimeContext {
             .with_active_value(initial_active)
             .with_direction(dir)
             .with_loop_focus(loop_focus);
+        let root_id_sig = use_signal(|| relationships.root_id().to_owned());
+        let mut is_controlled_slot = use_hook(|| CopyValue::new(is_controlled));
+        is_controlled_slot.set(is_controlled);
+        let mut on_value_change_slot = use_hook(|| CopyValue::new(on_value_change));
+        on_value_change_slot.set(on_value_change);
+        let mut delay_sig = use_signal(|| submenu_open_delay_ms);
+        sync_signal(&mut delay_sig, submenu_open_delay_ms);
         Self {
             relationships,
+            root_id: root_id_sig,
             state: use_signal(|| initial_state),
             handles: use_signal(Vec::new),
-            is_controlled,
-            on_value_change,
-            submenu_open_delay_ms: use_signal(|| submenu_open_delay_ms),
+            is_controlled: is_controlled_slot,
+            on_value_change: on_value_change_slot,
+            submenu_open_delay_ms: delay_sig,
         }
+    }
+
+    pub fn current_root_id(&self) -> String {
+        self.root_id
+            .try_peek()
+            .map(|g| g.clone())
+            .unwrap_or_else(|_| self.relationships.root_id().to_owned())
+    }
+
+    pub fn set_root_id(&self, id: String) {
+        let mut sig = self.root_id;
+        sync_signal(&mut sig, id);
     }
 
     pub fn active_value(&self) -> Option<String> {
@@ -119,7 +142,8 @@ impl MenubarRuntimeContext {
             return;
         }
         let trigger_refs: Vec<&str> = trigger_ids.iter().map(String::as_str).collect();
-        if let Ok(ordered) = query_descendant_order(self.relationships.root_id(), &trigger_refs) {
+        let live_root_id = self.current_root_id();
+        if let Ok(ordered) = query_descendant_order(&live_root_id, &trigger_refs) {
             let needs_update = self.state.try_peek().is_ok_and(|s| {
                 s.menus().iter().enumerate().any(|(idx, m)| {
                     let next_pos = ordered
@@ -185,7 +209,8 @@ impl MenubarRuntimeContext {
         {
             self.mark_fast_swap_cleanup(prev_val);
         }
-        if !self.is_controlled {
+        let is_controlled = self.is_controlled.try_read().map(|g| *g).unwrap_or(false);
+        if !is_controlled {
             let mut st = self.state;
             let _ = st.try_write().map(|mut w| w.open_menu(value));
         } else {
@@ -195,7 +220,7 @@ impl MenubarRuntimeContext {
                 .map(|mut w| w.set_current_tabstop_value(Some(value.to_owned())));
         }
         if prev.as_deref() != Some(value)
-            && let Some(cb) = self.on_value_change.as_ref()
+            && let Some(cb) = self.on_value_change.try_read().ok().and_then(|s| *s)
         {
             cb.call(value.to_owned());
         }
@@ -209,12 +234,13 @@ impl MenubarRuntimeContext {
 
     pub fn close_all(&self) {
         let was_active = self.active_value().is_some();
-        if !self.is_controlled {
+        let is_controlled = self.is_controlled.try_read().map(|g| *g).unwrap_or(false);
+        if !is_controlled {
             let mut st = self.state;
             let _ = st.try_write().map(|mut w| w.close_all());
         }
         if was_active
-            && let Some(cb) = self.on_value_change.as_ref()
+            && let Some(cb) = self.on_value_change.try_read().ok().and_then(|s| *s)
         {
             cb.call(String::new());
         }
@@ -232,6 +258,9 @@ impl MenubarRuntimeContext {
     }
 
     pub fn on_trigger_key(&self, current_value: &str, evt: &KeyboardEvent) {
+        if is_ime_composing_key(evt) {
+            return;
+        }
         let Some(key) = translate_menu_key(&evt.key()) else {
             return;
         };

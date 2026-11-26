@@ -306,4 +306,228 @@ mod native_stage2a_tests {
             "Scroll after 1-frame focus guard must close Tooltip"
         );
     }
+
+    #[component]
+    fn TooltipAriaLabelSurfaceScenario() -> Element {
+        use monoxus::foundation::overlay::PlacementSide;
+
+        rsx! {
+            div {
+                style: "padding: 40px;",
+                style {
+                    "@keyframes tip-aria-exit-kf {{ from {{ opacity: 1; }} to {{ opacity: 0; }} }}
+                     .tip-aria-exit[data-state='closed'] {{ animation: tip-aria-exit-kf 0.2s linear; }}"
+                }
+                TooltipProvider {
+                    delay_duration: 0,
+                    TooltipRoot {
+                        id: "tip-aria-root",
+                        side: Some(PlacementSide::Bottom),
+                        side_offset: Some(16.0),
+                        TooltipTrigger {
+                            id: "tip-aria-trigger",
+                            style: "display: inline-block; padding: 6px 12px;",
+                            "Aria Tip Trigger"
+                        }
+                        TooltipPortal {
+                            TooltipContent {
+                                id: "tip-aria-content",
+                                aria_label: Some("Screen reader tooltip label".to_string()),
+                                class: Some("tip-aria-exit".to_string()),
+                                style: Some("width: 200px; height: 48px; display: block;".to_string()),
+                                "Visible Tooltip Body"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_w1_tip_aria_label_measures_visible_surface_for_grace_and_presence_exit() {
+        use monoxus::foundation::overlay::{GraceTransit, GraceTransitStatus, Point2D, Rect2D};
+
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(TooltipAriaLabelSurfaceScenario);
+
+        // Hover trigger -> opens immediately (delay_duration: 0).
+        let (tx, ty) = harness.center_of("#tip-aria-trigger");
+        harness.move_mouse_to(tx, ty);
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        assert_eq!(
+            harness.attr("#tip-aria-trigger", "aria-describedby").as_deref(),
+            Some("tip-aria-content"),
+            "Trigger aria-describedby must point to the accessible span id"
+        );
+        assert!(
+            harness.query("#tip-aria-content-surface").is_some(),
+            "H-2: Visible styled TooltipContent surface must have deterministic id"
+        );
+
+        let surface_rect = harness.layout_rect("#tip-aria-content-surface");
+        assert!(
+            surface_rect.width >= 180.0 && surface_rect.height >= 40.0,
+            "H-2: Visible surface must measure full styled dimensions, got {}x{}",
+            surface_rect.width,
+            surface_rect.height
+        );
+
+        // Move pointer into corridor aimed toward the wide visible surface (well right of the 1x1 span).
+        let trig_rect = harness.layout_rect("#tip-aria-trigger");
+        let gap_y = (trig_rect.y + trig_rect.height + surface_rect.y) * 0.5;
+        let corridor_x = surface_rect.x + surface_rect.width * 0.75;
+        harness.move_mouse_to(corridor_x, gap_y);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert_eq!(
+            harness.attr("#tip-aria-trigger", "data-state").as_deref(),
+            Some("open"),
+            "H-2: Grace corridor must use visible surface rect rather than 1x1 hidden span"
+        );
+
+        // Move mouse far away -> closes -> retained in DOM during 0.2s CSS exit animation on visible surface.
+        harness.move_mouse_to(2.0, 2.0);
+        std::thread::sleep(std::time::Duration::from_millis(140));
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert_eq!(
+            harness.attr("#tip-aria-trigger", "data-state").as_deref(),
+            Some("closed"),
+            "Tooltip must transition to closed after leaving corridor"
+        );
+        assert!(
+            harness.query("#tip-aria-content-surface").is_some(),
+            "H-2: use_presence must retain visible surface during active CSS exit animation"
+        );
+
+        // Advance animation clock past 0.2s -> native animationend on visible surface completes unmount.
+        advance_frame_and_pump(&mut harness, 0.25);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#tip-aria-content-surface").is_none(),
+            "H-2: Visible surface must unmount once its CSS exit animation completes"
+        );
+
+        // H-3: Border hit on `from_rect` must stay `InTransit`, never falsely returning `ReachedTarget`.
+        let from = Rect2D::new(100.0, 50.0, 50.0, 20.0);
+        let to = Rect2D::new(80.0, 100.0, 90.0, 40.0);
+        let transit = GraceTransit::new(Point2D::new(125.0, 70.0), from, to, Some(5.0), false);
+        assert_eq!(
+            transit.inspect_point(Point2D::new(125.0, 70.0)),
+            GraceTransitStatus::InTransit
+        );
+        assert_eq!(
+            transit.inspect_point(Point2D::new(125.0, 60.0)),
+            GraceTransitStatus::InTransit
+        );
+        assert_eq!(
+            transit.inspect_point(Point2D::new(125.0, 115.0)),
+            GraceTransitStatus::ReachedTarget
+        );
+    }
+
+    #[derive(Clone, Props)]
+    struct TooltipBranchOutProps {
+        branches: std::rc::Rc<std::cell::RefCell<Vec<String>>>,
+    }
+
+    impl PartialEq for TooltipBranchOutProps {
+        fn eq(&self, other: &Self) -> bool {
+            std::rc::Rc::ptr_eq(&self.branches, &other.branches)
+        }
+    }
+
+    #[component]
+    fn TooltipModalPeAndForceMountScenario(props: TooltipBranchOutProps) -> Element {
+        use monoxus::foundation::overlay::OverlayBranchContext;
+        use monoxus::popover::{PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger};
+
+        let reg_branches = props.branches.clone();
+        let unreg_branches = props.branches.clone();
+        use_context_provider(|| {
+            OverlayBranchContext::new(
+                move |b: String| reg_branches.borrow_mut().push(b),
+                move |b: String| unreg_branches.borrow_mut().retain(|x| x != &b),
+            )
+        });
+
+        rsx! {
+            div {
+                style: "padding: 40px;",
+                // Closed force_mount Tooltip must NOT register in parent OverlayBranchContext (M-2).
+                TooltipRoot {
+                    id: "tip-fm-closed-root",
+                    default_open: false,
+                    TooltipTrigger { id: "tip-fm-closed-trigger", "Closed Tip" }
+                    TooltipPortal {
+                        force_mount: true,
+                        TooltipContent {
+                            id: "tip-fm-closed-content",
+                            force_mount: true,
+                            "Closed Force Mount Tip"
+                        }
+                    }
+                }
+                // Active modal Popover holds modal pointer lock -> open TooltipContent emits pointer-events: auto (H-5).
+                PopoverRoot {
+                    id: "tip-modal-host",
+                    default_open: true,
+                    modal: Some(true),
+                    PopoverTrigger { id: "tip-modal-trigger", "Host" }
+                    PopoverPortal {
+                        PopoverContent {
+                            id: "tip-modal-popover",
+                            TooltipRoot {
+                                id: "tip-modal-root",
+                                default_open: true,
+                                TooltipTrigger { id: "tip-modal-tip-trigger", "Nested Tip" }
+                                TooltipPortal {
+                                    TooltipContent {
+                                        id: "tip-modal-content",
+                                        "Inside Modal Tip"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_w1_pe_and_guard_tooltip_modal_pointer_events_and_force_mount_branch() {
+        use crate::common::native_fixture::mount_native_scenario_with_props;
+
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let branches = std::rc::Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+
+        let mut harness = mount_native_scenario_with_props(
+            TooltipModalPeAndForceMountScenario,
+            TooltipBranchOutProps {
+                branches: branches.clone(),
+            },
+        );
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        // M-2: Closed force_mount TooltipContent must NOT register in parent OverlayBranchContext.
+        assert!(
+            !branches
+                .borrow()
+                .iter()
+                .any(|b| b == "tip-fm-closed-content"),
+            "M-2: Closed force_mount TooltipContent must not register in parent OverlayBranchContext, got {:?}",
+            *branches.borrow()
+        );
+
+        // H-5: Open TooltipContent under modal pointer lock must emit `pointer-events: auto;`.
+        let style = harness
+            .attr("#tip-modal-content", "style")
+            .unwrap_or_default();
+        assert!(
+            style.contains("pointer-events: auto;"),
+            "H-5: TooltipContent must emit `pointer-events: auto;` under modal pointer lock, got: {style}"
+        );
+    }
 }

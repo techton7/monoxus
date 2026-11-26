@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     compose::merge_global_attributes,
-    overlay::{FloatingLayer, PlacementAlign, PlacementSide, PortalHost},
+    overlay::{FloatingLayer, PlacementAlign, PlacementSide, PortalHost, StickyStrategy},
     shared::{ScopeHandle, use_stable_id},
 };
 use crate::popover::{
@@ -114,6 +114,13 @@ pub fn PopoverRoot(props: PopoverRootProps) -> Element {
     if let Some(align_offset) = props.align_offset {
         floating = floating.with_align_offset(align_offset);
     }
+    if let Some(sticky) = props.sticky {
+        floating = floating.with_sticky(if sticky {
+            StickyStrategy::Always
+        } else {
+            StickyStrategy::Partial
+        });
+    }
     popover = popover.with_floating(floating);
 
     let on_open_change = props.on_open_change;
@@ -129,9 +136,6 @@ pub fn PopoverRoot(props: PopoverRootProps) -> Element {
 
     let runtime = use_popover_runtime(popover, change_handler);
     runtime.set_on_open_change_complete(props.on_open_change_complete);
-    if props.sticky.is_some() {
-        runtime.set_content_placement_overrides(None, None, None, None, None, None, props.sticky);
-    }
     let mut runtime_sig = use_signal(|| runtime.clone());
     if runtime_sig.peek().popover() != runtime.popover() {
         runtime_sig.set(runtime.clone());

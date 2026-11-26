@@ -412,7 +412,8 @@ impl ComboboxRuntime {
 
     pub fn set_content_id(&self, id: String) {
         let mut sig = self.state.content_id;
-        sync_signal(&mut sig, id);
+        sync_signal(&mut sig, id.clone());
+        self.state.dismiss.rename_layer_id(&id);
     }
 
     pub fn current_viewport_id(&self) -> String {

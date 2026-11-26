@@ -6,7 +6,7 @@ use crate::foundation::{
     overlay::{
         FloatingReadiness, OverlayBranchContext, PlacementAlign, PlacementSide, PresenceState,
         is_modal_pointer_lock_active, is_overlay_escape_consumed, is_topmost_overlay_layer,
-        mark_overlay_escape_consumed, use_overlay_branch_provider, use_overlay_layer_registration,
+        mark_overlay_escape_consumed, use_overlay_branch_provider,
         use_register_parent_overlay_branches,
     },
     shared::{EscapeKeyDownEvent, PointerDownOutsideEvent, PreventableEvent},
@@ -72,9 +72,6 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
             },
         );
     }
-
-    // Same-node LIFO registration is an idempotent no-op (`bits#2143`).
-    use_overlay_layer_registration(&content_id, is_open);
 
     // Static readiness synchronization.
     let is_floating = spec.is_floating;

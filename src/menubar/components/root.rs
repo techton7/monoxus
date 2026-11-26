@@ -67,6 +67,7 @@ pub fn MenubarRoot(props: MenubarRootProps) -> Element {
         props.loop_focus,
         props.submenu_open_delay_ms,
     );
+    runtime.set_root_id(root_id.clone());
 
     if let Some(controlled) = props.value.as_deref() {
         runtime.sync_controlled_value(Some(controlled));

@@ -117,29 +117,30 @@ fn hover_card_interaction_state_guards_selection_focus_and_tokens() {
     state.cancel_pending_close();
     assert_ne!(state.close_request_token, close_tok);
 
-    // D-2: focus-opened hover card ignores pointer leave until blur/Escape.
+    // DEC-HC-1 / D-2: focus-opened hover card ignores pointer leave until blur/Escape/close.
     state.opened_via_focus = true;
-    assert!(state.should_ignore_pointer_leave(false));
-    assert!(!state.can_commit_scheduled_close(false));
+    assert!(state.should_ignore_pointer_leave());
+    assert!(!state.can_commit_scheduled_close());
     state.opened_via_focus = false;
-    assert!(state.can_commit_scheduled_close(false));
+    assert!(!state.should_ignore_pointer_leave());
+    assert!(state.can_commit_scheduled_close());
 
     // HC-7: active text selection or pointer-down inside content suppresses close.
     state.begin_content_selection();
     assert!(state.contain_selection);
     assert!(state.should_suppress_close());
-    assert!(!state.can_commit_scheduled_close(false));
+    assert!(!state.can_commit_scheduled_close());
 
     state.end_content_pointer_down(true);
     assert!(!state.contain_selection);
     assert!(!state.is_pointer_down_on_content);
     assert!(state.has_selection);
     assert!(state.should_suppress_close());
-    assert!(!state.can_commit_scheduled_close(false));
+    assert!(!state.can_commit_scheduled_close());
 
     state.reset_selection_and_hover();
     assert!(!state.should_suppress_close());
-    assert!(state.can_commit_scheduled_close(false));
+    assert!(state.can_commit_scheduled_close());
 }
 
 #[test]
@@ -149,6 +150,10 @@ fn hover_card_grace_transit_detects_corridor_and_exits() {
     let exit_point = Point2D::new(125.0, 70.0);
 
     let transit = HoverCardGraceTransit::new(exit_point, trigger, content, Some(5.0));
+    assert_eq!(
+        transit.inspect_point(Point2D::new(125.0, 70.0)),
+        HoverCardGraceStatus::InTransit
+    );
     assert_eq!(
         transit.inspect_point(Point2D::new(125.0, 85.0)),
         HoverCardGraceStatus::InTransit

@@ -320,10 +320,14 @@ where
         .clone()
         .unwrap_or_else(|| tooltip.relationships().content_id().to_owned());
     let effective_measurement_id = measurement_id.read().clone();
+    let presence_target_id = effective_measurement_id
+        .as_deref()
+        .filter(|id| !id.is_empty())
+        .unwrap_or(effective_content_id.as_str());
 
     let presence = use_presence(
         tooltip.is_open(),
-        &effective_content_id,
+        presence_target_id,
         tooltip.lifecycle().presence().retain_mount(),
         None,
     );
@@ -746,19 +750,18 @@ impl TooltipRuntime {
         }
 
         let trigger_id = self.effective_trigger_id();
-        let custom_content_id = self
+        let target_content_id = self
             .state
-            .content_id
+            .measurement_id
             .try_peek()
             .ok()
-            .and_then(|id| id.clone());
-        let content_id = custom_content_id
-            .as_deref()
-            .unwrap_or_else(|| self.relationships().content_id());
+            .and_then(|id| id.clone())
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| self.effective_content_id());
 
         let (Some(trigger_rect), Some(content_rect)) = (
             get_element_client_rect(&trigger_id),
-            get_element_client_rect(content_id),
+            get_element_client_rect(&target_content_id),
         ) else {
             return false;
         };
@@ -1386,7 +1389,11 @@ mod tests {
         );
         assert_eq!(
             transit.inspect_point(Point2D::new(125.0, 60.0)),
-            GraceTransitStatus::ReachedTarget
+            GraceTransitStatus::InTransit
+        );
+        assert_eq!(
+            transit.inspect_point(Point2D::new(125.0, 70.0)),
+            GraceTransitStatus::InTransit
         );
         assert_eq!(
             transit.inspect_point(Point2D::new(0.0, 85.0)),
@@ -1414,6 +1421,10 @@ mod tests {
         let transit = TooltipGraceTransit::new(exit_point, content, trigger, Some(5.0));
         assert_eq!(
             transit.inspect_point(Point2D::new(125.0, 85.0)),
+            GraceTransitStatus::InTransit
+        );
+        assert_eq!(
+            transit.inspect_point(Point2D::new(125.0, 100.0)),
             GraceTransitStatus::InTransit
         );
         assert_eq!(

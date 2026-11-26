@@ -2,11 +2,43 @@ use dioxus::prelude::*;
 
 pub use monoxus_core::foundation::overlay::presence::*;
 
-use crate::foundation::browser::{
-    PresenceMonitorEvent, set_element_style_property, start_presence_monitor,
-};
+use crate::foundation::browser::{PresenceMonitorEvent, start_presence_monitor};
 
 use super::watcher::{WatcherSlot, use_watcher_slot};
+
+fn extract_inline_style_property(inline_style: &str, property: &str) -> Option<String> {
+    let mut found = None;
+    for decl in inline_style.split(';') {
+        let Some((name, val)) = decl.split_once(':') else {
+            continue;
+        };
+        if name.trim().eq_ignore_ascii_case(property) {
+            let trimmed = val.trim();
+            if !trimmed.is_empty() {
+                found = Some(trimmed.to_owned());
+            }
+        }
+    }
+    found
+}
+
+fn restore_element_fill_mode(element_id: &str, prior_value: Option<&str>) {
+    if element_id.is_empty() {
+        return;
+    }
+    if let Some(doc) = oxidase::dom::Document::current()
+        && let Some(el) = doc.element_by_id(element_id)
+    {
+        match prior_value {
+            Some(prev) => {
+                let _ = el.set_style_property("animation-fill-mode", prev);
+            }
+            None => {
+                let _ = el.remove_style_property("animation-fill-mode");
+            }
+        }
+    }
+}
 
 /// Zero-overhead `Copy` presence handle uniting [`PresenceController`], a [`WatcherSlot`],
 /// mount-flush open safety (`bits#2274`), monotonic cycle invalidation, and `animation-fill-mode: forwards`
@@ -19,6 +51,9 @@ pub struct PresenceHandle {
     alive: CopyValue<bool>,
     element_id: CopyValue<String>,
     on_complete: CopyValue<Option<EventHandler<bool>>>,
+    fill_mode_guard_gen: CopyValue<u64>,
+    pending_fill_mode_restore: CopyValue<Option<(String, Option<String>)>>,
+    fill_mode_restore_frame: CopyValue<Option<oxidase::frame::FrameRequestGuard>>,
 }
 
 impl PresenceHandle {
@@ -65,6 +100,37 @@ impl PresenceHandle {
         self.watcher.clear();
     }
 
+    /// Synchronizes `retain_mount` reactively if the prop changes post-mount.
+    ///
+    /// When `retain_mount` transitions to `false` while an exit cycle is `Suspended`,
+    /// completes the unmount immediately and cancels the active presence watcher.
+    pub fn sync_retain_mount(&self, retain_mount: bool) {
+        let should_complete_unmount = {
+            let mut ctrl_sig = self.controller;
+            let Ok(mut ctrl) = ctrl_sig.try_write() else {
+                return;
+            };
+            if ctrl.retain_mount() == retain_mount {
+                return;
+            }
+            let was_suspended = ctrl.state() == PresenceState::Suspended;
+            let desired = ctrl.desired_present();
+            *ctrl = (*ctrl).with_retained_mount(retain_mount);
+            if !retain_mount && !desired && was_suspended {
+                let upd = ctrl.sync(false);
+                !upd.should_render()
+            } else {
+                false
+            }
+        };
+
+        if should_complete_unmount {
+            self.watcher.clear();
+            self.restore_pending_fill_mode();
+            self.notify_complete(false);
+        }
+    }
+
     /// Synchronizes `desired_present` against the underlying [`PresenceController`], arming or
     /// invalidating the exit animation watcher strictly outside signal borrows.
     pub fn sync(&self, desired_present: bool, element_id: &str) -> PresenceControllerUpdate {
@@ -73,6 +139,10 @@ impl PresenceHandle {
             && *current_id != element_id
         {
             *current_id = element_id.to_owned();
+        }
+
+        if desired_present {
+            self.restore_pending_fill_mode();
         }
 
         let (prev_desired, prev_state, update) = {
@@ -133,9 +203,92 @@ impl PresenceHandle {
             .map(|g| g.clone())
             .unwrap_or_default();
         if !cid.is_empty() {
-            set_element_style_property(&cid, "animation-fill-mode", "forwards");
+            self.apply_exit_fill_mode_flash_guard(&cid);
         }
         self.complete_close_cycle(cycle_id)
+    }
+
+    fn apply_exit_fill_mode_flash_guard(&self, element_id: &str) {
+        if element_id.is_empty() {
+            return;
+        }
+        let Some(doc) = oxidase::dom::Document::current() else {
+            return;
+        };
+        let Some(el) = doc.element_by_id(element_id) else {
+            return;
+        };
+
+        // Preserve any original inline `animation-fill-mode` prior to applying the 1-frame
+        // `forwards` flash guard so retained (`force_mount`) or reopened nodes are restored cleanly.
+        let mut pending_slot = self.pending_fill_mode_restore;
+        let existing_prior = pending_slot.try_read().ok().and_then(|existing| {
+            let (saved_id, saved_val) = existing.as_ref()?;
+            (saved_id == element_id).then(|| saved_val.clone())
+        });
+        let prior_value = match existing_prior {
+            Some(val) => val,
+            None => {
+                let captured = el
+                    .get_attribute("style")
+                    .and_then(|s| extract_inline_style_property(&s, "animation-fill-mode"));
+                if let Ok(mut w) = pending_slot.try_write() {
+                    *w = Some((element_id.to_owned(), captured.clone()));
+                }
+                captured
+            }
+        };
+
+        let _ = el.set_style_property("animation-fill-mode", "forwards");
+
+        let mut gen_slot = self.fill_mode_guard_gen;
+        let expected_gen = gen_slot
+            .try_write()
+            .map(|mut g| {
+                *g = g.wrapping_add(1);
+                *g
+            })
+            .unwrap_or(0);
+
+        let restore_id = element_id.to_owned();
+        let handle = *self;
+        let mut frame_slot = self.fill_mode_restore_frame;
+        let _ = frame_slot.try_write().map(|mut w| w.take());
+        // Schedule via `oxidase::frame::request_next_frame` (not `dioxus::spawn`) so exit
+        // completion works safely even when invoked outside an active Dioxus runtime scope.
+        if let Ok(guard) = oxidase::frame::request_next_frame(move |_| {
+            let gen_matches = handle
+                .fill_mode_guard_gen
+                .try_read()
+                .is_ok_and(|g| *g == expected_gen);
+            if !gen_matches {
+                return;
+            }
+            let mut slot = handle.pending_fill_mode_restore;
+            let pending = slot.try_write().ok().and_then(|mut w| w.take());
+            if let Some((saved_id, saved_val)) = pending {
+                restore_element_fill_mode(&saved_id, saved_val.as_deref());
+            } else {
+                restore_element_fill_mode(&restore_id, prior_value.as_deref());
+            }
+            let mut frame_done = handle.fill_mode_restore_frame;
+            let _ = frame_done.try_write().map(|mut w| w.take());
+        }) && let Ok(mut w) = frame_slot.try_write()
+        {
+            *w = Some(guard);
+        }
+    }
+
+    fn restore_pending_fill_mode(&self) {
+        let mut gen_slot = self.fill_mode_guard_gen;
+        let _ = gen_slot.try_write().map(|mut g| *g = g.wrapping_add(1));
+        let mut frame_slot = self.fill_mode_restore_frame;
+        let _ = frame_slot.try_write().map(|mut w| w.take());
+        let mut pending_slot = self.pending_fill_mode_restore;
+        let pending = pending_slot.try_write().ok().and_then(|mut w| w.take());
+        if let Some((saved_id, saved_val)) = pending {
+            restore_element_fill_mode(&saved_id, saved_val.as_deref());
+        }
     }
 
     fn arm_exit_watcher(&self, element_id: &str, cycle_id: PresenceCloseCycleId) {
@@ -158,7 +311,7 @@ impl PresenceHandle {
                     } => {
                         // Guard against 1-frame snap-back flash before VDOM unmount (`radix#1849/#2763`).
                         if handle.active_close_cycle() == Some(event_cycle) {
-                            set_element_style_property(&cid_cb, "animation-fill-mode", "forwards");
+                            handle.apply_exit_fill_mode_flash_guard(&cid_cb);
                             handle.complete_close_cycle(event_cycle);
                         }
                     }
@@ -211,6 +364,11 @@ pub fn use_presence(
     let mut alive = use_hook(|| CopyValue::new(true));
     let mut element_id_slot = use_hook(|| CopyValue::new(element_id.to_owned()));
     let mut on_complete = use_hook(|| CopyValue::new(on_open_change_complete));
+    let fill_mode_guard_gen = use_hook(|| CopyValue::new(0_u64));
+    let pending_fill_mode_restore =
+        use_hook(|| CopyValue::new(Option::<(String, Option<String>)>::None));
+    let fill_mode_restore_frame =
+        use_hook(|| CopyValue::new(Option::<oxidase::frame::FrameRequestGuard>::None));
 
     if element_id_slot.try_read().is_ok_and(|cur| cur.as_str() != element_id) {
         element_id_slot.set(element_id.to_owned());
@@ -224,7 +382,18 @@ pub fn use_presence(
         alive,
         element_id: element_id_slot,
         on_complete,
+        fill_mode_guard_gen,
+        pending_fill_mode_restore,
+        fill_mode_restore_frame,
     };
+
+    // Reactively sync `retain_mount` changes before reconciling `desired_present`.
+    let retain_changed = controller
+        .try_peek()
+        .is_ok_and(|c| c.retain_mount() != retain_mount);
+    if retain_changed {
+        handle.sync_retain_mount(retain_mount);
+    }
 
     // Synchronous render-time reconciliation prevents mount-closed -> immediate-open drops (`bits#2274`).
     let needs_sync = controller
@@ -246,6 +415,7 @@ pub fn use_presence(
             *flag = false;
         }
         watcher.clear();
+        handle.restore_pending_fill_mode();
     });
 
     handle

@@ -3,7 +3,9 @@ use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
 use crate::combobox::{attrs::ComboboxTriggerAttrs, runtime::use_combobox_context};
-use crate::foundation::compose::merge_global_attributes;
+use crate::foundation::{
+    compose::merge_global_attributes, keyboard::is_ime_composing_key,
+};
 
 #[derive(Clone, PartialEq)]
 pub struct ComboboxTriggerRenderProps {
@@ -110,7 +112,7 @@ pub fn ComboboxTrigger(props: ComboboxTriggerProps) -> Element {
 
     let key_rt = ctx.runtime.clone();
     let on_key_down = EventHandler::new(move |evt: KeyboardEvent| {
-        if is_disabled {
+        if is_disabled || is_ime_composing_key(&evt) {
             return;
         }
         match evt.key() {

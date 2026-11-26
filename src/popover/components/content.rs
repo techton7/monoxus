@@ -184,7 +184,7 @@ where
     } else {
         vec![content_id.clone(), portal_id]
     };
-    use_register_parent_overlay_branches(parent_branch, should_render, branch_ids);
+    use_register_parent_overlay_branches(parent_branch, is_open, branch_ids);
 
     let latest_cid = use_hook(|| Rc::new(RefCell::new(content_id.clone())));
     {

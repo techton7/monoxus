@@ -143,6 +143,11 @@ pub fn MenuSub(props: MenuSubProps) -> Element {
         drop_sub.cancel_hover_timer();
         drop_root.unregister_sub_close_handler(&drop_sub.sub_id);
         drop_parent.unregister_child_subcontent(&drop_sub.content_id);
+        if let Ok(live_cid) = drop_sub.surface.content_id.try_peek()
+            && live_cid.as_str() != drop_sub.content_id.as_str()
+        {
+            drop_parent.unregister_child_subcontent(&live_cid);
+        }
     });
 
     use_context_provider(|| sub_ctx);
@@ -471,8 +476,14 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
 
     {
         let resolved_id = props.id.clone().unwrap_or_else(|| sub.content_id.clone());
+        let prev_cid = surface.content_id.try_peek().ok().map(|g| g.clone());
         let mut cid = surface.content_id;
         sync_signal(&mut cid, resolved_id.clone());
+        if let Some(prev) = prev_cid
+            && prev != resolved_id
+        {
+            sub.parent_surface.unregister_child_subcontent(&prev);
+        }
 
         if sub.is_open()
             && !sub
@@ -627,8 +638,14 @@ pub fn MenuSubContentStatic(props: MenuSubContentStaticProps) -> Element {
 
     {
         let resolved_id = props.id.clone().unwrap_or_else(|| sub.content_id.clone());
+        let prev_cid = surface.content_id.try_peek().ok().map(|g| g.clone());
         let mut cid = surface.content_id;
         sync_signal(&mut cid, resolved_id.clone());
+        if let Some(prev) = prev_cid
+            && prev != resolved_id
+        {
+            sub.parent_surface.unregister_child_subcontent(&prev);
+        }
 
         if sub.is_open()
             && !sub

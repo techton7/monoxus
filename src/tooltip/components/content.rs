@@ -4,7 +4,10 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     compose::{join_styles, merge_global_attributes},
-    overlay::{OverlayBranchContext, use_register_parent_overlay_branches},
+    overlay::{
+        OverlayBranchContext, is_modal_pointer_lock_active, use_register_parent_overlay_branches,
+    },
+    state::DataState,
 };
 use crate::tooltip::components::TooltipRootContext;
 
@@ -34,18 +37,23 @@ pub fn TooltipContent(props: TooltipContentProps) -> Element {
     let ctx = use_context::<TooltipRootContext>();
     let runtime = ctx.runtime.read().clone();
     let should_render = props.force_mount || runtime.should_render_content();
+    let is_open = runtime.is_open();
 
     let content = runtime.content();
     let content_id = props.id.clone().unwrap_or_else(|| content.id().to_string());
+    let visible_surface_id = props
+        .aria_label
+        .as_ref()
+        .map(|_| format!("{content_id}-surface"));
     let wrapper_id = content.wrapper_id().to_string();
     let portal_id = runtime.relationships().scope().qualify("portal");
 
     let branch_context = try_consume_context::<OverlayBranchContext>();
-    use_register_parent_overlay_branches(
-        branch_context,
-        should_render,
-        vec![content_id.clone(), wrapper_id.clone(), portal_id],
-    );
+    let mut branch_ids = vec![content_id.clone(), wrapper_id.clone(), portal_id];
+    if let Some(ref surface_id) = visible_surface_id {
+        branch_ids.push(surface_id.clone());
+    }
+    use_register_parent_overlay_branches(branch_context, is_open, branch_ids);
 
     let latest_cid = use_hook(|| Rc::new(RefCell::new(content_id.clone())));
     {
@@ -72,8 +80,8 @@ pub fn TooltipContent(props: TooltipContentProps) -> Element {
     runtime.set_collision_boundary(props.collision_boundary.clone());
     runtime.set_collision_padding(props.collision_padding);
 
-    if should_render && props.aria_label.is_some() {
-        runtime.set_measurement_id(Some(wrapper_id.clone()));
+    if should_render && let Some(ref surface_id) = visible_surface_id {
+        runtime.set_measurement_id(Some(surface_id.clone()));
     } else {
         runtime.set_measurement_id(None);
     }
@@ -88,15 +96,32 @@ pub fn TooltipContent(props: TooltipContentProps) -> Element {
 
     let wrapper_style = runtime.wrapper_style();
     let css_vars = runtime.content_css_custom_properties();
-    let base_style = join_styles([
-        css_vars.as_str(),
-        props.style.as_deref().unwrap_or_default(),
-    ]);
+    let mut style_parts: Vec<&str> = Vec::with_capacity(3);
+    if !css_vars.trim().is_empty() {
+        style_parts.push(css_vars.as_str());
+    }
+    if let Some(custom_style) = props.style.as_deref()
+        && !custom_style.trim().is_empty()
+    {
+        style_parts.push(custom_style);
+    }
+    let has_pointer_events = props
+        .style
+        .as_deref()
+        .is_some_and(|s| s.contains("pointer-events:"));
+    if !is_open || content.data_state() == &DataState::Closed {
+        style_parts.push("pointer-events: none;");
+    } else if is_modal_pointer_lock_active() && !has_pointer_events {
+        style_parts.push("pointer-events: auto;");
+    }
+    let base_style = join_styles(style_parts);
     let merged = merge_global_attributes(
         props.class.as_deref(),
         base_style.as_deref(),
         props.attributes,
     );
+
+    let outer_div_id = visible_surface_id.unwrap_or_else(|| content_id.clone());
 
     rsx! {
         div {
@@ -104,7 +129,7 @@ pub fn TooltipContent(props: TooltipContentProps) -> Element {
             "data-monoxus-floating-content-wrapper": "",
             style: "{wrapper_style}",
             div {
-                id: if props.aria_label.is_some() { None } else { Some(content_id.clone()) },
+                id: "{outer_div_id}",
                 role: if props.aria_label.is_some() { None } else { Some(content.role()) },
                 "aria-hidden": if props.aria_label.is_some() { Some("true") } else { None },
                 class: merged.class.as_deref(),

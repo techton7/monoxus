@@ -5,7 +5,7 @@ use monoxus::foundation::shared::Direction;
 use monoxus::menubar::{
     Menubar, MenubarContent, MenubarContentStatic, MenubarItem, MenubarMenu, MenubarPortal,
     MenubarRoot, MenubarRootRenderProps, MenubarRuntimeContext, MenubarSub, MenubarSubContent,
-    MenubarSubTrigger, MenubarTrigger, MenubarTriggerRenderProps,
+    MenubarSubContentStatic, MenubarSubTrigger, MenubarTrigger, MenubarTriggerRenderProps,
 };
 
 #[derive(Clone, Default, PartialEq)]
@@ -615,6 +615,185 @@ mod native_tests {
             harness.attr("#mb-flip-file-share", "data-highlighted"),
             None,
             "Closing submenu via corridor disengage into empty area/padding must clear stale data-highlighted on Share"
+        );
+    }
+
+    #[component]
+    fn NativeMenubarReactiveCallbackAndCustomIdScenario() -> Element {
+        let mut use_cb2 = use_signal(|| false);
+        let mut cb1_log = use_signal(Vec::<String>::new);
+        let mut cb2_log = use_signal(Vec::<String>::new);
+        let mut mount_sub = use_signal(|| true);
+
+        let on_change = if use_cb2() {
+            EventHandler::new(move |val: String| cb2_log.write().push(val))
+        } else {
+            EventHandler::new(move |val: String| cb1_log.write().push(val))
+        };
+
+        #[component]
+        fn SubcontentsProbe() -> Element {
+            use monoxus::menu::MenuRootContext;
+            let root = use_context::<MenuRootContext>();
+            let joined = root.root_surface.child_subcontents.read().join(",");
+            rsx! {
+                span { id: "w1-mb-subcontents", "{joined}" }
+            }
+        }
+
+        rsx! {
+            div { style: "padding: 24px;",
+                button {
+                    id: "w1-mb-swap-cb",
+                    r#type: "button",
+                    style: "width: 90px; height: 24px;",
+                    onclick: move |_| use_cb2.set(true),
+                    "Swap CB"
+                }
+                span { id: "w1-mb-cb1", "{cb1_log.read().join(\",\")}" }
+                span { id: "w1-mb-cb2", "{cb2_log.read().join(\",\")}" }
+
+                MenubarRoot {
+                    id: Some("w1-custom-menubar-root".to_string()),
+                    on_value_change: on_change,
+                    style: "display: flex; gap: 8px;",
+                    MenubarMenu {
+                        value: Some("file".to_string()),
+                        SubcontentsProbe {}
+                        MenubarTrigger {
+                            id: "w1-mb-trig-file",
+                            style: "width: 60px; height: 28px;",
+                            "File"
+                        }
+                        MenubarContentStatic {
+                            id: "w1-mb-content-file",
+                            button {
+                                id: "w1-mb-unmount-sub",
+                                r#type: "button",
+                                style: "width: 110px; height: 24px;",
+                                onclick: move |_| mount_sub.set(false),
+                                "Unmount Sub"
+                            }
+                            MenubarItem { id: "w1-mb-file-new", "New" }
+                            if mount_sub() {
+                                MenubarSub {
+                                    default_open: true,
+                                    MenubarSubTrigger {
+                                        id: "w1-mb-sub-trig",
+                                        "More"
+                                    }
+                                    MenubarSubContentStatic {
+                                        id: "w1-custom-mb-sub-drop",
+                                        MenubarItem { id: "w1-mb-sub-item", "Sub Item" }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    MenubarMenu {
+                        value: Some("edit".to_string()),
+                        MenubarTrigger {
+                            id: "w1-mb-trig-edit",
+                            style: "width: 60px; height: 28px;",
+                            "Edit"
+                        }
+                        MenubarContentStatic {
+                            id: "w1-mb-content-edit",
+                            MenubarItem { id: "w1-mb-edit-undo", "Undo" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_w1_ctx_menubar_post_mount_on_value_change_and_custom_id_dom_order() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeMenubarReactiveCallbackAndCustomIdScenario);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        // H-6: Swap on_value_change post-mount before interacting
+        click_and_pump(&mut harness, "#w1-mb-swap-cb");
+
+        // Open File menu -> cb2 fires (not stale cb1)
+        click_and_pump(&mut harness, "#w1-mb-trig-file");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert_eq!(harness.text_content("#w1-mb-cb1"), "");
+        assert_eq!(harness.text_content("#w1-mb-cb2"), "file");
+
+        // H-6: ArrowRight with custom MenubarRoot id queries live DOM order and switches to Edit
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowRight), Code::ArrowRight);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#w1-mb-content-edit").is_some());
+        assert_eq!(harness.text_content("#w1-mb-cb1"), "");
+        assert_eq!(harness.text_content("#w1-mb-cb2"), "file,edit");
+    }
+
+    #[test]
+    fn fm_w1_guard_menubar_ime_trigger_and_submenu_custom_id_drop_cleanup() {
+        use blitz_traits::events::{BlitzKeyEvent, KeyState, UiEvent};
+        use keyboard_types::{Location, Modifiers};
+
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeMenubarReactiveCallbackAndCustomIdScenario);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        // M-1: IME composing Enter & ArrowDown on MenubarTrigger must NOT open menu
+        focus_node(&mut harness, "#w1-mb-trig-file");
+        for (key, code) in [
+            (Key::Named(NamedKey::Enter), Code::Enter),
+            (Key::Named(NamedKey::ArrowDown), Code::ArrowDown),
+        ] {
+            let down = BlitzKeyEvent {
+                key: key.clone(),
+                code,
+                modifiers: Modifiers::default(),
+                location: Location::Standard,
+                is_auto_repeating: false,
+                is_composing: true,
+                state: KeyState::Pressed,
+                text: None,
+            };
+            let up = BlitzKeyEvent {
+                key,
+                code,
+                modifiers: Modifiers::default(),
+                location: Location::Standard,
+                is_auto_repeating: false,
+                is_composing: true,
+                state: KeyState::Released,
+                text: None,
+            };
+            harness.dispatch(UiEvent::KeyDown(down));
+            harness.dispatch(UiEvent::KeyUp(up));
+            drain_polls_and_resolve(&mut harness);
+            advance_frame_and_pump(&mut harness, 0.02);
+            assert!(
+                harness.query("#w1-mb-content-file").is_none(),
+                "M-1: IME composing key on MenubarTrigger must NOT open menu"
+            );
+        }
+
+        // M-6: Open File menu -> custom MenubarSubContentStatic id registers in parent child_subcontents
+        click_and_pump(&mut harness, "#w1-mb-trig-file");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness
+                .text_content("#w1-mb-subcontents")
+                .contains("w1-custom-mb-sub-drop"),
+            "Expected custom submenu content id in parent child_subcontents"
+        );
+
+        // Unmount MenubarSub while open -> use_drop must unregister live custom content_id
+        click_and_pump(&mut harness, "#w1-mb-unmount-sub");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            !harness
+                .text_content("#w1-mb-subcontents")
+                .contains("w1-custom-mb-sub-drop"),
+            "M-6: Dropping MenubarSub must unregister live custom surface.content_id, left: {}",
+            harness.text_content("#w1-mb-subcontents")
         );
     }
 }

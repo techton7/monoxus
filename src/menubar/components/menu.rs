@@ -63,7 +63,7 @@ pub fn MenubarMenu(props: MenubarMenuProps) -> Element {
         let mb_close = menubar.clone();
         let val_arrow = menu_value.clone();
         MenubarMenuBridge {
-            menubar_root_id: menubar.relationships.root_id().to_owned(),
+            menubar_root_id: menubar.current_root_id(),
             menu_value: menu_value.clone(),
             all_trigger_ids: Rc::new(move || mb_triggers.all_trigger_ids()),
             on_cross_menu_arrow: Rc::new(move |key, on_sub_trigger, in_submenu| {

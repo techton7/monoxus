@@ -866,6 +866,180 @@ mod native_tests {
         assert!(harness.query("#dm-cb-content").is_some());
         assert_eq!(harness.text_content("#dm-cb-hits"), "0:1");
     }
+
+    #[component]
+    fn NativeMenuPointerEventsScenario() -> Element {
+        use monoxus::dialog::{DialogClose, DialogContent, DialogPortal, DialogRoot};
+
+        let float_open = use_signal(|| false);
+        let dlg_open = use_signal(|| true);
+
+        rsx! {
+            div { style: "padding: 24px;",
+                // Part 1: Floating MenuContent force_mount closed -> open pointer-events gating
+                DropdownMenuRoot {
+                    open: Some(float_open()),
+                    on_open_change: move |next| {
+                        let mut sig = float_open;
+                        sig.set(next);
+                    },
+                    DropdownMenuTrigger {
+                        id: "w1-pe-float-trig",
+                        style: "width: 100px; height: 28px;",
+                        "Float Trigger"
+                    }
+                    DropdownMenuContent {
+                        id: "w1-pe-float-content",
+                        force_mount: true,
+                        style: "width: 140px; background: white;",
+                        DropdownMenuItem { id: "w1-pe-float-item", "Float Item" }
+                    }
+                }
+
+                // Part 2: Non-modal Static MenuContentStatic inside modal Dialog (modal pointer lock from Dialog)
+                DialogRoot {
+                    id: "w1-pe-modal-dlg",
+                    open: Some(dlg_open),
+                    DialogPortal {
+                        DialogContent {
+                            id: "w1-pe-modal-dlg-content",
+                            style: "width: 320px; height: 200px; padding: 12px; background: white;",
+                            DialogClose {
+                                id: "w1-pe-close-dlg",
+                                style: "width: 100px; height: 28px;",
+                                "Close Dialog"
+                            }
+                            DropdownMenuRoot {
+                                modal: false,
+                                default_open: true,
+                                DropdownMenuTrigger {
+                                    id: "w1-pe-static-trig",
+                                    style: "width: 100px; height: 28px;",
+                                    "Static Trigger"
+                                }
+                                DropdownMenuContentStatic {
+                                    id: "w1-pe-static-content",
+                                    DropdownMenuItem { id: "w1-pe-static-item", "Static Item" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_w1_pe_menu_floating_closed_pointer_events_none_and_static_modal_auto() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeMenuPointerEventsScenario);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        // H-5 (floating closed force_mount): both wrapper & content must emit pointer-events: none; (never auto)
+        let closed_wrapper_style = harness
+            .attr("[data-monoxus-floating-content-wrapper]", "style")
+            .unwrap_or_default();
+        assert!(
+            closed_wrapper_style.contains("pointer-events: none;")
+                && !closed_wrapper_style.contains("pointer-events: auto;"),
+            "H-5: closed floating wrapper must emit pointer-events: none; (not auto), got: {closed_wrapper_style}"
+        );
+        let closed_float_style = harness.attr("#w1-pe-float-content", "style").unwrap_or_default();
+        assert_eq!(
+            harness.attr("#w1-pe-float-content", "data-state").as_deref(),
+            Some("closed")
+        );
+        assert!(
+            closed_float_style.contains("pointer-events: none;"),
+            "H-5: closed floating MenuContent must emit pointer-events: none;, got: {closed_float_style}"
+        );
+        assert!(
+            !closed_float_style.contains("pointer-events: auto;"),
+            "H-5: closed floating MenuContent must NOT emit pointer-events: auto;, got: {closed_float_style}"
+        );
+
+        // H-5 (static under modal pointer lock): must emit pointer-events: auto;
+        let static_modal_style = harness.attr("#w1-pe-static-content", "style").unwrap_or_default();
+        assert_eq!(
+            harness.attr("#w1-pe-static-content", "data-state").as_deref(),
+            Some("open")
+        );
+        assert!(
+            static_modal_style.contains("pointer-events: auto;"),
+            "H-5: open MenuContentStatic under modal pointer lock must emit pointer-events: auto;, got: {static_modal_style}"
+        );
+
+        // Close modal dialog cleanly via DialogClose so floating trigger is unshielded
+        click_and_pump(&mut harness, "#w1-pe-close-dlg");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#w1-pe-modal-dlg-content").is_none(),
+            "Modal dialog must close cleanly before opening floating dropdown"
+        );
+
+        click_and_pump(&mut harness, "#w1-pe-float-trig");
+        advance_frame_and_pump(&mut harness, 0.02);
+        let open_float_style = harness.attr("#w1-pe-float-content", "style").unwrap_or_default();
+        assert_eq!(
+            harness.attr("#w1-pe-float-content", "data-state").as_deref(),
+            Some("open")
+        );
+        assert!(
+            open_float_style.contains("pointer-events: auto;"),
+            "H-5: open floating MenuContent must emit pointer-events: auto;, got: {open_float_style}"
+        );
+    }
+
+    #[test]
+    fn fm_w1_guard_dropdown_trigger_ime_composing_blocked() {
+        use blitz_traits::events::{BlitzKeyEvent, KeyState, UiEvent};
+        use keyboard_types::{Location, Modifiers};
+
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeDropdownCallbackToggleScenario);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        focus_node(&mut harness, "#dm-cb-trig");
+        for (key, code) in [
+            (Key::Named(NamedKey::Enter), Code::Enter),
+            (Key::Character(" ".to_string()), Code::Space),
+            (Key::Named(NamedKey::ArrowDown), Code::ArrowDown),
+        ] {
+            let down = BlitzKeyEvent {
+                key: key.clone(),
+                code,
+                modifiers: Modifiers::default(),
+                location: Location::Standard,
+                is_auto_repeating: false,
+                is_composing: true,
+                state: KeyState::Pressed,
+                text: None,
+            };
+            let up = BlitzKeyEvent {
+                key,
+                code,
+                modifiers: Modifiers::default(),
+                location: Location::Standard,
+                is_auto_repeating: false,
+                is_composing: true,
+                state: KeyState::Released,
+                text: None,
+            };
+            harness.dispatch(UiEvent::KeyDown(down));
+            harness.dispatch(UiEvent::KeyUp(up));
+            drain_polls_and_resolve(&mut harness);
+            advance_frame_and_pump(&mut harness, 0.02);
+            assert!(
+                harness.query("#dm-cb-content").is_none(),
+                "M-1: IME composing key on DropdownMenuTrigger must NOT open menu"
+            );
+        }
+
+        // Normal Enter opens menu cleanly
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#dm-cb-content").is_some());
+    }
 }
 
 #[test]

@@ -59,7 +59,7 @@ impl SelectRuntime {
             return;
         }
 
-        let loop_selection = self.select.loop_selection();
+        let loop_selection = self.select.read().loop_selection();
         let current = self.highlighted_value();
         let curr_idx = current
             .as_ref()
@@ -102,7 +102,7 @@ impl SelectRuntime {
             return;
         }
 
-        let loop_selection = self.select.loop_selection();
+        let loop_selection = self.select.read().loop_selection();
         let current = self.highlighted_value();
         let curr_idx = current
             .as_ref()

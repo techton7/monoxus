@@ -573,4 +573,394 @@ mod native_tests {
             "HC-3: Leaving trigger before open_delay must cancel pending open"
         );
     }
+
+    #[component]
+    fn NativeHoverCardFmW1Hc1Scenario() -> Element {
+        rsx! {
+            div {
+                style: "padding: 40px;",
+                button {
+                    id: "hc1-lead-btn",
+                    r#type: "button",
+                    "Lead"
+                }
+                HoverCardRoot {
+                    id: "hc1-root",
+                    open_delay: 140,
+                    close_delay: 0,
+                    HoverCardTrigger {
+                        id: "hc1-trigger",
+                        href: "#stay",
+                        style: "display: inline-block; padding: 8px 16px;",
+                        on_click: move |evt: MouseEvent| evt.prevent_default(),
+                        "@monoxus-link"
+                    }
+                    HoverCardPortal {
+                        HoverCardContent {
+                            id: "hc1-content",
+                            style: "width: 220px; padding: 12px;",
+                            "Card Body"
+                        }
+                    }
+                }
+                button {
+                    id: "hc1-outside",
+                    r#type: "button",
+                    style: "margin-left: 40px; padding: 8px 12px;",
+                    "Outside"
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_w1_hc1_hover_card_immediate_dismiss_on_trigger_and_outside_click_and_pointerleave_unblocked() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeHoverCardFmW1Hc1Scenario);
+
+        // 1. Open via hover, then 1 click on trigger closes immediately and never re-opens after open_delay.
+        let (tx, ty) = harness.center_of("#hc1-trigger");
+        harness.move_mouse_to(tx, ty);
+        harness.pump();
+        std::thread::sleep(std::time::Duration::from_millis(180));
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        assert!(
+            harness.query("#hc1-content").is_some(),
+            "HoverCard must open after open_delay"
+        );
+
+        click_and_pump(&mut harness, "#hc1-trigger");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert_eq!(
+            harness.attr("#hc1-trigger", "data-state").as_deref(),
+            Some("closed"),
+            "DEC-HC-1: 1 trigger click must immediately set HoverCard state to closed"
+        );
+        assert!(
+            harness.query("#hc1-content").is_none(),
+            "DEC-HC-1: 1 trigger click must dismiss HoverCard immediately"
+        );
+
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#hc1-content").is_none(),
+            "DEC-HC-1: Clicking non-navigating <a> trigger must not re-open HoverCard after open_delay"
+        );
+
+        // 2. Hover while closed and click trigger before open_delay -> pending open cancelled, never opens.
+        harness.move_mouse_to(2.0, 2.0);
+        harness.pump();
+        harness.move_mouse_to(tx, ty);
+        harness.pump();
+        click_and_pump(&mut harness, "#hc1-trigger");
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#hc1-content").is_none(),
+            "DEC-HC-1: Trigger pointerdown before open_delay must cancel pending open"
+        );
+
+        // 3. Re-open via hover (even after trigger was clicked/focused), then 1 outside click dismisses immediately.
+        harness.move_mouse_to(2.0, 2.0);
+        harness.pump();
+        harness.move_mouse_to(tx, ty);
+        harness.pump();
+        std::thread::sleep(std::time::Duration::from_millis(180));
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        assert!(harness.query("#hc1-content").is_some());
+
+        click_and_pump(&mut harness, "#hc1-outside");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#hc1-content").is_none(),
+            "DEC-HC-1: 1 outside click must dismiss HoverCard immediately"
+        );
+
+        // 4. Click trigger (non-keyboard focus), re-open via hover, then pointerleave must close (not stuck on trigger_has_focus).
+        click_and_pump(&mut harness, "#hc1-trigger");
+        harness.move_mouse_to(2.0, 2.0);
+        harness.pump();
+        harness.move_mouse_to(tx, ty);
+        harness.pump();
+        std::thread::sleep(std::time::Duration::from_millis(180));
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        assert!(harness.query("#hc1-content").is_some());
+
+        harness.move_mouse_to(2.0, 2.0);
+        advance_frame_and_pump(&mut harness, 0.05);
+        advance_frame_and_pump(&mut harness, 0.05);
+        assert!(
+            harness.query("#hc1-content").is_none(),
+            "DEC-HC-1: pointerleave after click-focus must not get stuck open"
+        );
+
+        // 5. Open via keyboard Tab focus (`opened_via_focus = true`), close via Escape (`opened_via_focus` reset),
+        // then re-open via hover and verify pointerleave closes cleanly.
+        click_and_pump(&mut harness, "#hc1-lead-btn");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Tab), Code::Tab);
+        std::thread::sleep(std::time::Duration::from_millis(180));
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        assert!(harness.query("#hc1-content").is_some());
+
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#hc1-content").is_none());
+
+        harness.move_mouse_to(2.0, 2.0);
+        harness.pump();
+        harness.move_mouse_to(tx, ty);
+        harness.pump();
+        std::thread::sleep(std::time::Duration::from_millis(180));
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        assert!(harness.query("#hc1-content").is_some());
+
+        harness.move_mouse_to(2.0, 2.0);
+        advance_frame_and_pump(&mut harness, 0.05);
+        advance_frame_and_pump(&mut harness, 0.05);
+        assert!(
+            harness.query("#hc1-content").is_none(),
+            "DEC-HC-1: opened_via_focus must reset on close so subsequent hover-leave closes cleanly"
+        );
+    }
+
+    #[component]
+    fn NativeHoverCardFmW1Hc2Scenario() -> Element {
+        rsx! {
+            div {
+                style: "padding: 40px;",
+                button {
+                    id: "hc2-lead",
+                    r#type: "button",
+                    "Lead"
+                }
+                HoverCardRoot {
+                    id: "hc2-root",
+                    open_delay: 140,
+                    close_delay: 0,
+                    side: PlacementSide::Bottom,
+                    side_offset: 24.0,
+                    HoverCardTrigger {
+                        id: "hc2-trigger",
+                        href: "https://example.com",
+                        style: "display: inline-block; padding: 8px 16px;",
+                        "Trigger"
+                    }
+                    HoverCardPortal {
+                        HoverCardContent {
+                            id: "hc2-content",
+                            style: "width: 220px; height: 80px; padding: 12px;",
+                            "Corridor Content"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_w1_hc2_hover_card_focus_respects_open_delay_and_corridor_closes_on_stall() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeHoverCardFmW1Hc2Scenario);
+
+        // DEC-HC-2: Keyboard focus must respect open_delay (not open immediately before 140ms).
+        click_and_pump(&mut harness, "#hc2-lead");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Tab), Code::Tab);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#hc2-content").is_none(),
+            "DEC-HC-2: Keyboard focus must wait for open_delay_ms before opening"
+        );
+
+        std::thread::sleep(std::time::Duration::from_millis(170));
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#hc2-content").is_some(),
+            "DEC-HC-2: Keyboard focus must open once open_delay_ms elapses"
+        );
+
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#hc2-content").is_none());
+
+        // H-3: Pausing inside the grace corridor must close once stall_timeout_ms (300ms) elapses.
+        let (tx, ty) = harness.center_of("#hc2-trigger");
+        harness.move_mouse_to(tx, ty);
+        harness.pump();
+        std::thread::sleep(std::time::Duration::from_millis(170));
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#hc2-content").is_some());
+
+        let trig_rect = harness.layout_rect("#hc2-trigger");
+        let content_rect = harness.layout_rect("#hc2-content");
+        let mid_x = trig_rect.x + trig_rect.width * 0.5;
+        let gap_y = (trig_rect.y + trig_rect.height + content_rect.y) * 0.5;
+
+        harness.move_mouse_to(mid_x, gap_y);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#hc2-content").is_some(),
+            "HoverCard must stay open while pointer enters grace corridor"
+        );
+
+        // Stall inside corridor without moving for > 300ms -> closes via stall_timeout_ms.
+        std::thread::sleep(std::time::Duration::from_millis(360));
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#hc2-content").is_none(),
+            "H-3: Stalling inside HoverCard grace corridor must close after 300ms timeout"
+        );
+    }
+
+    #[derive(Clone, Props)]
+    struct HoverCardMetaProbeProps {
+        arrow_padding_out: Rc<RefCell<f32>>,
+        branches_out: Rc<RefCell<Vec<String>>>,
+    }
+
+    impl PartialEq for HoverCardMetaProbeProps {
+        fn eq(&self, other: &Self) -> bool {
+            Rc::ptr_eq(&self.arrow_padding_out, &other.arrow_padding_out)
+                && Rc::ptr_eq(&self.branches_out, &other.branches_out)
+        }
+    }
+
+    #[component]
+    fn HoverCardArrowPaddingProbe(out: Rc<RefCell<f32>>) -> Element {
+        let ctx = use_context::<HoverCardRootContext>();
+        *out.borrow_mut() = ctx.runtime.read().effective_arrow_padding();
+        rsx! {}
+    }
+
+    #[component]
+    fn NativeHoverCardPeAndGuardScenario(props: HoverCardMetaProbeProps) -> Element {
+        use monoxus::foundation::shared::Direction;
+        use monoxus::popover::{PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger};
+
+        let branches_reg = props.branches_out.clone();
+        let branches_unreg = props.branches_out.clone();
+        use_context_provider(|| {
+            OverlayBranchContext::new(
+                move |branch: String| branches_reg.borrow_mut().push(branch),
+                move |branch: String| branches_unreg.borrow_mut().retain(|b| b != &branch),
+            )
+        });
+
+        rsx! {
+            div {
+                style: "padding: 40px;",
+                // Closed force_mount HoverCard must NOT register parent OverlayBranchContext (M-2).
+                HoverCardRoot {
+                    id: "hc-fm-closed-root",
+                    default_open: false,
+                    HoverCardTrigger { id: "hc-fm-closed-trigger", "Closed Trigger" }
+                    HoverCardPortal {
+                        force_mount: true,
+                        HoverCardContent {
+                            id: "hc-fm-closed-content",
+                            force_mount: true,
+                            "Closed Force Mount"
+                        }
+                    }
+                }
+                // Modal Popover activates modal pointer lock so nested HoverCard emits pointer-events: auto (H-5).
+                // Also verifies floating HoverCardContent keeps dir="rtl" (M-5) and forwards arrow_padding (M-4).
+                PopoverRoot {
+                    id: "hc-modal-host",
+                    default_open: true,
+                    modal: Some(true),
+                    PopoverTrigger { id: "hc-modal-trigger", "Host" }
+                    PopoverPortal {
+                        PopoverContent {
+                            id: "hc-modal-popover-content",
+                            HoverCardRoot {
+                                id: "hc-rtl-root",
+                                default_open: true,
+                                HoverCardTrigger {
+                                    id: "hc-rtl-trigger",
+                                    style: "display: inline-block; padding: 6px 12px;",
+                                    "RTL Trigger"
+                                }
+                                HoverCardPortal {
+                                    HoverCardContent {
+                                        id: "hc-rtl-content",
+                                        dir: Some(Direction::Rtl),
+                                        align: Some(PlacementAlign::Start),
+                                        arrow_padding: 12.0,
+                                        style: "width: 180px; padding: 8px;",
+                                        "RTL Modal Card"
+                                        HoverCardArrow { id: "hc-rtl-arrow" }
+                                        HoverCardArrowPaddingProbe {
+                                            out: props.arrow_padding_out.clone(),
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_w1_pe_and_guard_hover_card_modal_pointer_events_rtl_dir_arrow_padding_and_force_mount_branch() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let arrow_padding_out = Rc::new(RefCell::new(0.0_f32));
+        let branches_out = Rc::new(RefCell::new(Vec::<String>::new()));
+
+        let mut harness = mount_native_scenario_with_props(
+            NativeHoverCardPeAndGuardScenario,
+            HoverCardMetaProbeProps {
+                arrow_padding_out: arrow_padding_out.clone(),
+                branches_out: branches_out.clone(),
+            },
+        );
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        // M-2: Closed force_mount HoverCardContent must NOT register into parent OverlayBranchContext.
+        assert!(
+            !branches_out
+                .borrow()
+                .iter()
+                .any(|b| b == "hc-fm-closed-content"),
+            "M-2: Closed force_mount HoverCardContent must not register in parent OverlayBranchContext, got {:?}",
+            *branches_out.borrow()
+        );
+
+        // H-5: Open HoverCardContent under active modal pointer lock must emit `pointer-events: auto;`.
+        let style = harness
+            .attr("#hc-rtl-content", "style")
+            .unwrap_or_default();
+        assert!(
+            style.contains("pointer-events: auto;"),
+            "H-5: HoverCardContent must emit `pointer-events: auto;` under modal pointer lock, got: {style}"
+        );
+
+        // M-5: Floating HoverCardContent must preserve `dir="rtl"` attribute for Floating UI `is_rtl`.
+        assert_eq!(
+            harness.attr("#hc-rtl-content", "dir").as_deref(),
+            Some("rtl"),
+            "M-5: Floating HoverCardContent must preserve dir='rtl'"
+        );
+
+        // M-4: HoverCardContent's `arrow_padding` override must flow to HoverCardRuntime / HoverCardArrow.
+        assert!(
+            (*arrow_padding_out.borrow() - 12.0).abs() < 1e-4,
+            "M-4: Expected effective arrow_padding 12.0, got {}",
+            *arrow_padding_out.borrow()
+        );
+    }
 }

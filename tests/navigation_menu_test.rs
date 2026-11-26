@@ -867,4 +867,169 @@ mod native_tests {
             "Second Escape must close NavigationMenu"
         );
     }
+
+    #[component]
+    fn NativeNavSubDismissAndDialogChainScenario() -> Element {
+        use monoxus::dialog::{DialogContent, DialogPortal, DialogRoot};
+        use monoxus::popover::{PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger};
+
+        let sub_root_val = use_signal(|| "docs".to_string());
+        let dlg_open = use_signal(|| true);
+        let dlg_nav_val = use_signal(|| "menu-a".to_string());
+        let nested_pop_open = use_signal(|| false);
+        let mut pop_action_clicks = use_signal(|| 0_u32);
+
+        #[component]
+        fn DialogBranchesProbe() -> Element {
+            use monoxus::dialog::DialogContext;
+            let ctx = use_context::<DialogContext>();
+            let branches = ctx.runtime.read().branches().join(",");
+            rsx! {
+                span { id: "w1-nav-dlg-branches", "{branches}" }
+            }
+        }
+
+        rsx! {
+            div { style: "padding: 24px;",
+                // Part 1 (H-4a): NavigationMenuSub link click must dismiss enclosing NavigationMenuRoot
+                NavigationMenuRoot {
+                    id: "w1-sub-root",
+                    value: Some(sub_root_val),
+                    NavigationMenuList {
+                        NavigationMenuItem {
+                            value: Some("docs".to_string()),
+                            NavigationMenuTrigger { id: "w1-sub-root-trig", "Docs" }
+                            NavigationMenuContent {
+                                id: "w1-sub-root-content",
+                                NavigationMenuSub {
+                                    id: "w1-inner-sub",
+                                    default_value: Some("guides".to_string()),
+                                    NavigationMenuList {
+                                        NavigationMenuItem {
+                                            value: Some("guides".to_string()),
+                                            NavigationMenuTrigger { id: "w1-inner-sub-trig", "Guides" }
+                                            NavigationMenuContent {
+                                                id: "w1-inner-sub-content",
+                                                NavigationMenuLink {
+                                                    id: "w1-inner-sub-link",
+                                                    href: "#guides",
+                                                    style: "display: inline-block; width: 100px; height: 28px;",
+                                                    "Getting Started"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Part 2 (H-4b, M-2): Dialog > NavigationMenu > Popover branch chaining
+                DialogRoot {
+                    id: "w1-nav-dlg",
+                    open: Some(dlg_open),
+                    DialogPortal {
+                        DialogContent {
+                            id: "w1-nav-dlg-content",
+                            style: "width: 480px; height: 320px; padding: 16px; background: white;",
+                            DialogBranchesProbe {}
+                            span { id: "w1-nav-pop-clicks", "{pop_action_clicks()}" }
+                            NavigationMenuRoot {
+                                id: "w1-dlg-nav-root",
+                                value: Some(dlg_nav_val),
+                                NavigationMenuList {
+                                    NavigationMenuItem {
+                                        value: Some("menu-a".to_string()),
+                                        NavigationMenuTrigger { id: "w1-dlg-nav-trig", "Menu A" }
+                                        NavigationMenuContent {
+                                            id: "w1-dlg-nav-content",
+                                            force_mount: true,
+                                            PopoverRoot {
+                                                id: "w1-dlg-nav-pop",
+                                                open: Some(nested_pop_open),
+                                                PopoverTrigger {
+                                                    id: "w1-dlg-nav-pop-trig",
+                                                    style: "width: 120px; height: 28px;",
+                                                    "Open Inner Popover"
+                                                }
+                                                PopoverPortal {
+                                                    PopoverContent {
+                                                        id: "w1-dlg-nav-pop-content",
+                                                        style: "width: 160px; padding: 8px; background: white;",
+                                                        button {
+                                                            id: "w1-dlg-nav-pop-btn",
+                                                            r#type: "button",
+                                                            style: "width: 120px; height: 28px;",
+                                                            onclick: move |_| pop_action_clicks.set(pop_action_clicks() + 1),
+                                                            "Inner Action"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_w1_nav_sub_link_dismisses_root_and_dialog_nav_popover_keeps_dialog_open() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeNavSubDismissAndDialogChainScenario);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        // H-4b: Dialog > NavigationMenu > Popover keeps Dialog open on Popover interaction
+        assert!(harness.query("#w1-nav-dlg-content").is_some());
+        assert!(harness.query("#w1-dlg-nav-content").is_some());
+        click_and_pump(&mut harness, "#w1-dlg-nav-pop-trig");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#w1-dlg-nav-pop-content").is_some());
+
+        // Clicking inside portalled Popover must NOT dismiss enclosing Dialog or NavigationMenu
+        click_and_pump(&mut harness, "#w1-dlg-nav-pop-btn");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert_eq!(harness.text_content("#w1-nav-pop-clicks"), "1");
+        assert!(
+            harness.query("#w1-nav-dlg-content").is_some(),
+            "H-4b: Dialog must remain open when clicking inside Dialog > NavigationMenu > Popover"
+        );
+        assert!(
+            harness.query("#w1-dlg-nav-content").is_some(),
+            "H-4b: NavigationMenu must remain open when clicking inside nested Popover"
+        );
+
+        // M-2: Close inner Popover & NavigationMenu (force_mount: true) -> branch must unregister from Dialog
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#w1-dlg-nav-pop-content").is_none());
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            !harness
+                .text_content("#w1-nav-dlg-branches")
+                .contains("w1-dlg-nav-content"),
+            "M-2: closed force_mount NavigationMenuContent must unregister from parent Dialog OverlayBranchContext"
+        );
+
+        // Close Dialog so Part 1 sub-menu is unshielded and interactive
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#w1-nav-dlg-content").is_none());
+
+        // H-4a: Clicking NavigationMenuLink inside NavigationMenuSub dismisses enclosing NavigationMenuRoot
+        assert!(harness.query("#w1-sub-root-content").is_some());
+        assert!(harness.query("#w1-inner-sub-link").is_some());
+        click_and_pump(&mut harness, "#w1-inner-sub-link");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#w1-sub-root-content").is_none(),
+            "H-4a: Clicking NavigationMenuLink inside NavigationMenuSub must dismiss enclosing NavigationMenuRoot"
+        );
+    }
 }

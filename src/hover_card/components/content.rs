@@ -5,8 +5,8 @@ use dioxus::prelude::*;
 use crate::foundation::{
     compose::{join_styles, merge_global_attributes},
     overlay::{
-        OverlayBranchContext, PlacementAlign, PlacementSide, use_overlay_branch_provider,
-        use_register_parent_overlay_branches,
+        OverlayBranchContext, PlacementAlign, PlacementSide, is_modal_pointer_lock_active,
+        use_overlay_branch_provider, use_register_parent_overlay_branches,
     },
     shared::{
         Direction, EscapeKeyDownEvent, InteractOutsideEvent, PointerDownOutsideEvent,
@@ -119,7 +119,7 @@ pub(crate) fn render_hover_card_surface(spec: HoverCardSurfaceSpec) -> Element {
     if let Some(ref wid) = wrapper_id_opt {
         branch_ids.push(wid.clone());
     }
-    use_register_parent_overlay_branches(parent_branch, should_render, branch_ids);
+    use_register_parent_overlay_branches(parent_branch, is_open, branch_ids);
 
     let latest_cid = use_hook(|| Rc::new(RefCell::new(content_id.clone())));
     {
@@ -188,8 +188,14 @@ pub(crate) fn render_hover_card_surface(spec: HoverCardSurfaceSpec) -> Element {
     if runtime.is_contain_selection() && !has_user_select {
         style_parts.push("user-select: text;");
     }
+    let has_pointer_events = spec
+        .style
+        .as_deref()
+        .is_some_and(|s| s.contains("pointer-events:"));
     if !is_open || data_state == DataState::Closed {
         style_parts.push("pointer-events: none;");
+    } else if is_modal_pointer_lock_active() && !has_pointer_events {
+        style_parts.push("pointer-events: auto;");
     }
     let base_style = join_styles(style_parts);
 
@@ -199,7 +205,7 @@ pub(crate) fn render_hover_card_surface(spec: HoverCardSurfaceSpec) -> Element {
         spec.attributes,
     );
 
-    let dir_str = (!spec.floating).then(|| spec.dir.map(|d| d.as_str())).flatten();
+    let dir_str = spec.dir.map(|d| d.as_str());
     let is_floating = spec.floating;
     let rt_mount = runtime.clone();
 

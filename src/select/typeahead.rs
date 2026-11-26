@@ -55,7 +55,7 @@ impl SelectRuntime {
         drop(reg);
 
         let items_snapshot = self.state.items.read().clone();
-        let def_items = self.select.items();
+        let def_items = self.select.read().items().to_vec();
 
         let query = {
             let mut buf = ta_sig.write();

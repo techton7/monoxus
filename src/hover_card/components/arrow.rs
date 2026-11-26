@@ -77,7 +77,7 @@ pub fn HoverCardArrow(props: HoverCardArrowProps) -> Element {
         arrow: placement.as_ref().map(|p| *p.arrow()),
         width: props.width,
         height: props.height,
-        arrow_padding: runtime.lifecycle().floating().arrow_padding(),
+        arrow_padding: runtime.effective_arrow_padding(),
         edge_offset: true,
         class: props.class,
         style: props.style,

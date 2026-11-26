@@ -45,6 +45,7 @@ use super::{
 };
 
 type HoverCardOpenChangeHandler = Rc<dyn Fn(bool)>;
+const HOVER_CARD_GRACE_STALL_TIMEOUT_MS: u64 = 300;
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct HoverCardFloatingOverrides {
@@ -204,7 +205,7 @@ where
     focus_cfg.suppress_tab_order = true;
     let focus_scope = use_focus_scope(hover_card.is_open(), focus_cfg, None, None);
 
-    let mut dismiss_boundaries = vec![effective_trigger_id, effective_content_id.clone()];
+    let mut dismiss_boundaries = vec![effective_content_id.clone()];
     for branch in hover_card.lifecycle().dismiss_layer().branches() {
         if !dismiss_boundaries.contains(branch) {
             dismiss_boundaries.push(branch.clone());
@@ -258,6 +259,7 @@ where
             }
             reset_hover_and_selection_slots(
                 content_hovered,
+                opened_via_focus,
                 is_pointer_down_on_content,
                 has_selection,
                 contain_selection,
@@ -330,6 +332,7 @@ where
             if !open_now {
                 reset_hover_and_selection_slots(
                     state.content_hovered,
+                    state.opened_via_focus,
                     state.is_pointer_down_on_content,
                     state.has_selection,
                     state.contain_selection,
@@ -462,6 +465,14 @@ impl HoverCardRuntime {
             arrow.data_align = effective.data_align();
         }
         arrow
+    }
+
+    pub fn effective_arrow_padding(&self) -> f32 {
+        self.state
+            .floating_overrides
+            .read()
+            .arrow_padding
+            .unwrap_or_else(|| self.hover_card.lifecycle().floating().arrow_padding())
     }
 
     pub fn geometry_vars(&self, anchor: Rect, content: Size) -> GeometryVars {
@@ -653,22 +664,24 @@ impl HoverCardRuntime {
         let transit = GraceTransit::new(exit_point, from_rect, to_rect, Some(5.0), true);
         match transit.inspect_point(exit_point) {
             GraceTransitStatus::ExitedCorridor => return false,
-            GraceTransitStatus::ReachedTarget if to_rect.contains_point(exit_point) => {
-                return true;
-            }
-            GraceTransitStatus::InTransit | GraceTransitStatus::ReachedTarget => {}
+            GraceTransitStatus::ReachedTarget => return true,
+            GraceTransitStatus::InTransit => {}
         }
 
         let runtime = self.clone();
-        self.state.grace.start(transit, None, move |outcome| match outcome {
-            GraceCorridorOutcome::InTransit(_) => {}
-            GraceCorridorOutcome::ReachedTarget(_) => {
-                runtime.cancel_close();
-            }
-            GraceCorridorOutcome::ExitedCorridor(_) | GraceCorridorOutcome::Stalled => {
-                runtime.schedule_close();
-            }
-        });
+        self.state.grace.start(
+            transit,
+            Some(HOVER_CARD_GRACE_STALL_TIMEOUT_MS),
+            move |outcome| match outcome {
+                GraceCorridorOutcome::InTransit(_) => {}
+                GraceCorridorOutcome::ReachedTarget(_) => {
+                    runtime.cancel_close();
+                }
+                GraceCorridorOutcome::ExitedCorridor(_) | GraceCorridorOutcome::Stalled => {
+                    runtime.schedule_close();
+                }
+            },
+        );
         true
     }
 
@@ -729,6 +742,7 @@ impl HoverCardRuntime {
             if runtime.is_disabled() {
                 return;
             }
+            runtime.cancel_pending_open();
             let mut pdi = runtime.state.pointer_down_inside_trigger;
             let _ = pdi.try_write().map(|mut w| *w = true);
             let mut lpt = runtime.state.last_pointer_type;
@@ -776,7 +790,6 @@ impl HoverCardRuntime {
             }
 
             if runtime.state.opened_via_focus.try_read().is_ok_and(|f| *f)
-                || runtime.trigger_has_focus()
                 || runtime.has_selection()
                 || runtime.is_pointer_down_on_content()
             {
@@ -845,7 +858,7 @@ impl HoverCardRuntime {
             let _ = ovf.try_write().map(|mut w| *w = true);
             runtime.cancel_close();
             runtime.stop_grace_monitor();
-            runtime.schedule_open(true);
+            runtime.schedule_open(false);
         }
     }
 
@@ -908,7 +921,6 @@ impl HoverCardRuntime {
             let _ = ch.try_write().map(|mut w| *w = false);
 
             if runtime.state.opened_via_focus.try_read().is_ok_and(|f| *f)
-                || runtime.trigger_has_focus()
                 || runtime.has_selection()
                 || runtime.is_pointer_down_on_content()
             {
@@ -1080,6 +1092,7 @@ impl HoverCardRuntime {
         }
         reset_hover_and_selection_slots(
             self.state.content_hovered,
+            self.state.opened_via_focus,
             self.state.is_pointer_down_on_content,
             self.state.has_selection,
             self.state.contain_selection,
@@ -1102,7 +1115,6 @@ impl HoverCardRuntime {
         if !trigger_hovered
             && !content_hovered
             && !opened_via_focus
-            && !self.trigger_has_focus()
             && !self.has_selection()
             && !self.is_pointer_down_on_content()
             && self.is_live_open()
@@ -1215,11 +1227,7 @@ fn arm_hover_card_pointer_up_observer(runtime: &HoverCardRuntime) {
                             rt_frame.state.content_hovered.try_read().is_ok_and(|h| *h);
                         let opened_via_focus =
                             rt_frame.state.opened_via_focus.try_read().is_ok_and(|f| *f);
-                        if !trigger_hovered
-                            && !content_hovered
-                            && !opened_via_focus
-                            && !rt_frame.trigger_has_focus()
-                        {
+                        if !trigger_hovered && !content_hovered && !opened_via_focus {
                             rt_frame.schedule_close();
                         }
                     }
@@ -1279,11 +1287,13 @@ fn compute_effective_floating_layer(
 
 fn reset_hover_and_selection_slots(
     mut content_hovered: CopyValue<bool>,
+    mut opened_via_focus: CopyValue<bool>,
     mut is_pointer_down_on_content: CopyValue<bool>,
     mut has_selection: CopyValue<bool>,
     mut contain_selection: Signal<bool>,
 ) {
     let _ = content_hovered.try_write().map(|mut w| *w = false);
+    let _ = opened_via_focus.try_write().map(|mut w| *w = false);
     let _ = is_pointer_down_on_content.try_write().map(|mut w| *w = false);
     let _ = has_selection.try_write().map(|mut w| *w = false);
     if contain_selection.try_peek().is_ok_and(|c| *c) {

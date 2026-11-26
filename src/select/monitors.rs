@@ -90,12 +90,13 @@ impl SelectRuntime {
     }
 
     pub fn handle_form_reset(&self) {
-        match self.select.mode() {
+        let mode = self.select.read().mode();
+        match mode {
             SelectMode::Single { .. } => {
                 let default_val = self.default_value();
                 let mut val_sig = self.state.value;
                 val_sig.set(default_val.clone());
-                if let Some(ref cb) = self.on_value_change {
+                if let Some(cb) = self.on_value_change.try_read().ok().and_then(|g| g.clone()) {
                     cb(default_val);
                 }
             }
@@ -103,7 +104,7 @@ impl SelectRuntime {
                 let default_vals = self.default_values();
                 let mut vals_sig = self.state.values;
                 vals_sig.set(default_vals.clone());
-                if let Some(ref cb) = self.on_values_change {
+                if let Some(cb) = self.on_values_change.try_read().ok().and_then(|g| g.clone()) {
                     cb(default_vals);
                 }
             }

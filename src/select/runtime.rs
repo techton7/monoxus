@@ -83,21 +83,25 @@ pub struct SelectRuntimeState {
     pub fallback_readiness: Signal<FloatingReadiness>,
     pub selected_labels: Signal<std::collections::BTreeMap<String, String>>,
     pub pressed_item: Signal<Option<super::types::PressedSelectItem>>,
+    pub suppress_next_click: CopyValue<bool>,
 }
 
 #[derive(Clone)]
 pub struct SelectRuntime {
-    pub(crate) select: Select,
-    pub(crate) on_value_change: Option<SelectValueChangeHandler>,
-    pub(crate) on_values_change: Option<SelectValuesChangeHandler>,
-    pub(crate) on_open_change: Option<SelectOpenChangeHandler>,
-    pub(crate) on_open_change_complete: Option<SelectOpenChangeCompleteHandler>,
+    pub(crate) relationships: SelectRelationships,
+    pub(crate) select: Signal<Select>,
+    pub(crate) on_value_change: CopyValue<Option<SelectValueChangeHandler>>,
+    pub(crate) on_values_change: CopyValue<Option<SelectValuesChangeHandler>>,
+    pub(crate) on_open_change: CopyValue<Option<SelectOpenChangeHandler>>,
+    pub(crate) on_open_change_complete: CopyValue<Option<SelectOpenChangeCompleteHandler>>,
     pub(crate) state: SelectRuntimeState,
 }
 
 impl PartialEq for SelectRuntime {
     fn eq(&self, other: &Self) -> bool {
-        self.select == other.select && self.state == other.state
+        self.relationships == other.relationships
+            && self.select == other.select
+            && self.state == other.state
     }
 }
 
@@ -152,12 +156,17 @@ where
         initial_labels.insert(item.value.clone(), item.text.clone());
     }
 
+    let relationships = select.relationships().clone();
+    let mut select_sig = use_signal(|| select.clone());
+    sync_signal(&mut select_sig, select.clone());
+
     let value_sig = use_signal(|| initial_val);
     let default_value_sig = use_signal(|| initial_def_val);
     let values_sig = use_signal(|| initial_vals);
     let default_values_sig = use_signal(|| initial_def_vals);
     let open_sig = use_signal(|| initial_open);
-    let disabled_sig = use_signal(|| select.is_disabled());
+    let mut disabled_sig = use_signal(|| select.is_disabled());
+    sync_signal(&mut disabled_sig, select.is_disabled());
     let highlighted_value_sig = use_signal(|| None);
     let initial_highlight_pending_sig = use_signal(|| false);
     let items_sig = use_signal(|| select.items().to_vec());
@@ -196,9 +205,16 @@ where
     let on_pointer_down_outside_slot =
         use_hook(|| CopyValue::new(None::<EventHandler<PointerDownOutsideEvent>>));
     let on_close_auto_focus_slot = use_hook(|| CopyValue::new(None::<EventHandler<()>>));
+    let suppress_next_click_slot = use_hook(|| CopyValue::new(false));
+    let mut on_val_change_slot = use_hook(|| CopyValue::new(synced_val_change.clone()));
+    on_val_change_slot.set(synced_val_change);
+    let mut on_vals_change_slot = use_hook(|| CopyValue::new(synced_vals_change.clone()));
+    on_vals_change_slot.set(synced_vals_change);
+    let mut on_open_change_slot = use_hook(|| CopyValue::new(synced_open_change.clone()));
+    on_open_change_slot.set(synced_open_change);
     let mut on_complete_cb_slot =
         use_hook(|| CopyValue::new(synced_open_change_complete.clone()));
-    on_complete_cb_slot.set(synced_open_change_complete.clone());
+    on_complete_cb_slot.set(synced_open_change_complete);
 
     let mut rt_slot: CopyValue<Option<SelectRuntime>> = use_hook(|| CopyValue::new(None));
 
@@ -383,16 +399,44 @@ where
         fallback_readiness: fallback_readiness_sig,
         selected_labels: selected_labels_sig,
         pressed_item: pressed_item_sig,
+        suppress_next_click: suppress_next_click_slot,
     };
 
+    let mut prev_prop_val = use_hook(|| CopyValue::new(select.value().map(str::to_owned)));
+    let mut prev_prop_vals = use_hook(|| CopyValue::new(select.values().to_vec()));
+    let mut prev_prop_open = use_hook(|| CopyValue::new(select.is_open()));
     let effect_state = state;
     use_effect(use_reactive((&select,), move |(select,)| {
-        let mut val_sig = effect_state.value;
-        sync_signal(&mut val_sig, select.value().map(str::to_owned));
-        let mut vals_sig = effect_state.values;
-        sync_signal(&mut vals_sig, select.values().to_vec());
-        let mut open_s = effect_state.open;
-        sync_signal(&mut open_s, select.is_open());
+        let next_val = select.value().map(str::to_owned);
+        if prev_prop_val
+            .try_read()
+            .map(|cur| *cur != next_val)
+            .unwrap_or(true)
+        {
+            prev_prop_val.set(next_val.clone());
+            let mut val_sig = effect_state.value;
+            sync_signal(&mut val_sig, next_val);
+        }
+        let next_vals = select.values().to_vec();
+        if prev_prop_vals
+            .try_read()
+            .map(|cur| *cur != next_vals)
+            .unwrap_or(true)
+        {
+            prev_prop_vals.set(next_vals.clone());
+            let mut vals_sig = effect_state.values;
+            sync_signal(&mut vals_sig, next_vals);
+        }
+        let next_open = select.is_open();
+        if prev_prop_open
+            .try_read()
+            .map(|cur| *cur != next_open)
+            .unwrap_or(true)
+        {
+            prev_prop_open.set(next_open);
+            let mut open_s = effect_state.open;
+            sync_signal(&mut open_s, next_open);
+        }
         let mut dis_sig = effect_state.disabled;
         sync_signal(&mut dis_sig, select.is_disabled());
         let current_items = select.items();
@@ -403,11 +447,12 @@ where
     }));
 
     let runtime = SelectRuntime {
-        select,
-        on_value_change: synced_val_change,
-        on_values_change: synced_vals_change,
-        on_open_change: synced_open_change,
-        on_open_change_complete: synced_open_change_complete,
+        relationships,
+        select: select_sig,
+        on_value_change: on_val_change_slot,
+        on_values_change: on_vals_change_slot,
+        on_open_change: on_open_change_slot,
+        on_open_change_complete: on_complete_cb_slot,
         state,
     };
     rt_slot.set(Some(runtime.clone()));
@@ -475,24 +520,27 @@ impl SelectRuntime {
             fallback_readiness: Signal::new(FloatingReadiness::default()),
             selected_labels: Signal::new(initial_labels),
             pressed_item: Signal::new(None),
+            suppress_next_click: CopyValue::new(false),
         };
 
+        let relationships = select.relationships().clone();
         Self {
-            select,
-            on_value_change: None,
-            on_values_change: None,
-            on_open_change: None,
-            on_open_change_complete: None,
+            relationships,
+            select: Signal::new(select),
+            on_value_change: CopyValue::new(None),
+            on_values_change: CopyValue::new(None),
+            on_open_change: CopyValue::new(None),
+            on_open_change_complete: CopyValue::new(None),
             state,
         }
     }
 
     pub fn select(&self) -> Select {
-        self.select.clone()
+        self.select.read().clone()
     }
 
     pub fn relationships(&self) -> &SelectRelationships {
-        self.select.relationships()
+        &self.relationships
     }
 
     pub fn should_render_portal(&self) -> bool {
@@ -536,7 +584,7 @@ impl SelectRuntime {
     }
 
     pub fn is_selected(&self, val: &str) -> bool {
-        match self.select.mode() {
+        match self.select.read().mode() {
             SelectMode::Single { .. } => self.value().as_deref() == Some(val) && !val.is_empty(),
             SelectMode::Multiple => {
                 self.state.values.read().iter().any(|v| v == val) && !val.is_empty()
@@ -599,7 +647,7 @@ impl SelectRuntime {
             return;
         }
 
-        let current_val = match self.select.mode() {
+        let current_val = match self.select.read().mode() {
             SelectMode::Single { .. } => self.value(),
             SelectMode::Multiple => self.values().first().cloned(),
         };
@@ -611,7 +659,7 @@ impl SelectRuntime {
     }
 
     pub(crate) fn resolve_initial_highlight(&self) -> Option<String> {
-        let current_val = match self.select.mode() {
+        let current_val = match self.select.read().mode() {
             SelectMode::Single { .. } => self.value(),
             SelectMode::Multiple => self.values().first().cloned(),
         };
@@ -925,11 +973,15 @@ impl SelectRuntime {
         let mut time_sig = self.state.last_key_timestamp_ms;
         time_sig.set(0.0);
 
-        if let Some(ref cb) = self.on_open_change {
+        if let Some(cb) = self.on_open_change.try_read().ok().and_then(|g| g.clone()) {
             cb(true);
         }
         if self.state.presence.is_none()
-            && let Some(ref cb) = self.on_open_change_complete
+            && let Some(cb) = self
+                .on_open_change_complete
+                .try_read()
+                .ok()
+                .and_then(|g| g.clone())
         {
             cb(true);
         }
@@ -1057,7 +1109,7 @@ impl SelectRuntime {
             .keys()
             .cloned()
             .collect();
-        let current_val = match self.select.mode() {
+        let current_val = match self.select.read().mode() {
             SelectMode::Single { .. } => self.value(),
             SelectMode::Multiple => self.values().first().cloned(),
         };
@@ -1149,11 +1201,15 @@ impl SelectRuntime {
             }
         }
 
-        if let Some(ref cb) = self.on_open_change {
+        if let Some(cb) = self.on_open_change.try_read().ok().and_then(|g| g.clone()) {
             cb(false);
         }
         if self.state.presence.is_none()
-            && let Some(ref cb) = self.on_open_change_complete
+            && let Some(cb) = self
+                .on_open_change_complete
+                .try_read()
+                .ok()
+                .and_then(|g| g.clone())
         {
             cb(false);
         }
@@ -1173,6 +1229,7 @@ impl SelectRuntime {
         sync_signal(&mut fb_rd, FloatingReadiness::Measuring);
 
         self.clear_pressed_item();
+        self.set_suppress_next_click(false);
 
         if restore_focus {
             self.trigger_close_auto_focus();
@@ -1205,12 +1262,15 @@ impl SelectRuntime {
     }
 
     pub fn trigger_attributes(&self) -> SelectTriggerAttributes {
-        let is_placeholder = match self.select.mode() {
+        let select_def = self.select.read();
+        let is_placeholder = match select_def.mode() {
             SelectMode::Single { .. } => {
                 self.value().is_none() || self.value().as_deref() == Some("")
             }
             SelectMode::Multiple => self.values().is_empty(),
         };
+        let is_required = select_def.is_required();
+        drop(select_def);
         let should_emit = self.is_open() || self.should_render_content();
 
         SelectTriggerAttributes {
@@ -1229,7 +1289,7 @@ impl SelectRuntime {
             } else {
                 None
             },
-            aria_required: if self.select.is_required() {
+            aria_required: if is_required {
                 Some("true")
             } else {
                 None
@@ -1270,6 +1330,24 @@ impl SelectRuntime {
         if let Ok(mut w) = sig.try_write() {
             *w = None;
         }
+    }
+
+    pub fn set_suppress_next_click(&self, suppress: bool) {
+        let mut slot = self.state.suppress_next_click;
+        if let Ok(mut w) = slot.try_write() {
+            *w = suppress;
+        }
+    }
+
+    pub fn take_suppress_next_click(&self) -> bool {
+        let mut slot = self.state.suppress_next_click;
+        slot.try_write()
+            .map(|mut w| {
+                let prev = *w;
+                *w = false;
+                prev
+            })
+            .unwrap_or(false)
     }
 
     pub fn content_attributes(&self, activedescendant: Option<String>) -> SelectContentAttributes {

@@ -232,6 +232,132 @@ fn popover_reuses_the_shared_state_composition_and_overlay_backbone() {
     );
 }
 
+#[test]
+fn fm_w1_pop_pre_placement_content_and_arrow_respect_overrides_and_closed_force_mount_branch() {
+    use dioxus::prelude::*;
+    use monoxus::{
+        foundation::overlay::OverlayBranchContext,
+        popover::{
+            PopoverArrow, PopoverContent, PopoverContext, PopoverPortal, PopoverRoot,
+            PopoverTrigger,
+        },
+    };
+
+    #[derive(Clone, Default, PartialEq)]
+    struct PrePlacementSnapshot {
+        has_placement: bool,
+        content_side: String,
+        content_align: String,
+        arrow_side: String,
+        arrow_align: String,
+    }
+
+    #[component]
+    fn PrePlacementProbe(out: Rc<RefCell<PrePlacementSnapshot>>) -> Element {
+        let ctx = use_context::<PopoverContext>();
+        let runtime = ctx.runtime.read();
+        let content = runtime.content();
+        let arrow = runtime.arrow();
+        *out.borrow_mut() = PrePlacementSnapshot {
+            has_placement: runtime.placement().is_some(),
+            content_side: content.data_side().to_string(),
+            content_align: content.data_align().to_string(),
+            arrow_side: arrow.data_side().to_string(),
+            arrow_align: arrow.data_align().to_string(),
+        };
+        rsx! {}
+    }
+
+    #[derive(Clone, Props)]
+    struct PopoverGuardSampleProps {
+        snapshot: Rc<RefCell<PrePlacementSnapshot>>,
+        branches: Rc<RefCell<Vec<String>>>,
+    }
+
+    impl PartialEq for PopoverGuardSampleProps {
+        fn eq(&self, other: &Self) -> bool {
+            Rc::ptr_eq(&self.snapshot, &other.snapshot)
+                && Rc::ptr_eq(&self.branches, &other.branches)
+        }
+    }
+
+    #[component]
+    fn PopoverGuardSample(props: PopoverGuardSampleProps) -> Element {
+        let reg_branches = props.branches.clone();
+        let unreg_branches = props.branches.clone();
+        use_context_provider(|| {
+            OverlayBranchContext::new(
+                move |b: String| reg_branches.borrow_mut().push(b),
+                move |b: String| unreg_branches.borrow_mut().retain(|x| x != &b),
+            )
+        });
+
+        rsx! {
+            // M-2: Closed force_mount PopoverContent must not register in parent OverlayBranchContext.
+            PopoverRoot {
+                id: "pop-fm-closed-root",
+                default_open: false,
+                PopoverTrigger { id: "pop-fm-closed-trigger", "Closed" }
+                PopoverPortal {
+                    force_mount: true,
+                    PopoverContent {
+                        id: "pop-fm-closed-content",
+                        force_mount: true,
+                        "Closed Force Mount"
+                    }
+                }
+            }
+            // M-4: Before Floating UI placement runs, PopoverRuntime::content()/arrow() fall back to overrides.
+            PopoverRoot {
+                id: "pop-pre-place-root",
+                default_open: true,
+                sticky: Some(true),
+                PopoverTrigger { id: "pop-pre-place-trigger", "Open" }
+                PopoverPortal {
+                    PopoverContent {
+                        id: "pop-pre-place-content",
+                        side: Some(PlacementSide::Left),
+                        align: Some(PlacementAlign::Start),
+                        PopoverArrow { id: "pop-pre-place-arrow" }
+                        PrePlacementProbe { out: props.snapshot.clone() }
+                    }
+                }
+            }
+        }
+    }
+
+    let snapshot = Rc::new(RefCell::new(PrePlacementSnapshot::default()));
+    let branches = Rc::new(RefCell::new(Vec::<String>::new()));
+
+    let mut dom = VirtualDom::new_with_props(
+        PopoverGuardSample,
+        PopoverGuardSampleProps {
+            snapshot: snapshot.clone(),
+            branches: branches.clone(),
+        },
+    );
+    dom.rebuild_in_place();
+
+    assert!(
+        !branches
+            .borrow()
+            .iter()
+            .any(|b| b == "pop-fm-closed-content"),
+        "M-2: Closed force_mount PopoverContent must not register in parent OverlayBranchContext, got {:?}",
+        *branches.borrow()
+    );
+
+    let snap = snapshot.borrow();
+    assert!(
+        !snap.has_placement,
+        "VDOM-only render must exercise pre-placement fallback"
+    );
+    assert_eq!(snap.content_side, "left");
+    assert_eq!(snap.content_align, "start");
+    assert_eq!(snap.arrow_side, "left");
+    assert_eq!(snap.arrow_align, "start");
+}
+
 
 #[cfg(feature = "native")]
 mod native_stage2a_tests {
@@ -403,5 +529,104 @@ mod native_stage2a_tests {
             harness.query("#toggle-content").is_some(),
             "cb2 called prevent_default(), so PopoverContent must remain open"
         );
+    }
+
+    #[derive(Clone, Props)]
+    struct PopoverStickyRenderCountProps {
+        renders: Arc<AtomicUsize>,
+    }
+
+    impl PartialEq for PopoverStickyRenderCountProps {
+        fn eq(&self, other: &Self) -> bool {
+            Arc::ptr_eq(&self.renders, &other.renders)
+        }
+    }
+
+    #[component]
+    fn PopoverStickyCounter(props: PopoverStickyRenderCountProps) -> Element {
+        props.renders.fetch_add(1, Ordering::SeqCst);
+        rsx! { span { "Sticky Body" } }
+    }
+
+    #[component]
+    fn PopoverStickyRootAndOverridesScenario(props: PopoverStickyRenderCountProps) -> Element {
+        use monoxus::{
+            foundation::overlay::{PlacementAlign, PlacementSide},
+            popover::PopoverArrow,
+        };
+
+        rsx! {
+            div {
+                style: "padding-top: 220px; padding-left: 160px;",
+                PopoverRoot {
+                    id: "pop-sticky-root",
+                    default_open: true,
+                    sticky: Some(true),
+                    PopoverTrigger {
+                        id: "pop-sticky-trigger",
+                        style: "display: inline-block; padding: 8px 16px;",
+                        "Sticky Trigger"
+                    }
+                    PopoverPortal {
+                        PopoverContent {
+                            id: "pop-sticky-content",
+                            side: Some(PlacementSide::Top),
+                            align: Some(PlacementAlign::End),
+                            side_offset: Some(12.0),
+                            avoid_collisions: Some(false),
+                            style: "width: 160px; height: 60px; padding: 8px;",
+                            PopoverArrow { id: "pop-sticky-arrow" }
+                            PopoverStickyCounter { renders: props.renders.clone() }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_w1_pop_sticky_root_and_content_overrides_no_loop_and_preserves_placement() {
+        use crate::common::native_fixture::assert_relative_above;
+
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let renders = Arc::new(AtomicUsize::new(0));
+
+        let mut harness = mount_native_scenario_with_props(
+            PopoverStickyRootAndOverridesScenario,
+            PopoverStickyRenderCountProps {
+                renders: renders.clone(),
+            },
+        );
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        let total_renders = renders.load(Ordering::SeqCst);
+        assert!(
+            total_renders <= 6,
+            "H-1: PopoverRoot(sticky: Some(true)) + PopoverContent overrides must not enter a re-render loop (got {total_renders} renders)"
+        );
+
+        assert_eq!(
+            harness.attr("#pop-sticky-content", "data-side").as_deref(),
+            Some("top"),
+            "H-1 / M-4: PopoverContent side=Top override must be preserved"
+        );
+        assert_eq!(
+            harness.attr("#pop-sticky-content", "data-align").as_deref(),
+            Some("end"),
+            "H-1 / M-4: PopoverContent align=End override must be preserved"
+        );
+        assert_eq!(
+            harness.attr("#pop-sticky-arrow", "data-side").as_deref(),
+            Some("top"),
+            "M-4: PopoverArrow must reflect PopoverContent side=Top"
+        );
+        assert_eq!(
+            harness.attr("#pop-sticky-arrow", "data-align").as_deref(),
+            Some("end"),
+            "M-4: PopoverArrow must reflect PopoverContent align=End"
+        );
+        assert_relative_above(&harness, "#pop-sticky-trigger", "#pop-sticky-content", 2.0);
     }
 }

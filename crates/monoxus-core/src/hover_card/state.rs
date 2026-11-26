@@ -120,9 +120,9 @@ impl HoverCardGraceTransit {
     }
 
     pub fn inspect_point(&self, point: Point2D) -> HoverCardGraceStatus {
-        if self.from_rect.contains_point(point) || self.to_rect.contains_point(point) {
+        if self.to_rect.contains_point(point) {
             HoverCardGraceStatus::ReachedTarget
-        } else if is_point_in_polygon(point, &self.corridor) {
+        } else if self.from_rect.contains_point(point) || is_point_in_polygon(point, &self.corridor) {
             HoverCardGraceStatus::InTransit
         } else {
             HoverCardGraceStatus::ExitedCorridor
@@ -152,15 +152,14 @@ impl HoverCardInteractionState {
         self.has_selection || self.is_pointer_down_on_content
     }
 
-    pub const fn should_ignore_pointer_leave(&self, trigger_has_focus: bool) -> bool {
-        self.opened_via_focus || trigger_has_focus || self.should_suppress_close()
+    pub const fn should_ignore_pointer_leave(&self) -> bool {
+        self.opened_via_focus || self.should_suppress_close()
     }
 
-    pub const fn can_commit_scheduled_close(&self, trigger_has_focus: bool) -> bool {
+    pub const fn can_commit_scheduled_close(&self) -> bool {
         !self.trigger_hovered
             && !self.content_hovered
             && !self.opened_via_focus
-            && !trigger_has_focus
             && !self.should_suppress_close()
     }
 

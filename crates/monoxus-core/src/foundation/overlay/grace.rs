@@ -146,11 +146,12 @@ impl GraceTransit {
         }
     }
 
-    /// Evaluates whether `point` has reached either rect, remains inside the safe corridor, or exited.
+    /// Evaluates whether `point` has reached `to_rect`, remains inside the safe corridor
+    /// (including points on or inside `from_rect`), or has exited the corridor.
     pub fn inspect_point(&self, point: Point2D) -> GraceTransitStatus {
-        if self.from_rect.contains_point(point) || self.to_rect.contains_point(point) {
+        if self.to_rect.contains_point(point) {
             GraceTransitStatus::ReachedTarget
-        } else if is_point_in_polygon(point, &self.corridor) {
+        } else if self.from_rect.contains_point(point) || is_point_in_polygon(point, &self.corridor) {
             GraceTransitStatus::InTransit
         } else {
             GraceTransitStatus::ExitedCorridor
@@ -585,7 +586,11 @@ mod tests {
 
         assert_eq!(
             clamped.inspect_point(Point2D::new(125.0, 60.0)),
-            GraceTransitStatus::ReachedTarget
+            GraceTransitStatus::InTransit
+        );
+        assert_eq!(
+            clamped.inspect_point(Point2D::new(125.0, 70.0)),
+            GraceTransitStatus::InTransit
         );
         assert_eq!(
             clamped.inspect_point(Point2D::new(125.0, 120.0)),

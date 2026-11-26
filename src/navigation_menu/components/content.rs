@@ -7,7 +7,7 @@ use crate::foundation::{
     keyboard::{is_escape_key, is_ime_composing_key},
     overlay::{
         OverlayBranchContext, is_overlay_escape_consumed, mark_overlay_escape_consumed,
-        use_presence, use_register_parent_overlay_branches,
+        use_overlay_branch_provider, use_presence, use_register_parent_overlay_branches,
     },
     roving_focus::key_to_roving_str,
     shared::{
@@ -185,26 +185,29 @@ pub(crate) fn render_navigation_menu_content_impl(
     ctx: &NavigationMenuContext,
     spec: NavigationMenuContentImplSpec,
 ) -> Element {
-    let parent_root_dismiss = try_consume_context::<Option<NavigationMenuRootDismissContext>>()
-        .flatten()
-        .or_else(|| try_consume_context::<NavigationMenuRootDismissContext>());
+    let parent_root_dismiss = try_consume_context::<NavigationMenuRootDismissContext>();
     let parent_branch = try_consume_context::<OverlayBranchContext>();
     let guard_style = use_mount_animation_guard(spec.active && spec.is_open);
 
     use_context_provider(|| NavigationMenuInContent(true));
     use_context_provider(|| spec.item_state);
 
-    let ctx_for_branch = ctx.clone();
-    use_context_provider(|| {
-        let reg_ctx = ctx_for_branch.clone();
-        let unreg_ctx = ctx_for_branch;
-        OverlayBranchContext::new(
+    use_register_parent_overlay_branches(
+        parent_branch,
+        spec.active && spec.is_open,
+        vec![spec.content_id.clone()],
+    );
+
+    {
+        let reg_ctx = ctx.clone();
+        let unreg_ctx = ctx.clone();
+        use_overlay_branch_provider(
             move |branch: String| reg_ctx.register_branch(branch),
             move |branch: String| unreg_ctx.unregister_branch(&branch),
-        )
-    });
+        );
+    }
 
-    let dismiss_ctx_opt = use_hook(|| {
+    use_hook(|| {
         if ctx.is_root_menu {
             let dismiss_ctx = ctx.clone();
             let content_id_for_dismiss = spec.content_id.clone();
@@ -218,18 +221,9 @@ pub(crate) fn render_navigation_menu_content_impl(
                     focus_element_reliable(&trigger_id_for_dismiss);
                 }
             });
-            Some(NavigationMenuRootDismissContext { on_dismiss })
-        } else {
-            None
+            provide_context(NavigationMenuRootDismissContext { on_dismiss });
         }
     });
-    use_context_provider(|| dismiss_ctx_opt);
-
-    use_register_parent_overlay_branches(
-        parent_branch,
-        spec.active,
-        vec![spec.content_id.clone()],
-    );
 
     let mut prev_motion = use_signal(|| None::<NavigationMenuMotion>);
     let motion = if spec.active {

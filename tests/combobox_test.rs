@@ -1486,3 +1486,112 @@ fn fm_ovl_7_combobox_arrow_emits_attrs_and_registers_arrow_id() {
         Some("fm7-cbx-arrow-el")
     );
 }
+
+#[cfg(feature = "native")]
+#[test]
+fn fm_w1_guard_combobox_trigger_ime_and_custom_id_single_lifo_entry() {
+    use blitz_traits::events::{BlitzKeyEvent, KeyState, UiEvent};
+    use common::native_fixture::*;
+    use keyboard_types::{Code, Key, Location, Modifiers, NamedKey};
+    use monoxus::foundation::overlay::{
+        active_overlay_layers_snapshot, unregister_active_overlay_layer,
+    };
+
+    let _guard = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    for layer in active_overlay_layers_snapshot() {
+        unregister_active_overlay_layer(&layer);
+    }
+
+    #[component]
+    fn ComboboxImeAndLifoScenario() -> Element {
+        rsx! {
+            div { style: "padding: 24px;",
+                ComboboxRoot {
+                    id: Some("w1-cbx-lifo".to_string()),
+                    ComboboxInput {
+                        id: Some("w1-cbx-input".to_string()),
+                        style: Some("width: 180px; height: 32px;".to_string()),
+                    }
+                    ComboboxTrigger {
+                        id: Some("w1-cbx-trig".to_string()),
+                        style: Some("width: 32px; height: 32px;".to_string()),
+                        "v"
+                    }
+                    ComboboxPortal {
+                        ComboboxContent {
+                            id: Some("w1-custom-cbx-lifo-content".to_string()),
+                            style: Some("width: 180px; background: white;".to_string()),
+                            ComboboxViewport {
+                                ComboboxItem {
+                                    id: Some("w1-cbx-opt-a".to_string()),
+                                    value: "a".to_string(),
+                                    "Alpha"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(ComboboxImeAndLifoScenario);
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    // M-1: IME composing Enter and Space on ComboboxTrigger must NOT open combobox
+    focus_node(&mut harness, "#w1-cbx-trig");
+    for (key, code) in [
+        (Key::Named(NamedKey::Enter), Code::Enter),
+        (Key::Character(" ".to_string()), Code::Space),
+    ] {
+        let down = BlitzKeyEvent {
+            key: key.clone(),
+            code,
+            modifiers: Modifiers::default(),
+            location: Location::Standard,
+            is_auto_repeating: false,
+            is_composing: true,
+            state: KeyState::Pressed,
+            text: None,
+        };
+        let up = BlitzKeyEvent {
+            key,
+            code,
+            modifiers: Modifiers::default(),
+            location: Location::Standard,
+            is_auto_repeating: false,
+            is_composing: true,
+            state: KeyState::Released,
+            text: None,
+        };
+        harness.dispatch(UiEvent::KeyDown(down));
+        harness.dispatch(UiEvent::KeyUp(up));
+        drain_polls_and_resolve(&mut harness);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert_eq!(
+            harness.attr("#w1-cbx-trig", "aria-expanded").as_deref(),
+            Some("false"),
+            "M-1: IME composing key on ComboboxTrigger must NOT open combobox"
+        );
+    }
+
+    // M-6: Opening with custom ComboboxContent id must produce exactly 1 LIFO entry (no default id leak)
+    click_and_pump(&mut harness, "#w1-cbx-trig");
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#w1-custom-cbx-lifo-content").is_some());
+    let layers = active_overlay_layers_snapshot();
+    assert_eq!(
+        layers,
+        vec!["w1-custom-cbx-lifo-content".to_string()],
+        "M-6: ACTIVE_OVERLAY_LAYERS must contain exactly 1 entry for custom ComboboxContent id, got: {layers:?}"
+    );
+
+    // Closing removes the custom LIFO entry cleanly
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(
+        active_overlay_layers_snapshot().is_empty(),
+        "M-6: closing Combobox must leave ACTIVE_OVERLAY_LAYERS empty, got: {:?}",
+        active_overlay_layers_snapshot()
+    );
+}
