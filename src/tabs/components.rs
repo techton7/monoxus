@@ -339,19 +339,36 @@ pub fn TabsContent(props: TabsContentProps) -> Element {
     let content_id = id.unwrap_or_else(|| content_attrs.id().to_string());
     let labelledby = ctx.runtime.trigger_element_id(&value);
 
+    let mut last_registered_val: CopyValue<Option<String>> = use_hook(|| CopyValue::new(None));
+    let prev_registered = last_registered_val.try_read().ok().and_then(|g| g.clone());
     if should_render {
+        if let Some(prev) = prev_registered.as_deref()
+            && prev != value.as_str()
+        {
+            ctx.runtime.unregister_content_id(prev);
+            ctx.runtime.unregister_content_mounted(prev);
+        }
         ctx.runtime.register_content_id(&value, &content_id);
         ctx.runtime.register_content_mounted(&value);
+        if prev_registered.as_deref() != Some(value.as_str()) {
+            last_registered_val.set(Some(value.clone()));
+        }
     } else {
+        if let Some(prev) = prev_registered.as_deref() {
+            ctx.runtime.unregister_content_id(prev);
+            ctx.runtime.unregister_content_mounted(prev);
+            last_registered_val.set(None);
+        }
         ctx.runtime.unregister_content_id(&value);
         ctx.runtime.unregister_content_mounted(&value);
     }
 
-    let drop_val = value.clone();
     let drop_runtime = ctx.runtime.clone();
     use_drop(move || {
-        drop_runtime.unregister_content_id(&drop_val);
-        drop_runtime.unregister_content_mounted(&drop_val);
+        if let Some(prev) = last_registered_val.try_read().ok().and_then(|g| g.clone()) {
+            drop_runtime.unregister_content_id(&prev);
+            drop_runtime.unregister_content_mounted(&prev);
+        }
     });
 
     if !should_render {

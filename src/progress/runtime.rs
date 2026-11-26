@@ -10,7 +10,7 @@ pub use crate::foundation::compose::{
     project_as_child,
 };
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct ProgressRuntime {
     progress: Progress,
     loaded_state_alias: bool,

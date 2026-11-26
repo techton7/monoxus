@@ -439,6 +439,134 @@ fn test_collapsible_content_merge_global_attributes_vdom() {
     dom.render_immediate(&mut dioxus::core::NoOpMutations);
 }
 
+#[test]
+fn test_collapsible_content_id_clears_on_none_and_unmount_and_root_skips_unchanged_rerender() {
+    use std::cell::Cell;
+
+    #[derive(Clone)]
+    struct RenderCounter(Rc<Cell<usize>>);
+    impl PartialEq for RenderCounter {
+        fn eq(&self, other: &Self) -> bool {
+            Rc::ptr_eq(&self.0, &other.0)
+        }
+    }
+
+    #[derive(Clone)]
+    struct ContentIdSink(Rc<RefCell<Option<String>>>);
+    impl PartialEq for ContentIdSink {
+        fn eq(&self, other: &Self) -> bool {
+            Rc::ptr_eq(&self.0, &other.0)
+        }
+    }
+
+    #[component]
+    fn CollapsibleRuntimeSubProbe(counter: RenderCounter) -> Element {
+        let ctx = use_context::<CollapsibleContext>();
+        let _rt = ctx.runtime.read();
+        counter.0.set(counter.0.get() + 1);
+        rsx! {}
+    }
+
+    #[component]
+    fn CollapsibleContentIdProbe(sink: ContentIdSink) -> Element {
+        let ctx = use_context::<CollapsibleContext>();
+        *sink.0.borrow_mut() = ctx.content_id.read().clone();
+        rsx! {}
+    }
+
+    #[component]
+    fn CollapsibleL2Host(
+        counter: RenderCounter,
+        sink: ContentIdSink,
+        tick_out: Rc<RefCell<Option<Signal<u32>>>>,
+        id_out: Rc<RefCell<Option<Signal<Option<String>>>>>,
+        mount_out: Rc<RefCell<Option<Signal<bool>>>>,
+    ) -> Element {
+        let tick = use_signal(|| 0_u32);
+        let custom_id = use_signal(|| Some("custom-col-a".to_string()));
+        let mount_content = use_signal(|| true);
+        *tick_out.borrow_mut() = Some(tick);
+        *id_out.borrow_mut() = Some(custom_id);
+        *mount_out.borrow_mut() = Some(mount_content);
+        let _ = tick();
+
+        rsx! {
+            CollapsibleRoot {
+                id: "l2-col-root",
+                default_open: true,
+                CollapsibleTrigger { "Toggle" }
+                if mount_content() {
+                    CollapsibleContent {
+                        id: custom_id(),
+                        "Panel"
+                    }
+                }
+                CollapsibleRuntimeSubProbe { counter }
+                CollapsibleContentIdProbe { sink }
+            }
+        }
+    }
+
+    let counter = RenderCounter(Rc::new(Cell::new(0)));
+    let sink = ContentIdSink(Rc::new(RefCell::new(None)));
+    let tick_out = Rc::new(RefCell::new(None));
+    let id_out = Rc::new(RefCell::new(None));
+    let mount_out = Rc::new(RefCell::new(None));
+
+    let mut dom = VirtualDom::new_with_props(
+        CollapsibleL2Host,
+        CollapsibleL2HostProps {
+            counter: counter.clone(),
+            sink: sink.clone(),
+            tick_out: tick_out.clone(),
+            id_out: id_out.clone(),
+            mount_out: mount_out.clone(),
+        },
+    );
+    dom.rebuild_in_place();
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+
+    assert_eq!(counter.0.get(), 1);
+    assert_eq!(sink.0.borrow().as_deref(), Some("custom-col-a"));
+
+    // Unchanged parent re-render must not trigger redundant runtime_sig updates.
+    let mut tick = tick_out.borrow().expect("tick captured");
+    dom.in_scope(ScopeId::APP, || tick.set(1));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(
+        counter.0.get(),
+        1,
+        "L-2: CollapsibleRoot unchanged parent re-render must not force child re-render"
+    );
+
+    // Changing CollapsibleContent props.id from Some -> None must clear ctx.content_id.
+    let mut custom_id = id_out.borrow().expect("id signal captured");
+    dom.in_scope(ScopeId::APP, || custom_id.set(None));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(
+        sink.0.borrow().as_deref(),
+        None,
+        "L-2: CollapsibleContent id Some->None must clear ctx.content_id"
+    );
+
+    // Setting a new custom id and unmounting CollapsibleContent must clear ctx.content_id on drop.
+    dom.in_scope(ScopeId::APP, || custom_id.set(Some("custom-col-b".to_string())));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(sink.0.borrow().as_deref(), Some("custom-col-b"));
+
+    let mut mount_content = mount_out.borrow().expect("mount signal captured");
+    dom.in_scope(ScopeId::APP, || mount_content.set(false));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(
+        sink.0.borrow().as_deref(),
+        None,
+        "L-2: unmounting CollapsibleContent must clear own ctx.content_id"
+    );
+}
+
 #[cfg(feature = "native")]
 mod native_tests {
     use super::*;

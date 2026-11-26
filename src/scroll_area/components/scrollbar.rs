@@ -188,9 +188,18 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
     let scroll_state = ctx.runtime.scroll_state();
     let hover_visible = ctx.runtime.hover_visible();
 
-    let is_visible = is_scrollbar_visible(ctx.r#type, scroll_state, hover_visible, overflowing);
+    let scroll_type = ctx.scroll_type();
+    let dir = ctx.dir();
+    let is_visible = is_scrollbar_visible(scroll_type, scroll_state, hover_visible, overflowing);
     let presence = use_presence(is_visible, &scrollbar_id, true, None);
     let should_render = props.force_mount || presence.should_render();
+    let keep_corner_active = props.force_mount || is_visible;
+
+    let mut should_render_sig = use_signal(|| should_render);
+    sync_signal(&mut should_render_sig, should_render);
+    let mut keep_corner_active_sig = use_signal(|| keep_corner_active);
+    sync_signal(&mut keep_corner_active_sig, keep_corner_active);
+    let alive = use_hook(|| CopyValue::new(true));
 
     let resize_guard_cell = use_hook(|| Rc::new(RefCell::new(WatcherGuard::noop())));
 
@@ -220,13 +229,23 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
                         let mut rt = runtime;
                         spawn(async move {
                             oxidase::frame::next_frame().await;
+                            if !alive.try_read().is_ok_and(|a| *a)
+                                || !should_render_sig.try_peek().is_ok_and(|r| *r)
+                                || !keep_corner_active_sig.try_peek().is_ok_and(|a| *a)
+                            {
+                                return;
+                            }
                             if let Some(rect) = get_element_client_rect(&sid_shot) {
                                 let track_size = match orientation {
                                     Orientation::Horizontal => rect.width,
                                     Orientation::Vertical | Orientation::Both => rect.height,
                                 };
-                                if track_size > 0.0 && s.peek().scrollbar_size != track_size {
-                                    s.write().scrollbar_size = track_size;
+                                if track_size > 0.0
+                                    && s.try_peek()
+                                        .is_ok_and(|cur| cur.scrollbar_size != track_size)
+                                    && let Ok(mut guard) = s.try_write()
+                                {
+                                    guard.scrollbar_size = track_size;
                                 }
                                 rt.sync_corner_size(orientation, rect.width, rect.height);
                             }
@@ -237,9 +256,11 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
                                         (m.scroll_height, m.client_height)
                                     }
                                 };
-                                let cur = *s.peek();
-                                if cur.content != content || cur.viewport != viewport {
-                                    s.set(cur.with_content(content).with_viewport(viewport));
+                                if let Ok(cur) = s.try_peek().map(|g| *g)
+                                    && (cur.content != content || cur.viewport != viewport)
+                                    && let Ok(mut guard) = s.try_write()
+                                {
+                                    *guard = cur.with_content(content).with_viewport(viewport);
                                 }
                             }
                         });
@@ -251,12 +272,21 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
                         &sid,
                         ResizeObserverBox::BorderBox,
                         move |size: ElementSize| {
+                            if !alive.try_read().is_ok_and(|a| *a)
+                                || !should_render_sig.try_peek().is_ok_and(|r| *r)
+                                || !keep_corner_active_sig.try_peek().is_ok_and(|a| *a)
+                            {
+                                return;
+                            }
                             let track_size = match orientation {
                                 Orientation::Horizontal => size.width,
                                 Orientation::Vertical | Orientation::Both => size.height,
                             };
-                            if s.peek().scrollbar_size != track_size {
-                                s.write().scrollbar_size = track_size;
+                            if s.try_peek()
+                                .is_ok_and(|cur| cur.scrollbar_size != track_size)
+                                && let Ok(mut guard) = s.try_write()
+                            {
+                                guard.scrollbar_size = track_size;
                             }
                             rt.sync_corner_size(orientation, size.width, size.height);
                         },
@@ -276,7 +306,11 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
         let resize_guard = Rc::clone(&resize_guard_cell);
         let is_dragging = is_dragging;
         let mut runtime = ctx.runtime;
+        let mut alive = alive;
         move || {
+            if let Ok(mut flag) = alive.try_write() {
+                *flag = false;
+            }
             std::mem::replace(&mut *resize_guard.borrow_mut(), WatcherGuard::noop()).stop();
             if is_dragging.try_peek().is_ok_and(|d| *d) {
                 restore_body_user_select();
@@ -330,17 +364,17 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
     let base_style = match orientation {
         Orientation::Vertical | Orientation::Both => format!(
             "position: absolute; top: 0; bottom: var(--monoxus-scroll-area-corner-height, var(--radix-scroll-area-corner-height, 0px)); right: {}; left: {}; pointer-events: auto; --monoxus-scroll-area-thumb-height: {thumb_size}px; --radix-scroll-area-thumb-height: {thumb_size}px;",
-            if ctx.dir == Direction::Ltr { "0" } else { "auto" },
-            if ctx.dir == Direction::Rtl { "0" } else { "auto" },
+            if dir == Direction::Ltr { "0" } else { "auto" },
+            if dir == Direction::Rtl { "0" } else { "auto" },
         ),
         Orientation::Horizontal => format!(
             "position: absolute; bottom: 0; left: {}; right: {}; pointer-events: auto; --monoxus-scroll-area-thumb-width: {thumb_size}px; --radix-scroll-area-thumb-width: {thumb_size}px;",
-            if ctx.dir == Direction::Rtl {
+            if dir == Direction::Rtl {
                 "var(--monoxus-scroll-area-corner-width, var(--radix-scroll-area-corner-width, 0px))"
             } else {
                 "0"
             },
-            if ctx.dir == Direction::Ltr {
+            if dir == Direction::Ltr {
                 "var(--monoxus-scroll-area-corner-width, var(--radix-scroll-area-corner-width, 0px))"
             } else {
                 "0"
@@ -360,9 +394,12 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
 
     let onpointerenter = {
         let mut runtime = ctx.runtime;
-        let r#type = ctx.r#type;
+        let type_sig = ctx.r#type;
         move |_| {
-            if r#type == ScrollAreaType::Scroll {
+            if type_sig
+                .try_peek()
+                .is_ok_and(|t| *t == ScrollAreaType::Scroll)
+            {
                 let next = transition_scroll_state(
                     runtime.scroll_state(),
                     ScrollAreaStateEvent::PointerEnter,
@@ -374,9 +411,12 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
 
     let onpointerleave = {
         let mut runtime = ctx.runtime;
-        let r#type = ctx.r#type;
+        let type_sig = ctx.r#type;
         move |_| {
-            if r#type == ScrollAreaType::Scroll {
+            if type_sig
+                .try_peek()
+                .is_ok_and(|t| *t == ScrollAreaType::Scroll)
+            {
                 let next = transition_scroll_state(
                     runtime.scroll_state(),
                     ScrollAreaStateEvent::PointerLeave,
@@ -395,10 +435,14 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
         let runtime = ctx.runtime;
         let sid = scrollbar_id.clone();
         let rels = ctx.relationships;
-        let dir = ctx.dir;
+        let dir_sig = ctx.dir;
 
         move |evt: PointerEvent| {
-            if evt.trigger_button() == Some(dioxus::html::input_data::MouseButton::Secondary) {
+            if evt.pointer_type() == "mouse"
+                && evt
+                    .trigger_button()
+                    .is_some_and(|b| b != dioxus::html::input_data::MouseButton::Primary)
+            {
                 return;
             }
             let pid = try_set_pointer_capture(&evt.data(), mounted_el.borrow().as_ref());
@@ -414,6 +458,7 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
 
             pointer_offset.set(0.0);
             let vid = rels.peek().viewport_id().to_string();
+            let dir = dir_sig.try_peek().map(|d| *d).unwrap_or(Direction::Ltr);
             apply_pointer_scroll(
                 &vid,
                 &sid,
@@ -431,7 +476,7 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
         let sid = scrollbar_id.clone();
         let rels = ctx.relationships;
         let runtime = ctx.runtime;
-        let dir = ctx.dir;
+        let dir_sig = ctx.dir;
 
         move |evt: PointerEvent| {
             if !*is_dragging.peek() {
@@ -439,6 +484,7 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
             }
             let vid = rels.peek().viewport_id().to_string();
             let offset = *pointer_offset.peek();
+            let dir = dir_sig.try_peek().map(|d| *d).unwrap_or(Direction::Ltr);
             apply_pointer_scroll(
                 &vid,
                 &sid,

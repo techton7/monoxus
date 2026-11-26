@@ -59,11 +59,11 @@ pub fn find_closest_thumb(values: &[f64], target_value: f64) -> usize {
 /// Reactive runtime engine coordinating state, user interaction, and attribute publishing for a Slider.
 #[derive(Clone)]
 pub struct SliderRuntime {
-    pub def: SliderDefinition,
+    pub def: Signal<SliderDefinition>,
     pub rels: SliderRelationships,
     pub values: Signal<Vec<f64>>,
     pub values_ctl: Option<ControllableSignal<Vec<f64>>>,
-    pub is_single: bool,
+    pub is_single: Signal<bool>,
     pub active_thumb: Signal<Option<usize>>,
     pub is_dragging: Signal<bool>,
     pub drag_start_values: Signal<Option<Vec<f64>>>,
@@ -79,8 +79,9 @@ pub struct SliderRuntime {
 
 impl SliderRuntime {
     fn export_value(&self, vals: Vec<f64>) -> SliderValue {
-        if self.is_single {
-            SliderValue::Single(vals.first().copied().unwrap_or(self.def.min))
+        if *self.is_single.peek() {
+            let min = self.def.peek().min;
+            SliderValue::Single(vals.first().copied().unwrap_or(min))
         } else {
             SliderValue::Multiple(vals)
         }
@@ -125,17 +126,17 @@ impl SliderRuntime {
     /// Computes the normalized `[0.0, 1.0]` pointer fraction along the slider track given orientation,
     /// reading direction, and inversion.
     pub fn compute_pointer_fraction(&self, client_x: f64, client_y: f64, rect: &Rect2D) -> f64 {
-        let fraction = match self.def.orientation {
+        let def = self.def.peek();
+        let fraction = match def.orientation {
             Orientation::Vertical => {
-                let is_sliding_from_bottom = !self.def.inverted;
+                let is_sliding_from_bottom = !def.inverted;
                 let h = rect.height.max(1.0);
                 let f = (rect.bottom() - client_y) / h;
                 if is_sliding_from_bottom { f } else { 1.0 - f }
             }
             _ => {
-                let is_sliding_from_left = (self.def.direction == Direction::Ltr
-                    && !self.def.inverted)
-                    || (self.def.direction == Direction::Rtl && self.def.inverted);
+                let is_sliding_from_left = (def.direction == Direction::Ltr && !def.inverted)
+                    || (def.direction == Direction::Rtl && def.inverted);
                 let w = rect.width.max(1.0);
                 let f = (client_x - rect.left()) / w;
                 if is_sliding_from_left { f } else { 1.0 - f }
@@ -145,12 +146,13 @@ impl SliderRuntime {
     }
 
     fn tick_geometry(&self, value: f64) -> (f64, bool, bool, f64) {
+        let def = self.def.read();
         let values = self.current_values();
-        let raw_pct = value_to_percent(value, self.def.min, self.def.max);
+        let raw_pct = value_to_percent(value, def.min, def.max);
 
         let (range_min, range_max) = if values.len() <= 1 {
-            let val = values.first().copied().unwrap_or(self.def.min);
-            (self.def.min, val)
+            let val = values.first().copied().unwrap_or(def.min);
+            (def.min, val)
         } else {
             let min_val = values.iter().copied().fold(f64::INFINITY, f64::min);
             let max_val = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
@@ -164,8 +166,8 @@ impl SliderRuntime {
         let th_size = self.thumb_sizes.read().first().copied().flatten();
         let effective_pct = get_contained_percent(
             raw_pct,
-            self.def.thumb_alignment,
-            self.def.track_padding,
+            def.thumb_alignment,
+            def.track_padding,
             t_size,
             th_size,
         );
@@ -211,20 +213,22 @@ impl SliderRuntime {
 
     /// Derives attributes for [`SliderRoot`].
     pub fn root_attrs(&self) -> SliderRootAttributes {
+        let def = self.def.read();
         SliderRootAttributes::new(
             self.rels.root_id().to_string(),
-            self.def.orientation,
-            self.def.direction,
-            self.def.disabled,
+            def.orientation,
+            def.direction,
+            def.disabled,
         )
     }
 
     /// Derives attributes for [`SliderTrack`].
     pub fn track_attrs(&self) -> SliderTrackAttributes {
+        let def = self.def.read();
         SliderTrackAttributes::new(
             self.rels.track_id().to_string(),
-            self.def.orientation,
-            self.def.disabled,
+            def.orientation,
+            def.disabled,
         )
     }
 
@@ -235,23 +239,24 @@ impl SliderRuntime {
     /// align both endpoints to their respective contained thumb centers so the fill stays centered
     /// beneath the thumbs across all values.
     pub fn range_attrs(&self) -> SliderRangeAttributes {
+        let def = self.def.read();
         let values = self.current_values();
         let t_size = *self.track_size.read();
         let thumb_sizes = self.thumb_sizes.read();
 
         let (start_pct, end_pct) = if values.len() <= 1 {
-            let val = values.first().copied().unwrap_or(self.def.min);
-            if val <= self.def.min {
+            let val = values.first().copied().unwrap_or(def.min);
+            if val <= def.min {
                 (0.0, 0.0)
-            } else if val >= self.def.max {
+            } else if val >= def.max {
                 (0.0, 100.0)
             } else {
-                let raw_pct = value_to_percent(val, self.def.min, self.def.max);
+                let raw_pct = value_to_percent(val, def.min, def.max);
                 let th_size = thumb_sizes.first().copied().flatten();
                 let end = get_contained_percent(
                     raw_pct,
-                    self.def.thumb_alignment,
-                    self.def.track_padding,
+                    def.thumb_alignment,
+                    def.track_padding,
                     t_size,
                     th_size,
                 );
@@ -270,21 +275,21 @@ impl SliderRuntime {
                 .enumerate()
                 .max_by(|(_, a), (_, b)| a.total_cmp(b))
                 .unwrap();
-            let raw_start = value_to_percent(min_val, self.def.min, self.def.max);
-            let raw_end = value_to_percent(max_val, self.def.min, self.def.max);
+            let raw_start = value_to_percent(min_val, def.min, def.max);
+            let raw_end = value_to_percent(max_val, def.min, def.max);
             let th_min = thumb_sizes.get(min_idx).copied().flatten();
             let th_max = thumb_sizes.get(max_idx).copied().flatten();
             let start = get_contained_percent(
                 raw_start,
-                self.def.thumb_alignment,
-                self.def.track_padding,
+                def.thumb_alignment,
+                def.track_padding,
                 t_size,
                 th_min,
             );
             let end = get_contained_percent(
                 raw_end,
-                self.def.thumb_alignment,
-                self.def.track_padding,
+                def.thumb_alignment,
+                def.track_padding,
                 t_size,
                 th_max,
             );
@@ -293,10 +298,10 @@ impl SliderRuntime {
 
         SliderRangeAttributes::new(
             self.rels.range_id().to_string(),
-            self.def.orientation,
-            self.def.direction,
-            self.def.inverted,
-            self.def.disabled,
+            def.orientation,
+            def.direction,
+            def.inverted,
+            def.disabled,
             start_pct,
             end_pct,
         )
@@ -310,16 +315,17 @@ impl SliderRuntime {
         aria_labelledby: Option<String>,
         aria_valuetext: Option<String>,
     ) -> SliderThumbAttributes {
+        let def = self.def.read();
         let values = self.current_values();
-        let val = values.get(index).copied().unwrap_or(self.def.min);
-        let raw_pct = value_to_percent(val, self.def.min, self.def.max);
+        let val = values.get(index).copied().unwrap_or(def.min);
+        let raw_pct = value_to_percent(val, def.min, def.max);
 
         let t_size = *self.track_size.read();
         let th_size = self.thumb_sizes.read().get(index).copied().flatten();
         let effective_pct = get_contained_percent(
             raw_pct,
-            self.def.thumb_alignment,
-            self.def.track_padding,
+            def.thumb_alignment,
+            def.track_padding,
             t_size,
             th_size,
         );
@@ -330,12 +336,12 @@ impl SliderRuntime {
         SliderThumbAttributes::new(
             self.rels.thumb_id(index),
             val,
-            self.def.min,
-            self.def.max,
-            self.def.orientation,
-            self.def.direction,
-            self.def.inverted,
-            self.def.disabled,
+            def.min,
+            def.max,
+            def.orientation,
+            def.direction,
+            def.inverted,
+            def.disabled,
             is_active,
             effective_pct,
             aria_label,
@@ -346,15 +352,16 @@ impl SliderRuntime {
 
     /// Derives attributes for [`SliderTick`].
     pub fn tick_attrs(&self, value: f64) -> SliderTickAttributes {
+        let def = self.def.read();
         let (raw_pct, is_bounded, is_selected, effective_pct) = self.tick_geometry(value);
 
         SliderTickAttributes::new(
             self.rels.tick_id((raw_pct * 100.0) as usize),
             value,
-            self.def.orientation,
-            self.def.direction,
-            self.def.inverted,
-            self.def.disabled,
+            def.orientation,
+            def.direction,
+            def.inverted,
+            def.disabled,
             is_bounded,
             is_selected,
             effective_pct,
@@ -367,8 +374,9 @@ impl SliderRuntime {
         value: f64,
         position: Option<SliderLabelPosition>,
     ) -> SliderTickLabelAttributes {
+        let def = self.def.read();
         let (raw_pct, is_bounded, is_selected, effective_pct) = self.tick_geometry(value);
-        let pos = position.unwrap_or(match self.def.orientation {
+        let pos = position.unwrap_or(match def.orientation {
             Orientation::Vertical => SliderLabelPosition::Right,
             _ => SliderLabelPosition::Bottom,
         });
@@ -377,10 +385,10 @@ impl SliderRuntime {
             self.rels.tick_label_id((raw_pct * 100.0) as usize),
             value,
             pos,
-            self.def.orientation,
-            self.def.direction,
-            self.def.inverted,
-            self.def.disabled,
+            def.orientation,
+            def.direction,
+            def.inverted,
+            def.disabled,
             is_bounded,
             is_selected,
             effective_pct,
@@ -393,12 +401,13 @@ impl SliderRuntime {
         index: usize,
         position: Option<SliderLabelPosition>,
     ) -> SliderThumbLabelAttributes {
+        let def = self.def.read();
         let values = self.current_values();
-        let val = values.get(index).copied().unwrap_or(self.def.min);
-        let raw_pct = value_to_percent(val, self.def.min, self.def.max);
+        let val = values.get(index).copied().unwrap_or(def.min);
+        let raw_pct = value_to_percent(val, def.min, def.max);
 
         let is_active = *self.active_thumb.read() == Some(index);
-        let pos = position.unwrap_or(match self.def.orientation {
+        let pos = position.unwrap_or(match def.orientation {
             Orientation::Vertical => SliderLabelPosition::Left,
             _ => SliderLabelPosition::Top,
         });
@@ -407,8 +416,8 @@ impl SliderRuntime {
         let th_size = self.thumb_sizes.read().get(index).copied().flatten();
         let effective_pct = get_contained_percent(
             raw_pct,
-            self.def.thumb_alignment,
-            self.def.track_padding,
+            def.thumb_alignment,
+            def.track_padding,
             t_size,
             th_size,
         );
@@ -417,10 +426,10 @@ impl SliderRuntime {
             self.rels.thumb_label_id(index),
             val,
             pos,
-            self.def.orientation,
-            self.def.direction,
-            self.def.inverted,
-            self.def.disabled,
+            def.orientation,
+            def.direction,
+            def.inverted,
+            def.disabled,
             is_active,
             effective_pct,
         )
@@ -428,7 +437,7 @@ impl SliderRuntime {
 
     /// Starts a drag interaction for the thumb at `thumb_idx`.
     pub fn start_drag(&mut self, thumb_idx: usize) {
-        if self.def.disabled {
+        if self.def.peek().disabled {
             return;
         }
         self.is_dragging.set(true);
@@ -442,7 +451,8 @@ impl SliderRuntime {
 
     /// Updates the active thumb's position from pointer coordinates against the measured rect.
     pub fn update_pointer_coord(&mut self, client_x: f64, client_y: f64, rect: &Rect2D) {
-        if self.def.disabled || !*self.is_dragging.peek() {
+        let def = self.def.peek().clone();
+        if def.disabled || !*self.is_dragging.peek() {
             return;
         }
         let Some(active_idx) = *self.active_thumb.peek() else {
@@ -450,19 +460,19 @@ impl SliderRuntime {
         };
 
         let percent = self.compute_pointer_fraction(client_x, client_y, rect) * 100.0;
-        let raw_val = percent_to_value(percent, self.def.min, self.def.max);
+        let raw_val = percent_to_value(percent, def.min, def.max);
 
         let current_vals = self.values.peek().clone();
         let (new_vals, new_active_idx) = update_thumb_value(
             &current_vals,
             active_idx,
             raw_val,
-            self.def.min,
-            self.def.max,
-            self.def.step,
-            self.def.steps.as_deref(),
-            self.def.min_steps_between_thumbs,
-            self.def.order_policy,
+            def.min,
+            def.max,
+            def.step,
+            def.steps.as_deref(),
+            def.min_steps_between_thumbs,
+            def.order_policy,
         );
 
         if self.propose_values(new_vals.clone()) {
@@ -496,7 +506,8 @@ impl SliderRuntime {
 
     /// Dispatches keyboard step adjustments for the specified thumb.
     pub fn handle_keydown(&mut self, thumb_idx: usize, key: &str, shift_key: bool) {
-        if self.def.disabled {
+        let def = self.def.peek().clone();
+        if def.disabled {
             return;
         }
 
@@ -507,24 +518,24 @@ impl SliderRuntime {
 
         let current_val = values[thumb_idx];
         let target_val = if key == "Home" {
-            self.def.min
+            def.min
         } else if key == "End" {
-            self.def.max
+            def.max
         } else if let Some((direction, multiplier)) = resolve_keyboard_step_direction(
             key,
-            self.def.orientation,
-            self.def.direction,
-            self.def.inverted,
+            def.orientation,
+            def.direction,
+            def.inverted,
         ) {
             let mult = if shift_key { 10 } else { multiplier };
-            if let Some(custom_steps) = self.def.steps.as_deref() {
+            if let Some(custom_steps) = def.steps.as_deref() {
                 get_next_custom_step_value(current_val, custom_steps, direction, mult)
             } else {
                 get_next_step_value(
                     current_val,
-                    self.def.min,
-                    self.def.max,
-                    self.def.step,
+                    def.min,
+                    def.max,
+                    def.step,
                     direction,
                     mult,
                 )
@@ -537,12 +548,12 @@ impl SliderRuntime {
             &values,
             thumb_idx,
             target_val,
-            self.def.min,
-            self.def.max,
-            self.def.step,
-            self.def.steps.as_deref(),
-            self.def.min_steps_between_thumbs,
-            self.def.order_policy,
+            def.min,
+            def.max,
+            def.step,
+            def.steps.as_deref(),
+            def.min_steps_between_thumbs,
+            def.order_policy,
         );
 
         if self.propose_values(new_vals.clone()) {
@@ -579,6 +590,9 @@ pub fn use_slider_runtime(
 ) -> SliderRuntime {
     let resolved_direction = use_direction_context(dir);
     def = def.with_direction(resolved_direction).normalize();
+    if def.track_padding.is_some_and(|p| !p.is_finite()) {
+        def.track_padding = None;
+    }
 
     let is_single = if let Some(ref v) = value {
         v.is_single()
@@ -589,6 +603,11 @@ pub fn use_slider_runtime(
     };
 
     let min_fallback = def.min;
+    let mut def_sig = use_signal(|| def.clone());
+    sync_signal(&mut def_sig, def);
+    let mut is_single_sig = use_signal(|| is_single);
+    sync_signal(&mut is_single_sig, is_single);
+
     let default_values = default_value
         .as_ref()
         .map(SliderValue::to_vec)
@@ -628,11 +647,11 @@ pub fn use_slider_runtime(
     });
 
     SliderRuntime {
-        def,
+        def: def_sig,
         rels,
         values: values_ctl.signal(),
         values_ctl: Some(values_ctl),
-        is_single,
+        is_single: is_single_sig,
         active_thumb,
         is_dragging,
         drag_start_values,

@@ -233,3 +233,228 @@ fn test_pin_input_vdom_scenarios_render_cleanly() {
     let mut as_child_dom = VirtualDom::new(PinInputAsChildVdomApp);
     as_child_dom.rebuild_in_place();
 }
+
+#[test]
+fn test_pin_input_cell_drop_unregisters_live_index_and_id() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[derive(Clone)]
+    struct RuntimeHolder(Rc<RefCell<Option<PinInputRuntime>>>);
+    impl PartialEq for RuntimeHolder {
+        fn eq(&self, other: &Self) -> bool {
+            Rc::ptr_eq(&self.0, &other.0)
+        }
+    }
+
+    #[component]
+    fn RuntimeCapturer(holder: RuntimeHolder) -> Element {
+        let ctx = use_pin_input_context();
+        *holder.0.borrow_mut() = Some(ctx.runtime);
+        rsx! {}
+    }
+
+    #[component]
+    fn ReindexHost(
+        runtime_holder: RuntimeHolder,
+        controls: Rc<RefCell<Option<(Signal<usize>, Signal<String>, Signal<bool>)>>>,
+    ) -> Element {
+        let idx = use_signal(|| 0usize);
+        let id = use_signal(|| "cell-initial".to_string());
+        let mounted = use_signal(|| true);
+        *controls.borrow_mut() = Some((idx, id, mounted));
+
+        rsx! {
+            PinInputRoot {
+                id: "m12-drop-root",
+                max_length: 4,
+                RuntimeCapturer { holder: runtime_holder }
+                if mounted() {
+                    PinInputCell {
+                        id: id(),
+                        index: idx(),
+                    }
+                }
+            }
+        }
+    }
+
+    let rt_holder = RuntimeHolder(Rc::new(RefCell::new(None)));
+    let controls = Rc::new(RefCell::new(None));
+    let mut dom = VirtualDom::new_with_props(
+        ReindexHost,
+        ReindexHostProps {
+            runtime_holder: rt_holder.clone(),
+            controls: controls.clone(),
+        },
+    );
+    dom.rebuild_in_place();
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+
+    let rt = rt_holder.0.borrow().clone().expect("PinInputRuntime captured");
+    let (mut idx, mut id, mut mounted) = controls.borrow().expect("controls captured");
+    assert_eq!(
+        rt.cell_ids.borrow().get(&0).map(String::as_str),
+        Some("cell-initial")
+    );
+
+    // Mutate cell index & id post-mount
+    dom.in_scope(ScopeId::APP, || {
+        idx.set(2);
+        id.set("cell-moved".to_string());
+    });
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert!(rt.cell_ids.borrow().get(&0).is_none());
+    assert_eq!(
+        rt.cell_ids.borrow().get(&2).map(String::as_str),
+        Some("cell-moved")
+    );
+
+    // Unmount cell -> use_drop must unregister live (2, "cell-moved"), leaving map empty
+    dom.in_scope(ScopeId::APP, || {
+        mounted.set(false);
+    });
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert!(
+        rt.cell_ids.borrow().is_empty(),
+        "FM-W2-FRM: PinInputCell drop must unregister live (index, id), remaining: {:?}",
+        rt.cell_ids.borrow()
+    );
+}
+
+#[cfg(feature = "native")]
+mod native_cell_context_tests {
+    use super::*;
+    use crate::common::native_fixture::*;
+    use keyboard_types::{Code, Key};
+
+    #[component]
+    fn PinCellContextProbe(probe_id: String) -> Element {
+        let cell_ctx = use_pin_input_cell_context();
+        let cell = cell_ctx.cell();
+        let display = cell_ctx
+            .display_char()
+            .map(|c| c.to_string())
+            .unwrap_or_default();
+        let disabled = cell_ctx.is_disabled();
+        rsx! {
+            span {
+                id: "{probe_id}",
+                "data-index": "{cell.index}",
+                "data-active": "{cell.is_active}",
+                "data-caret": "{cell.has_fake_caret}",
+                "data-char": "{cell.char.map(|c| c.to_string()).unwrap_or_default()}",
+                "data-display": "{display}",
+                "data-disabled": "{disabled}",
+            }
+        }
+    }
+
+    #[component]
+    fn PinCellContextScenario() -> Element {
+        let mut disabled = use_signal(|| false);
+        rsx! {
+            div {
+                style: "padding: 16px; width: 320px;",
+                button {
+                    id: "m12-toggle-disabled",
+                    r#type: "button",
+                    onclick: move |_| disabled.toggle(),
+                    "Toggle Disabled"
+                }
+                PinInputRoot {
+                    id: "m12-pin-root",
+                    input_id: "m12-pin-input",
+                    max_length: 4,
+                    pattern: PinInputPattern::Digits,
+                    disabled: disabled(),
+                    style: "display: flex; gap: 8px; width: 220px; height: 40px;",
+                    for i in 0..4 {
+                        PinInputCell {
+                            key: "{i}",
+                            id: format!("m12-cell-{i}"),
+                            index: i,
+                            style: "width: 44px; height: 40px;",
+                            PinCellContextProbe { probe_id: format!("m12-probe-{i}") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_pin_input_cell_context_updates_reactively_on_focus_and_input() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(PinCellContextScenario);
+
+        // Initial unfocused state
+        assert_eq!(
+            harness.attr("#m12-probe-0", "data-active").as_deref(),
+            Some("false")
+        );
+        assert_eq!(
+            harness.attr("#m12-probe-0", "data-caret").as_deref(),
+            Some("false")
+        );
+        assert_eq!(
+            harness.attr("#m12-probe-0", "data-char").as_deref(),
+            Some("")
+        );
+
+        // Focus input -> cell 0 becomes active with fake caret via reactive PinInputCellContext
+        focus_node(&mut harness, "#m12-pin-input");
+        assert_eq!(
+            harness.attr("#m12-probe-0", "data-active").as_deref(),
+            Some("true"),
+            "FM-W2-FRM: use_pin_input_cell_context() must reactively update is_active on focus"
+        );
+        assert_eq!(
+            harness.attr("#m12-probe-0", "data-caret").as_deref(),
+            Some("true")
+        );
+        assert_eq!(
+            harness.attr("#m12-probe-1", "data-active").as_deref(),
+            Some("false")
+        );
+
+        // Type '5' -> cell 0 gets char '5' and becomes inactive, cell 1 becomes active with caret
+        send_key_and_pump(&mut harness, Key::Character("5".into()), Code::Digit5);
+        assert_eq!(
+            harness.attr("#m12-probe-0", "data-char").as_deref(),
+            Some("5"),
+            "FM-W2-FRM: use_pin_input_cell_context() must reactively update char on input"
+        );
+        assert_eq!(
+            harness.attr("#m12-probe-0", "data-display").as_deref(),
+            Some("5")
+        );
+        assert_eq!(
+            harness.attr("#m12-probe-0", "data-active").as_deref(),
+            Some("false")
+        );
+        assert_eq!(
+            harness.attr("#m12-probe-1", "data-active").as_deref(),
+            Some("true")
+        );
+        assert_eq!(
+            harness.attr("#m12-probe-1", "data-caret").as_deref(),
+            Some("true")
+        );
+
+        // Post-mount disabled toggle propagates reactively to cell context
+        click_and_pump(&mut harness, "#m12-toggle-disabled");
+        assert_eq!(
+            harness.attr("#m12-probe-0", "data-disabled").as_deref(),
+            Some("true")
+        );
+        assert_eq!(
+            harness.attr("#m12-probe-1", "data-disabled").as_deref(),
+            Some("true")
+        );
+        assert_eq!(
+            harness.attr("#m12-probe-1", "data-active").as_deref(),
+            Some("false")
+        );
+    }
+}

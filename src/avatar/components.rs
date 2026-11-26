@@ -352,10 +352,10 @@ pub fn AvatarFallback(props: AvatarFallbackProps) -> Element {
         }
     });
 
-    use_effect(use_reactive((&status, &delay_ms), {
+    use_effect(use_reactive((&delay_ms,), {
         let generation = generation.clone();
         let alive = alive.clone();
-        move |(status, delay_ms)| {
+        move |(delay_ms,)| {
             generation.set(generation.get().wrapping_add(1));
             let current = generation.get();
             if let Ok(mut slot) = task.try_write()
@@ -364,21 +364,26 @@ pub fn AvatarFallback(props: AvatarFallbackProps) -> Element {
                 t.cancel();
             }
             let milliseconds = delay_ms.unwrap_or(0);
-            let mut fallback_elapsed = elapsed;
-            if status.is_loaded() || milliseconds == 0 {
-                elapsed.set(!status.is_loaded());
+            if milliseconds == 0 {
+                sync_signal(&mut elapsed, true);
                 return;
             }
-            elapsed.set(false);
+            sync_signal(&mut elapsed, false);
+            let mut fallback_elapsed = elapsed;
             let generation = generation.clone();
             let alive = alive.clone();
             let handle = spawn(async move {
                 Delay::new(Duration::from_millis(milliseconds)).await;
-                if alive.get() && generation.get() == current {
-                    fallback_elapsed.set(true);
+                if alive.get()
+                    && generation.get() == current
+                    && let Ok(mut guard) = fallback_elapsed.try_write()
+                {
+                    *guard = true;
                 }
             });
-            task.set(Some(handle));
+            if let Ok(mut slot) = task.try_write() {
+                *slot = Some(handle);
+            }
         }
     }));
 

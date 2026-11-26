@@ -50,8 +50,8 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
     use_effect({
         let mut runtime = ctx.0.clone();
         let index = props.index;
-        let orientation = runtime.def.orientation;
         move || {
+            let orientation = runtime.def.read().orientation;
             if let Some(size) = *thumb_size_sig.read() {
                 let s = match orientation {
                     Orientation::Vertical => size.height,
@@ -73,7 +73,7 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
         let mut runtime = ctx.0.clone();
         let index = props.index;
         move |evt: PointerEvent| {
-            if runtime.def.disabled {
+            if runtime.def.peek().disabled {
                 return;
             }
             if evt
@@ -92,7 +92,7 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
         let mut runtime = ctx.0.clone();
         let index = props.index;
         move |evt: KeyboardEvent| {
-            if runtime.def.disabled {
+            if runtime.def.peek().disabled {
                 return;
             }
             let event_key = evt.key();

@@ -124,7 +124,8 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
         let mut runtime = runtime.clone();
         let dom_root_id = dom_root_id.clone();
         move |evt: PointerEvent| {
-            if runtime.def.disabled {
+            let def = runtime.def.peek().clone();
+            if def.disabled {
                 return;
             }
             if evt
@@ -146,7 +147,7 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
 
             let current_vals = runtime.values.peek().clone();
             let fraction = runtime.compute_pointer_fraction(coords.x, coords.y, &rect);
-            let raw_val = percent_to_value(fraction * 100.0, runtime.def.min, runtime.def.max);
+            let raw_val = percent_to_value(fraction * 100.0, def.min, def.max);
             let closest_idx = find_closest_thumb(&current_vals, raw_val);
             runtime.start_drag(closest_idx);
             runtime.update_pointer_coord(coords.x, coords.y, &rect);
@@ -187,8 +188,10 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
 
     let current_vals = runtime.current_values();
     let string_values: Vec<String> = current_vals.iter().map(|v| v.to_string()).collect();
+    let is_single = *runtime.is_single.read();
+    let root_dir = runtime.def.read().direction.as_str();
     let input_name = props.name.clone().map(|n| {
-        if !runtime.is_single && !n.ends_with("[]") {
+        if !is_single && !n.ends_with("[]") {
             format!("{n}[]")
         } else {
             n
@@ -200,7 +203,7 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
             id: "{dom_root_id}",
             class: merged.class.as_deref().unwrap_or_default(),
             style: merged.style.as_deref().unwrap_or_default(),
-            dir: "{runtime.def.direction.as_str()}",
+            dir: "{root_dir}",
             "data-orientation": "{attrs.data_orientation()}",
             "data-disabled": attrs.data_disabled(),
             "data-monoxus-slider-root": "",

@@ -691,11 +691,11 @@ fn slider_contain_range_and_tick_sync_contract() {
             .with_thumb_alignment(SliderThumbAlignment::Contain);
 
         let mut rt = SliderRuntime {
-            def,
+            def: Signal::new(def),
             rels: rels.clone(),
             values: Signal::new(vec![50.0]),
             values_ctl: None,
-            is_single: true,
+            is_single: Signal::new(true),
             active_thumb: Signal::new(None),
             is_dragging: Signal::new(false),
             drag_start_values: Signal::new(None),
@@ -724,7 +724,7 @@ fn slider_contain_range_and_tick_sync_contract() {
         );
 
         // Multi-thumb at [0.0, 100.0] keeps range aligned between contained thumb centers [5%, 95%].
-        rt.is_single = false;
+        rt.is_single.set(false);
         rt.thumb_sizes.set(vec![Some(30.0), Some(30.0)]);
         rt.values.set(vec![0.0, 100.0]);
         assert_eq!(
@@ -1057,5 +1057,128 @@ fn slider_native_controlled_rejection_preserves_aria_valuenow() {
         harness.attr("#ctrl-slider-thumb", "aria-valuenow").as_deref(),
         Some("25"),
         "rejected controlled slider must retain aria-valuenow=25"
+    );
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn slider_native_post_mount_prop_updates_and_disabled_guard() {
+    use crate::common::native_fixture::{
+        NATIVE_TEST_LOCK, click_and_pump, click_at_and_pump, focus_node, mount_native_scenario,
+        send_key_and_pump,
+    };
+    use keyboard_types::{Code, Key, NamedKey};
+
+    #[component]
+    fn PostMountSliderScenario() -> Element {
+        let mut disabled = use_signal(|| false);
+        let mut min = use_signal(|| 0.0_f64);
+        let mut max = use_signal(|| 100.0_f64);
+
+        rsx! {
+            div {
+                style: "width: 320px; padding: 16px;",
+                button {
+                    id: "slider-update-bounds",
+                    style: "width: 100px; height: 28px; display: block;",
+                    onclick: move |_| {
+                        min.set(10.0);
+                        max.set(200.0);
+                    },
+                    "Update Bounds"
+                }
+                button {
+                    id: "slider-disable-btn",
+                    style: "width: 100px; height: 28px; display: block;",
+                    onclick: move |_| disabled.set(true),
+                    "Disable"
+                }
+                SliderRoot {
+                    id: "fm-w2-sld-root",
+                    default_value: SliderValue::Single(50.0),
+                    min: min(),
+                    max: max(),
+                    step: 5.0,
+                    disabled: disabled(),
+                    style: "width: 200px; height: 24px; display: flex; align-items: center; position: relative;",
+                    SliderTrack {
+                        id: "fm-w2-sld-track",
+                        style: "width: 200px; height: 8px; position: relative;",
+                        SliderRange { id: "fm-w2-sld-range" }
+                    }
+                    SliderThumb {
+                        id: "fm-w2-sld-thumb",
+                        index: 0,
+                        aria_label: "Level".to_string(),
+                        style: "width: 16px; height: 16px; display: block;",
+                    }
+                }
+            }
+        }
+    }
+
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(PostMountSliderScenario);
+
+    assert_eq!(harness.attr("#fm-w2-sld-thumb", "aria-valuemin").as_deref(), Some("0"));
+    assert_eq!(harness.attr("#fm-w2-sld-thumb", "aria-valuemax").as_deref(), Some("100"));
+    assert_eq!(harness.attr("#fm-w2-sld-thumb", "aria-valuenow").as_deref(), Some("50"));
+    assert_eq!(harness.attr("#fm-w2-sld-thumb", "data-disabled"), None);
+
+    focus_node(&mut harness, "#fm-w2-sld-thumb");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowRight), Code::ArrowRight);
+    assert_eq!(
+        harness.attr("#fm-w2-sld-thumb", "aria-valuenow").as_deref(),
+        Some("55"),
+        "enabled slider must step on ArrowRight"
+    );
+
+    click_and_pump(&mut harness, "#slider-update-bounds");
+    assert_eq!(
+        harness.attr("#fm-w2-sld-thumb", "aria-valuemin").as_deref(),
+        Some("10"),
+        "FM-W2-SLD: post-mount min update must propagate to SliderThumb aria-valuemin"
+    );
+    assert_eq!(
+        harness.attr("#fm-w2-sld-thumb", "aria-valuemax").as_deref(),
+        Some("200"),
+        "FM-W2-SLD: post-mount max update must propagate to SliderThumb aria-valuemax"
+    );
+
+    click_and_pump(&mut harness, "#slider-disable-btn");
+    assert_eq!(
+        harness.attr("#fm-w2-sld-root", "data-disabled").as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        harness.attr("#fm-w2-sld-thumb", "data-disabled").as_deref(),
+        Some(""),
+        "FM-W2-SLD: post-mount disabled=true must propagate to SliderThumb data-disabled"
+    );
+    assert_eq!(
+        harness.attr("#fm-w2-sld-thumb", "aria-disabled").as_deref(),
+        Some("true")
+    );
+
+    // Keyboard stepping must be blocked once disabled.
+    focus_node(&mut harness, "#fm-w2-sld-thumb");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowRight), Code::ArrowRight);
+    assert_eq!(
+        harness.attr("#fm-w2-sld-thumb", "aria-valuenow").as_deref(),
+        Some("55"),
+        "FM-W2-SLD: keyboard stepping must be blocked after post-mount disabled=true"
+    );
+
+    // Pointer track click must be blocked once disabled.
+    let track_rect = harness.layout_rect("#fm-w2-sld-track");
+    click_at_and_pump(
+        &mut harness,
+        track_rect.x + track_rect.width * 0.9,
+        track_rect.y + track_rect.height * 0.5,
+    );
+    assert_eq!(
+        harness.attr("#fm-w2-sld-thumb", "aria-valuenow").as_deref(),
+        Some("55"),
+        "FM-W2-SLD: pointer stepping must be blocked after post-mount disabled=true"
     );
 }

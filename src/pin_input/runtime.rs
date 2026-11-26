@@ -771,12 +771,29 @@ pub fn try_use_pin_input_context() -> Option<PinInputContext> {
     try_consume_context::<PinInputContext>()
 }
 
-/// Context exposing the active [`PinInputCellData`] and resolved display character for a cell.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Context exposing reactive [`PinInputCellData`] and resolved display character for a cell.
+#[derive(Clone, Copy, PartialEq)]
 pub struct PinInputCellContext {
-    pub cell: PinInputCellData,
-    pub display_char: Option<char>,
-    pub disabled: bool,
+    pub cell: Signal<PinInputCellData>,
+    pub display_char: Signal<Option<char>>,
+    pub disabled: Signal<bool>,
+}
+
+impl PinInputCellContext {
+    /// Returns the live [`PinInputCellData`] for this cell.
+    pub fn cell(&self) -> PinInputCellData {
+        (self.cell)()
+    }
+
+    /// Returns the live projected display character for this cell.
+    pub fn display_char(&self) -> Option<char> {
+        (self.display_char)()
+    }
+
+    /// Returns whether this cell is currently disabled.
+    pub fn is_disabled(&self) -> bool {
+        (self.disabled)()
+    }
 }
 
 /// Accesses [`PinInputCellContext`] inside a [`crate::pin_input::PinInputCell`] subtree.

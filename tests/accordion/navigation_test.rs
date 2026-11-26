@@ -224,3 +224,178 @@ fn native_accordion_focused_item_unmount_recovers_dom_tabindex_zero() {
         "FM-COL-4: remaining accordion triggers must recover exactly one tabindex=0"
     );
 }
+
+#[cfg(feature = "native")]
+#[test]
+fn native_accordion_post_mount_props_preserve_uncontrolled_state_and_force_mount_hidden() {
+    use dioxus::prelude::*;
+    use monoxus::accordion::{
+        AccordionContent, AccordionHeader, AccordionItem, AccordionRoot, AccordionTrigger,
+    };
+    use crate::common::native_fixture::{NATIVE_TEST_LOCK, click_and_pump, mount_native_scenario};
+
+    #[component]
+    fn PostMountAccordionScenario() -> Element {
+        let mut root_disabled = use_signal(|| false);
+        let mut orientation = use_signal(|| AccordionOrientation::Vertical);
+        let mut item_b_disabled = use_signal(|| false);
+
+        rsx! {
+            div {
+                button {
+                    id: "acc-set-horizontal",
+                    style: "width: 120px; height: 24px; display: block;",
+                    onclick: move |_| orientation.set(AccordionOrientation::Horizontal),
+                    "Horizontal"
+                }
+                button {
+                    id: "acc-set-item-b-disabled",
+                    style: "width: 120px; height: 24px; display: block;",
+                    onclick: move |_| item_b_disabled.set(true),
+                    "Disable B"
+                }
+                button {
+                    id: "acc-set-root-disabled",
+                    style: "width: 120px; height: 24px; display: block;",
+                    onclick: move |_| root_disabled.set(true),
+                    "Disable Root"
+                }
+                AccordionRoot {
+                    id: "fm-w2-acc-root",
+                    class: "fm-w2-acc-root".to_string(),
+                    mode: AccordionMode::Single { collapsible: true },
+                    orientation: orientation(),
+                    disabled: root_disabled(),
+                    AccordionItem {
+                        value: "a".to_string(),
+                        AccordionHeader {
+                            AccordionTrigger {
+                                id: "fm-w2-acc-trig-a",
+                                style: "width: 120px; height: 24px; display: block;",
+                                "Item A"
+                            }
+                        }
+                        AccordionContent {
+                            force_mount: true,
+                            div { id: "fm-w2-acc-body-a", "Body A" }
+                        }
+                    }
+                    AccordionItem {
+                        value: "b".to_string(),
+                        disabled: item_b_disabled(),
+                        AccordionHeader {
+                            AccordionTrigger {
+                                id: "fm-w2-acc-trig-b",
+                                style: "width: 120px; height: 24px; display: block;",
+                                "Item B"
+                            }
+                        }
+                        AccordionContent {
+                            force_mount: true,
+                            div { id: "fm-w2-acc-body-b", "Body B" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(PostMountAccordionScenario);
+
+    // M-7: force_mount=true mounts children while closed, AND emits hidden on closed region.
+    assert!(
+        harness.query("#fm-w2-acc-body-a").is_some(),
+        "force_mount=true must keep Body A mounted when closed"
+    );
+    assert!(
+        harness
+            .attr("[role=\"region\"][data-value=\"a\"]", "hidden")
+            .is_some(),
+        "FM-W2-ACC / M-7: closed AccordionContent(force_mount=true) must emit hidden attribute"
+    );
+    assert!(
+        harness
+            .attr("[role=\"region\"][data-value=\"b\"]", "hidden")
+            .is_some(),
+        "FM-W2-ACC / M-7: closed AccordionContent(force_mount=true) for item b must emit hidden"
+    );
+
+    // Open uncontrolled item A via trigger click.
+    click_and_pump(&mut harness, "#fm-w2-acc-trig-a");
+    assert_eq!(
+        harness.attr("#fm-w2-acc-trig-a", "aria-expanded").as_deref(),
+        Some("true")
+    );
+    assert!(
+        harness
+            .attr("[role=\"region\"][data-value=\"a\"]", "hidden")
+            .is_none(),
+        "open AccordionContent must remove hidden attribute"
+    );
+    assert!(
+        harness
+            .attr("[role=\"region\"][data-value=\"b\"]", "hidden")
+            .is_some(),
+        "closed sibling AccordionContent(force_mount=true) must retain hidden attribute"
+    );
+
+    // H-8a & H-8b: Mutate root orientation post-mount; must propagate without clobbering open item A.
+    click_and_pump(&mut harness, "#acc-set-horizontal");
+    assert_eq!(
+        harness.attr(".fm-w2-acc-root", "data-orientation").as_deref(),
+        Some("horizontal")
+    );
+    assert_eq!(
+        harness.attr("#fm-w2-acc-trig-a", "data-orientation").as_deref(),
+        Some("horizontal"),
+        "FM-W2-ACC: post-mount orientation update must reach AccordionTrigger"
+    );
+    assert_eq!(
+        harness
+            .attr("[role=\"region\"][data-value=\"a\"]", "data-orientation")
+            .as_deref(),
+        Some("horizontal")
+    );
+    assert_eq!(
+        harness.attr("#fm-w2-acc-trig-a", "aria-expanded").as_deref(),
+        Some("true"),
+        "FM-W2-ACC: mutating root orientation must not clobber uncontrolled open item A"
+    );
+
+    // H-8a: Mutate item B disabled post-mount via AccordionItemContext.
+    click_and_pump(&mut harness, "#acc-set-item-b-disabled");
+    assert_eq!(
+        harness.attr("#fm-w2-acc-trig-b", "data-disabled").as_deref(),
+        Some(""),
+        "FM-W2-ACC: post-mount AccordionItem disabled update must reach AccordionTrigger"
+    );
+    assert_eq!(harness.attr("#fm-w2-acc-trig-a", "data-disabled"), None);
+
+    // H-8a & H-8b: Mutate root disabled post-mount; propagates to triggers/content without clobbering open state.
+    click_and_pump(&mut harness, "#acc-set-root-disabled");
+    assert_eq!(
+        harness.attr("#fm-w2-acc-trig-a", "data-disabled").as_deref(),
+        Some(""),
+        "FM-W2-ACC: post-mount root disabled=true must reach AccordionTrigger"
+    );
+    assert_eq!(
+        harness
+            .attr("[role=\"region\"][data-value=\"a\"]", "data-disabled")
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        harness.attr("#fm-w2-acc-trig-a", "aria-expanded").as_deref(),
+        Some("true"),
+        "FM-W2-ACC: mutating root disabled must not clobber uncontrolled open item A"
+    );
+
+    // Clicking disabled trigger must not toggle item A closed.
+    click_and_pump(&mut harness, "#fm-w2-acc-trig-a");
+    assert_eq!(
+        harness.attr("#fm-w2-acc-trig-a", "aria-expanded").as_deref(),
+        Some("true"),
+        "FM-W2-ACC: clicking trigger after post-mount disabled=true must not collapse item A"
+    );
+}

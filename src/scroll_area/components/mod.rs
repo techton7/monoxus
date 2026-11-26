@@ -30,9 +30,23 @@ use super::{
 pub struct ScrollAreaContext {
     pub runtime: ScrollAreaRuntime,
     pub relationships: Signal<ScrollAreaRelationships>,
-    pub r#type: ScrollAreaType,
-    pub dir: Direction,
-    pub scroll_hide_delay: u64,
+    pub r#type: Signal<ScrollAreaType>,
+    pub dir: Signal<Direction>,
+    pub scroll_hide_delay: Signal<u64>,
+}
+
+impl ScrollAreaContext {
+    pub fn scroll_type(&self) -> ScrollAreaType {
+        (self.r#type)()
+    }
+
+    pub fn dir(&self) -> Direction {
+        (self.dir)()
+    }
+
+    pub fn scroll_hide_delay(&self) -> u64 {
+        (self.scroll_hide_delay)()
+    }
 }
 
 #[derive(Clone, Copy)]

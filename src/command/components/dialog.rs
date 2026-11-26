@@ -10,6 +10,7 @@ use crate::visually_hidden::VisuallyHidden;
 
 use super::super::{
     runtime::{CommandContext, CommandFilterCallback},
+    score::compute_command_score,
     types::CommandStateSnapshot,
 };
 use super::root::CommandRoot;
@@ -98,11 +99,69 @@ fn CommandDialogAutoFocus(enabled: bool) -> Element {
     rsx! {}
 }
 
+#[component]
+fn CommandDialogFilterSync(revision: u64) -> Element {
+    let mut ctx = use_context::<CommandContext>();
+    let mut last_applied = use_hook(|| CopyValue::new(revision));
+    if last_applied.try_read().is_ok_and(|prev| *prev != revision) {
+        last_applied.set(revision);
+        ctx.recompute_filtered(false);
+    }
+    rsx! {}
+}
+
 /// Headless modal command palette dialog (`4B D-3`) composing `monoxus::dialog`
 /// with a full-viewport flex-centering positioner, library-owned `CommandInput` open focus,
 /// and screen-reader-only `DialogTitle`/`DialogDescription` around `CommandRoot`.
 #[component]
 pub fn CommandDialog(props: CommandDialogProps) -> Element {
+    let mut on_open_change_slot = use_hook(|| CopyValue::new(props.on_open_change));
+    on_open_change_slot.set(props.on_open_change);
+    let mut on_value_change_slot = use_hook(|| CopyValue::new(props.on_value_change));
+    on_value_change_slot.set(props.on_value_change);
+    let mut on_state_change_slot = use_hook(|| CopyValue::new(props.on_state_change));
+    on_state_change_slot.set(props.on_state_change);
+
+    let mut filter_slot = use_hook(|| CopyValue::new(props.filter));
+    let mut filter_rev = use_hook(|| CopyValue::new(0_u64));
+    if filter_slot.try_read().is_ok_and(|cur| *cur != props.filter) {
+        filter_slot.set(props.filter);
+        let next = filter_rev.try_read().map(|r| r.wrapping_add(1)).unwrap_or(1);
+        filter_rev.set(next);
+    }
+    let current_filter_rev = filter_rev.try_read().map(|r| *r).unwrap_or(0);
+
+    let stable_on_open_change = use_hook(|| {
+        EventHandler::new(move |next: bool| {
+            if let Some(handler) = on_open_change_slot.try_read().ok().and_then(|s| *s) {
+                handler.call(next);
+            }
+        })
+    });
+    let stable_on_value_change = use_hook(|| {
+        EventHandler::new(move |next: String| {
+            if let Some(handler) = on_value_change_slot.try_read().ok().and_then(|s| *s) {
+                handler.call(next);
+            }
+        })
+    });
+    let stable_on_state_change = use_hook(|| {
+        EventHandler::new(move |next: CommandStateSnapshot| {
+            if let Some(handler) = on_state_change_slot.try_read().ok().and_then(|s| *s) {
+                handler.call(next);
+            }
+        })
+    });
+    let stable_filter: CommandFilterCallback = use_hook(|| {
+        Callback::new(move |(val, query, keywords): (String, String, Vec<String>)| {
+            if let Some(cb) = filter_slot.try_read().ok().and_then(|s| *s) {
+                cb.call((val, query, keywords))
+            } else {
+                compute_command_score(&val, &query, &keywords)
+            }
+        })
+    });
+
     let command_label = props.label.unwrap_or_else(|| props.title.clone());
     let resolved_positioner_style = match props.positioner_style.as_deref().map(str::trim) {
         Some(extra) if !extra.is_empty() => format!("{DEFAULT_POSITIONER_STYLE} {extra}"),
@@ -129,7 +188,7 @@ pub fn CommandDialog(props: CommandDialogProps) -> Element {
             id: props.id.clone(),
             open: props.open,
             default_open: props.default_open,
-            on_open_change: props.on_open_change,
+            on_open_change: Some(stable_on_open_change),
             open_focus,
             portal_host: props.portal_host.clone(),
             DialogPortal {
@@ -154,11 +213,11 @@ pub fn CommandDialog(props: CommandDialogProps) -> Element {
                         CommandRoot {
                             value: props.value,
                             default_value: props.default_value,
-                            on_value_change: props.on_value_change,
-                            on_state_change: props.on_state_change,
+                            on_value_change: Some(stable_on_value_change),
+                            on_state_change: Some(stable_on_state_change),
                             label: command_label,
                             should_filter: props.should_filter,
-                            filter: props.filter,
+                            filter: Some(stable_filter),
                             loop_focus: props.loop_focus,
                             vim_bindings: props.vim_bindings,
                             disable_pointer_selection: props.disable_pointer_selection,
@@ -168,6 +227,7 @@ pub fn CommandDialog(props: CommandDialogProps) -> Element {
                             style: props.style,
                             attributes: props.attributes,
                             CommandDialogAutoFocus { enabled: props.auto_focus_input }
+                            CommandDialogFilterSync { revision: current_filter_rev }
                             {props.children}
                         }
                     }

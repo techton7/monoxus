@@ -16,11 +16,11 @@ fn test_runtime_range_and_tick_contain_alignment() {
             .with_thumb_alignment(SliderThumbAlignment::Contain);
 
         let mut rt = SliderRuntime {
-            def: def.clone(),
+            def: Signal::new(def.clone()),
             rels: rels.clone(),
             values: Signal::new(vec![25.0]),
             values_ctl: None,
-            is_single: true,
+            is_single: Signal::new(true),
             active_thumb: Signal::new(None),
             is_dragging: Signal::new(false),
             drag_start_values: Signal::new(None),
@@ -86,7 +86,7 @@ fn test_runtime_range_and_tick_contain_alignment() {
         );
 
         // Multi-thumb range aligns both endpoints to their contained thumb centers.
-        rt.is_single = false;
+        rt.is_single.set(false);
         rt.thumb_sizes.set(vec![Some(20.0), Some(20.0)]);
         rt.values.set(vec![0.0, 100.0]);
         assert_eq!(
@@ -100,7 +100,7 @@ fn test_runtime_range_and_tick_contain_alignment() {
         );
 
         // Exact mode leaves range and ticks uncontained.
-        rt.def.thumb_alignment = SliderThumbAlignment::Exact;
+        rt.def.write().thumb_alignment = SliderThumbAlignment::Exact;
         assert_eq!(
             rt.range_attrs().style(),
             "position: absolute; left: 20%; width: 60%;"

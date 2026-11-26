@@ -9,15 +9,15 @@ use super::{
     types::{CollapsibleOpenChangeHandler, CollapsibleStateRequest},
 };
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct CollapsibleRuntimeState {
     pub open: Signal<bool>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct CollapsibleRuntime {
     collapsible: Collapsible,
-    on_open_change: Option<CollapsibleOpenChangeHandler>,
+    on_open_change: CopyValue<Option<CollapsibleOpenChangeHandler>>,
     state: CollapsibleRuntimeState,
 }
 
@@ -30,6 +30,10 @@ where
 {
     let synced_change: Option<CollapsibleOpenChangeHandler> =
         on_open_change.map(|f| Rc::new(f) as CollapsibleOpenChangeHandler);
+    let mut on_open_change_slot: CopyValue<Option<CollapsibleOpenChangeHandler>> =
+        use_hook(|| CopyValue::new(None));
+    on_open_change_slot.set(synced_change);
+
     let initial_open = collapsible.is_open();
 
     let state = CollapsibleRuntimeState {
@@ -45,7 +49,7 @@ where
 
     CollapsibleRuntime {
         collapsible,
-        on_open_change: synced_change,
+        on_open_change: on_open_change_slot,
         state,
     }
 }
@@ -85,11 +89,16 @@ impl CollapsibleRuntime {
         if self.is_disabled() {
             return;
         }
-        let changed = *self.state.open.read() != open;
+        let changed = *self.state.open.peek() != open;
         if changed {
             let mut open_sig = self.state.open;
             open_sig.set(open);
-            if let Some(ref callback) = self.on_open_change {
+            let callback = self
+                .on_open_change
+                .try_read()
+                .ok()
+                .and_then(|slot| slot.as_ref().cloned());
+            if let Some(callback) = callback {
                 callback(open);
             }
         }

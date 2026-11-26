@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::merge_global_attributes;
+use crate::foundation::{compose::merge_global_attributes, state::sync_signal};
 
 use super::super::{
     attrs::PinInputCellAttributes,
@@ -51,18 +51,39 @@ pub fn PinInputCell(props: PinInputCellProps) -> Element {
     let display_char = runtime.display_char_for_cell(&cell_data);
     let disabled = cell_attrs.is_disabled();
 
+    let mut cell_sig = use_signal(|| cell_data);
+    sync_signal(&mut cell_sig, cell_data);
+    let mut display_char_sig = use_signal(|| display_char);
+    sync_signal(&mut display_char_sig, display_char);
+    let mut disabled_sig = use_signal(|| disabled);
+    sync_signal(&mut disabled_sig, disabled);
+
+    let mut registered_cell = use_hook(|| CopyValue::new((props.index, cell_attrs.id.clone())));
+    let next_registration = (props.index, cell_attrs.id.clone());
+    let prev_registration = registered_cell.try_read().ok().and_then(|prev| {
+        if *prev != next_registration {
+            Some((*prev).clone())
+        } else {
+            None
+        }
+    });
+    if let Some((prev_index, prev_id)) = prev_registration {
+        runtime.unregister_cell(prev_index, &prev_id);
+        registered_cell.set(next_registration);
+    }
     runtime.register_cell(props.index, cell_attrs.id.clone());
+
     let drop_runtime = runtime.clone();
-    let drop_index = props.index;
-    let drop_id = cell_attrs.id.clone();
     use_drop(move || {
-        drop_runtime.unregister_cell(drop_index, &drop_id);
+        if let Ok(live) = registered_cell.try_read() {
+            drop_runtime.unregister_cell(live.0, &live.1);
+        }
     });
 
     use_context_provider(|| PinInputCellContext {
-        cell: cell_data,
-        display_char,
-        disabled,
+        cell: cell_sig,
+        display_char: display_char_sig,
+        disabled: disabled_sig,
     });
 
     if props.as_child && props.render_child.is_none() {

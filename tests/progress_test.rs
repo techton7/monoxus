@@ -132,3 +132,81 @@ fn public_context_keeps_root_and_indicator_contract_synchronized() {
         }
     );
 }
+
+#[test]
+fn progress_root_skips_unchanged_runtime_signal_update() {
+    use std::cell::Cell;
+
+    #[derive(Clone)]
+    struct RenderCounter(Rc<Cell<usize>>);
+    impl PartialEq for RenderCounter {
+        fn eq(&self, other: &Self) -> bool {
+            Rc::ptr_eq(&self.0, &other.0)
+        }
+    }
+
+    #[component]
+    fn ProgressCountProbe(counter: RenderCounter) -> Element {
+        let ctx = use_progress_context();
+        let _rt = ctx.runtime();
+        counter.0.set(counter.0.get() + 1);
+        rsx! {}
+    }
+
+    #[component]
+    fn ProgressL2Host(
+        counter: RenderCounter,
+        tick_out: Rc<RefCell<Option<Signal<u32>>>>,
+        val_out: Rc<RefCell<Option<Signal<f64>>>>,
+    ) -> Element {
+        let tick = use_signal(|| 0_u32);
+        let val = use_signal(|| 50.0_f64);
+        *tick_out.borrow_mut() = Some(tick);
+        *val_out.borrow_mut() = Some(val);
+        let _ = tick();
+
+        rsx! {
+            ProgressRoot {
+                value: val(),
+                max: 100.0,
+                ProgressCountProbe { counter }
+            }
+        }
+    }
+
+    let counter = RenderCounter(Rc::new(Cell::new(0)));
+    let tick_out = Rc::new(RefCell::new(None));
+    let val_out = Rc::new(RefCell::new(None));
+
+    let mut dom = VirtualDom::new_with_props(
+        ProgressL2Host,
+        ProgressL2HostProps {
+            counter: counter.clone(),
+            tick_out: tick_out.clone(),
+            val_out: val_out.clone(),
+        },
+    );
+    dom.rebuild_in_place();
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(counter.0.get(), 1);
+
+    // Unchanged parent re-render must not write runtime_sig or force child re-render.
+    let mut tick = tick_out.borrow().expect("tick captured");
+    dom.in_scope(ScopeId::APP, || tick.set(1));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(
+        counter.0.get(),
+        1,
+        "L-2: ProgressRoot unchanged parent re-render must not force child re-render"
+    );
+
+    // Changing value updates runtime_sig and re-renders child.
+    let mut val = val_out.borrow().expect("val captured");
+    dom.in_scope(ScopeId::APP, || val.set(75.0));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(
+        counter.0.get(),
+        2,
+        "L-2: ProgressRoot value change must propagate to ProgressContext subscribers"
+    );
+}

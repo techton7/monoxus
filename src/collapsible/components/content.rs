@@ -35,14 +35,34 @@ pub fn CollapsibleContent(props: CollapsibleContentProps) -> Element {
     let content = runtime.content();
     let content_id = props.id.clone().unwrap_or_else(|| content.id().to_string());
 
-    use_effect(use_reactive((&props.id,), {
+    let mut published_custom_id: CopyValue<Option<String>> = use_hook(|| CopyValue::new(None));
+    {
         let mut cid_sig = ctx.content_id;
-        move |(custom_id,)| {
-            if let Some(id) = custom_id {
-                sync_signal(&mut cid_sig, Some(id));
+        let prev_own = published_custom_id
+            .try_read()
+            .ok()
+            .and_then(|g| g.clone());
+        match props.id.as_ref() {
+            Some(id) => {
+                sync_signal(&mut cid_sig, Some(id.clone()));
+                if prev_own.as_deref() != Some(id.as_str()) {
+                    published_custom_id.set(Some(id.clone()));
+                }
+            }
+            None => {
+                if let Some(prev) = prev_own.as_deref()
+                    && cid_sig
+                        .try_peek()
+                        .is_ok_and(|cur| cur.as_deref() == Some(prev))
+                {
+                    sync_signal(&mut cid_sig, None);
+                }
+                if prev_own.is_some() {
+                    published_custom_id.set(None);
+                }
             }
         }
-    }));
+    }
 
     let presence = use_presence(is_open, &content_id, true, None);
     let disclosure = use_disclosure_size(&content_id, is_open, presence);
@@ -57,9 +77,22 @@ pub fn CollapsibleContent(props: CollapsibleContentProps) -> Element {
 
     use_drop({
         let mut mounted_sig = ctx.content_mounted;
+        let mut cid_sig = ctx.content_id;
         move || {
-            if let Ok(mut m) = mounted_sig.try_write() {
+            if mounted_sig.try_peek().is_ok_and(|m| *m)
+                && let Ok(mut m) = mounted_sig.try_write()
+            {
                 *m = false;
+            }
+            if let Some(own_id) = published_custom_id
+                .try_read()
+                .ok()
+                .and_then(|g| g.clone())
+                && cid_sig
+                    .try_peek()
+                    .is_ok_and(|cur| cur.as_deref() == Some(own_id.as_str()))
+            {
+                sync_signal(&mut cid_sig, None);
             }
         }
     });

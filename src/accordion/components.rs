@@ -11,10 +11,11 @@ use crate::foundation::{
     shared::{
         ScopeHandle, data_disabled_attr, use_direction_context, use_disclosure_size, use_stable_id,
     },
+    state::sync_signal,
 };
 
 use super::{
-    runtime::{AccordionRuntime, use_accordion_runtime},
+    runtime::{AccordionRuntime, use_accordion_runtime_with_control},
     state::Accordion,
     types::{AccordionDirection, AccordionMode, AccordionOrientation},
 };
@@ -88,7 +89,7 @@ pub fn AccordionRoot(props: AccordionRootProps) -> Element {
     }
 
     let change_handler = on_value_change.map(|handler| move |vals| handler.call(vals));
-    let runtime = use_accordion_runtime(accordion, change_handler);
+    let runtime = use_accordion_runtime_with_control(accordion, false, change_handler);
 
     use_context_provider(|| AccordionContext {
         runtime: runtime.clone(),
@@ -111,10 +112,10 @@ pub fn AccordionRoot(props: AccordionRootProps) -> Element {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct AccordionItemContext {
-    pub value: String,
-    pub disabled: bool,
+    pub value: Signal<String>,
+    pub disabled: Signal<bool>,
 }
 
 #[derive(Clone, PartialEq, Props)]
@@ -142,28 +143,46 @@ pub fn AccordionItem(props: AccordionItemProps) -> Element {
         children,
     } = props;
     let ctx = use_context::<AccordionContext>();
-    let item_value = value.clone();
+
+    let mut value_sig = use_signal(|| value.clone());
+    sync_signal(&mut value_sig, value.clone());
+    let mut disabled_sig = use_signal(|| disabled);
+    sync_signal(&mut disabled_sig, disabled);
 
     use_context_provider(|| AccordionItemContext {
-        value: item_value.clone(),
-        disabled,
+        value: value_sig,
+        disabled: disabled_sig,
     });
+
+    let mut tracked_val = use_hook(|| CopyValue::new(value.clone()));
 
     use_hook(|| {
-        ctx.runtime.register_item(&item_value, disabled);
+        ctx.runtime.register_item(&value, disabled);
     });
 
-    use_effect(use_reactive((&item_value, &disabled), {
+    use_effect({
         let runtime = ctx.runtime.clone();
-        move |(val, dis)| {
+        move || {
+            let val = value_sig.read().clone();
+            let dis = *disabled_sig.read();
+            let _root_disabled = runtime.is_disabled();
+            let prev = tracked_val
+                .try_read()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            if prev != val {
+                runtime.unregister_item(&prev);
+                tracked_val.set(val.clone());
+            }
             runtime.register_item(&val, dis);
         }
-    }));
+    });
 
-    let drop_val = value.clone();
     let drop_runtime = ctx.runtime.clone();
     use_drop(move || {
-        drop_runtime.unregister_item(&drop_val);
+        if let Ok(val) = tracked_val.try_read() {
+            drop_runtime.unregister_item(&val);
+        }
     });
 
     let attrs = ctx.runtime.item(&value, disabled);
@@ -208,10 +227,12 @@ pub fn AccordionHeader(props: AccordionHeaderProps) -> Element {
     } = props;
     let ctx = use_context::<AccordionContext>();
     let item_ctx = use_context::<AccordionItemContext>();
+    let item_value = item_ctx.value.read().clone();
+    let item_disabled = *item_ctx.disabled.read();
     let clamped = level.clamp(1, 6);
     let attrs = ctx
         .runtime
-        .header_with_level(&item_ctx.value, item_ctx.disabled, clamped);
+        .header_with_level(&item_value, item_disabled, clamped);
     let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
 
     macro_rules! render_heading {
@@ -269,12 +290,13 @@ pub fn AccordionTrigger(props: AccordionTriggerProps) -> Element {
     } = props;
     let ctx = use_context::<AccordionContext>();
     let item_ctx = use_context::<AccordionItemContext>();
-    let attrs = ctx.runtime.trigger(&item_ctx.value, item_ctx.disabled);
+    let item_value = item_ctx.value.read().clone();
+    let item_disabled = *item_ctx.disabled.read();
+    let attrs = ctx.runtime.trigger(&item_value, item_disabled);
     let trig_id = id.unwrap_or_else(|| attrs.id().to_string());
 
-    let val = item_ctx.value.clone();
     let trig_id_for_effect = trig_id.clone();
-    use_effect(use_reactive((&val, &trig_id_for_effect), {
+    use_effect(use_reactive((&item_value, &trig_id_for_effect), {
         let runtime = ctx.runtime.clone();
         move |(v, el_id)| {
             runtime.register_trigger_id(&v, &el_id);
@@ -282,10 +304,7 @@ pub fn AccordionTrigger(props: AccordionTriggerProps) -> Element {
     }));
 
     let click_runtime = ctx.runtime.clone();
-    let click_val = item_ctx.value.clone();
     let focus_runtime = ctx.runtime.clone();
-    let focus_val = item_ctx.value.clone();
-    let focus_disabled = item_ctx.disabled;
     let key_runtime = ctx.runtime.clone();
 
     let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
@@ -306,20 +325,28 @@ pub fn AccordionTrigger(props: AccordionTriggerProps) -> Element {
             "data-value": "{attrs.data_value()}",
             "data-disabled": data_disabled_attr(attrs.is_disabled()),
             onfocus: move |_| {
-                if !focus_disabled {
+                if !(*item_ctx.disabled.peek() || focus_runtime.is_disabled_peek()) {
+                    let focus_val = item_ctx.value.peek().clone();
                     focus_runtime
                         .roving()
-                        .set_current_tab_stop(Some(focus_val.clone()));
+                        .set_current_tab_stop(Some(focus_val));
                 }
             },
             onclick: move |_| {
+                if *item_ctx.disabled.peek() || click_runtime.is_disabled_peek() {
+                    return;
+                }
+                let click_val = item_ctx.value.peek().clone();
                 click_runtime.toggle_item(&click_val);
             },
             onkeydown: move |evt: KeyboardEvent| {
+                if *item_ctx.disabled.peek() || key_runtime.is_disabled_peek() {
+                    return;
+                }
                 let event_key = evt.key();
                 if let Some(key_str) = key_to_roving_str(&event_key)
                     && Accordion::is_navigation_key_for_orientation(
-                        key_runtime.accordion().orientation(),
+                        key_runtime.orientation_peek(),
                         key_str,
                     )
                 {
@@ -358,28 +385,49 @@ pub fn AccordionContent(props: AccordionContentProps) -> Element {
     } = props;
     let ctx = use_context::<AccordionContext>();
     let item_ctx = use_context::<AccordionItemContext>();
-    let attrs = ctx.runtime.content(&item_ctx.value);
+    let item_value = item_ctx.value.read().clone();
+    let item_disabled = *item_ctx.disabled.read();
+    let attrs = ctx
+        .runtime
+        .content_with_disabled(&item_value, item_disabled);
 
-    let is_open = ctx.runtime.is_open(&item_ctx.value);
+    let is_open = ctx.runtime.is_open(&item_value);
     let presence = use_presence(is_open, attrs.id(), true, None);
     let disclosure = use_disclosure_size(attrs.id(), is_open, presence);
 
-    let should_render = is_open || presence.should_render() || force_mount;
+    let is_present = presence.should_render();
+    let should_render = is_open || is_present || force_mount;
+
+    let mut last_mounted_val: CopyValue<Option<String>> = use_hook(|| CopyValue::new(None));
+    let prev_registered = last_mounted_val.try_read().ok().and_then(|g| g.clone());
     if should_render {
-        ctx.runtime.register_content_mounted(&item_ctx.value);
+        if let Some(prev) = prev_registered.as_deref()
+            && prev != item_value.as_str()
+        {
+            ctx.runtime.unregister_content_mounted(prev);
+        }
+        ctx.runtime.register_content_mounted(&item_value);
+        if prev_registered.as_deref() != Some(item_value.as_str()) {
+            last_mounted_val.set(Some(item_value.clone()));
+        }
     } else {
-        ctx.runtime.unregister_content_mounted(&item_ctx.value);
+        if let Some(prev) = prev_registered.as_deref() {
+            ctx.runtime.unregister_content_mounted(prev);
+            last_mounted_val.set(None);
+        }
+        ctx.runtime.unregister_content_mounted(&item_value);
     }
 
     use_drop({
         let runtime = ctx.runtime.clone();
-        let drop_val = item_ctx.value.clone();
         move || {
-            runtime.unregister_content_mounted(&drop_val);
+            if let Some(prev) = last_mounted_val.try_read().ok().and_then(|g| g.clone()) {
+                runtime.unregister_content_mounted(&prev);
+            }
         }
     });
 
-    let hidden = (!should_render).then_some(true);
+    let hidden = (!(is_open || is_present)).then_some(true);
     let css_vars = disclosure.size().map(format_accordion_css_vars);
     let effective_style = merge_disclosure_styles(
         style.as_deref(),
@@ -400,7 +448,7 @@ pub fn AccordionContent(props: AccordionContentProps) -> Element {
             "data-state": "{attrs.data_state_str()}",
             "data-orientation": "{attrs.data_orientation()}",
             "data-value": "{attrs.data_value()}",
-            "data-disabled": data_disabled_attr(item_ctx.disabled),
+            "data-disabled": data_disabled_attr(attrs.is_disabled()),
             onmounted: move |_| disclosure.on_mounted(),
             ontransitionend: move |_| disclosure.on_motion_end(),
             onanimationend: move |_| disclosure.on_motion_end(),

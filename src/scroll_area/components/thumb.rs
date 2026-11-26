@@ -72,17 +72,17 @@ pub fn ScrollAreaThumb(props: ScrollAreaThumbProps) -> Element {
     let mut mounted_rev = use_signal(|| 0u64);
     let scroll_sync_guard_cell = use_hook(|| Rc::new(RefCell::new(WatcherGuard::noop())));
     let viewport_id = ctx.relationships.read().viewport_id().to_string();
+    let dir = ctx.dir();
 
     use_effect(use_reactive(
-        (&should_render, &thumb_id, &viewport_id, &mounted_rev()),
+        (&should_render, &thumb_id, &viewport_id, &mounted_rev(), &dir),
         {
             let scroll_sync_guard_cell = Rc::clone(&scroll_sync_guard_cell);
             let rels = ctx.relationships;
             let tid_sig = scrollbar_ctx.thumb_id;
             let orientation = scrollbar_ctx.orientation;
-            let dir = ctx.dir;
             let sizes = scrollbar_ctx.sizes;
-            move |(rendered, _tid, _vid, _rev)| {
+            move |(rendered, _tid, _vid, _rev, dir)| {
                 let next_guard = if rendered {
                     start_unlinked_scroll_sync(rels, tid_sig, orientation, dir, sizes)
                 } else {
@@ -122,7 +122,7 @@ pub fn ScrollAreaThumb(props: ScrollAreaThumbProps) -> Element {
             .unwrap_or(0.0),
     };
 
-    let offset = get_thumb_offset_from_scroll(scroll_pos, current_sizes, ctx.dir);
+    let offset = get_thumb_offset_from_scroll(scroll_pos, current_sizes, dir);
     let thumb_size = get_thumb_size(current_sizes);
 
     let base_style = match scrollbar_ctx.orientation {
@@ -148,6 +148,13 @@ pub fn ScrollAreaThumb(props: ScrollAreaThumbProps) -> Element {
         let orientation = scrollbar_ctx.orientation;
         let tid = thumb_id.clone();
         move |evt: PointerEvent| {
+            if evt.pointer_type() == "mouse"
+                && evt
+                    .trigger_button()
+                    .is_some_and(|b| b != dioxus::html::input_data::MouseButton::Primary)
+            {
+                return;
+            }
             if let Some(rect) = get_element_client_rect(&tid) {
                 let coords = evt.client_coordinates();
                 let offset = match orientation {

@@ -915,6 +915,191 @@ mod native_tests {
         assert_eq!(harness.attr("#fm-cmd-log", "data-cb1").as_deref(), Some("0"));
         assert_eq!(harness.attr("#fm-cmd-log", "data-cb2").as_deref(), Some("1"));
     }
+
+    #[derive(Clone, Default, PartialEq)]
+    struct DialogCallbackToggleHits {
+        open_cb1: std::rc::Rc<std::cell::Cell<usize>>,
+        open_cb2: std::rc::Rc<std::cell::Cell<usize>>,
+        value_cb1: std::rc::Rc<std::cell::Cell<usize>>,
+        value_cb2: std::rc::Rc<std::cell::Cell<usize>>,
+        state_cb1: std::rc::Rc<std::cell::Cell<usize>>,
+        state_cb2: std::rc::Rc<std::cell::Cell<usize>>,
+        filter_cb1: std::rc::Rc<std::cell::Cell<usize>>,
+        filter_cb2: std::rc::Rc<std::cell::Cell<usize>>,
+    }
+
+    #[derive(Clone, PartialEq, Props)]
+    struct NativeCommandDialogCallbackToggleProps {
+        hits: DialogCallbackToggleHits,
+    }
+
+    #[component]
+    fn NativeCommandDialogCallbackToggleScenario(
+        props: NativeCommandDialogCallbackToggleProps,
+    ) -> Element {
+        let mut step = use_signal(|| 0u8);
+        let mut open = use_signal(|| true);
+        let mut search_val = use_signal(String::new);
+        let hits = props.hits;
+
+        let on_open_change: Option<EventHandler<bool>> = match step() {
+            0 => None,
+            1 => {
+                let c = hits.open_cb1.clone();
+                Some(EventHandler::new(move |next: bool| {
+                    c.set(c.get() + 1);
+                    open.set(next);
+                }))
+            }
+            _ => {
+                let c = hits.open_cb2.clone();
+                Some(EventHandler::new(move |next: bool| {
+                    c.set(c.get() + 1);
+                    open.set(next);
+                }))
+            }
+        };
+
+        let on_value_change: Option<EventHandler<String>> = match step() {
+            0 => None,
+            1 => {
+                let c = hits.value_cb1.clone();
+                Some(EventHandler::new(move |_: String| {
+                    c.set(c.get() + 1);
+                }))
+            }
+            _ => {
+                let c = hits.value_cb2.clone();
+                Some(EventHandler::new(move |_: String| {
+                    c.set(c.get() + 1);
+                }))
+            }
+        };
+
+        let on_state_change: Option<EventHandler<CommandStateSnapshot>> = match step() {
+            0 => None,
+            1 => {
+                let c = hits.state_cb1.clone();
+                Some(EventHandler::new(move |_: CommandStateSnapshot| {
+                    c.set(c.get() + 1);
+                }))
+            }
+            _ => {
+                let c = hits.state_cb2.clone();
+                Some(EventHandler::new(move |_: CommandStateSnapshot| {
+                    c.set(c.get() + 1);
+                }))
+            }
+        };
+
+        let filter: Option<CommandFilterCallback> = match step() {
+            0 => None,
+            1 => {
+                let c = hits.filter_cb1.clone();
+                Some(Callback::new(
+                    move |(_, _, _): (String, String, Vec<String>)| {
+                        c.set(c.get() + 1);
+                        1.0
+                    },
+                ))
+            }
+            _ => {
+                let c = hits.filter_cb2.clone();
+                Some(Callback::new(
+                    move |(val, _, _): (String, String, Vec<String>)| {
+                        c.set(c.get() + 1);
+                        if val == "Beta" { 1.0 } else { 0.0 }
+                    },
+                ))
+            }
+        };
+
+        rsx! {
+            CommandDialog {
+                id: "l3-cmd-dlg",
+                content_id: "l3-dlg-content",
+                open: Some(open),
+                on_open_change: on_open_change,
+                on_value_change: on_value_change,
+                on_state_change: on_state_change,
+                filter: filter,
+                button {
+                    id: "l3-advance",
+                    r#type: "button",
+                    onclick: move |_| step += 1,
+                    "Advance"
+                }
+                button {
+                    id: "l3-apply-search",
+                    r#type: "button",
+                    onclick: move |_| search_val.set("query".to_string()),
+                    "Search"
+                }
+                CommandInput {
+                    id: "l3-dlg-input",
+                    value: search_val,
+                }
+                CommandList {
+                    CommandViewport {
+                        CommandItem { id: "l3-item-alpha", value: "Alpha", "Alpha" }
+                        CommandItem { id: "l3-item-beta", value: "Beta", "Beta" }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_command_dialog_callback_toggles_invoke_latest_without_panic() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let hits = DialogCallbackToggleHits::default();
+        let mut harness = mount_native_scenario_with_props(
+            NativeCommandDialogCallbackToggleScenario,
+            NativeCommandDialogCallbackToggleProps { hits: hits.clone() },
+        );
+
+        assert!(harness.query("#l3-dlg-content").is_some());
+
+        // Step 0 -> 1 (None -> Some(cb1)) and Step 1 -> 2 (Some(cb1) -> Some(cb2)) with zero panic
+        click_and_pump(&mut harness, "#l3-advance");
+        click_and_pump(&mut harness, "#l3-advance");
+
+        let state_cb1_before = hits.state_cb1.get();
+        let value_cb1_before = hits.value_cb1.get();
+        let filter_cb1_before = hits.filter_cb1.get();
+
+        // Trigger filtering + selection change -> must invoke cb2 (not cb1)
+        click_and_pump(&mut harness, "#l3-apply-search");
+        assert!(
+            hits.filter_cb2.get() > 0,
+            "FM-W2-FRM: CommandDialog latest filter cb2 must be invoked"
+        );
+        assert_eq!(hits.filter_cb1.get(), filter_cb1_before);
+        assert!(
+            hits.value_cb2.get() > 0,
+            "FM-W2-FRM: CommandDialog latest on_value_change cb2 must be invoked"
+        );
+        assert_eq!(hits.value_cb1.get(), value_cb1_before);
+        assert!(
+            hits.state_cb2.get() > 0,
+            "FM-W2-FRM: CommandDialog latest on_state_change cb2 must be invoked"
+        );
+        assert_eq!(hits.state_cb1.get(), state_cb1_before);
+        assert!(harness.query("#l3-item-beta").is_some());
+        assert!(harness.query("#l3-item-alpha").is_none());
+
+        // Escape closes dialog -> must invoke latest on_open_change cb2 (not cb1)
+        focus_node(&mut harness, "#l3-dlg-input");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.30);
+        assert_eq!(hits.open_cb1.get(), 0);
+        assert_eq!(
+            hits.open_cb2.get(),
+            1,
+            "FM-W2-FRM: CommandDialog latest on_open_change cb2 must be invoked on Escape"
+        );
+        assert!(harness.query("#l3-dlg-content").is_none());
+    }
 }
 
 #[test]

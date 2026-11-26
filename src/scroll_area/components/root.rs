@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 use crate::foundation::{
     compose::{join_styles, merge_global_attributes},
     shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
+    state::sync_signal,
 };
 
 use super::{
@@ -54,12 +55,19 @@ pub fn ScrollAreaRoot(props: ScrollAreaRootProps) -> Element {
         relationships_sig.set(relationships.clone());
     }
 
+    let mut type_sig = use_signal(|| props.r#type);
+    sync_signal(&mut type_sig, props.r#type);
+    let mut dir_sig = use_signal(|| dir);
+    sync_signal(&mut dir_sig, dir);
+    let mut scroll_hide_delay_sig = use_signal(|| props.scroll_hide_delay);
+    sync_signal(&mut scroll_hide_delay_sig, props.scroll_hide_delay);
+
     let context = ScrollAreaContext {
         runtime,
         relationships: relationships_sig,
-        r#type: props.r#type,
-        dir,
-        scroll_hide_delay: props.scroll_hide_delay,
+        r#type: type_sig,
+        dir: dir_sig,
+        scroll_hide_delay: scroll_hide_delay_sig,
     };
     use_context_provider(|| context);
 
@@ -83,7 +91,10 @@ pub fn ScrollAreaRoot(props: ScrollAreaRootProps) -> Element {
         let timer = Rc::clone(&hide_timer);
         let mut hover_visible = runtime.hover_visible;
         move |_| {
-            if props.r#type == ScrollAreaType::Hover {
+            if type_sig
+                .try_peek()
+                .is_ok_and(|t| *t == ScrollAreaType::Hover)
+            {
                 timer.cancel();
                 hover_visible.set(true);
             }
@@ -92,12 +103,18 @@ pub fn ScrollAreaRoot(props: ScrollAreaRootProps) -> Element {
 
     let onpointerleave = {
         let timer = Rc::clone(&hide_timer);
-        let mut hover_visible = runtime.hover_visible;
-        let delay = props.scroll_hide_delay;
+        let hover_visible = runtime.hover_visible;
         move |_| {
-            if props.r#type == ScrollAreaType::Hover {
+            if type_sig
+                .try_peek()
+                .is_ok_and(|t| *t == ScrollAreaType::Hover)
+            {
+                let delay = scroll_hide_delay_sig.try_peek().map(|d| *d).unwrap_or(600);
+                let mut hover_visible = hover_visible;
                 timer.schedule(delay, move || {
-                    hover_visible.set(false);
+                    if let Ok(mut guard) = hover_visible.try_write() {
+                        *guard = false;
+                    }
                 });
             }
         }

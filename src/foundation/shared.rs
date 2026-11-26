@@ -202,6 +202,8 @@ pub fn use_disclosure_size(
     let resize_watcher = use_watcher_slot();
     let mut element_id_slot = use_hook(|| CopyValue::new(element_id.to_owned()));
     let mut is_open_slot = use_hook(|| CopyValue::new(is_open));
+    let mut was_open = use_hook(|| CopyValue::new(false));
+    let mut last_measured_cid = use_hook(|| CopyValue::new(String::new()));
     let mut alive = use_hook(|| CopyValue::new(true));
 
     if element_id_slot
@@ -217,15 +219,32 @@ pub fn use_disclosure_size(
         (&is_open, &mounted_rev(), &cid_owned),
         move |(open, _rev, cid)| {
             if !open || cid.is_empty() {
+                was_open.set(false);
                 resize_watcher.clear();
                 return;
             }
 
-            if content_size.try_peek().is_ok_and(|cur| cur.is_none())
+            let opened_transition = was_open.try_read().is_ok_and(|prev| !*prev);
+            let cid_changed = last_measured_cid
+                .try_read()
+                .is_ok_and(|prev| prev.as_str() != cid.as_str());
+            was_open.set(true);
+
+            let needs_measure = opened_transition
+                || cid_changed
+                || content_size.try_peek().is_ok_and(|cur| cur.is_none());
+            if needs_measure
                 && let Some(size) = measure_element_without_animation(&cid)
                 && (size.width > 0.0 || size.height > 0.0)
             {
-                sync_signal(&mut content_size, Some(size));
+                let existing = content_size.try_peek().ok().and_then(|g| *g);
+                let animating_zero_height = size.height <= 0.0
+                    && existing.is_some_and(|prev| prev.height > 0.0)
+                    && is_element_animating(&cid);
+                if !animating_zero_height {
+                    sync_signal(&mut content_size, Some(size));
+                    last_measured_cid.set(cid.clone());
+                }
             }
 
             let cid_for_watch = cid.clone();

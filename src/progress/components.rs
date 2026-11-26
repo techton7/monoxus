@@ -5,6 +5,7 @@ use dioxus::prelude::*;
 use crate::foundation::{
     compose::merge_global_attributes,
     shared::{ScopeHandle, use_stable_id},
+    state::sync_signal,
 };
 
 use super::{
@@ -65,7 +66,7 @@ pub fn ProgressRoot(props: ProgressRootProps) -> Element {
     runtime.report_diagnostics();
 
     let mut runtime_sig = use_signal(|| runtime.clone());
-    runtime_sig.set(runtime.clone());
+    sync_signal(&mut runtime_sig, runtime.clone());
     use_context_provider(|| ProgressContext {
         runtime: runtime_sig,
     });

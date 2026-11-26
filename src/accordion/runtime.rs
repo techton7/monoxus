@@ -19,7 +19,7 @@ use super::{
         AccordionRootAttributes, AccordionTriggerAttributes,
     },
     state::Accordion,
-    types::AccordionValueChangeHandler,
+    types::{AccordionOrientation, AccordionValueChangeHandler},
 };
 
 #[derive(Clone)]
@@ -31,8 +31,8 @@ pub struct AccordionRuntimeState {
 
 #[derive(Clone)]
 pub struct AccordionRuntime {
-    accordion: Accordion,
-    on_value_change: Option<AccordionValueChangeHandler>,
+    accordion: Signal<Accordion>,
+    on_value_change: CopyValue<Option<AccordionValueChangeHandler>>,
     state: AccordionRuntimeState,
 }
 
@@ -43,8 +43,23 @@ pub fn use_accordion_runtime<F>(
 where
     F: Fn(Vec<String>) + 'static,
 {
+    use_accordion_runtime_with_control(accordion, true, on_value_change)
+}
+
+pub(crate) fn use_accordion_runtime_with_control<F>(
+    accordion: Accordion,
+    controlled: bool,
+    on_value_change: Option<F>,
+) -> AccordionRuntime
+where
+    F: Fn(Vec<String>) + 'static,
+{
     let synced_value_change: Option<AccordionValueChangeHandler> =
         on_value_change.map(|f| Rc::new(f) as AccordionValueChangeHandler);
+    let mut on_value_change_slot: CopyValue<Option<AccordionValueChangeHandler>> =
+        use_hook(|| CopyValue::new(None));
+    on_value_change_slot.set(synced_value_change);
+
     let initial_active = accordion.active_values().to_vec();
     let initial_tab_stop = (!accordion.current_tab_stop().is_empty())
         .then(|| accordion.current_tab_stop().to_owned());
@@ -56,26 +71,35 @@ where
     );
 
     let state = AccordionRuntimeState {
-        active_values: use_signal(|| initial_active),
+        active_values: use_signal(|| initial_active.clone()),
         roving,
         mounted_content_ids: use_signal(Vec::new),
     };
 
-    let effect_state = state.clone();
+    let mut accordion_sig = use_signal(|| accordion.clone());
+    sync_signal(&mut accordion_sig, accordion.clone());
 
-    use_effect(use_reactive((&accordion,), move |(accordion,)| {
-        let mut active = effect_state.active_values;
-        sync_signal(&mut active, accordion.active_values().to_vec());
-        let desired_stop = (!accordion.current_tab_stop().is_empty())
-            .then(|| accordion.current_tab_stop().to_owned());
-        if desired_stop.is_some() {
-            effect_state.roving.set_current_tab_stop(desired_stop);
+    let mut prev_incoming_values = use_hook(|| CopyValue::new(initial_active));
+    if controlled {
+        let incoming_values = accordion.active_values().to_vec();
+        if prev_incoming_values
+            .try_read()
+            .is_ok_and(|prev| *prev != incoming_values)
+        {
+            prev_incoming_values.set(incoming_values.clone());
+            let mut active = state.active_values;
+            sync_signal(&mut active, incoming_values);
+            let desired_stop = (!accordion.current_tab_stop().is_empty())
+                .then(|| accordion.current_tab_stop().to_owned());
+            if desired_stop.is_some() {
+                state.roving.set_current_tab_stop(desired_stop);
+            }
         }
-    }));
+    }
 
     AccordionRuntime {
-        accordion,
-        on_value_change: synced_value_change,
+        accordion: accordion_sig,
+        on_value_change: on_value_change_slot,
         state,
     }
 }
@@ -88,9 +112,22 @@ impl AccordionRuntime {
     pub fn accordion(&self) -> Accordion {
         let active = self.state.active_values.read().clone();
         self.accordion
+            .read()
             .clone()
             .with_values(active)
             .with_tab_stop(self.current_tab_stop())
+    }
+
+    pub fn is_disabled(&self) -> bool {
+        self.accordion.read().is_disabled()
+    }
+
+    pub(crate) fn is_disabled_peek(&self) -> bool {
+        self.accordion.peek().is_disabled()
+    }
+
+    pub(crate) fn orientation_peek(&self) -> AccordionOrientation {
+        self.accordion.peek().orientation()
     }
 
     pub fn active_values(&self) -> Vec<String> {
@@ -102,7 +139,7 @@ impl AccordionRuntime {
     }
 
     pub fn resolve_tab_stop(&self) -> Option<String> {
-        if self.accordion.is_disabled() {
+        if self.accordion.read().is_disabled() {
             return None;
         }
         let active = self.state.active_values.read();
@@ -146,7 +183,8 @@ impl AccordionRuntime {
     }
 
     pub fn trigger(&self, value: &str, disabled: bool) -> AccordionTriggerAttributes {
-        let mut attrs = self.accordion().trigger(value, disabled);
+        let accordion = self.accordion();
+        let mut attrs = accordion.trigger(value, disabled);
         let is_open = self.is_open(value);
         let is_mounted = self
             .state
@@ -155,11 +193,19 @@ impl AccordionRuntime {
             .iter()
             .any(|v| v == value);
         attrs.aria_controls = (is_open || is_mounted)
-            .then(|| self.accordion.relationships().content_id(value));
+            .then(|| accordion.relationships().content_id(value));
         attrs
     }
 
     pub fn register_content_mounted(&self, value: &str) {
+        if self
+            .state
+            .mounted_content_ids
+            .try_peek()
+            .is_ok_and(|list| list.iter().any(|v| v == value))
+        {
+            return;
+        }
         let mut mounted_sig = self.state.mounted_content_ids;
         if let Ok(mut list) = mounted_sig.try_write()
             && !list.iter().any(|v| v == value)
@@ -169,6 +215,14 @@ impl AccordionRuntime {
     }
 
     pub fn unregister_content_mounted(&self, value: &str) {
+        if !self
+            .state
+            .mounted_content_ids
+            .try_peek()
+            .is_ok_and(|list| list.iter().any(|v| v == value))
+        {
+            return;
+        }
         let mut mounted_sig = self.state.mounted_content_ids;
         if let Ok(mut list) = mounted_sig.try_write() {
             list.retain(|v| v != value);
@@ -179,8 +233,20 @@ impl AccordionRuntime {
         self.accordion().content(value)
     }
 
+    pub fn content_with_disabled(&self, value: &str, disabled: bool) -> AccordionContentAttributes {
+        self.accordion().content_with_disabled(value, disabled)
+    }
+
     pub fn toggle_item(&self, value: &str) {
-        let mut updated = self.accordion();
+        if self.accordion.peek().is_disabled() {
+            return;
+        }
+        let mut updated = self
+            .accordion
+            .peek()
+            .clone()
+            .with_values(self.state.active_values.peek().clone())
+            .with_tab_stop(self.current_tab_stop());
         if updated.toggle_item(value) {
             let new_values = updated.active_values().to_vec();
             let mut active = self.state.active_values;
@@ -188,7 +254,12 @@ impl AccordionRuntime {
             self.state
                 .roving
                 .set_current_tab_stop(Some(value.to_string()));
-            if let Some(ref callback) = self.on_value_change {
+            let callback = self
+                .on_value_change
+                .try_read()
+                .ok()
+                .and_then(|slot| slot.as_ref().cloned());
+            if let Some(callback) = callback {
                 callback(new_values);
             }
         }
@@ -198,7 +269,7 @@ impl AccordionRuntime {
         self.state
             .roving
             .item_dom_id(value)
-            .unwrap_or_else(|| self.accordion.relationships().trigger_id(value))
+            .unwrap_or_else(|| self.accordion.read().relationships().trigger_id(value))
     }
 
     pub fn register_trigger_id(&self, value: &str, id: &str) {
@@ -212,7 +283,7 @@ impl AccordionRuntime {
         let focusable = existing
             .as_ref()
             .map(|m| m.focusable)
-            .unwrap_or(!self.accordion.is_disabled());
+            .unwrap_or(!self.accordion.peek().is_disabled());
         let active = self.state.active_values.peek().iter().any(|v| v == value);
         self.state
             .roving
@@ -227,6 +298,7 @@ impl AccordionRuntime {
     }
 
     pub fn register_item(&self, value: &str, disabled: bool) {
+        let acc = self.accordion.peek();
         let dom_id = self
             .state
             .roving
@@ -235,8 +307,9 @@ impl AccordionRuntime {
             .get(&value.to_string())
             .map(|m| m.dom_id.clone())
             .filter(|id| !id.is_empty())
-            .unwrap_or_else(|| self.accordion.relationships().trigger_id(value));
-        let focusable = !(self.accordion.is_disabled() || disabled);
+            .unwrap_or_else(|| acc.relationships().trigger_id(value));
+        let focusable = !(acc.is_disabled() || disabled);
+        drop(acc);
         let active = self.state.active_values.peek().iter().any(|v| v == value);
         self.state
             .roving
@@ -253,7 +326,7 @@ impl AccordionRuntime {
     }
 
     pub fn navigate_key(&self, key: &str) -> Option<String> {
-        if self.accordion.is_disabled() {
+        if self.accordion.peek().is_disabled() {
             return None;
         }
         let current = self.current_tab_stop();

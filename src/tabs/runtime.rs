@@ -9,7 +9,7 @@ pub use crate::foundation::state::{ControllableStateProps, use_controllable_stat
 
 use crate::foundation::{
     browser::focus_element_by_id,
-    roving_focus::{RovingFocusRuntime, RovingItemMeta, RovingModifiers, use_roving_focus_group},
+    roving_focus::{RovingFocusRuntime, RovingItemMeta, RovingModifiers},
     state::sync_signal,
 };
 
@@ -29,8 +29,8 @@ pub struct TabsRuntimeState {
 
 #[derive(Clone)]
 pub struct TabsRuntime {
-    tabs: Tabs,
-    on_value_change: Option<TabsValueChangeHandler>,
+    tabs: Signal<Tabs>,
+    on_value_change: CopyValue<Option<TabsValueChangeHandler>>,
     state: TabsRuntimeState,
 }
 
@@ -40,36 +40,50 @@ where
 {
     let synced_value_change: Option<TabsValueChangeHandler> =
         on_value_change.map(|f| Rc::new(f) as TabsValueChangeHandler);
-    let initial_active = tabs.active_value().to_owned();
-    let initial_tab_stop = (!tabs.current_tab_stop().is_empty())
+    let mut on_value_change_slot: CopyValue<Option<TabsValueChangeHandler>> =
+        use_hook(|| CopyValue::new(None));
+    on_value_change_slot.set(synced_value_change);
+
+    let incoming_active = tabs.active_value().to_owned();
+    let incoming_tab_stop = (!tabs.current_tab_stop().is_empty())
         .then(|| tabs.current_tab_stop().to_owned());
 
-    let roving = use_roving_focus_group(
-        tabs.roving_config(),
-        initial_tab_stop,
+    let roving_cfg = tabs.roving_config();
+    let roving = RovingFocusRuntime::new(
+        roving_cfg,
+        incoming_tab_stop.clone(),
         tabs.relationships().root_id(),
     );
+    roving.set_orientation(roving_cfg.orientation);
+    roving.set_direction(roving_cfg.dir);
+    roving.set_root_dom_id(tabs.relationships().root_id());
 
     let state = TabsRuntimeState {
-        active_value: use_signal(|| initial_active),
+        active_value: use_signal(|| incoming_active.clone()),
         roving,
         content_ids: use_signal(Vec::new),
         mounted_content_ids: use_signal(Vec::new),
     };
 
-    let effect_state = state.clone();
+    let mut tabs_sig = use_signal(|| tabs.clone());
+    sync_signal(&mut tabs_sig, tabs);
 
-    use_effect(use_reactive((&tabs,), move |(tabs,)| {
-        let mut active = effect_state.active_value;
-        sync_signal(&mut active, tabs.active_value().to_owned());
-        let desired_stop = (!tabs.current_tab_stop().is_empty())
-            .then(|| tabs.current_tab_stop().to_owned());
-        effect_state.roving.set_current_tab_stop(desired_stop);
-    }));
+    let mut prev_incoming_active = use_hook(|| CopyValue::new(incoming_active.clone()));
+    if prev_incoming_active
+        .try_read()
+        .is_ok_and(|prev| *prev != incoming_active)
+    {
+        prev_incoming_active.set(incoming_active.clone());
+        let mut active = state.active_value;
+        sync_signal(&mut active, incoming_active);
+        if incoming_tab_stop.is_some() {
+            state.roving.set_current_tab_stop(incoming_tab_stop);
+        }
+    }
 
     TabsRuntime {
-        tabs,
-        on_value_change: synced_value_change,
+        tabs: tabs_sig,
+        on_value_change: on_value_change_slot,
         state,
     }
 }
@@ -80,7 +94,7 @@ impl TabsRuntime {
     }
 
     pub fn tabs(&self) -> Tabs {
-        let mut updated = self.tabs.clone();
+        let mut updated = self.tabs.read().clone();
         updated.select_tab(self.state.active_value.read().clone());
         updated.set_tab_stop(self.current_tab_stop());
         let loop_focus = self.state.roving.config.read().loop_focus;
@@ -96,7 +110,7 @@ impl TabsRuntime {
     }
 
     pub fn resolve_tab_stop(&self) -> Option<String> {
-        if self.tabs.is_disabled() {
+        if self.tabs.read().is_disabled() {
             return None;
         }
         let active = self.state.active_value.read().clone();
@@ -143,7 +157,7 @@ impl TabsRuntime {
             .read()
             .contains(&value.to_string());
         if is_active || is_mounted {
-            attrs.aria_controls = Some(self.tabs.relationships().content_id(value));
+            attrs.aria_controls = Some(self.content_element_id(value));
         } else {
             attrs.aria_controls = None;
         }
@@ -151,6 +165,14 @@ impl TabsRuntime {
     }
 
     pub fn register_content_mounted(&self, value: &str) {
+        if self
+            .state
+            .mounted_content_ids
+            .try_peek()
+            .is_ok_and(|list| list.iter().any(|v| v == value))
+        {
+            return;
+        }
         let mut mounted_sig = self.state.mounted_content_ids;
         if let Ok(mut list) = mounted_sig.try_write()
             && !list.iter().any(|v| v == value)
@@ -160,6 +182,14 @@ impl TabsRuntime {
     }
 
     pub fn unregister_content_mounted(&self, value: &str) {
+        if !self
+            .state
+            .mounted_content_ids
+            .try_peek()
+            .is_ok_and(|list| list.iter().any(|v| v == value))
+        {
+            return;
+        }
         let mut mounted_sig = self.state.mounted_content_ids;
         if let Ok(mut list) = mounted_sig.try_write() {
             list.retain(|v| v != value);
@@ -167,6 +197,14 @@ impl TabsRuntime {
     }
 
     pub fn unregister_content_id(&self, value: &str) {
+        if !self
+            .state
+            .content_ids
+            .try_peek()
+            .is_ok_and(|list| list.iter().any(|(v, _)| v == value))
+        {
+            return;
+        }
         let mut cids_sig = self.state.content_ids;
         if let Ok(mut list) = cids_sig.try_write() {
             list.retain(|(v, _)| v != value);
@@ -178,11 +216,16 @@ impl TabsRuntime {
     }
 
     pub fn select_tab(&self, value: &str) {
-        let changed = *self.state.active_value.read() != value;
+        let changed = *self.state.active_value.peek() != value;
         if changed {
             let mut active = self.state.active_value;
             active.set(value.to_string());
-            if let Some(ref callback) = self.on_value_change {
+            let callback = self
+                .on_value_change
+                .try_read()
+                .ok()
+                .and_then(|slot| slot.as_ref().cloned());
+            if let Some(callback) = callback {
                 callback(value.to_string());
             }
         }
@@ -195,7 +238,7 @@ impl TabsRuntime {
         self.state
             .roving
             .item_dom_id(value)
-            .unwrap_or_else(|| self.tabs.relationships().trigger_id(value))
+            .unwrap_or_else(|| self.tabs.read().relationships().trigger_id(value))
     }
 
     pub fn content_element_id(&self, value: &str) -> String {
@@ -203,7 +246,7 @@ impl TabsRuntime {
         map.iter()
             .find(|(val, _)| val == value)
             .map(|(_, id)| id.clone())
-            .unwrap_or_else(|| self.tabs.relationships().content_id(value))
+            .unwrap_or_else(|| self.tabs.read().relationships().content_id(value))
     }
 
     pub fn register_trigger_id(&self, value: &str, id: &str) {
@@ -217,7 +260,7 @@ impl TabsRuntime {
         let focusable = existing
             .as_ref()
             .map(|m| m.focusable)
-            .unwrap_or(!self.tabs.is_disabled());
+            .unwrap_or(!self.tabs.peek().is_disabled());
         let active = *self.state.active_value.peek() == value;
         self.state
             .roving
@@ -225,6 +268,14 @@ impl TabsRuntime {
     }
 
     pub fn register_content_id(&self, value: &str, id: &str) {
+        if self
+            .state
+            .content_ids
+            .try_peek()
+            .is_ok_and(|ids| ids.iter().any(|(v, existing_id)| v == value && existing_id == id))
+        {
+            return;
+        }
         let mut list = self.state.content_ids;
         list.with_mut(|ids| {
             if let Some(existing) = ids.iter_mut().find(|(v, _)| v == value) {
@@ -241,12 +292,13 @@ impl TabsRuntime {
             focus_element_by_id(&target_id);
         }
 
-        if self.tabs.activation_mode().is_automatic() {
+        if self.tabs.peek().activation_mode().is_automatic() {
             self.select_tab(value);
         }
     }
 
     pub fn register_trigger(&self, value: &str, disabled: bool) {
+        let tabs = self.tabs.peek();
         let dom_id = self
             .state
             .roving
@@ -255,8 +307,9 @@ impl TabsRuntime {
             .get(&value.to_string())
             .map(|m| m.dom_id.clone())
             .filter(|id| !id.is_empty())
-            .unwrap_or_else(|| self.tabs.relationships().trigger_id(value));
-        let focusable = !(self.tabs.is_disabled() || disabled);
+            .unwrap_or_else(|| tabs.relationships().trigger_id(value));
+        let focusable = !(tabs.is_disabled() || disabled);
+        drop(tabs);
         let active = *self.state.active_value.peek() == value;
         self.state
             .roving
@@ -272,7 +325,7 @@ impl TabsRuntime {
     }
 
     pub fn navigate_key(&self, key: &str) -> Option<String> {
-        if self.tabs.is_disabled() {
+        if self.tabs.peek().is_disabled() {
             return None;
         }
         let current = self.current_tab_stop();

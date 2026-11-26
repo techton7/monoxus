@@ -40,8 +40,9 @@ pub fn SliderTrack(props: SliderTrackProps) -> Element {
     use_effect({
         let mut runtime = ctx.0.clone();
         move || {
+            let orientation = runtime.def.read().orientation;
             if let Some(size) = *track_size_sig.read() {
-                let s = match runtime.def.orientation {
+                let s = match orientation {
                     Orientation::Vertical => size.height,
                     _ => size.width,
                 };

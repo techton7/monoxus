@@ -186,3 +186,95 @@ fn avatar_root_unchanged_parent_rerender_does_not_rerender_children() {
         "FM-COL-1: unchanged AvatarRoot parent re-renders must not invalidate context signals or re-render children"
     );
 }
+
+#[cfg(feature = "native")]
+#[test]
+fn test_native_avatar_fallback_delay_does_not_restart_on_status_transition() {
+    use crate::common::native_fixture::*;
+
+    #[component]
+    fn AvatarDelayTransitionScenario() -> Element {
+        let mut status = use_signal(|| AvatarImageLoadingStatus::Idle);
+        rsx! {
+            div {
+                button {
+                    id: "ava-set-loading",
+                    r#type: "button",
+                    onclick: move |_| status.set(AvatarImageLoadingStatus::Loading),
+                    "Loading"
+                }
+                button {
+                    id: "ava-set-error",
+                    r#type: "button",
+                    onclick: move |_| status.set(AvatarImageLoadingStatus::Error),
+                    "Error"
+                }
+                button {
+                    id: "ava-set-loaded",
+                    r#type: "button",
+                    onclick: move |_| status.set(AvatarImageLoadingStatus::Loaded),
+                    "Loaded"
+                }
+                AvatarRoot {
+                    id: "ava-delay-root",
+                    loading_status: status(),
+                    AvatarFallback {
+                        id: "ava-delay-fallback",
+                        delay_ms: 40,
+                        "AB"
+                    }
+                }
+            }
+        }
+    }
+
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(AvatarDelayTransitionScenario);
+
+    // Initially hidden before 40ms delay elapses
+    assert!(
+        harness.query("#ava-delay-fallback").is_none(),
+        "FM-W2-AVA: AvatarFallback(delay_ms: 40) must stay hidden before delay elapses"
+    );
+
+    // Wait past 40ms delay -> fallback becomes visible in Idle state
+    std::thread::sleep(Duration::from_millis(80));
+    advance_frame_and_pump(&mut harness, 0.05);
+    assert!(
+        harness.query("#ava-delay-fallback").is_some(),
+        "FM-W2-AVA: AvatarFallback must appear once delay_ms elapses"
+    );
+    assert_eq!(
+        harness.attr("#ava-delay-fallback", "data-status").as_deref(),
+        Some("idle")
+    );
+
+    // Transition Idle -> Loading: must stay immediately visible (no timer restart / flash)
+    click_and_pump(&mut harness, "#ava-set-loading");
+    assert!(
+        harness.query("#ava-delay-fallback").is_some(),
+        "FM-W2-AVA: Idle -> Loading after delay must not restart timer or hide fallback"
+    );
+    assert_eq!(
+        harness.attr("#ava-delay-fallback", "data-status").as_deref(),
+        Some("loading")
+    );
+
+    // Transition Loading -> Error: must stay immediately visible (no timer restart / flash)
+    click_and_pump(&mut harness, "#ava-set-error");
+    assert!(
+        harness.query("#ava-delay-fallback").is_some(),
+        "FM-W2-AVA: Loading -> Error after delay must not restart timer or hide fallback"
+    );
+    assert_eq!(
+        harness.attr("#ava-delay-fallback", "data-status").as_deref(),
+        Some("error")
+    );
+
+    // Transition Error -> Loaded: fallback hides
+    click_and_pump(&mut harness, "#ava-set-loaded");
+    assert!(
+        harness.query("#ava-delay-fallback").is_none(),
+        "FM-W2-AVA: AvatarFallback must hide when status becomes Loaded"
+    );
+}

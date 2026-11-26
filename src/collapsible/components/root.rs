@@ -63,7 +63,7 @@ pub fn CollapsibleRoot(props: CollapsibleRootProps) -> Element {
 
     let runtime = use_collapsible_runtime(collapsible, Some(change_handler));
     let mut runtime_sig = use_signal(|| runtime.clone());
-    runtime_sig.set(runtime.clone());
+    sync_signal(&mut runtime_sig, runtime.clone());
 
     let content_id = use_signal(|| None);
     let content_mounted = use_signal(|| false);

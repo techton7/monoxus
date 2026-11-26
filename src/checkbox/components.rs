@@ -166,7 +166,9 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
                 handler.call(evt.clone());
             }
             if evt.default_action_enabled() && !disabled && !read_only {
-                if let Some(ref g) = group_ctx {
+                if is_in_group
+                    && let Some(ref g) = group_ctx
+                {
                     let next = if g.is_item_checked(&item_value) {
                         CheckedState::Unchecked
                     } else {

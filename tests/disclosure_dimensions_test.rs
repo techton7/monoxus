@@ -500,3 +500,122 @@ fn test_native_collapsible_sw2b_dimensions_and_animation_lifecycle() {
         "CollapsibleContent must cleanly unmount after advancing past 350ms exit animation"
     );
 }
+
+#[cfg(feature = "native")]
+#[test]
+fn test_native_retained_disclosure_remeasures_after_closed_resize() {
+    use crate::common::native_fixture::{NATIVE_TEST_LOCK, click_and_pump, mount_native_scenario};
+
+    #[component]
+    fn RetainedDisclosureResizeScenario() -> Element {
+        let mut body_height = use_signal(|| 100_u32);
+        rsx! {
+            div {
+                style: "width: 340px;",
+                button {
+                    id: "grow-disclosure-body",
+                    style: "width: 140px; height: 28px; display: block;",
+                    onclick: move |_| body_height.set(220),
+                    "Grow Body"
+                }
+                CollapsibleRoot {
+                    id: "fm-w2-dsc-col-root".to_string(),
+                    default_open: true,
+                    CollapsibleTrigger {
+                        id: "fm-w2-dsc-col-trig".to_string(),
+                        style: "width: 140px; height: 28px; display: block;",
+                        "Toggle Collapsible"
+                    }
+                    CollapsibleContent {
+                        id: "fm-w2-dsc-col-content".to_string(),
+                        force_mount: true,
+                        style: "width: 300px; box-sizing: border-box;".to_string(),
+                        div {
+                            style: "height: {body_height}px; width: 300px;",
+                            "Retained Collapsible Body"
+                        }
+                    }
+                }
+                AccordionRoot {
+                    id: "fm-w2-dsc-acc-root".to_string(),
+                    mode: AccordionMode::Single { collapsible: true },
+                    default_value: Some("a".to_string()),
+                    AccordionItem {
+                        value: "a".to_string(),
+                        AccordionHeader {
+                            AccordionTrigger {
+                                id: "fm-w2-dsc-acc-trig".to_string(),
+                                style: "width: 140px; height: 28px; display: block;",
+                                "Toggle Accordion"
+                            }
+                        }
+                        AccordionContent {
+                            class: "fm-w2-dsc-acc-content".to_string(),
+                            force_mount: true,
+                            style: "width: 300px; box-sizing: border-box;".to_string(),
+                            div {
+                                style: "height: {body_height}px; width: 300px;",
+                                "Retained Accordion Body"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(RetainedDisclosureResizeScenario);
+
+    let initial_col_style = harness
+        .attr("#fm-w2-dsc-col-content", "style")
+        .expect("CollapsibleContent must publish initial style");
+    assert!(
+        initial_col_style.contains("--radix-collapsible-content-height: 100px"),
+        "expected initial collapsible height 100px, got: {initial_col_style}"
+    );
+    let initial_acc_style = harness
+        .attr(".fm-w2-dsc-acc-content", "style")
+        .expect("AccordionContent must publish initial style");
+    assert!(
+        initial_acc_style.contains("--radix-accordion-content-height: 100px"),
+        "expected initial accordion height 100px, got: {initial_acc_style}"
+    );
+
+    // Close both retained disclosures.
+    click_and_pump(&mut harness, "#fm-w2-dsc-col-trig");
+    click_and_pump(&mut harness, "#fm-w2-dsc-acc-trig");
+    assert_eq!(
+        harness.attr("#fm-w2-dsc-col-content", "data-state").as_deref(),
+        Some("closed")
+    );
+    assert!(harness.attr("#fm-w2-dsc-col-content", "hidden").is_some());
+    assert_eq!(
+        harness.attr(".fm-w2-dsc-acc-content", "data-state").as_deref(),
+        Some("closed")
+    );
+    assert!(harness.attr(".fm-w2-dsc-acc-content", "hidden").is_some());
+
+    // Resize inner body while both disclosures are closed.
+    click_and_pump(&mut harness, "#grow-disclosure-body");
+
+    // Re-open both disclosures and verify fresh measurement replaced stale 100px.
+    click_and_pump(&mut harness, "#fm-w2-dsc-col-trig");
+    click_and_pump(&mut harness, "#fm-w2-dsc-acc-trig");
+
+    let reopened_col_style = harness
+        .attr("#fm-w2-dsc-col-content", "style")
+        .expect("reopened CollapsibleContent must publish style");
+    assert!(
+        reopened_col_style.contains("--radix-collapsible-content-height: 220px"),
+        "FM-W2-DSC / M-8: retained CollapsibleContent(force_mount=true) must re-measure to 220px on reopen, got: {reopened_col_style}"
+    );
+
+    let reopened_acc_style = harness
+        .attr(".fm-w2-dsc-acc-content", "style")
+        .expect("reopened AccordionContent must publish style");
+    assert!(
+        reopened_acc_style.contains("--radix-accordion-content-height: 220px"),
+        "FM-W2-DSC / M-8: retained AccordionContent must re-measure to 220px on reopen, got: {reopened_acc_style}"
+    );
+}

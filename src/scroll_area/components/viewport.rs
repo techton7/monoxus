@@ -110,8 +110,8 @@ pub fn ScrollAreaViewport(props: ScrollAreaViewportProps) -> Element {
         let scroll_end_timer = Rc::clone(&scroll_end_timer);
         let idle_hide_timer = Rc::clone(&idle_hide_timer);
         let mut runtime = ctx.runtime;
-        let r#type = ctx.r#type;
-        let scroll_hide_delay = ctx.scroll_hide_delay;
+        let type_sig = ctx.r#type;
+        let scroll_hide_delay_sig = ctx.scroll_hide_delay;
 
         move |(vid, _rev)| {
             let scroll_end_timer = Rc::clone(&scroll_end_timer);
@@ -123,7 +123,10 @@ pub fn ScrollAreaViewport(props: ScrollAreaViewportProps) -> Element {
                     sync_signal(&mut runtime.viewport_metrics, Some(metrics));
                 }
 
-                if r#type == ScrollAreaType::Scroll {
+                if type_sig
+                    .try_peek()
+                    .is_ok_and(|t| *t == ScrollAreaType::Scroll)
+                {
                     let next_state = transition_scroll_state(
                         runtime.scroll_state(),
                         ScrollAreaStateEvent::Scroll,
@@ -149,6 +152,8 @@ pub fn ScrollAreaViewport(props: ScrollAreaViewportProps) -> Element {
                             let next_idle_gen = idle_timer_cell.get().wrapping_add(1);
                             idle_timer_cell.set(next_idle_gen);
                             let hide_cell = Rc::clone(&idle_timer_cell);
+                            let scroll_hide_delay =
+                                scroll_hide_delay_sig.try_peek().map(|d| *d).unwrap_or(600);
 
                             spawn(async move {
                                 futures_timer::Delay::new(std::time::Duration::from_millis(

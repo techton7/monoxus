@@ -32,10 +32,12 @@ pub fn ScrollAreaCorner(props: ScrollAreaCornerProps) -> Element {
         .clone()
         .unwrap_or_else(|| ctx.relationships.read().corner_id().to_string());
 
+    let scroll_type = ctx.scroll_type();
+    let dir = ctx.dir();
     let has_both = ctx.runtime.scrollbar_x_enabled() && ctx.runtime.scrollbar_y_enabled();
     let has_corner_val = has_both
         && has_corner(
-            ctx.r#type,
+            scroll_type,
             ctx.runtime.scrollbar_x_visible(),
             ctx.runtime.scrollbar_y_visible(),
         );
@@ -62,8 +64,8 @@ pub fn ScrollAreaCorner(props: ScrollAreaCornerProps) -> Element {
 
     let base_style = format!(
         "position: absolute; bottom: 0; width: {cw}px; height: {ch}px; right: {}; left: {};",
-        if ctx.dir == Direction::Ltr { "0" } else { "auto" },
-        if ctx.dir == Direction::Rtl { "0" } else { "auto" },
+        if dir == Direction::Ltr { "0" } else { "auto" },
+        if dir == Direction::Rtl { "0" } else { "auto" },
     );
     let combined_style = join_styles([base_style.as_str(), props.style.as_deref().unwrap_or("")]);
     let merged = merge_global_attributes(
