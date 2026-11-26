@@ -318,7 +318,7 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
                     sub_id: pl_sub.sub_id.clone(),
                     trigger_id: pl_id.clone(),
                     content_id: pl_sub.surface.current_content_id(),
-                    side: pl_sub.surface.side,
+                    side: pl_sub.surface.resolved_side(),
                     close_sub: Rc::new(move || {
                         close_ctx.request_open(false, MenuOpenFocusTarget::None);
                     }),
@@ -532,6 +532,13 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
         close_fn_sub.close_and_focus_trigger(focus_trigger, kb);
     });
 
+    let pe_parent = sub.parent_surface.clone();
+    let on_pointer_enter = EventHandler::new(move |evt: PointerEvent| {
+        let coords = evt.data().client_coordinates();
+        pe_parent.record_pointer(coords.x, coords.y);
+        pe_parent.clear_corridor();
+    });
+
     let pm_parent = sub.parent_surface.clone();
     let on_pointer_move = EventHandler::new(move |evt: PointerEvent| {
         let coords = evt.data().client_coordinates();
@@ -552,7 +559,7 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
                 sub_id: pl_sub.sub_id.clone(),
                 trigger_id: pl_sub.surface.anchor_id.read().clone(),
                 content_id: pl_content_id.clone(),
-                side: pl_sub.surface.side,
+                side: pl_sub.surface.resolved_side(),
                 close_sub: Rc::new(move || {
                     close_ctx.request_open(false, MenuOpenFocusTarget::None);
                 }),
@@ -576,6 +583,7 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
         class: props.class,
         style: props.style,
         on_key_down: props.on_key_down,
+        on_pointer_enter: Some(on_pointer_enter),
         on_pointer_move: Some(on_pointer_move),
         on_pointer_leave: Some(on_pointer_leave),
         as_child: props.as_child,
@@ -664,6 +672,7 @@ pub fn MenuSubContentStatic(props: MenuSubContentStaticProps) -> Element {
         class: props.class,
         style: props.style,
         on_key_down: props.on_key_down,
+        on_pointer_enter: None,
         on_pointer_move: None,
         on_pointer_leave: None,
         as_child: props.as_child,

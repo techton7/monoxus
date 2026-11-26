@@ -59,7 +59,7 @@ pub struct ActiveCorridorSubmenu {
     pub sub_id: String,
     pub trigger_id: String,
     pub content_id: String,
-    pub side: Signal<PlacementSide>,
+    pub side: PlacementSide,
     pub close_sub: Rc<dyn Fn()>,
 }
 
@@ -408,6 +408,12 @@ impl MenuSurfaceRuntime {
             .ok()
             .and_then(|h| *h)
             .and_then(|h| h.placement())
+    }
+
+    pub fn resolved_side(&self) -> PlacementSide {
+        self.placement()
+            .map(|p| p.side())
+            .unwrap_or_else(|| self.side.try_peek().map(|g| *g).unwrap_or(PlacementSide::Right))
     }
 
     pub fn readiness(&self) -> FloatingReadiness {
@@ -834,11 +840,41 @@ impl MenuSurfaceRuntime {
 
     pub fn start_corridor(
         &self,
-        sub: ActiveCorridorSubmenu,
+        mut sub: ActiveCorridorSubmenu,
         exit_point: Point2D,
         from_content_to_trigger: bool,
     ) {
-        let side = sub.side.try_read().map(|g| *g).unwrap_or(PlacementSide::Right);
+        let Some(trigger_rect) = get_element_client_rect(&sub.trigger_id) else {
+            return;
+        };
+        let Some(content_rect) = get_element_client_rect(&sub.content_id) else {
+            return;
+        };
+
+        if (!from_content_to_trigger && content_rect.contains_point(exit_point))
+            || (from_content_to_trigger && trigger_rect.contains_point(exit_point))
+        {
+            self.record_pointer(exit_point.x, exit_point.y);
+            self.clear_corridor();
+            return;
+        }
+
+        let trigger_center_x = trigger_rect.left() + trigger_rect.width * 0.5;
+        let content_center_x = content_rect.left() + content_rect.width * 0.5;
+        let side = if content_rect.right() <= trigger_rect.left() + 1.0 {
+            PlacementSide::Left
+        } else if content_rect.left() >= trigger_rect.right() - 1.0 {
+            PlacementSide::Right
+        } else if (content_center_x - trigger_center_x).abs() >= 1.0 {
+            if content_center_x < trigger_center_x {
+                PlacementSide::Left
+            } else {
+                PlacementSide::Right
+            }
+        } else {
+            sub.side
+        };
+        sub.side = side;
 
         // Recompute horizontal leave direction from `clientX - last_pointer_x` (`radix menu.tsx:488`).
         if let Some(delta_x) = self.grace_corridor.horizontal_leave_delta(exit_point.x)
@@ -855,13 +891,6 @@ impl MenuSurfaceRuntime {
             return;
         }
         self.grace_corridor.record_pointer(exit_point.x, exit_point.y);
-
-        let Some(trigger_rect) = get_element_client_rect(&sub.trigger_id) else {
-            return;
-        };
-        let Some(content_rect) = get_element_client_rect(&sub.content_id) else {
-            return;
-        };
 
         let (from_rect, to_rect, timeout_ms) = if from_content_to_trigger {
             (
@@ -920,9 +949,10 @@ impl MenuSurfaceRuntime {
             .ok()
             .and_then(|g| g.clone());
         self.clear_corridor();
-        if let Some(sub) = sub {
+        if let Some(ref sub) = sub {
             (sub.close_sub)();
         }
+        let mut matched_item = false;
         if let Some(pt) = pointer {
             let items = self
                 .items
@@ -933,6 +963,7 @@ impl MenuSurfaceRuntime {
                 if !item.disabled
                     && get_element_client_rect(&item.id).is_some_and(|r| r.contains_point(pt))
                 {
+                    matched_item = true;
                     self.highlight_item(Some(item.id.clone()), true, false);
                     if let Ok(triggers) = self.registered_sub_triggers.try_read()
                         && let Some((_, hover_open_fn, _)) =
@@ -942,6 +973,19 @@ impl MenuSurfaceRuntime {
                     }
                     break;
                 }
+            }
+        }
+        if !matched_item
+            && let Some(sub) = sub
+        {
+            let pointer_in_trigger = pointer.is_some_and(|pt| {
+                get_element_client_rect(&sub.trigger_id).is_some_and(|r| r.contains_point(pt))
+            });
+            if !pointer_in_trigger
+                && self.current_highlighted_id().as_deref() == Some(sub.trigger_id.as_str())
+            {
+                let focus_container = self.open.try_peek().is_ok_and(|o| *o);
+                self.highlight_item(None, focus_container, false);
             }
         }
     }

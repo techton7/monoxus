@@ -90,6 +90,7 @@ pub fn MenuContentStatic(props: MenuContentStaticProps) -> Element {
         class: props.class,
         style: props.style,
         on_key_down: props.on_key_down,
+        on_pointer_enter: None,
         on_pointer_move: None,
         on_pointer_leave: None,
         as_child: props.as_child,

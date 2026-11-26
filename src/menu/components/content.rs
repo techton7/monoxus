@@ -61,6 +61,7 @@ pub(crate) struct MenuSurfaceViewSpec {
     pub class: Option<String>,
     pub style: Option<String>,
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
+    pub on_pointer_enter: Option<EventHandler<PointerEvent>>,
     pub on_pointer_move: Option<EventHandler<PointerEvent>>,
     pub on_pointer_leave: Option<EventHandler<PointerEvent>>,
     pub as_child: bool,
@@ -196,6 +197,7 @@ pub(crate) fn render_menu_surface(spec: MenuSurfaceViewSpec) -> Element {
         kd_surface.handle_keydown(&evt, &kd_root);
     });
 
+    let on_pointer_enter = spec.on_pointer_enter;
     let on_pointer_move = spec.on_pointer_move;
     let on_pointer_leave = spec.on_pointer_leave;
 
@@ -229,6 +231,11 @@ pub(crate) fn render_menu_surface(spec: MenuSurfaceViewSpec) -> Element {
                     mount_surface.capture_content_mount(evt.data());
                 },
                 onkeydown: move |evt| on_key_down.call(evt),
+                onpointerenter: move |evt| {
+                    if let Some(cb) = on_pointer_enter.as_ref() {
+                        cb.call(evt);
+                    }
+                },
                 onpointermove: move |evt| {
                     if let Some(cb) = on_pointer_move.as_ref() {
                         cb.call(evt);
@@ -439,6 +446,7 @@ pub fn MenuContent(props: MenuContentProps) -> Element {
         class: props.class,
         style: props.style,
         on_key_down: props.on_key_down,
+        on_pointer_enter: None,
         on_pointer_move: None,
         on_pointer_leave: None,
         as_child: props.as_child,

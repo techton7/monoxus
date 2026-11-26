@@ -424,4 +424,197 @@ mod native_tests {
             "RTL SubContent must open to the left of SubTrigger: sub={sub_rect:?}, trigger={trigger_rect:?}"
         );
     }
+
+    #[component]
+    fn NativeMenubarRightEdgeFlippedSubmenuScenario() -> Element {
+        rsx! {
+            div {
+                style: "width: 100%; height: 100%; padding: 24px 120px 24px 0; box-sizing: border-box; display: flex; justify-content: flex-end; align-items: flex-start;",
+                MenubarRoot {
+                    id: "mb-flip-root",
+                    dir: Some(Direction::Ltr),
+                    style: "display: inline-flex; gap: 8px;",
+                    MenubarMenu {
+                        value: Some("file".to_string()),
+                        MenubarTrigger {
+                            id: "mb-flip-trig-file",
+                            style: "box-sizing: border-box; width: 64px; height: 28px;",
+                            "File"
+                        }
+                        MenubarPortal {
+                            MenubarContent {
+                                id: "mb-flip-content-file",
+                                style: "box-sizing: border-box; width: 160px; padding: 8px; background: white;",
+                                MenubarItem {
+                                    id: "mb-flip-file-new",
+                                    style: "box-sizing: border-box; height: 28px;",
+                                    "New Tab"
+                                }
+                                MenubarSub {
+                                    open_delay_ms: Some(0),
+                                    MenubarSubTrigger {
+                                        id: "mb-flip-file-share",
+                                        style: "box-sizing: border-box; height: 28px;",
+                                        "Share"
+                                    }
+                                    MenubarPortal {
+                                        MenubarSubContent {
+                                            id: "mb-flip-file-share-sub",
+                                            side_offset: Some(6.0),
+                                            style: "box-sizing: border-box; width: 140px; padding: 6px; background: white;",
+                                            MenubarItem {
+                                                id: "mb-flip-share-email",
+                                                style: "box-sizing: border-box; height: 28px;",
+                                                "Email"
+                                            }
+                                            MenubarItem {
+                                                id: "mb-flip-share-link",
+                                                style: "box-sizing: border-box; height: 28px;",
+                                                "Copy Link"
+                                            }
+                                        }
+                                    }
+                                }
+                                MenubarItem {
+                                    id: "mb-flip-file-print",
+                                    style: "box-sizing: border-box; height: 28px;",
+                                    "Print"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_menubar_flipped_left_submenu_corridor_and_dismiss_cleanup() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeMenubarRightEdgeFlippedSubmenuScenario);
+
+        // Open File menu and settle floating geometry
+        click_and_pump(&mut harness, "#mb-flip-trig-file");
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#mb-flip-content-file").is_some());
+
+        // Hover Share trigger so LTR submenu opens near right viewport edge and flips to data-side="left"
+        let (share_cx, share_cy) = harness.center_of("#mb-flip-file-share");
+        harness.move_mouse_to(share_cx, share_cy);
+        drain_polls_and_resolve(&mut harness);
+        advance_frame_and_pump(&mut harness, 0.02);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        assert!(harness.query("#mb-flip-file-share-sub").is_some());
+        let trigger_rect = harness.layout_rect("#mb-flip-file-share");
+        let sub_rect = harness.layout_rect("#mb-flip-file-share-sub");
+        let vp = harness.base().viewport().window_size;
+        assert_eq!(
+            harness.attr("#mb-flip-file-share-sub", "data-side").as_deref(),
+            Some("left"),
+            "LTR right-edge submenu must flip to data-side=\"left\": sub={sub_rect:?}, trigger={trigger_rect:?}, vp={vp:?}"
+        );
+        assert!(
+            sub_rect.x + sub_rect.width <= trigger_rect.x + 2.0,
+            "Flipped-left SubContent must sit left of Share trigger: sub={sub_rect:?}, trigger={trigger_rect:?}"
+        );
+        assert_eq!(
+            harness.attr("#mb-flip-file-share", "data-state").as_deref(),
+            Some("open")
+        );
+        assert_eq!(
+            harness.attr("#mb-flip-file-share", "data-highlighted").as_deref(),
+            Some("")
+        );
+
+        let gap_x = (sub_rect.x + sub_rect.width + trigger_rect.x) * 0.5;
+        let sub_cx = sub_rect.x + sub_rect.width * 0.5;
+        let sub_y = share_cy.clamp(sub_rect.y + 4.0, sub_rect.y + sub_rect.height - 4.0);
+
+        // (a) Move leftward from Share toward and into flipped-left SubContent, then stay motionless >150ms
+        harness.move_mouse_to(gap_x, share_cy);
+        drain_polls_and_resolve(&mut harness);
+        assert_eq!(
+            harness.attr("#mb-flip-file-share-sub", "data-state").as_deref(),
+            Some("open"),
+            "Moving leftward across gap toward flipped-left SubContent must keep submenu open"
+        );
+        assert_eq!(
+            harness.attr("#mb-flip-file-share", "data-state").as_deref(),
+            Some("open")
+        );
+
+        harness.move_mouse_to(sub_cx, sub_y);
+        drain_polls_and_resolve(&mut harness);
+        std::thread::sleep(std::time::Duration::from_millis(170));
+        drain_polls_and_resolve(&mut harness);
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        assert!(
+            harness.query("#mb-flip-file-share-sub").is_some(),
+            "Submenu must remain mounted after waiting >150ms motionless inside flipped-left SubContent"
+        );
+        assert_eq!(
+            harness.attr("#mb-flip-file-share-sub", "data-state").as_deref(),
+            Some("open")
+        );
+        assert_eq!(
+            harness.attr("#mb-flip-file-share", "data-state").as_deref(),
+            Some("open")
+        );
+
+        // (b) Move rightward from flipped-left SubContent back onto Share (Side::Left return corridor)
+        harness.move_mouse_to(gap_x, share_cy);
+        drain_polls_and_resolve(&mut harness);
+        assert_eq!(
+            harness.attr("#mb-flip-file-share-sub", "data-state").as_deref(),
+            Some("open"),
+            "Return corridor moving rightward from flipped-left SubContent toward Share must keep submenu open"
+        );
+
+        harness.move_mouse_to(share_cx, share_cy);
+        drain_polls_and_resolve(&mut harness);
+        std::thread::sleep(std::time::Duration::from_millis(160));
+        drain_polls_and_resolve(&mut harness);
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        assert_eq!(
+            harness.attr("#mb-flip-file-share-sub", "data-state").as_deref(),
+            Some("open"),
+            "Returning onto Share from flipped-left SubContent must keep submenu open cleanly"
+        );
+        assert_eq!(
+            harness.attr("#mb-flip-file-share", "data-state").as_deref(),
+            Some("open")
+        );
+        assert_eq!(
+            harness.attr("#mb-flip-file-share", "data-highlighted").as_deref(),
+            Some("")
+        );
+
+        // (c) Move strictly rightward away from Share into padding/empty area -> closes submenu & clears stale highlight
+        let away_x = trigger_rect.x + trigger_rect.width + 4.0;
+        harness.move_mouse_to(away_x, share_cy);
+        drain_polls_and_resolve(&mut harness);
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        assert!(
+            harness.query("#mb-flip-file-share-sub").is_none(),
+            "Moving strictly rightward away from flipped-left submenu must close SubContent"
+        );
+        assert!(
+            harness.query("#mb-flip-content-file").is_some(),
+            "Parent File menu content should remain open when only submenu dismisses"
+        );
+        assert_eq!(
+            harness.attr("#mb-flip-file-share", "data-state").as_deref(),
+            Some("closed")
+        );
+        assert_eq!(
+            harness.attr("#mb-flip-file-share", "data-highlighted"),
+            None,
+            "Closing submenu via corridor disengage into empty area/padding must clear stale data-highlighted on Share"
+        );
+    }
 }
