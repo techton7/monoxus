@@ -1,13 +1,16 @@
 #![allow(non_snake_case)]
 
 pub mod accessible_icon;
+#[path = "../../tests/fixtures/scenarios/accordion.rs"]
 pub mod accordion;
+#[path = "../../tests/fixtures/scenarios/alert_dialog.rs"]
 pub mod alert_dialog;
 pub mod aspect_ratio;
 pub mod avatar;
 pub mod button;
 pub mod calendar;
 pub mod checkbox;
+#[path = "../../tests/fixtures/scenarios/collapsible.rs"]
 pub mod collapsible;
 pub mod combobox;
 pub mod command;
@@ -16,6 +19,7 @@ pub mod date_field;
 pub mod date_picker;
 pub mod date_range_field;
 pub mod date_range_picker;
+#[path = "../../tests/fixtures/scenarios/dialog.rs"]
 pub mod dialog;
 pub mod dropdown_menu;
 pub mod form_1b;
@@ -27,6 +31,7 @@ pub mod navigation_menu;
 pub mod pages;
 pub mod pagination;
 pub mod pin_input;
+#[path = "../../tests/fixtures/scenarios/popover.rs"]
 pub mod popover;
 pub mod progress;
 pub mod radio_group;
@@ -37,26 +42,59 @@ pub mod scroll_area;
 pub mod separator;
 pub mod slider;
 pub mod switch;
+#[path = "../../tests/fixtures/scenarios/tabs.rs"]
 pub mod tabs;
 pub mod time_field;
 pub mod time_range_field;
 pub mod toggle;
 pub mod toggle_group;
 pub mod toolbar;
+#[path = "../../tests/fixtures/scenarios/tooltip.rs"]
 pub mod tooltip;
 pub mod visually_hidden;
 
+use accessible_icon::AccessibleIconPlayground;
+use aspect_ratio::AspectRatioPlayground;
+use avatar::AvatarPlayground;
+use button::ButtonPlayground;
+use calendar::CalendarPlayground;
+use checkbox::CheckboxPlayground;
+use collapsible::CollapsiblePlayground;
+use combobox::ComboboxShowcase;
+use command::CommandShowcase;
+use context_menu::ContextMenuPlayground;
+use date_field::DateFieldShowcase;
+use date_picker::DatePickerShowcase;
+use date_range_field::DateRangeFieldShowcase;
+use date_range_picker::DateRangePickerShowcase;
 use dioxus::prelude::*;
+use dropdown_menu::DropdownMenuPlayground;
+use form_1b::Form1bPlayground;
+use hover_card::HoverCardPlayground;
+use label::LabelPlayground;
+use menubar::MenubarPlayground;
+use meter::MeterPlayground;
+use navigation_menu::NavigationMenuPlayground;
 use pages::{
-    AccessibleIconPage, AccordionPage, AlertDialogPage, AspectRatioPage, AvatarPage, ButtonPage,
-    CalendarPage, CheckboxPage, CollapsiblePage, ComboboxPage, CommandPage, ContextMenuPage,
-    DateFieldPage, DatePickerPage, DateRangeFieldPage, DateRangePickerPage, DialogPage,
-    DropdownMenuPage, Form1bPage, HoverCardPage, LabelPage, MenubarPage, MeterPage,
-    NavigationMenuPage, PaginationPage, PinInputPage, PopoverPage, ProgressPage, RadioGroupPage,
-    RangeCalendarPage, RatingGroupPage, ScrollAreaPage, SelectPage, SeparatorPage, SliderPage,
-    SwitchPage, TabsPage, TimeFieldPage, TimeRangeFieldPage, ToastPage, ToggleGroupPage,
-    TogglePage, ToolbarPage, TooltipPage, VisuallyHiddenPage,
+    AccordionPage, AlertDialogPage, DialogPage, PopoverPage, SelectPage, TabsPage, ToastPage,
+    TooltipPage,
 };
+use pagination::PaginationPlayground;
+use pin_input::PinInputPlayground;
+use progress::ProgressPlayground;
+use radio_group::RadioGroupPlayground;
+use range_calendar::RangeCalendarPlayground;
+use rating_group::RatingGroupPlayground;
+use scroll_area::ScrollAreaPlayground;
+use separator::SeparatorPlayground;
+use slider::SliderPlayground;
+use switch::SwitchPlayground;
+use time_field::TimeFieldShowcase;
+use time_range_field::TimeRangeFieldShowcase;
+use toggle::TogglePlayground;
+use toggle_group::ToggleGroupPlayground;
+use toolbar::ToolbarPlayground;
+use visually_hidden::VisuallyHiddenPlayground;
 
 #[component]
 fn RootApp() -> Element {
@@ -386,7 +424,6 @@ pub fn App() -> Element {
 
     rsx! {
         document::Link { rel: "stylesheet", href: asset!("/assets/tailwind.css") }
-        style { {include_str!("../../assets/pretendard.css")} }
         style { "{SW1A_PLAYGROUND_CSS}\n{SW1B_PLAYGROUND_CSS}\n{SW2A_PLAYGROUND_CSS}\n{SW2B_PLAYGROUND_CSS}" }
         div {
             style: "min-height: 100vh; background-color: #f8fafc; display: flex; flex-direction: row; color: #0f172a; font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;",
@@ -503,44 +540,44 @@ pub fn App() -> Element {
 
                 // Active Page Rendered in Complete Isolation
                 match current_page() {
-                    ComponentPage::Button => rsx! { ButtonPage {} },
-                    ComponentPage::Separator => rsx! { SeparatorPage {} },
-                    ComponentPage::Label => rsx! { LabelPage {} },
-                    ComponentPage::Toggle => rsx! { TogglePage {} },
-                    ComponentPage::ToggleGroup => rsx! { ToggleGroupPage {} },
-                    ComponentPage::Checkbox => rsx! { CheckboxPage {} },
-                    ComponentPage::Switch => rsx! { SwitchPage {} },
-                    ComponentPage::RadioGroup => rsx! { RadioGroupPage {} },
-                    ComponentPage::Progress => rsx! { ProgressPage {} },
-                    ComponentPage::Meter => rsx! { MeterPage {} },
-                    ComponentPage::AspectRatio => rsx! { AspectRatioPage {} },
-                    ComponentPage::Avatar => rsx! { AvatarPage {} },
-                    ComponentPage::Slider => rsx! { SliderPage {} },
-                    ComponentPage::ScrollArea => rsx! { ScrollAreaPage {} },
-                    ComponentPage::HoverCard => rsx! { HoverCardPage {} },
-                    ComponentPage::Toolbar => rsx! { ToolbarPage {} },
-                    ComponentPage::DropdownMenu => rsx! { DropdownMenuPage {} },
-                    ComponentPage::ContextMenu => rsx! { ContextMenuPage {} },
-                    ComponentPage::Menubar => rsx! { MenubarPage {} },
-                    ComponentPage::NavigationMenu => rsx! { NavigationMenuPage {} },
-                    ComponentPage::Pagination => rsx! { PaginationPage {} },
-                    ComponentPage::PinInput => rsx! { PinInputPage {} },
-                    ComponentPage::Command => rsx! { CommandPage {} },
-                    ComponentPage::Combobox => rsx! { ComboboxPage {} },
-                    ComponentPage::VisuallyHidden => rsx! { VisuallyHiddenPage {} },
-                    ComponentPage::AccessibleIcon => rsx! { AccessibleIconPage {} },
-                    ComponentPage::RatingGroup => rsx! { RatingGroupPage {} },
-                    ComponentPage::Calendar => rsx! { CalendarPage {} },
-                    ComponentPage::RangeCalendar => rsx! { RangeCalendarPage {} },
-                    ComponentPage::DateField => rsx! { DateFieldPage {} },
-                    ComponentPage::TimeField => rsx! { TimeFieldPage {} },
-                    ComponentPage::DateRangeField => rsx! { DateRangeFieldPage {} },
-                    ComponentPage::TimeRangeField => rsx! { TimeRangeFieldPage {} },
-                    ComponentPage::DatePicker => rsx! { DatePickerPage {} },
-                    ComponentPage::DateRangePicker => rsx! { DateRangePickerPage {} },
-                    ComponentPage::Form1B => rsx! { Form1bPage {} },
+                    ComponentPage::Button => rsx! { ButtonPlayground {} },
+                    ComponentPage::Separator => rsx! { SeparatorPlayground {} },
+                    ComponentPage::Label => rsx! { LabelPlayground {} },
+                    ComponentPage::Toggle => rsx! { TogglePlayground {} },
+                    ComponentPage::ToggleGroup => rsx! { ToggleGroupPlayground {} },
+                    ComponentPage::Checkbox => rsx! { CheckboxPlayground {} },
+                    ComponentPage::Switch => rsx! { SwitchPlayground {} },
+                    ComponentPage::RadioGroup => rsx! { RadioGroupPlayground {} },
+                    ComponentPage::Progress => rsx! { ProgressPlayground {} },
+                    ComponentPage::Meter => rsx! { MeterPlayground {} },
+                    ComponentPage::AspectRatio => rsx! { AspectRatioPlayground {} },
+                    ComponentPage::Avatar => rsx! { AvatarPlayground {} },
+                    ComponentPage::Slider => rsx! { SliderPlayground {} },
+                    ComponentPage::ScrollArea => rsx! { ScrollAreaPlayground {} },
+                    ComponentPage::HoverCard => rsx! { HoverCardPlayground {} },
+                    ComponentPage::Toolbar => rsx! { ToolbarPlayground {} },
+                    ComponentPage::DropdownMenu => rsx! { DropdownMenuPlayground {} },
+                    ComponentPage::ContextMenu => rsx! { ContextMenuPlayground {} },
+                    ComponentPage::Menubar => rsx! { MenubarPlayground {} },
+                    ComponentPage::NavigationMenu => rsx! { NavigationMenuPlayground {} },
+                    ComponentPage::Pagination => rsx! { PaginationPlayground {} },
+                    ComponentPage::PinInput => rsx! { PinInputPlayground {} },
+                    ComponentPage::Command => rsx! { CommandShowcase {} },
+                    ComponentPage::Combobox => rsx! { ComboboxShowcase {} },
+                    ComponentPage::VisuallyHidden => rsx! { VisuallyHiddenPlayground {} },
+                    ComponentPage::AccessibleIcon => rsx! { AccessibleIconPlayground {} },
+                    ComponentPage::RatingGroup => rsx! { RatingGroupPlayground {} },
+                    ComponentPage::Calendar => rsx! { CalendarPlayground {} },
+                    ComponentPage::RangeCalendar => rsx! { RangeCalendarPlayground {} },
+                    ComponentPage::DateField => rsx! { DateFieldShowcase {} },
+                    ComponentPage::TimeField => rsx! { TimeFieldShowcase {} },
+                    ComponentPage::DateRangeField => rsx! { DateRangeFieldShowcase {} },
+                    ComponentPage::TimeRangeField => rsx! { TimeRangeFieldShowcase {} },
+                    ComponentPage::DatePicker => rsx! { DatePickerShowcase {} },
+                    ComponentPage::DateRangePicker => rsx! { DateRangePickerShowcase {} },
+                    ComponentPage::Form1B => rsx! { Form1bPlayground {} },
                     ComponentPage::Select => rsx! { SelectPage {} },
-                    ComponentPage::Collapsible => rsx! { CollapsiblePage {} },
+                    ComponentPage::Collapsible => rsx! { CollapsiblePlayground {} },
                     ComponentPage::Accordion => rsx! { AccordionPage {} },
                     ComponentPage::Tabs => rsx! { TabsPage {} },
                     ComponentPage::Dialog => rsx! { DialogPage {} },

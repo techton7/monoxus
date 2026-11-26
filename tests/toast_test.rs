@@ -957,6 +957,7 @@ fn toast_action_and_close_event_handling_contract() {
     dom.rebuild_in_place();
 }
 
+#[cfg(feature = "native")]
 #[test]
 fn measured_variable_heights_publish_front_height_and_cumulative_offsets_test() {
     let mut harness = blitz_test_harness::Harness::from_component(AutoMountViewportComponent);
@@ -1140,6 +1141,7 @@ fn same_id_resurrection_within_200ms_unmount_window_race_test() {
     });
 }
 
+#[cfg(feature = "native")]
 #[test]
 fn cancel_button_rendering_and_click_dismissal_test() {
     use std::rc::Rc;
@@ -1234,6 +1236,7 @@ fn cancel_button_rendering_and_click_dismissal_test() {
     );
 }
 
+#[cfg(feature = "native")]
 #[test]
 fn close_button_config_and_provider_reactivity_test() {
     #[component]
@@ -1332,6 +1335,7 @@ fn close_button_config_and_provider_reactivity_test() {
     );
 }
 
+#[cfg(feature = "native")]
 #[test]
 fn onanimationend_ignores_active_toast_and_evicts_only_dismissing_toast_test() {
     const ANIM_CSS: &str = r#"
@@ -1575,13 +1579,14 @@ fn concurrent_three_toast_countdown_and_pause_resume_test() {
     );
 }
 
+#[cfg(feature = "native")]
 #[test]
 fn pointer_close_and_action_keep_viewport_unfocused_collapse_on_mouseleave_and_expire_test() {
-    #[cfg(feature = "native")]
-    use crate::common::native_fixture::NATIVE_TEST_LOCK;
+    use crate::common::native_fixture::{
+        NATIVE_TEST_LOCK, advance_frame_and_pump as advance_frame, mount_native_scenario,
+    };
     use std::rc::Rc;
 
-    #[cfg(feature = "native")]
     let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
 
     const STACK_POINTER_CSS: &str = r#"
@@ -1651,26 +1656,9 @@ fn pointer_close_and_action_keep_viewport_unfocused_collapse_on_mouseleave_and_e
     }
     let _reset_guard = DocResetGuard;
 
-    let mut harness = blitz_test_harness::Harness::from_component(StackedPointerDismissScenario);
+    let mut harness = mount_native_scenario(StackedPointerDismissScenario);
     harness.set_viewport_size(800, 800);
-    let native_doc = oxidase::dom::Document::from_base(harness.doc.inner.clone());
-    native_doc.attach_engine_bridges();
-    oxidase::dom::Document::set_current(Some(native_doc.clone()));
-    harness.doc.vdom.in_scope(dioxus::core::ScopeId::ROOT, move || {
-        dioxus::prelude::provide_context(native_doc);
-    });
     harness.pump();
-
-    let advance_frame =
-        |harness: &mut blitz_test_harness::Harness<dioxus_native_dom::DioxusDocument>, dt: f64| {
-            let doc = oxidase::dom::Document::from_base(harness.doc.inner.clone());
-            oxidase::dom::Document::set_current(Some(doc.clone()));
-            doc.resolve(harness.time() + dt);
-            harness.tick(dt);
-            harness.doc.flush_animation_events();
-            oxidase::frame::tick(Duration::from_secs_f64(dt));
-            harness.pump();
-        };
 
     let action_fired = Rc::new(AtomicBool::new(false));
     let action_fired_cb = action_fired.clone();

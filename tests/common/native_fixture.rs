@@ -15,14 +15,10 @@ use keyboard_types::{Code, Key, Location, Modifiers};
 
 pub static NATIVE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Mounts a Dioxus scenario component headlessly into a Blitz document harness.
-///
-/// Attaches oxidase bridges and provides the native document context before `initial_build()`,
-/// then drains pending VirtualDom polls and resolves initial style/layout.
-pub fn mount_native_scenario(app: fn() -> Element) -> Harness<DioxusDocument> {
+fn mount_native_vdom(vdom: dioxus::prelude::VirtualDom) -> Harness<DioxusDocument> {
     let opts = blitz_test_harness::HarnessOptions::default();
     let mut doc = DioxusDocument::new(
-        dioxus::prelude::VirtualDom::new(app),
+        vdom,
         blitz_dom::DocumentConfig {
             viewport: Some(blitz_traits::shell::Viewport::new(
                 opts.width,
@@ -46,6 +42,25 @@ pub fn mount_native_scenario(app: fn() -> Element) -> Harness<DioxusDocument> {
     let mut harness = Harness::wrap(doc);
     drain_polls_and_resolve(&mut harness);
     harness
+}
+
+/// Mounts a Dioxus scenario component headlessly into a Blitz document harness.
+///
+/// Attaches oxidase bridges and provides the native document context before `initial_build()`,
+/// then drains pending VirtualDom polls and resolves initial style/layout.
+pub fn mount_native_scenario(app: fn() -> Element) -> Harness<DioxusDocument> {
+    mount_native_vdom(dioxus::prelude::VirtualDom::new(app))
+}
+
+/// Mounts a Dioxus scenario component with explicit props headlessly into a Blitz document harness.
+pub fn mount_native_scenario_with_props<P>(
+    app: fn(P) -> Element,
+    props: P,
+) -> Harness<DioxusDocument>
+where
+    P: Clone + 'static,
+{
+    mount_native_vdom(dioxus::prelude::VirtualDom::new_with_props(app, props))
 }
 
 /// Drains up to 4 pending VirtualDom poll cycles and resolves style/layout at the harness time.

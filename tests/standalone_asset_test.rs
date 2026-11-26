@@ -9,20 +9,20 @@ fn test_standalone_tailwind_asset_embedded() {
         std::env::remove_var("CARGO_MANIFEST_DIR");
     }
 
-    let asset: Asset = asset!("/assets/tailwind.css");
+    let asset: Asset = asset!("/tests/fixtures/standalone_asset.css");
     let resolved = asset.resolve();
     let resolved_str = resolved.to_string_lossy().into_owned();
 
     println!("Resolved standalone asset path: {}", resolved_str);
 
-    // Verify virtual path format: "/assets/<hash>-tailwind.css"
+    // Verify virtual path format: "/assets/<hash>-standalone_asset.css"
     assert!(
         resolved_str.starts_with("/assets/"),
         "Resolved path must start with /assets/, got: {resolved_str}"
     );
     assert!(
-        resolved_str.ends_with("-tailwind.css"),
-        "Resolved path must end with -tailwind.css, got: {resolved_str}"
+        resolved_str.ends_with("-standalone_asset.css"),
+        "Resolved path must end with -standalone_asset.css, got: {resolved_str}"
     );
 
     // Verify embedded in manganis registry

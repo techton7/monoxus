@@ -7,7 +7,7 @@ use crate::components::{
     KeyboardTable, PropsTable,
 };
 use crate::demos::demo_source;
-use crate::docs_data::{TocItem, highlight_rust_html};
+use crate::docs_data::{TocItem, highlighted_anatomy};
 use crate::routes::Route;
 
 /// Component documentation page (`/docs/components/:slug`) following Radix/Bits UI cadence.
@@ -82,7 +82,7 @@ pub fn ComponentDocPage(slug: String) -> Element {
         "https://github.com/techton7/monoxus/blob/main/{}",
         doc.source_path
     );
-    let highlighted_anatomy = highlight_rust_html(doc.anatomy);
+    let highlighted_anatomy = highlighted_anatomy(doc.slug);
 
     rsx! {
         document::Title { "{doc.title} — Monoxus" }

@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use pulldown_cmark::{CodeBlockKind, CowStr, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 #[allow(dead_code)]
-#[path = "src/api_schema.rs"]
+#[path = "src/api_schema/mod.rs"]
 mod api_schema;
 
 struct TocEntry {
@@ -26,49 +26,23 @@ struct CompiledDoc {
     keywords: String,
 }
 
-struct MvpComponentMeta {
-    slug: &'static str,
-    title: &'static str,
-    description: &'static str,
-    keywords: &'static str,
-}
+const CSS_TOKENS_SNIPPET: &str = r#"/* Monoxus primitives expose semantic state via data-* attributes */
+[data-state="open"]   { /* open / active / expanded styling */ }
+[data-state="closed"] { /* closed / collapsed styling */ }
+[data-disabled]       { opacity: 0.5; pointer-events: none; }
 
-const MVP_COMPONENTS: &[MvpComponentMeta] = &[
-    MvpComponentMeta {
-        slug: "button",
-        title: "Button",
-        description: "Polymorphic headless button rendering a native <button> or <a> element with disabled link semantics.",
-        keywords: "button link anchor polymorphic disabled submit reset",
-    },
-    MvpComponentMeta {
-        slug: "dialog",
-        title: "Dialog",
-        description: "Modal and non-modal dialog overlay with focus trapping, scroll lock, escape dismissal, and ARIA relationships.",
-        keywords: "dialog modal overlay portal focus trap dismiss alertdialog",
-    },
-    MvpComponentMeta {
-        slug: "select",
-        title: "Select",
-        description: "Single and multiple selection listbox with floating positioning, typeahead search, keyboard navigation, and form input.",
-        keywords: "select dropdown listbox option combobox floating typeahead multiple",
-    },
-    MvpComponentMeta {
-        slug: "tabs",
-        title: "Tabs",
-        description: "Accessible tabbed interface with roving focus, horizontal/vertical orientation, RTL support, and automatic or manual activation.",
-        keywords: "tabs tablist tabpanel roving focus orientation activation",
-    },
-    MvpComponentMeta {
-        slug: "tooltip",
-        title: "Tooltip",
-        description: "Hover and focus-triggered floating tooltip with shared provider delay timers, collision avoidance, and arrow positioning.",
-        keywords: "tooltip provider floating hover focus delay arrow",
-    },
-];
+/* Tailwind v4 theme variables used in demos */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-dark: var(--dark);
+  --color-border-card: var(--border-card);
+}"#;
 
 fn main() {
     println!("cargo:rerun-if-changed=content");
-    println!("cargo:rerun-if-changed=src/api_schema.rs");
+    println!("cargo:rerun-if-changed=src/api_schema");
     println!("cargo:rerun-if-changed=src/demos");
     println!("cargo:rerun-if-changed=build.rs");
 
@@ -124,7 +98,7 @@ fn main() {
         });
     }
 
-    write_docs_gen(&out_dir.join("docs_gen.rs"), &docs);
+    write_docs_gen(&out_dir.join("docs_gen.rs"), &manifest_dir, &docs);
     write_public_outputs(&manifest_dir, &public_dir, &docs);
 }
 
@@ -305,7 +279,10 @@ fn compile_markdown(body: &str, title: &str, description: &str) -> (String, Vec<
     (html_out, toc, keywords)
 }
 
-fn write_docs_gen(out_path: &Path, docs: &[CompiledDoc]) {
+fn write_docs_gen(out_path: &Path, manifest_dir: &Path, docs: &[CompiledDoc]) {
+    let component_docs = api_schema::all_component_docs();
+    let demos_dir = manifest_dir.join("src").join("demos");
+
     let mut out = String::new();
     out.push_str("pub static ALL_MARKDOWN_DOCS: &[MarkdownDoc] = &[\n");
     for doc in docs {
@@ -344,7 +321,7 @@ fn write_docs_gen(out_path: &Path, docs: &[CompiledDoc]) {
         out.push_str(&format!("        keywords: {:?},\n", doc.keywords));
         out.push_str("    },\n");
     }
-    for comp in MVP_COMPONENTS {
+    for comp in component_docs {
         let path = format!("/docs/components/{}", comp.slug);
         out.push_str("    SearchEntry {\n");
         out.push_str(&format!("        title: {:?},\n", comp.title));
@@ -354,7 +331,49 @@ fn write_docs_gen(out_path: &Path, docs: &[CompiledDoc]) {
         out.push_str(&format!("        keywords: {:?},\n", comp.keywords));
         out.push_str("    },\n");
     }
-    out.push_str("];\n");
+    out.push_str("];\n\n");
+
+    out.push_str("pub static SIDEBAR_COMPONENT_ITEMS: &[NavItem] = &[\n");
+    for comp in component_docs {
+        let path = format!("/docs/components/{}", comp.slug);
+        out.push_str("    NavItem {\n");
+        out.push_str(&format!("        title: {:?},\n", comp.title));
+        out.push_str(&format!("        path: {:?},\n", path));
+        out.push_str("        badge: None,\n");
+        out.push_str("    },\n");
+    }
+    out.push_str("];\n\n");
+
+    out.push_str(&format!(
+        "pub const CSS_TOKENS_SNIPPET: &str = {:?};\n",
+        CSS_TOKENS_SNIPPET
+    ));
+    out.push_str(&format!(
+        "pub const HIGHLIGHTED_CSS_TOKENS: &str = {:?};\n\n",
+        highlight_css(CSS_TOKENS_SNIPPET)
+    ));
+
+    out.push_str("pub fn highlighted_anatomy(slug: &str) -> &'static str {\n");
+    out.push_str("    match slug {\n");
+    for comp in component_docs {
+        let highlighted = highlight_rust(comp.anatomy);
+        out.push_str(&format!("        {:?} => {:?},\n", comp.slug, highlighted));
+    }
+    out.push_str("        _ => \"\",\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+
+    out.push_str("pub fn highlighted_demo(slug: &str) -> &'static str {\n");
+    out.push_str("    match slug {\n");
+    for comp in component_docs {
+        let demo_path = demos_dir.join(format!("{}_demo.rs", comp.slug));
+        let demo_src = fs::read_to_string(&demo_path).unwrap_or_default();
+        let highlighted = highlight_rust(&demo_src);
+        out.push_str(&format!("        {:?} => {:?},\n", comp.slug, highlighted));
+    }
+    out.push_str("        _ => \"\",\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
 
     fs::write(out_path, out).expect("write docs_gen.rs");
 }
@@ -401,7 +420,7 @@ fn write_public_outputs(manifest_dir: &Path, public_dir: &Path, docs: &[Compiled
     }
 
     llms.push_str("\n## Components\n\n");
-    for comp in MVP_COMPONENTS {
+    for comp in api_schema::all_component_docs() {
         llms.push_str(&format!(
             "- [{}](/docs/components/{}.md): {}\n",
             comp.title, comp.slug, comp.description
@@ -434,7 +453,7 @@ fn write_public_outputs(manifest_dir: &Path, public_dir: &Path, docs: &[Compiled
             json_escape(&doc.keywords),
         ));
     }
-    for comp in MVP_COMPONENTS {
+    for comp in api_schema::all_component_docs() {
         if !first {
             json.push_str(",\n");
         }

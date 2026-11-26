@@ -142,14 +142,6 @@ impl RovingFocusRuntime {
         }
     }
 
-    pub fn set_enabled(&self, enabled: bool) {
-        let mut sig = self.config;
-        let current = *sig.peek();
-        if current.enabled != enabled {
-            sig.set(current.with_enabled(enabled));
-        }
-    }
-
     pub fn set_root_dom_id(&self, root_dom_id: impl Into<String>) {
         let root_dom_id = root_dom_id.into();
         let mut sig = self.root_dom_id;

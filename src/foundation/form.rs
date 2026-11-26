@@ -1,7 +1,12 @@
 use std::cell::RefCell;
+use std::ops::Deref;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+
+pub use monoxus_core::foundation::form::{
+    HIDDEN_INPUT_VISUAL_CLAMP_STYLE, HiddenInputConfig, HiddenInputKind, should_render_hidden_input,
+};
 
 use super::browser::{
     FocusOptions, WatcherGuard, focus_element_sync_or_defer, probe_element_form_ancestor,
@@ -10,96 +15,35 @@ use super::browser::{
 
 pub use super::browser::collect_form_data;
 
-/// Out-of-flow 1x1px visual clamp style overlaid adjacent to the headless trigger.
-///
-/// Prevents Flexbox/Grid item or `gap` distortion across Web and Blitz Native Taffy layout
-/// while keeping native browser constraint validation popups anchored near the trigger.
-pub const HIDDEN_INPUT_VISUAL_CLAMP_STYLE: &str = "position: absolute; pointer-events: none; opacity: 0; margin: 0; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; padding: 0; transform: translateX(-100%);";
-
-/// HTML `<input type="...">` variants supported by the shared hidden form helper.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum HiddenInputKind {
-    #[default]
-    Checkbox,
-    Radio,
-    Hidden,
-    Text,
-}
-
-impl HiddenInputKind {
-    /// Returns the standard lowercase HTML `type` attribute token.
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Checkbox => "checkbox",
-            Self::Radio => "radio",
-            Self::Hidden => "hidden",
-            Self::Text => "text",
-        }
-    }
-
-    /// Returns `true` when the input type participates in HTML `checked` state (`checkbox` or `radio`).
-    pub const fn uses_checked_state(&self) -> bool {
-        matches!(self, Self::Checkbox | Self::Radio)
-    }
-}
-
-/// Pure attribute publisher for [`HiddenFormInput`].
+/// Attribute publisher for [`HiddenFormInput`], wrapping `monoxus_core::foundation::form::HiddenInputAttributes`
+/// while preserving `from_props(&HiddenFormInputProps)` for existing callers.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HiddenInputAttributes {
-    pub id: Option<String>,
-    pub r#type: &'static str,
-    pub name: Option<String>,
-    pub value: String,
-    pub checked: Option<bool>,
-    pub disabled: bool,
-    pub required: bool,
-    pub read_only: bool,
-    pub form: Option<String>,
-    pub autocomplete: Option<String>,
-    pub aria_hidden: &'static str,
-    pub tabindex: i32,
-    pub style: &'static str,
+pub struct HiddenInputAttributes(pub monoxus_core::foundation::form::HiddenInputAttributes);
+
+impl Deref for HiddenInputAttributes {
+    type Target = monoxus_core::foundation::form::HiddenInputAttributes;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<monoxus_core::foundation::form::HiddenInputAttributes> for HiddenInputAttributes {
+    fn from(inner: monoxus_core::foundation::form::HiddenInputAttributes) -> Self {
+        Self(inner)
+    }
 }
 
 impl HiddenInputAttributes {
+    /// Derives normalized HTML attributes from [`HiddenInputConfig`].
+    pub fn from_config(config: &HiddenInputConfig) -> Self {
+        Self(monoxus_core::foundation::form::HiddenInputAttributes::from_config(config))
+    }
+
     /// Derives normalized HTML attributes from [`HiddenFormInputProps`].
     pub fn from_props(props: &HiddenFormInputProps) -> Self {
-        let checked = if props.kind.uses_checked_state() {
-            Some(props.checked.unwrap_or(false))
-        } else {
-            None
-        };
-        Self {
-            id: props.id.clone().filter(|id| !id.is_empty()),
-            r#type: props.kind.as_str(),
-            name: props.name.clone().filter(|name| !name.is_empty()),
-            value: props.value.clone(),
-            checked,
-            disabled: props.disabled,
-            required: props.required,
-            read_only: props.read_only,
-            form: props.form.clone().filter(|form| !form.is_empty()),
-            autocomplete: props
-                .autocomplete
-                .clone()
-                .filter(|autocomplete| !autocomplete.is_empty()),
-            aria_hidden: "true",
-            tabindex: -1,
-            style: HIDDEN_INPUT_VISUAL_CLAMP_STYLE,
-        }
+        Self::from_config(&HiddenInputConfig::from(props))
     }
-}
-
-/// Pure helper determining whether a form-associated hidden input should mount immediately
-/// prior to or alongside live DOM `<form>` ancestor detection.
-pub fn should_render_hidden_input(
-    name: Option<&str>,
-    form: Option<&str>,
-    has_ancestor_form: bool,
-) -> bool {
-    name.is_some_and(|n| !n.is_empty())
-        || form.is_some_and(|f| !f.is_empty())
-        || has_ancestor_form
 }
 
 /// Props for a single visually-clamped hidden `<input>` element.
@@ -129,6 +73,23 @@ pub struct HiddenFormInputProps {
     pub focus_target_id: Option<String>,
     #[props(default = 0)]
     pub reset_epoch: u64,
+}
+
+impl From<&HiddenFormInputProps> for HiddenInputConfig {
+    fn from(props: &HiddenFormInputProps) -> Self {
+        Self {
+            id: props.id.clone(),
+            kind: props.kind,
+            name: props.name.clone(),
+            value: props.value.clone(),
+            checked: props.checked,
+            disabled: props.disabled,
+            required: props.required,
+            read_only: props.read_only,
+            form: props.form.clone(),
+            autocomplete: props.autocomplete.clone(),
+        }
+    }
 }
 
 /// Renders a single visually-clamped `<input>` sibling for native `<form>` `FormData`
@@ -191,13 +152,17 @@ pub fn HiddenFormInput(props: HiddenFormInputProps) -> Element {
 }
 
 /// Props for rendering a keyed list of hidden `<input type="hidden">` elements
-/// for multi-value controls (e.g., multi-thumb `slider` or multi-select `combobox`).
+/// for multi-value controls (e.g., multi-thumb `slider`, multi-select `select`/`combobox`).
 #[derive(Props, Clone, PartialEq)]
 pub struct HiddenFormInputsProps {
     #[props(default)]
     pub name: Option<String>,
     #[props(default)]
     pub values: Vec<String>,
+    /// When `true` and `values` is empty, renders a single empty `<input type="hidden" value="">`
+    /// placeholder matching the `bits-ui` empty-multiple `Select` contract (`B12`).
+    #[props(default = false)]
+    pub emit_empty_placeholder: bool,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default = false)]
@@ -218,7 +183,24 @@ pub struct HiddenFormInputsProps {
 #[component]
 pub fn HiddenFormInputs(props: HiddenFormInputsProps) -> Element {
     if props.values.is_empty() {
-        return rsx! {};
+        if !props.emit_empty_placeholder {
+            return rsx! {};
+        }
+        return rsx! {
+            HiddenFormInput {
+                key: "{props.reset_epoch}-empty",
+                reset_epoch: props.reset_epoch,
+                kind: HiddenInputKind::Hidden,
+                name: props.name.clone(),
+                value: String::new(),
+                disabled: props.disabled,
+                required: props.required,
+                read_only: props.read_only,
+                form: props.form.clone(),
+                autocomplete: props.autocomplete.clone(),
+                focus_target_id: props.focus_target_id.clone(),
+            }
+        };
     }
 
     rsx! {
@@ -238,6 +220,27 @@ pub fn HiddenFormInputs(props: HiddenFormInputsProps) -> Element {
             }
         }
     }
+}
+
+fn bind_form_reset_watcher(
+    watcher_ref: &Rc<RefCell<Option<WatcherGuard>>>,
+    cb_ref: &Rc<RefCell<Box<dyn FnMut()>>>,
+    mut epoch_sig: Signal<u64>,
+    element_id: &str,
+    form_id: Option<&str>,
+) {
+    if let Some(prev) = watcher_ref.borrow_mut().take() {
+        prev.stop();
+    }
+    let cb_handle = Rc::clone(cb_ref);
+    let guard = start_form_reset_monitor(element_id, form_id, move || {
+        let next_epoch = epoch_sig.peek().wrapping_add(1);
+        epoch_sig.set(next_epoch);
+        if let Ok(mut cb) = cb_handle.try_borrow_mut() {
+            cb();
+        }
+    });
+    *watcher_ref.borrow_mut() = Some(guard);
 }
 
 /// Tracks whether `control_id` participates in a `<form>` (via `name`, explicit `form`, or a live
@@ -285,32 +288,13 @@ pub fn use_form_control_sync_with_epoch(
                 return;
             }
 
-            let bind_watcher = |watcher_ref: &Rc<RefCell<Option<WatcherGuard>>>,
-                                cb_ref: &Rc<RefCell<Box<dyn FnMut()>>>,
-                                mut epoch_sig: Signal<u64>,
-                                element_id: &str,
-                                form_id: Option<&str>| {
-                if let Some(prev) = watcher_ref.borrow_mut().take() {
-                    prev.stop();
-                }
-                let cb_handle = Rc::clone(cb_ref);
-                let guard = start_form_reset_monitor(element_id, form_id, move || {
-                    let next_epoch = epoch_sig.peek().wrapping_add(1);
-                    epoch_sig.set(next_epoch);
-                    if let Ok(mut cb) = cb_handle.try_borrow_mut() {
-                        cb();
-                    }
-                });
-                *watcher_ref.borrow_mut() = Some(guard);
-            };
-
             match probe_element_form_ancestor(&cid) {
                 Some(ancestor_detected) => {
                     if *has_ancestor.peek() != ancestor_detected {
                         has_ancestor.set(ancestor_detected);
                     }
                     if explicit_form.is_some() || ancestor_detected {
-                        bind_watcher(
+                        bind_form_reset_watcher(
                             &effect_watcher,
                             &effect_cb,
                             reset_epoch,
@@ -321,7 +305,7 @@ pub fn use_form_control_sync_with_epoch(
                 }
                 None => {
                     if explicit_form.is_some() {
-                        bind_watcher(
+                        bind_form_reset_watcher(
                             &effect_watcher,
                             &effect_cb,
                             reset_epoch,
@@ -332,7 +316,7 @@ pub fn use_form_control_sync_with_epoch(
                     let task_watcher = Rc::clone(&effect_watcher);
                     let task_cb = Rc::clone(&effect_cb);
                     let mut task_has_ancestor = has_ancestor;
-                    let mut task_epoch = reset_epoch;
+                    let task_epoch = reset_epoch;
                     let task_cid = cid.clone();
                     let task_form = explicit_form.clone();
                     let task = spawn_root_task(async move {
@@ -344,22 +328,13 @@ pub fn use_form_control_sync_with_epoch(
                                     task_has_ancestor.set(ancestor_detected);
                                 }
                                 if task_form.is_some() || ancestor_detected {
-                                    if let Some(prev) = task_watcher.borrow_mut().take() {
-                                        prev.stop();
-                                    }
-                                    let cb_handle = Rc::clone(&task_cb);
-                                    let guard = start_form_reset_monitor(
+                                    bind_form_reset_watcher(
+                                        &task_watcher,
+                                        &task_cb,
+                                        task_epoch,
                                         &task_cid,
                                         task_form.as_deref(),
-                                        move || {
-                                            let next_epoch = task_epoch.peek().wrapping_add(1);
-                                            task_epoch.set(next_epoch);
-                                            if let Ok(mut cb) = cb_handle.try_borrow_mut() {
-                                                cb();
-                                            }
-                                        },
                                     );
-                                    *task_watcher.borrow_mut() = Some(guard);
                                 }
                                 break;
                             }
@@ -452,7 +427,6 @@ mod tests {
         assert_eq!(attrs.tabindex, -1);
         assert_eq!(attrs.style, HIDDEN_INPUT_VISUAL_CLAMP_STYLE);
 
-        // Indeterminate / None checked defaults to Some(false) on checkbox/radio
         let indet_props = HiddenFormInputProps {
             checked: None,
             ..cb_props

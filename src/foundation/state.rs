@@ -1,8 +1,280 @@
 use std::{marker::PhantomData, rc::Rc};
 
-use dioxus::prelude::{ReadableExt, Signal, WritableExt, use_hook, use_signal};
+use dioxus::prelude::{
+    CopyValue, EventHandler, ReadableExt, Signal, WritableExt, use_drop, use_effect, use_hook,
+    use_signal,
+};
 
 pub use monoxus_core::foundation::state::*;
+
+/// Synchronizes a [`Signal`] to `next` without subscribing to it (render-time / SSR frame-1 safe).
+///
+/// Returns `true` if the signal value changed and was updated.
+pub fn sync_signal<T: PartialEq + 'static>(sig: &mut Signal<T>, next: T) -> bool {
+    if sig.try_peek().is_ok_and(|cur| *cur != next)
+        && let Ok(mut guard) = sig.try_write()
+    {
+        *guard = next;
+        true
+    } else {
+        false
+    }
+}
+
+/// Synchronizes a [`Signal`] to `next` using a custom equality comparator `eq` without subscribing.
+///
+/// Returns `true` if `!eq(current, &next)` and the signal was updated.
+pub fn sync_signal_by<T: 'static>(
+    sig: &mut Signal<T>,
+    next: T,
+    eq: impl Fn(&T, &T) -> bool,
+) -> bool {
+    if sig.try_peek().is_ok_and(|cur| !eq(&*cur, &next))
+        && let Ok(mut guard) = sig.try_write()
+    {
+        *guard = next;
+        true
+    } else {
+        false
+    }
+}
+
+/// Synchronizes an `f64` [`Signal`] using bitwise equality (`f64::to_bits`), preventing infinite
+/// re-render loops when `f64::NAN` is passed (`NaN != NaN` under `PartialEq`).
+pub fn sync_f64_signal(sig: &mut Signal<f64>, next: f64) -> bool {
+    sync_signal_by(sig, next, |a, b| a.to_bits() == b.to_bits())
+}
+
+/// Zero-overhead `Copy` controllable state handle backed by a [`Signal`] for reactive value reads
+/// and non-reactive [`CopyValue`] slots for ownership mode and `on_change` callback updates.
+pub struct ControllableSignal<T: 'static> {
+    value: Signal<T>,
+    controlled: CopyValue<bool>,
+    on_change: CopyValue<Option<EventHandler<T>>>,
+}
+
+impl<T: 'static> Clone for ControllableSignal<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: 'static> Copy for ControllableSignal<T> {}
+
+impl<T: 'static> PartialEq for ControllableSignal<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.value == other.value
+            && self.controlled == other.controlled
+            && self.on_change == other.on_change
+    }
+}
+
+impl<T: 'static> Eq for ControllableSignal<T> {}
+
+impl<T: 'static> ControllableSignal<T> {
+    /// Returns `true` when the value is externally controlled by props.
+    pub fn is_controlled(&self) -> bool {
+        self.controlled.try_read().map(|g| *g).unwrap_or(false)
+    }
+
+    /// Returns the underlying reactive [`Signal<T>`].
+    pub fn signal(&self) -> Signal<T> {
+        self.value
+    }
+
+    /// Reads and clones the current value, subscribing the calling reactive scope.
+    pub fn get(&self) -> T
+    where
+        T: Clone,
+    {
+        self.value.read().clone()
+    }
+
+    /// Peeks and clones the current value without subscribing.
+    pub fn peek(&self) -> T
+    where
+        T: Clone,
+    {
+        self.value.peek().clone()
+    }
+
+    /// Fallibly peeks and clones the current value without subscribing (drop-safe).
+    pub fn try_peek_cloned(&self) -> Option<T>
+    where
+        T: Clone,
+    {
+        self.value.try_peek().ok().map(|g| g.clone())
+    }
+
+    /// Proposes a new value `next`.
+    ///
+    /// - Suppresses no-op updates when `*current == next`.
+    /// - In uncontrolled mode, writes `next` to the internal signal immediately before invoking
+    ///   `on_change`.
+    /// - In controlled mode, keeps the internal signal untouched (avoiding 1-frame rejected flashes)
+    ///   and invokes `on_change(next)`.
+    ///
+    /// Returns `true` if `next` differed from the current value.
+    pub fn set(&self, next: T) -> bool
+    where
+        T: Clone + PartialEq,
+    {
+        self.set_by(next, PartialEq::eq)
+    }
+
+    /// Proposes a new value `next` using a custom equality comparator `eq` (e.g. `f64::to_bits`).
+    pub fn set_by(&self, next: T, eq: impl Fn(&T, &T) -> bool) -> bool
+    where
+        T: Clone,
+    {
+        let changed = self
+            .value
+            .try_peek()
+            .is_ok_and(|cur| !eq(&*cur, &next));
+        if !changed {
+            return false;
+        }
+
+        if !self.is_controlled() {
+            let mut sig = self.value;
+            if let Ok(mut guard) = sig.try_write() {
+                *guard = next.clone();
+            }
+        }
+
+        let cb = self
+            .on_change
+            .try_read()
+            .ok()
+            .and_then(|slot| *slot);
+        if let Some(handler) = cb {
+            handler.call(next);
+        }
+
+        true
+    }
+
+    /// Computes a next value from the current value via `f` and proposes it with [`Self::set`].
+    pub fn update(&self, f: impl FnOnce(&T) -> T) -> bool
+    where
+        T: Clone + PartialEq,
+    {
+        let Ok(cur) = self.value.try_peek() else {
+            return false;
+        };
+        let next = f(&*cur);
+        drop(cur);
+        self.set(next)
+    }
+
+    /// Computes a next value from the current value via `f` and proposes it with [`Self::set_by`].
+    pub fn update_by(&self, f: impl FnOnce(&T) -> T, eq: impl Fn(&T, &T) -> bool) -> bool
+    where
+        T: Clone,
+    {
+        let Ok(cur) = self.value.try_peek() else {
+            return false;
+        };
+        let next = f(&*cur);
+        drop(cur);
+        self.set_by(next, eq)
+    }
+}
+
+/// Zero-overhead hook returning a `Copy` [`ControllableSignal<T>`] without `Rc<dyn Fn>` boxing.
+///
+/// Panics in debug builds if `controlled` switches between `Some` and `None` across renders.
+pub fn use_controllable_signal<T>(
+    controlled: Option<T>,
+    default_value: T,
+    on_change: Option<EventHandler<T>>,
+) -> ControllableSignal<T>
+where
+    T: Clone + PartialEq + 'static,
+{
+    use_controllable_signal_by(controlled, default_value, on_change, |v| v, PartialEq::eq)
+}
+
+/// Like [`use_controllable_signal`], applying `sanitize` to the initial default and every
+/// incoming controlled prop update.
+pub fn use_controllable_signal_with<T>(
+    controlled: Option<T>,
+    default_value: T,
+    on_change: Option<EventHandler<T>>,
+    sanitize: impl Fn(T) -> T,
+) -> ControllableSignal<T>
+where
+    T: Clone + PartialEq + 'static,
+{
+    use_controllable_signal_by(controlled, default_value, on_change, sanitize, PartialEq::eq)
+}
+
+/// Like [`use_controllable_signal_with`], using a custom equality comparator `eq` during
+/// render-time synchronization (e.g. `f64::to_bits` for floating-point controls).
+pub fn use_controllable_signal_by<T>(
+    controlled: Option<T>,
+    default_value: T,
+    on_change: Option<EventHandler<T>>,
+    sanitize: impl Fn(T) -> T,
+    eq: impl Fn(&T, &T) -> bool,
+) -> ControllableSignal<T>
+where
+    T: Clone + 'static,
+{
+    let is_controlled_now = controlled.is_some();
+    let controlled_slot = use_hook(|| CopyValue::new(is_controlled_now));
+    debug_assert_mode_stable(*controlled_slot.read(), is_controlled_now);
+
+    let sanitized_controlled = controlled.map(&sanitize);
+    let mut value = use_signal(|| {
+        sanitized_controlled
+            .clone()
+            .unwrap_or_else(|| sanitize(default_value))
+    });
+
+    if let Some(next) = sanitized_controlled {
+        sync_signal_by(&mut value, next, eq);
+    }
+
+    let mut on_change_slot = use_hook(|| CopyValue::new(on_change));
+    on_change_slot.set(on_change);
+
+    ControllableSignal {
+        value,
+        controlled: controlled_slot,
+        on_change: on_change_slot,
+    }
+}
+
+/// Runs a reactive `effect` returning a cleanup closure executed before each subsequent re-run
+/// and on component unmount (`use_drop`), matching the `DioxusLabs/dioxus-components`
+/// `CopyValue<Option<C>>` pattern with borrow-safe cleanup invocation.
+pub fn use_effect_with_cleanup<F, C>(mut effect: F)
+where
+    F: FnMut() -> C + 'static,
+    C: FnOnce() + 'static,
+{
+    let mut cleanup: CopyValue<Option<C>> = use_hook(|| CopyValue::new(None));
+
+    use_drop(move || {
+        let mut cleanup = cleanup;
+        let prev = cleanup.try_write().ok().and_then(|mut slot| slot.take());
+        if let Some(cb) = prev {
+            cb();
+        }
+    });
+
+    use_effect(move || {
+        let prev = cleanup.try_write().ok().and_then(|mut slot| slot.take());
+        if let Some(cb) = prev {
+            cb();
+        }
+        let next_cleanup = effect();
+        if let Ok(mut slot) = cleanup.try_write() {
+            *slot = Some(next_cleanup);
+        }
+    });
+}
 
 #[derive(Clone)]
 pub struct ControllableStateProps<T, F = fn(T)> {
@@ -220,4 +492,147 @@ where
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+
+    use dioxus::prelude::*;
+
+    use super::{
+        ControllableSignal, sync_f64_signal, sync_signal, use_controllable_signal,
+        use_controllable_signal_with, use_effect_with_cleanup,
+    };
+
+    #[component]
+    fn SyncAndControllableHarness(
+        controlled_val: Signal<i32>,
+        out_uncontrolled: Rc<RefCell<Option<ControllableSignal<String>>>>,
+        out_controlled: Rc<RefCell<Option<ControllableSignal<i32>>>>,
+        published: Rc<RefCell<Vec<i32>>>,
+        nan_sync_changes: Rc<Cell<usize>>,
+        cleanup_runs: Rc<Cell<usize>>,
+        mount_child: Signal<bool>,
+    ) -> Element {
+        let mut f64_sig = use_signal(|| f64::NAN);
+        if sync_f64_signal(&mut f64_sig, f64::NAN) {
+            nan_sync_changes.set(nan_sync_changes.get() + 1);
+        }
+
+        let mut int_sig = use_signal(|| 1_i32);
+        assert!(!sync_signal(&mut int_sig, 1));
+        assert!(sync_signal(&mut int_sig, 2));
+        assert!(!sync_signal(&mut int_sig, 2));
+
+        let unc = use_controllable_signal(None, String::from("init"), None);
+        *out_uncontrolled.borrow_mut() = Some(unc);
+
+        let pub_clone = Rc::clone(&published);
+        let ctl = use_controllable_signal_with(
+            Some(controlled_val()),
+            0,
+            Some(EventHandler::new(move |next| {
+                pub_clone.borrow_mut().push(next);
+            })),
+            |v| v.clamp(0, 100),
+        );
+        *out_controlled.borrow_mut() = Some(ctl);
+
+        rsx! {
+            if mount_child() {
+                CleanupChild { cleanup_runs: Rc::clone(&cleanup_runs) }
+            }
+        }
+    }
+
+    #[component]
+    fn CleanupChild(cleanup_runs: Rc<Cell<usize>>) -> Element {
+        let runs = Rc::clone(&cleanup_runs);
+        use_effect_with_cleanup(move || {
+            let r = Rc::clone(&runs);
+            move || {
+                r.set(r.get() + 1);
+            }
+        });
+        rsx! { div {} }
+    }
+
+    #[test]
+    fn controllable_signal_handles_uncontrolled_controlled_rejection_nan_sync_and_cleanup() {
+        let out_unc = Rc::new(RefCell::new(None));
+        let out_ctl = Rc::new(RefCell::new(None));
+        let published = Rc::new(RefCell::new(Vec::new()));
+        let nan_changes = Rc::new(Cell::new(0));
+        let cleanup_runs = Rc::new(Cell::new(0));
+        let ctl_sig_holder: Rc<RefCell<Option<Signal<i32>>>> = Rc::new(RefCell::new(None));
+        let mount_sig_holder: Rc<RefCell<Option<Signal<bool>>>> = Rc::new(RefCell::new(None));
+
+        #[component]
+        fn Wrapper(
+            out_unc: Rc<RefCell<Option<ControllableSignal<String>>>>,
+            out_ctl: Rc<RefCell<Option<ControllableSignal<i32>>>>,
+            published: Rc<RefCell<Vec<i32>>>,
+            nan_changes: Rc<Cell<usize>>,
+            cleanup_runs: Rc<Cell<usize>>,
+            ctl_sig_holder: Rc<RefCell<Option<Signal<i32>>>>,
+            mount_sig_holder: Rc<RefCell<Option<Signal<bool>>>>,
+        ) -> Element {
+            let ctl_sig = use_signal(|| 10_i32);
+            let mount_sig = use_signal(|| true);
+            *ctl_sig_holder.borrow_mut() = Some(ctl_sig);
+            *mount_sig_holder.borrow_mut() = Some(mount_sig);
+            rsx! {
+                SyncAndControllableHarness {
+                    controlled_val: ctl_sig,
+                    out_uncontrolled: out_unc,
+                    out_controlled: out_ctl,
+                    published,
+                    nan_sync_changes: nan_changes,
+                    cleanup_runs,
+                    mount_child: mount_sig,
+                }
+            }
+        }
+
+        let mut dom = VirtualDom::new_with_props(
+            Wrapper,
+            WrapperProps {
+                out_unc: Rc::clone(&out_unc),
+                out_ctl: Rc::clone(&out_ctl),
+                published: Rc::clone(&published),
+                nan_changes: Rc::clone(&nan_changes),
+                cleanup_runs: Rc::clone(&cleanup_runs),
+                ctl_sig_holder: Rc::clone(&ctl_sig_holder),
+                mount_sig_holder: Rc::clone(&mount_sig_holder),
+            },
+        );
+        dom.rebuild_in_place();
+        dom.render_immediate(&mut dioxus::core::NoOpMutations);
+
+        assert_eq!(nan_changes.get(), 0);
+
+        // Uncontrolled updates in place and suppresses no-ops
+        let unc = out_unc.borrow().unwrap();
+        assert!(!unc.is_controlled());
+        assert_eq!(unc.peek(), "init");
+        assert!(!unc.set(String::from("init")));
+        assert!(unc.set(String::from("next")));
+        assert_eq!(unc.peek(), "next");
+
+        // Controlled rejection keeps signal at controlled prop (zero 1-frame flash)
+        let ctl = out_ctl.borrow().unwrap();
+        assert!(ctl.is_controlled());
+        assert_eq!(ctl.peek(), 10);
+        assert!(ctl.set(42));
+        assert_eq!(ctl.peek(), 10);
+        assert_eq!(*published.borrow(), vec![42]);
+
+        // Unmounting CleanupChild invokes cleanup closure once
+        let mut mount_sig = mount_sig_holder.borrow().unwrap();
+        mount_sig.set(false);
+        dom.render_immediate(&mut dioxus::core::NoOpMutations);
+        assert_eq!(cleanup_runs.get(), 1);
+    }
 }

@@ -1066,6 +1066,78 @@ pub fn normalize_hoisted_z_index(raw: Option<&str>) -> Option<String> {
     }
 }
 
+/// Serializes CSS custom property `(name, value)` pairs into a single inline style declaration string.
+pub fn serialize_css_custom_properties<K, V>(entries: &[(K, V)]) -> String
+where
+    K: AsRef<str>,
+    V: AsRef<str>,
+{
+    let mut style = String::new();
+    for (index, (name, value)) in entries.iter().enumerate() {
+        if index > 0 {
+            style.push(' ');
+        }
+        style.push_str(name.as_ref());
+        style.push_str(": ");
+        style.push_str(value.as_ref());
+        style.push(';');
+    }
+    style
+}
+
+/// Computes canonical inline CSS positioning and rotation styles for floating overlay arrows.
+///
+/// - Rotates the default upward-pointing SVG triangle to face the anchor based on `side`.
+/// - When `edge_offset` is `true` (e.g. `HoverCardArrow`), offsets single-axis arrows outward by `-height`.
+/// - When neither `x` nor `y` is resolved, applies horizontal `margin` if `arrow_padding > 0.0`.
+pub fn compute_arrow_inline_style(
+    side: PlacementSide,
+    arrow_pos: Option<(Option<f32>, Option<f32>)>,
+    width: f32,
+    height: f32,
+    arrow_padding: f32,
+    edge_offset: bool,
+) -> String {
+    let _ = width;
+    let rotate_deg = match side {
+        PlacementSide::Bottom => 0,
+        PlacementSide::Top => 180,
+        PlacementSide::Left => 90,
+        PlacementSide::Right => -90,
+    };
+
+    let edge_offset_css = if edge_offset {
+        match side {
+            PlacementSide::Bottom => format!("top: -{height}px; "),
+            PlacementSide::Top => format!("bottom: -{height}px; "),
+            PlacementSide::Left => format!("right: -{height}px; "),
+            PlacementSide::Right => format!("left: -{height}px; "),
+        }
+    } else {
+        String::new()
+    };
+
+    let (arrow_x, arrow_y) = arrow_pos.unwrap_or((None, None));
+    match (arrow_x, arrow_y) {
+        (Some(x), Some(y)) => format!(
+            "position: absolute; left: {x}px; top: {y}px; transform: rotate({rotate_deg}deg);"
+        ),
+        (Some(x), None) => format!(
+            "position: absolute; left: {x}px; {edge_offset_css}transform: rotate({rotate_deg}deg);"
+        ),
+        (None, Some(y)) => format!(
+            "position: absolute; top: {y}px; {edge_offset_css}transform: rotate({rotate_deg}deg);"
+        ),
+        (None, None) => {
+            if arrow_padding > 0.0 {
+                format!("margin: 0 {arrow_padding}px; transform: rotate({rotate_deg}deg);")
+            } else {
+                format!("transform: rotate({rotate_deg}deg);")
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1110,5 +1182,62 @@ mod tests {
 
         let measuring_50 = FloatingReadiness::wrapper_measuring_style(Some("50"));
         assert!(measuring_50.contains(" z-index: 50;"));
+    }
+
+    #[test]
+    fn serialize_css_custom_properties_formats_pairs_cleanly() {
+        assert_eq!(serialize_css_custom_properties::<&str, &str>(&[]), "");
+        assert_eq!(
+            serialize_css_custom_properties(&[
+                ("--monoxus-a", "10px"),
+                ("--monoxus-b", "20px 0px"),
+            ]),
+            "--monoxus-a: 10px; --monoxus-b: 20px 0px;"
+        );
+    }
+
+    #[test]
+    fn compute_arrow_inline_style_covers_sides_edge_offset_and_padding() {
+        assert_eq!(
+            compute_arrow_inline_style(
+                PlacementSide::Bottom,
+                Some((Some(12.0), None)),
+                10.0,
+                5.0,
+                0.0,
+                false,
+            ),
+            "position: absolute; left: 12px; transform: rotate(0deg);"
+        );
+        assert_eq!(
+            compute_arrow_inline_style(
+                PlacementSide::Top,
+                Some((Some(12.0), None)),
+                10.0,
+                5.0,
+                0.0,
+                true,
+            ),
+            "position: absolute; left: 12px; bottom: -5px; transform: rotate(180deg);"
+        );
+        assert_eq!(
+            compute_arrow_inline_style(
+                PlacementSide::Left,
+                Some((None, Some(8.0))),
+                10.0,
+                6.0,
+                0.0,
+                true,
+            ),
+            "position: absolute; top: 8px; right: -6px; transform: rotate(90deg);"
+        );
+        assert_eq!(
+            compute_arrow_inline_style(PlacementSide::Right, None, 10.0, 5.0, 4.0, false),
+            "margin: 0 4px; transform: rotate(-90deg);"
+        );
+        assert_eq!(
+            compute_arrow_inline_style(PlacementSide::Right, None, 10.0, 5.0, 0.0, false),
+            "transform: rotate(-90deg);"
+        );
     }
 }

@@ -34,7 +34,7 @@ pub fn AvatarPlayground() -> Element {
 
 #[component]
 fn ValidSourcesScenario() -> Element {
-    let png_src = asset!("/artifacts/test.png").to_string();
+    let png_src = asset!("/assets/icon.svg").to_string();
     let svg_src = asset!("/assets/icon.svg").to_string();
     let mut png_status = use_signal(|| AvatarImageLoadingStatus::Idle);
     let mut png_callbacks = use_signal(|| 0_u32);
@@ -116,7 +116,7 @@ fn ValidSourcesScenario() -> Element {
 
 #[component]
 fn SourceReplacementScenario() -> Element {
-    let png_src = asset!("/artifacts/test.png").to_string();
+    let png_src = asset!("/assets/icon.svg").to_string();
     let svg_src = asset!("/assets/icon.svg").to_string();
     let mut src = use_signal(|| Some("data:image/png;base64,invalid".to_string()));
     let mut status = use_signal(|| AvatarImageLoadingStatus::Idle);
@@ -209,7 +209,7 @@ fn SourceReplacementScenario() -> Element {
 
 #[component]
 fn DelayedFallbackScenario() -> Element {
-    let png_src = asset!("/artifacts/test.png").to_string();
+    let png_src = asset!("/assets/icon.svg").to_string();
     let mut src = use_signal(|| Some("data:image/png;base64,invalid".to_string()));
     let mut delay_ms = use_signal(|| 800_u64);
     let mut status = use_signal(|| AvatarImageLoadingStatus::Idle);
@@ -292,7 +292,7 @@ fn DelayedFallbackScenario() -> Element {
 
 #[component]
 fn UnmountScenario() -> Element {
-    let png_src = asset!("/artifacts/test.png").to_string();
+    let png_src = asset!("/assets/icon.svg").to_string();
     let mut mounted = use_signal(|| true);
     let mut src = use_signal(|| Some(png_src.clone()));
     let mut callbacks = use_signal(|| 0_u32);
@@ -405,7 +405,7 @@ fn PolicyScenario() -> Element {
 
 #[component]
 fn MultipleImagesScenario() -> Element {
-    let png_src = asset!("/artifacts/test.png").to_string();
+    let png_src = asset!("/assets/icon.svg").to_string();
     let svg_src = asset!("/assets/icon.svg").to_string();
     let mut status = use_signal(|| AvatarImageLoadingStatus::Idle);
     let mut callbacks = use_signal(|| 0_u32);

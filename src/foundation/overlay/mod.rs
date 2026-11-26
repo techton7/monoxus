@@ -1,16 +1,22 @@
+pub(crate) mod arrow;
 pub mod dismiss;
 pub mod floating;
 pub mod focus;
 pub mod grace;
 pub mod portal;
 pub mod presence;
+pub(crate) mod watcher;
 
+#[allow(unused_imports)]
+pub(crate) use self::arrow::*;
 pub use self::dismiss::*;
 pub use self::floating::*;
 pub use self::focus::*;
 pub use self::grace::*;
 pub use self::portal::*;
 pub use self::presence::*;
+#[allow(unused_imports)]
+pub(crate) use self::watcher::*;
 
 #[doc(hidden)]
 pub use crate::foundation::browser::{
@@ -49,10 +55,6 @@ pub fn is_overlay_escape_consumed() -> bool {
     OVERLAY_ESCAPE_CONSUMED.with(|flag| flag.get())
 }
 
-pub fn clear_overlay_escape_consumed() {
-    OVERLAY_ESCAPE_CONSUMED.with(|flag| flag.set(false));
-}
-
 pub fn register_active_overlay_layer(layer_id: &str) {
     if layer_id.is_empty() {
         return;
@@ -61,6 +63,19 @@ pub fn register_active_overlay_layer(layer_id: &str) {
         let mut stack = stack.borrow_mut();
         stack.retain(|existing| existing != layer_id);
         stack.push(layer_id.to_owned());
+    });
+}
+
+/// Ensures `layer_id` is registered on `ACTIVE_OVERLAY_LAYERS` without reordering if already present (`bits#2143`).
+pub fn ensure_active_overlay_layer(layer_id: &str) {
+    if layer_id.is_empty() {
+        return;
+    }
+    ACTIVE_OVERLAY_LAYERS.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        if !stack.iter().any(|existing| existing == layer_id) {
+            stack.push(layer_id.to_owned());
+        }
     });
 }
 
@@ -148,16 +163,6 @@ impl OverlayBranchContext {
         }
     }
 
-    pub fn from_callbacks(
-        register: dioxus::prelude::Callback<String>,
-        unregister: dioxus::prelude::Callback<String>,
-    ) -> Self {
-        Self::new(
-            move |id| register.call(id),
-            move |id| unregister.call(id),
-        )
-    }
-
     pub fn register_branch(&self, branch: impl Into<String>) {
         if let Ok(mut cb) = self.register.try_borrow_mut() {
             cb(branch.into());
@@ -172,13 +177,6 @@ impl OverlayBranchContext {
 }
 
 /// Shared portal teleportation & drop cleanup hook for all `*Portal` components (`PRT-1`..`PRT-7`).
-///
-/// Tracks `(latest_pid, was_teleported)` across re-renders so that:
-/// - `PortalHost::Default` teleports to `#main` (`host_id = None`),
-/// - `PortalHost::Named(name)` teleports to `#name` (`host_id = Some(name)`),
-/// - `PortalHost::Inline` or `disabled == true` never invokes teleportation,
-/// - Changing `pid` while teleported removes the stale node before teleporting the new one,
-/// - `use_drop` calls `remove_element_by_id` only when `was_teleported == true`.
 pub(crate) fn use_portal_teleport(
     pid: String,
     should_render: bool,

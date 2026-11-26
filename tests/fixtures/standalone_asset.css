@@ -1,0 +1,4 @@
+/* Minimal CSS fixture for standalone manganis-embedded test */
+:root {
+  --monoxus-standalone-fixture: 1;
+}

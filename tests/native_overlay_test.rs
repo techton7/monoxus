@@ -1527,63 +1527,37 @@ fn test_native_tooltip_grace_corridor_leave_fallback_and_transit_intent_timeout(
     let captured_runtime = GraceTestRuntime(Rc::new(RefCell::new(None)));
     let captured_for_app = captured_runtime.clone();
 
-    let mut harness = {
-        let opts = blitz_test_harness::HarnessOptions::default();
-        let mut doc = dioxus_native_dom::DioxusDocument::new(
-            VirtualDom::new_with_props(
-                move |out: GraceTestRuntime| {
-                    use monoxus::tooltip::{
-                        TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger,
-                    };
-                    rsx! {
-                        div {
-                            style: "width: 600px; height: 400px; padding: 120px;",
-                            TooltipProvider {
-                                delay_duration: 0,
-                                disable_hoverable_content: false,
-                                TooltipRoot {
-                                    id: "tt-grace-fallback",
-                                    TooltipTrigger {
-                                        id: "tt-grace-trigger",
-                                        "Hoverable Trigger"
-                                    }
-                                    TooltipPortal {
-                                        TooltipContent {
-                                            id: "tt-grace-content",
-                                            "Hoverable Tooltip"
-                                        }
-                                    }
-                                    GraceRuntimeProbe { out }
+    let mut harness = mount_native_scenario_with_props(
+        |out: GraceTestRuntime| {
+            use monoxus::tooltip::{
+                TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger,
+            };
+            rsx! {
+                div {
+                    style: "width: 600px; height: 400px; padding: 120px;",
+                    TooltipProvider {
+                        delay_duration: 0,
+                        disable_hoverable_content: false,
+                        TooltipRoot {
+                            id: "tt-grace-fallback",
+                            TooltipTrigger {
+                                id: "tt-grace-trigger",
+                                "Hoverable Trigger"
+                            }
+                            TooltipPortal {
+                                TooltipContent {
+                                    id: "tt-grace-content",
+                                    "Hoverable Tooltip"
                                 }
                             }
+                            GraceRuntimeProbe { out }
                         }
                     }
-                },
-                captured_for_app,
-            ),
-            blitz_dom::DocumentConfig {
-                viewport: Some(blitz_traits::shell::Viewport::new(
-                    opts.width,
-                    opts.height,
-                    opts.scale,
-                    opts.color_scheme,
-                )),
-                base_url: opts.base_url,
-                net_provider: opts.net_provider,
-                ..Default::default()
-            },
-        );
-        let native_doc = oxidase::dom::Document::from_base(doc.inner.clone());
-        native_doc.attach_engine_bridges();
-        oxidase::dom::Document::set_current(Some(native_doc.clone()));
-        doc.vdom.in_scope(dioxus::core::ScopeId::ROOT, move || {
-            provide_context(native_doc);
-        });
-        doc.initial_build();
-        let mut harness = blitz_test_harness::Harness::wrap(doc);
-        drain_polls_and_resolve(&mut harness);
-        harness
-    };
+                }
+            }
+        },
+        captured_for_app,
+    );
 
     let trigger_rect = harness.layout_rect("#tt-grace-trigger");
     let (tx, ty) = harness.center_of("#tt-grace-trigger");

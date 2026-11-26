@@ -310,6 +310,7 @@ fn select_conditional_item_insertion_and_removal_preserves_clean_document_order_
     });
 }
 
+#[cfg(feature = "native")]
 #[test]
 fn select_native_blitz_document_order_query_contract() {
     use blitz_dom::{BaseDocument, DocumentConfig};

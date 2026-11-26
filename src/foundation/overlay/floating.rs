@@ -1,4 +1,18 @@
+use dioxus::prelude::*;
+
 pub use monoxus_core::foundation::overlay::floating::*;
+
+use crate::foundation::{
+    browser::{
+        FloatingAutoUpdateEvent, computed_z_index_for_element, get_element_computed_z_index,
+        get_viewport_size, spawn_root_task, start_floating_auto_update_monitor,
+    },
+    compose::MountedHandle,
+    shared::Direction,
+    state::sync_signal,
+};
+
+use super::watcher::{WatcherSlot, use_watcher_slot};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum OverlayAnchor<'a> {
@@ -141,14 +155,8 @@ pub fn compute_virtual_overlay_position(
         )));
     }
 
-    let can_detect_reference_overflow = match config.anchor {
-        OverlayAnchor::Element(_) => true,
-        OverlayAnchor::VirtualPoint {
-            context_element_id, ..
-        } => context_element_id.is_some(),
-    };
-
-    if config.hide_when_detached && can_detect_reference_overflow {
+    // `oxidase-floating-ui v0.4.7` resolves `VirtualPoint` + `Hide` safely even when `context_element_id` is `None`.
+    if config.hide_when_detached {
         let mut hide_overflow = oxidase_floating_ui::detect_overflow::DetectOverflowOptions::default();
         if let Some(bid) = config.boundary_id {
             hide_overflow = hide_overflow
@@ -350,6 +358,482 @@ pub fn compute_virtual_overlay_position(
     Some(FloatingPlacement::new(side, align, geometry, arrow, reference_hidden))
 }
 
+/// Scroll reaction policy for [`use_floating_layer`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum FloatingScrollPolicy {
+    /// Reposition continuously on ancestor scroll (Popover, Select, Combobox, Menu, HoverCard).
+    #[default]
+    Reposition,
+    /// Close on scroll unless a 1-frame focus-scroll guard is armed (Tooltip `FM-OVL-7`).
+    CloseOnScrollUnlessGuarded,
+}
+
+/// Owned specification passed to [`use_floating_layer`] driving live sync, 1-frame, and async
+/// placement measurement plus z-index hoisting and auto-update monitoring.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FloatingMonitorSpec {
+    pub anchor_id: String,
+    pub virtual_anchor: Option<(f32, f32, f32, f32, Option<String>)>,
+    pub content_id: String,
+    pub measurement_id: Option<String>,
+    pub arrow_id: Option<String>,
+    pub boundary_id: Option<String>,
+    pub side: PlacementSide,
+    pub align: PlacementAlign,
+    pub direction: Direction,
+    pub side_offset: f32,
+    pub align_offset: f32,
+    pub avoid_collisions: bool,
+    pub collision_padding: f32,
+    pub arrow_padding: f32,
+    pub hide_when_detached: bool,
+    pub sticky: bool,
+    pub namespace: Option<String>,
+    pub scroll_policy: FloatingScrollPolicy,
+}
+
+impl FloatingMonitorSpec {
+    pub fn new(anchor_id: impl Into<String>, content_id: impl Into<String>) -> Self {
+        Self {
+            anchor_id: anchor_id.into(),
+            virtual_anchor: None,
+            content_id: content_id.into(),
+            measurement_id: None,
+            arrow_id: None,
+            boundary_id: None,
+            side: PlacementSide::Bottom,
+            align: PlacementAlign::Center,
+            direction: Direction::Ltr,
+            side_offset: 0.0,
+            align_offset: 0.0,
+            avoid_collisions: true,
+            collision_padding: 0.0,
+            arrow_padding: 0.0,
+            hide_when_detached: false,
+            sticky: false,
+            namespace: None,
+            scroll_policy: FloatingScrollPolicy::Reposition,
+        }
+    }
+
+    pub fn effective_measurement_id(&self) -> &str {
+        self.measurement_id
+            .as_deref()
+            .filter(|id| !id.is_empty())
+            .unwrap_or(self.content_id.as_str())
+    }
+}
+
+/// Zero-overhead `Copy` handle returned by [`use_floating_layer`] encapsulating live placement,
+/// readiness, z-index hoisting (with `computed_z_index_for_element` fallback), `arrow_id`
+/// registration (`B11`), focus-scroll guard (`FM-OVL-7`), and async `MountedHandle` fallback.
+#[derive(Clone, Copy, PartialEq)]
+pub struct FloatingHandle {
+    placement: Signal<Option<FloatingPlacement>>,
+    readiness: Signal<FloatingReadiness>,
+    content_z_index: Signal<Option<String>>,
+    anchor_handle: Signal<Option<MountedHandle>>,
+    content_handle: Signal<Option<MountedHandle>>,
+    arrow_id: Signal<Option<String>>,
+    focus_scroll_guard: CopyValue<bool>,
+    watcher: WatcherSlot,
+    spec: CopyValue<FloatingMonitorSpec>,
+    on_scroll_close: CopyValue<Option<EventHandler<()>>>,
+    alive: CopyValue<bool>,
+}
+
+impl FloatingHandle {
+    pub fn placement(&self) -> Option<FloatingPlacement> {
+        self.placement.cloned()
+    }
+
+    pub fn readiness(&self) -> FloatingReadiness {
+        *self.readiness.read()
+    }
+
+    pub fn content_z_index(&self) -> Option<String> {
+        self.content_z_index.cloned()
+    }
+
+    pub fn wrapper_style(&self) -> String {
+        let z_index = self.content_z_index.read();
+        match self.placement() {
+            Some(ref placement) => placement.wrapper_style(self.readiness(), z_index.as_deref()),
+            None => FloatingReadiness::wrapper_measuring_style(z_index.as_deref()),
+        }
+    }
+
+    /// Serializes `--monoxus-<ns>-*` variables (plus optional Radix compatibility aliases)
+    /// via `monoxus_core::foundation::overlay::floating::serialize_css_custom_properties`.
+    pub fn css_custom_properties(&self, compat_alias: Option<(&str, &str)>) -> String {
+        let Some(placement) = self.placement() else {
+            return String::new();
+        };
+        let geom = placement.geometry();
+        let vars: Vec<(String, String)> = match compat_alias {
+            Some((prefix, anchor_label)) => geom
+                .css_iter()
+                .chain(geom.compatibility_alias_iter(prefix, anchor_label))
+                .collect(),
+            None => geom.css_iter().collect(),
+        };
+        serialize_css_custom_properties(&vars)
+    }
+
+    pub fn arrow_id(&self) -> Option<String> {
+        self.arrow_id.cloned()
+    }
+
+    pub fn register_arrow_id(&self, id: impl Into<String>) {
+        let id = id.into();
+        if id.is_empty() {
+            return;
+        }
+        let mut sig = self.arrow_id;
+        sync_signal(&mut sig, Some(id));
+    }
+
+    pub fn unregister_arrow_id(&self, id: &str) {
+        let mut sig = self.arrow_id;
+        if sig.try_peek().is_ok_and(|cur| cur.as_deref() == Some(id))
+            && let Ok(mut w) = sig.try_write()
+        {
+            *w = None;
+        }
+    }
+
+    pub fn capture_anchor(&self, handle: MountedHandle) {
+        let mut sig = self.anchor_handle;
+        if let Ok(mut w) = sig.try_write() {
+            *w = Some(handle);
+        }
+        self.refresh();
+    }
+
+    pub fn capture_content(&self, handle: MountedHandle) {
+        let mut sig = self.content_handle;
+        if let Ok(mut w) = sig.try_write() {
+            *w = Some(handle);
+        }
+        self.sync_z_index();
+        self.refresh();
+    }
+
+    /// Arms a 1-frame scroll-close guard so focus-triggered scrolls reposition rather than close (`FM-OVL-7`).
+    pub fn arm_focus_scroll_guard(&self) {
+        let mut guard = self.focus_scroll_guard;
+        if let Ok(mut w) = guard.try_write() {
+            *w = true;
+        }
+        let alive = self.alive;
+        spawn_root_task(async move {
+            let _ = oxidase::frame::next_frame().await;
+            if alive.try_read().is_ok_and(|a| *a)
+                && let Ok(mut w) = guard.try_write()
+            {
+                *w = false;
+            }
+        });
+    }
+
+    pub fn sync_z_index(&self) {
+        let Ok(spec) = self.spec.try_read() else {
+            return;
+        };
+        let content_id = spec.content_id.clone();
+        drop(spec);
+
+        let next = normalize_hoisted_z_index(get_element_computed_z_index(&content_id).as_deref())
+            .or_else(|| {
+                let handle = self
+                    .content_handle
+                    .try_peek()
+                    .ok()
+                    .and_then(|h| h.clone())?;
+                let el = oxidase::Element::from_mounted(handle);
+                normalize_hoisted_z_index(computed_z_index_for_element(&el).as_deref())
+            });
+
+        let mut sig = self.content_z_index;
+        sync_signal(&mut sig, next);
+    }
+
+    pub fn clear_z_index(&self) {
+        let mut sig = self.content_z_index;
+        sync_signal(&mut sig, None);
+    }
+
+    /// Computes live placement synchronously via `compute_virtual_overlay_position`.
+    /// Returns `true` when positive content dimensions were measured and placement is ready.
+    pub fn recalculate_sync(&self) -> bool {
+        let Ok(spec) = self.spec.try_read().map(|g| g.clone()) else {
+            return false;
+        };
+        let registered_arrow = self.arrow_id.try_peek().ok().and_then(|a| a.clone());
+        let effective_arrow = registered_arrow.or_else(|| spec.arrow_id.clone());
+
+        let anchor = match &spec.virtual_anchor {
+            Some((x, y, width, height, ctx_id)) => OverlayAnchor::VirtualPoint {
+                x: *x,
+                y: *y,
+                width: *width,
+                height: *height,
+                context_element_id: ctx_id.as_deref(),
+            },
+            None => OverlayAnchor::Element(spec.anchor_id.as_str()),
+        };
+
+        let config = VirtualOverlayPositionConfig {
+            anchor,
+            content_id: spec.effective_measurement_id(),
+            arrow_id: effective_arrow.as_deref(),
+            boundary_id: spec.boundary_id.as_deref(),
+            side: spec.side,
+            align: spec.align,
+            side_offset: spec.side_offset,
+            align_offset: spec.align_offset,
+            avoid_collisions: spec.avoid_collisions,
+            collision_padding: spec.collision_padding,
+            arrow_padding: spec.arrow_padding,
+            hide_when_detached: spec.hide_when_detached,
+            sticky: spec.sticky,
+            namespace: spec.namespace.as_deref(),
+        };
+
+        self.sync_z_index();
+
+        let Some(computed) = compute_virtual_overlay_position(&config) else {
+            return false;
+        };
+
+        let geom = computed.geometry();
+        let next_readiness = if geom.content_width() > 0.0 && geom.content_height() > 0.0 {
+            FloatingReadiness::Ready
+        } else {
+            FloatingReadiness::Measuring
+        };
+        let is_ready = next_readiness == FloatingReadiness::Ready;
+
+        let mut readiness_sig = self.readiness;
+        sync_signal(&mut readiness_sig, next_readiness);
+
+        if is_ready {
+            let mut placement_sig = self.placement;
+            sync_signal(&mut placement_sig, Some(computed));
+        }
+
+        is_ready
+    }
+
+    /// Runs [`Self::recalculate_sync`] and falls back to async `MountedHandle::get_client_rect`
+    /// measurement when synchronous DOM measurement is unavailable.
+    pub async fn recalculate_with_async_fallback(&self) {
+        if self.recalculate_sync() {
+            return;
+        }
+        let anchor_h = self.anchor_handle.try_peek().ok().and_then(|h| h.clone());
+        let content_h = self.content_handle.try_peek().ok().and_then(|h| h.clone());
+        let (Some(ah), Some(ch)) = (anchor_h, content_h) else {
+            return;
+        };
+        let (Ok(anchor_rect), Ok(content_rect)) =
+            (ah.get_client_rect().await, ch.get_client_rect().await)
+        else {
+            return;
+        };
+        if !self.alive.try_read().is_ok_and(|a| *a) {
+            return;
+        }
+        let Ok(spec) = self.spec.try_read().map(|g| g.clone()) else {
+            return;
+        };
+
+        let anchor = Rect::new(
+            anchor_rect.origin.x as f32,
+            anchor_rect.origin.y as f32,
+            anchor_rect.width() as f32,
+            anchor_rect.height() as f32,
+        );
+        let content_size = Size::new(content_rect.width() as f32, content_rect.height() as f32);
+        let avail_size = get_viewport_size()
+            .await
+            .ok()
+            .map(|vp| Size::new(vp[0] as f32, vp[1] as f32));
+
+        let mut layer = FloatingLayer::new(spec.side)
+            .with_align(spec.align)
+            .with_direction(spec.direction)
+            .with_side_offset(spec.side_offset)
+            .with_align_offset(spec.align_offset)
+            .with_avoid_collisions(spec.avoid_collisions)
+            .with_collision_padding(spec.collision_padding)
+            .with_arrow_padding(spec.arrow_padding)
+            .with_sticky(if spec.sticky {
+                StickyStrategy::Always
+            } else {
+                StickyStrategy::Partial
+            })
+            .with_hide_when_detached(spec.hide_when_detached);
+        if let Some(ns) = spec.namespace {
+            layer = layer.with_namespace(ns);
+        }
+
+        let placement = match avail_size {
+            Some(avail) => layer
+                .with_available_space(avail)
+                .position_with_available_size(anchor, content_size, avail),
+            None => layer.position(anchor, content_size),
+        };
+
+        self.sync_z_index();
+
+        let geom = placement.geometry();
+        let next_readiness = if geom.content_width() > 0.0 && geom.content_height() > 0.0 {
+            FloatingReadiness::Ready
+        } else {
+            FloatingReadiness::Measuring
+        };
+        let mut readiness_sig = self.readiness;
+        sync_signal(&mut readiness_sig, next_readiness);
+
+        let mut placement_sig = self.placement;
+        sync_signal(&mut placement_sig, Some(placement));
+    }
+
+    /// Triggers an immediate sync placement pass plus a 1-frame deferred measurement pass.
+    pub fn refresh(&self) {
+        let _ = self.recalculate_sync();
+        let handle = *self;
+        let expected_gen = self.watcher.generation();
+        spawn_root_task(async move {
+            let _ = oxidase::frame::next_frame().await;
+            if handle.alive.try_read().is_ok_and(|a| *a)
+                && handle.watcher.generation() == expected_gen
+            {
+                handle.recalculate_with_async_fallback().await;
+            }
+        });
+    }
+
+    /// Stops live auto-update watching and resets placement, z-index, and readiness state.
+    pub fn clear(&self) {
+        self.watcher.clear();
+        let mut content_h = self.content_handle;
+        if content_h.try_peek().is_ok_and(|h| h.is_some())
+            && let Ok(mut w) = content_h.try_write()
+        {
+            *w = None;
+        }
+        let mut placement_sig = self.placement;
+        sync_signal(&mut placement_sig, None);
+        self.clear_z_index();
+        let mut readiness_sig = self.readiness;
+        sync_signal(&mut readiness_sig, FloatingReadiness::Measuring);
+    }
+}
+
+/// Shared zero-overhead floating placement runtime hook unifying sync measurement, 1-frame
+/// deferred layout refinement, async `MountedHandle` fallback, z-index hoisting, arrow ID
+/// tracking, and scroll policy handling.
+pub fn use_floating_layer(
+    active: bool,
+    spec: FloatingMonitorSpec,
+    on_scroll_close: Option<EventHandler<()>>,
+) -> FloatingHandle {
+    let placement = use_signal(|| None);
+    let readiness = use_signal(FloatingReadiness::default);
+    let content_z_index = use_signal(|| None);
+    let anchor_handle = use_signal(|| None);
+    let content_handle = use_signal(|| None);
+    let arrow_id = use_signal(|| spec.arrow_id.clone());
+    let focus_scroll_guard = use_hook(|| CopyValue::new(false));
+    let watcher = use_watcher_slot();
+    let mut spec_slot = use_hook(|| CopyValue::new(spec.clone()));
+    let mut on_scroll_close_slot = use_hook(|| CopyValue::new(on_scroll_close));
+    let mut alive = use_hook(|| CopyValue::new(true));
+
+    spec_slot.set(spec.clone());
+    on_scroll_close_slot.set(on_scroll_close);
+
+    let handle = FloatingHandle {
+        placement,
+        readiness,
+        content_z_index,
+        anchor_handle,
+        content_handle,
+        arrow_id,
+        focus_scroll_guard,
+        watcher,
+        spec: spec_slot,
+        on_scroll_close: on_scroll_close_slot,
+        alive,
+    };
+
+    use_effect(use_reactive((&active, &spec), move |(is_active, cur_spec)| {
+        let _ = handle.arrow_id.read();
+        if !is_active {
+            handle.watcher.clear();
+            return;
+        }
+
+        handle.refresh();
+
+        let anchor_ids: Vec<String> = match &cur_spec.virtual_anchor {
+            Some((_, _, _, _, Some(ctx_id))) if !ctx_id.is_empty() => vec![ctx_id.clone()],
+            Some(_) => Vec::new(),
+            None if !cur_spec.anchor_id.is_empty() => vec![cur_spec.anchor_id.clone()],
+            None => Vec::new(),
+        };
+        let content_id = cur_spec.effective_measurement_id().to_owned();
+        let scroll_policy = cur_spec.scroll_policy;
+
+        handle.watcher.arm_with(move |expected_gen| {
+            let anchor_refs: Vec<&str> = anchor_ids.iter().map(String::as_str).collect();
+            start_floating_auto_update_monitor(&anchor_refs, &content_id, move |event| {
+                if !handle.alive.try_read().is_ok_and(|a| *a)
+                    || handle.watcher.generation() != expected_gen
+                {
+                    return;
+                }
+                match event {
+                    FloatingAutoUpdateEvent::Scroll => match scroll_policy {
+                        FloatingScrollPolicy::Reposition => {
+                            let _ = handle.recalculate_sync();
+                        }
+                        FloatingScrollPolicy::CloseOnScrollUnlessGuarded => {
+                            let guarded = handle
+                                .focus_scroll_guard
+                                .try_read()
+                                .map(|g| *g)
+                                .unwrap_or(false);
+                            if guarded {
+                                let _ = handle.recalculate_sync();
+                            } else if let Some(cb) =
+                                handle.on_scroll_close.try_read().ok().and_then(|s| *s)
+                            {
+                                cb.call(());
+                            }
+                        }
+                    },
+                    FloatingAutoUpdateEvent::Update => {
+                        let _ = handle.recalculate_sync();
+                    }
+                }
+            })
+        });
+    }));
+
+    use_drop(move || {
+        if let Ok(mut flag) = alive.try_write() {
+            *flag = false;
+        }
+        handle.watcher.clear();
+        handle.clear_z_index();
+    });
+
+    handle
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,7 +921,6 @@ mod tests {
         doc.resolve(0.0);
 
         Document::with_current(doc, || {
-            // 1. VirtualPoint with context_element_id + hide_when_detached: true
             let with_ctx = compute_virtual_overlay_position(&VirtualOverlayPositionConfig {
                 anchor: OverlayAnchor::VirtualPoint {
                     x: 150.0,
@@ -468,7 +951,6 @@ mod tests {
             assert!((with_ctx.geometry().y() - 96.0).abs() < 1.0);
             assert!(!with_ctx.reference_hidden());
 
-            // 2. VirtualPoint without context_element_id + hide_when_detached: true (must NOT panic!)
             let without_ctx = compute_virtual_overlay_position(&VirtualOverlayPositionConfig {
                 anchor: OverlayAnchor::VirtualPoint {
                     x: 200.0,

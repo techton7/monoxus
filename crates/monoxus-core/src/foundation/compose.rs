@@ -183,6 +183,56 @@ pub fn project_as_child<T, C>(target: T, content: Slottable<C>) -> (T, C) {
     AsChildSlot::new(target).with_slottable(content)
 }
 
+/// Projects any cloneable primitive attribute bag alongside an `as_child` slot target and content.
+pub fn project_attrs_as_child<A, T, C>(
+    attrs: &A,
+    target: T,
+    content: Slottable<C>,
+) -> (T, A, C)
+where
+    A: Clone,
+{
+    let (target, content) = project_as_child(target, content);
+    (target, attrs.clone(), content)
+}
+
+/// Joins non-empty trimmed CSS class tokens with a single `' '` separator.
+/// Returns `None` if no non-empty tokens are present.
+pub fn join_classes<'a>(parts: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let mut out = String::new();
+    for part in parts {
+        let trimmed = part.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(trimmed);
+    }
+    (!out.is_empty()).then_some(out)
+}
+
+/// Joins non-empty trimmed inline CSS style segments, inserting `';'` between segments only when
+/// missing (never producing `";;"`). Returns `None` if no non-empty declarations are present.
+pub fn join_styles<'a>(parts: impl IntoIterator<Item = &'a str>) -> Option<String> {
+    let mut out = String::new();
+    for part in parts {
+        let trimmed = part.trim().trim_start_matches(';').trim_start();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            if !out.ends_with(';') {
+                out.push(';');
+            }
+            out.push(' ');
+        }
+        out.push_str(trimmed);
+    }
+    (!out.is_empty()).then_some(out)
+}
+
 pub fn compose_part_event_handlers<E, C, I>(
     consumer: Option<C>,
     internal: Option<I>,
@@ -286,5 +336,53 @@ mod tests {
 
         assert_eq!(&*first.borrow(), &[String::from("first:node")]);
         assert_eq!(&*second.borrow(), &[String::from("second:node")]);
+    }
+
+    #[test]
+    fn join_classes_trims_skips_empty_and_joins_with_single_space() {
+        use super::join_classes;
+
+        assert_eq!(join_classes(std::iter::empty::<&str>()), None);
+        assert_eq!(join_classes(["", "   ", "\t\n"]), None);
+        assert_eq!(
+            join_classes(["  btn  ", "", "   ", "btn-primary  active "]),
+            Some(String::from("btn btn-primary  active"))
+        );
+    }
+
+    #[test]
+    fn join_styles_normalizes_semicolons_without_double_semicolons() {
+        use super::join_styles;
+
+        assert_eq!(join_styles(std::iter::empty::<&str>()), None);
+        assert_eq!(join_styles(["", "   ", ";", " ; "]), None);
+        assert_eq!(
+            join_styles(["color: red", "margin: 0"]),
+            Some(String::from("color: red; margin: 0"))
+        );
+        assert_eq!(
+            join_styles(["color: red;", "margin: 0;"]),
+            Some(String::from("color: red; margin: 0;"))
+        );
+        assert_eq!(
+            join_styles(["  --x: 1px; ", "", "; color: red  ", "z-index: 10;"]),
+            Some(String::from("--x: 1px; color: red; z-index: 10;"))
+        );
+        assert!(!join_styles(["a: 1;", "b: 2;"]).unwrap().contains(";;"));
+    }
+
+    #[test]
+    fn project_attrs_as_child_clones_attrs_with_target_and_slottable_content() {
+        use super::project_attrs_as_child;
+
+        #[derive(Clone, Debug, PartialEq, Eq)]
+        struct DummyAttrs(&'static str);
+
+        let attrs = DummyAttrs("role=button");
+        let (target, projected, content) =
+            project_attrs_as_child(&attrs, "a", Slottable::new("Click"));
+        assert_eq!(target, "a");
+        assert_eq!(projected, DummyAttrs("role=button"));
+        assert_eq!(content, "Click");
     }
 }

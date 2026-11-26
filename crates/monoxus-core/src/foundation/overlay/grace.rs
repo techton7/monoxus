@@ -96,6 +96,68 @@ pub enum CardinalSide {
 /// Default padding applied to the pointer exit point when creating a grace area.
 pub const DEFAULT_GRACE_PADDING: f64 = 5.0;
 
+/// Minimum monotonic pointer movement in pixels required to re-arm a submenu hover corridor timer.
+pub const SUBMENU_INTENT_MIN_PROGRESS_PX: f64 = 1.0;
+
+/// Classification of a live pointer coordinate relative to an active [`GraceTransit`] corridor.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum GraceTransitStatus {
+    InTransit,
+    ReachedTarget,
+    ExitedCorridor,
+}
+
+/// Unified pure pointer grace corridor tracking transit between a source and target rect
+/// (shared by `HoverCard`, `Tooltip`, and `Menu` submenus).
+#[derive(Clone, Debug, PartialEq)]
+pub struct GraceTransit {
+    pub exit_point: Point2D,
+    pub from_rect: Rect2D,
+    pub to_rect: Rect2D,
+    pub corridor: Vec<Point2D>,
+}
+
+impl GraceTransit {
+    /// Constructs a grace corridor from `from_rect` to `to_rect`.
+    ///
+    /// When `clamp_exit_point` is `true` (e.g. `HoverCard`), clamps `exit_point` onto `from_rect`'s
+    /// boundary before computing the convex-hull corridor.
+    pub fn new(
+        exit_point: Point2D,
+        from_rect: Rect2D,
+        to_rect: Rect2D,
+        padding: Option<f64>,
+        clamp_exit_point: bool,
+    ) -> Self {
+        let resolved_exit = if clamp_exit_point {
+            Point2D::new(
+                exit_point.x.clamp(from_rect.left(), from_rect.right()),
+                exit_point.y.clamp(from_rect.top(), from_rect.bottom()),
+            )
+        } else {
+            exit_point
+        };
+        let corridor = create_grace_area(resolved_exit, &from_rect, &to_rect, padding);
+        Self {
+            exit_point: resolved_exit,
+            from_rect,
+            to_rect,
+            corridor,
+        }
+    }
+
+    /// Evaluates whether `point` has reached either rect, remains inside the safe corridor, or exited.
+    pub fn inspect_point(&self, point: Point2D) -> GraceTransitStatus {
+        if self.from_rect.contains_point(point) || self.to_rect.contains_point(point) {
+            GraceTransitStatus::ReachedTarget
+        } else if is_point_in_polygon(point, &self.corridor) {
+            GraceTransitStatus::InTransit
+        } else {
+            GraceTransitStatus::ExitedCorridor
+        }
+    }
+}
+
 /// Determines which cardinal edge of `rect` is closest to the given `point`.
 ///
 /// In the case of equidistant sides (e.g. exact corners), precedence is
@@ -503,5 +565,39 @@ mod tests {
 
         assert!(!is_point_in_polygon(Point2D::new(0.0, 85.0), &grace_area));
         assert!(!is_point_in_polygon(Point2D::new(300.0, 85.0), &grace_area));
+    }
+
+    #[test]
+    fn test_grace_transit_clamping_and_status_classification() {
+        assert_eq!(SUBMENU_INTENT_MIN_PROGRESS_PX, 1.0);
+
+        let trigger = Rect2D::new(100.0, 50.0, 50.0, 20.0);
+        let content = Rect2D::new(80.0, 100.0, 90.0, 40.0);
+
+        // Unclamped preserves raw exit point.
+        let raw_exit = Point2D::new(125.0, 82.0);
+        let unclamped = GraceTransit::new(raw_exit, trigger, content, Some(5.0), false);
+        assert_eq!(unclamped.exit_point, raw_exit);
+
+        // Clamped pins exit point onto trigger boundary.
+        let clamped = GraceTransit::new(raw_exit, trigger, content, Some(5.0), true);
+        assert_eq!(clamped.exit_point, Point2D::new(125.0, 70.0));
+
+        assert_eq!(
+            clamped.inspect_point(Point2D::new(125.0, 60.0)),
+            GraceTransitStatus::ReachedTarget
+        );
+        assert_eq!(
+            clamped.inspect_point(Point2D::new(125.0, 120.0)),
+            GraceTransitStatus::ReachedTarget
+        );
+        assert_eq!(
+            clamped.inspect_point(Point2D::new(125.0, 85.0)),
+            GraceTransitStatus::InTransit
+        );
+        assert_eq!(
+            clamped.inspect_point(Point2D::new(10.0, 85.0)),
+            GraceTransitStatus::ExitedCorridor
+        );
     }
 }

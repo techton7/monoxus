@@ -1,4 +1,73 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, cell::Cell, rc::Rc};
+
+/// Unified preventable callback event carrying shared interior cancellation state across clones.
+#[derive(Clone, Debug)]
+pub struct PreventableEvent<T = ()> {
+    prevented: Rc<Cell<bool>>,
+    detail: T,
+}
+
+impl<T> PreventableEvent<T> {
+    /// Creates a new non-prevented event carrying `detail`.
+    pub fn new(detail: T) -> Self {
+        Self {
+            prevented: Rc::new(Cell::new(false)),
+            detail,
+        }
+    }
+
+    /// Cancels the primitive's default action (shared across all clones of this event).
+    #[inline]
+    pub fn prevent_default(&self) {
+        self.prevented.set(true);
+    }
+
+    /// Returns `true` if `prevent_default` was called on this event or any clone of it.
+    #[inline]
+    pub fn is_default_prevented(&self) -> bool {
+        self.prevented.get()
+    }
+
+    /// Returns a shared reference to the event payload.
+    #[inline]
+    pub fn detail(&self) -> &T {
+        &self.detail
+    }
+
+    /// Consumes the event and returns its payload.
+    #[inline]
+    pub fn into_detail(self) -> T {
+        self.detail
+    }
+}
+
+impl PreventableEvent<()> {
+    /// Creates an empty non-prevented event with unit payload `()`.
+    pub fn empty() -> Self {
+        Self::new(())
+    }
+}
+
+impl<T: Default> Default for PreventableEvent<T> {
+    fn default() -> Self {
+        Self::new(T::default())
+    }
+}
+
+impl<T: PartialEq> PartialEq for PreventableEvent<T> {
+    fn eq(&self, other: &Self) -> bool {
+        self.is_default_prevented() == other.is_default_prevented() && self.detail == other.detail
+    }
+}
+
+impl<T: Eq> Eq for PreventableEvent<T> {}
+
+pub type EscapeKeyDownEvent = PreventableEvent<()>;
+pub type OpenAutoFocusEvent = PreventableEvent<()>;
+pub type CloseAutoFocusEvent = PreventableEvent<()>;
+pub type InteractOutsideEvent = PreventableEvent<Option<String>>;
+pub type PointerDownOutsideEvent = PreventableEvent<Option<String>>;
+pub type FocusOutsideEvent = PreventableEvent<Option<String>>;
 
 #[inline]
 pub const fn data_disabled_attr(disabled: bool) -> Option<&'static str> {
@@ -533,5 +602,42 @@ mod tests {
         assert_eq!(registry.get(&"a"), Some(&1));
         assert_eq!(registry.get(&"b"), Some(&2));
         assert_eq!(registry.get(&"d"), Some(&4));
+    }
+
+    #[test]
+    fn preventable_event_shares_cancellation_state_across_clones_and_supports_aliases() {
+        use super::{
+            CloseAutoFocusEvent, EscapeKeyDownEvent, FocusOutsideEvent, InteractOutsideEvent,
+            OpenAutoFocusEvent, PointerDownOutsideEvent, PreventableEvent,
+        };
+
+        let original: EscapeKeyDownEvent = PreventableEvent::empty();
+        let cloned = original.clone();
+        assert!(!original.is_default_prevented());
+        assert!(!cloned.is_default_prevented());
+        assert_eq!(original, cloned);
+
+        cloned.prevent_default();
+        assert!(original.is_default_prevented());
+        assert!(cloned.is_default_prevented());
+        assert_eq!(original, cloned);
+
+        let fresh: OpenAutoFocusEvent = PreventableEvent::default();
+        assert_ne!(original, fresh);
+
+        let close_evt: CloseAutoFocusEvent = PreventableEvent::default();
+        assert!(!close_evt.is_default_prevented());
+
+        let outside: InteractOutsideEvent = PreventableEvent::new(Some(String::from("outside-btn")));
+        let outside_clone = outside.clone();
+        outside_clone.prevent_default();
+        assert!(outside.is_default_prevented());
+        assert_eq!(outside.detail().as_deref(), Some("outside-btn"));
+        assert_eq!(outside.into_detail(), Some(String::from("outside-btn")));
+
+        let ptr: PointerDownOutsideEvent = PreventableEvent::default();
+        let foc: FocusOutsideEvent = PreventableEvent::default();
+        assert_eq!(ptr.detail(), &None);
+        assert_eq!(foc.detail(), &None);
     }
 }

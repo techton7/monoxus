@@ -12,7 +12,15 @@ description = "Headless Dioxus primitives and shared foundations for accessible,
 readme = "README.md"
 license = "MIT"
 repository = "https://github.com/techton7/monoxus"
-exclude = ["tests/gui/**", "site/**"]
+exclude = [
+    "tests/gui/**",
+    "site/**",
+    "assets/**",
+    "artifacts/**",
+    "examples/**",
+    "test-results/**",
+    "scripts/**",
+]
 autotests = false
 
 [dependencies]
@@ -43,7 +51,6 @@ path = "tests/standalone_asset_test.rs"
 required-features = ["manganis-embedded"]
 
 [dev-dependencies]
-dioxus = { version = "0.8.0-alpha.3", default-features = false, features = ["minimal"] }
 serde_json = "1.0"
 manganis = "0.8.0-alpha.3"
 
@@ -52,7 +59,7 @@ blitz-host = { version = "0.3.8", git = "https://github.com/techton7/blitz-host.
 blitz-dom = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.9" }
 blitz-test-harness = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.9" }
 dioxus-native-dom = { version = "0.7.0", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.9" }
-oxidase = { version = "0.4.7", git = "https://github.com/techton7/oxidase.git", tag = "oxidase-v0.4.7", features = ["native"] }
+oxidase = { version = "0.4.7", git = "https://github.com/techton7/oxidase.git", tag = "oxidase-v0.4.7" }
 dioxus-native = { version = "0.7.0", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.9" }
 blitz-traits = { version = "0.3.0-beta.4", git = "https://github.com/techton7/blitz.git", tag = "techton-main-v0.3.9" }
 keyboard-types = "0.8"

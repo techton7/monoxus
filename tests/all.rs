@@ -1,33 +1,32 @@
-#[cfg(feature = "native")]
 mod common;
 
 #[cfg(feature = "native")]
-#[path = "../examples/playground/accordion.rs"]
+#[path = "fixtures/scenarios/accordion.rs"]
 pub(crate) mod playground_accordion;
 #[cfg(feature = "native")]
-#[path = "../examples/playground/alert_dialog.rs"]
+#[path = "fixtures/scenarios/alert_dialog.rs"]
 pub(crate) mod playground_alert_dialog;
 #[cfg(feature = "native")]
-#[path = "../examples/playground/collapsible.rs"]
+#[path = "fixtures/scenarios/collapsible.rs"]
 pub(crate) mod playground_collapsible;
 #[cfg(feature = "native")]
-#[path = "../examples/playground/dialog.rs"]
+#[path = "fixtures/scenarios/dialog.rs"]
 pub(crate) mod playground_dialog;
 #[cfg(feature = "native")]
-#[path = "../examples/playground/popover.rs"]
+#[path = "fixtures/scenarios/popover.rs"]
 pub(crate) mod playground_popover;
 #[cfg(feature = "native")]
 #[allow(unused_imports, unused)]
-#[path = "../examples/playground/scenarios/select/mod.rs"]
+#[path = "fixtures/scenarios/select/mod.rs"]
 pub(crate) mod playground_select;
 #[cfg(feature = "native")]
-#[path = "../examples/playground/tabs.rs"]
+#[path = "fixtures/scenarios/tabs.rs"]
 pub(crate) mod playground_tabs;
 #[cfg(feature = "native")]
-#[path = "../examples/playground/pages/toast_page.rs"]
+#[path = "fixtures/scenarios/toast_page.rs"]
 pub(crate) mod playground_toast;
 #[cfg(feature = "native")]
-#[path = "../examples/playground/tooltip.rs"]
+#[path = "fixtures/scenarios/tooltip.rs"]
 pub(crate) mod playground_tooltip;
 
 #[cfg(feature = "native")]
@@ -47,7 +46,6 @@ mod radio_group;
 mod select;
 mod tabs;
 mod toggle_group;
-mod web_driver;
 
 mod accessible_icon_test;
 mod aspect_ratio_test;
@@ -184,7 +182,6 @@ fn all_test_files_are_included() {
         "select/mod.rs",
         "tabs/mod.rs",
         "toggle_group/mod.rs",
-        "web_driver/mod.rs",
     ];
 
     fn collect_mod_roots(dir: &Path, output: &mut BTreeSet<PathBuf>) {
@@ -193,7 +190,7 @@ fn all_test_files_are_included() {
             let path = entry.path();
             if path.is_dir() {
                 let name = entry.file_name();
-                if name == "common" || name == "gui" {
+                if name == "common" || name == "fixtures" || name == "gui" {
                     continue;
                 }
                 collect_mod_roots(&path, output);
@@ -322,6 +319,9 @@ fn all_primitives_have_gui_test_manifests() {
     let gui_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
         .join("gui");
+    if !gui_dir.is_dir() {
+        return;
+    }
     let mut manifest_primitives = BTreeSet::new();
     let mut unregistered_non_manifest_dirs = BTreeSet::new();
     for entry in fs::read_dir(&gui_dir).expect("read GUI test directory") {

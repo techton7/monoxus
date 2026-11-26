@@ -998,3 +998,46 @@ fn unavailable_validation_takes_precedence_over_min_max_range_order_and_custom()
         Ok(())
     );
 }
+
+#[test]
+fn date_value_clamp_uses_chronological_comparison_for_date_vs_midnight_datetime() {
+    let d = date(2026, 4, 15);
+    let date_only = DateValue::Date(d);
+    let midnight_dt = DateValue::DateTime(CalendarDateTime::new(d, CalendarTime::midnight()));
+    let noon_dt = DateValue::DateTime(CalendarDateTime::new(
+        d,
+        CalendarTime::new(12, 0, 0, 0).expect("valid noon"),
+    ));
+
+    // Equal chronologically -> preserves original Date vs DateTime(00:00:00) variant.
+    assert_eq!(date_only.clamp(Some(midnight_dt), None), date_only);
+    assert_eq!(midnight_dt.clamp(None, Some(date_only)), midnight_dt);
+
+    // Strictly outside bounds -> clamps to bound.
+    assert_eq!(date_only.clamp(Some(noon_dt), None), noon_dt);
+    assert_eq!(noon_dt.clamp(None, Some(date_only)), date_only);
+}
+
+#[test]
+fn chrono_range_contains_date_and_calendar_config_helpers() {
+    let range = DateRange::new(Some(date(2026, 4, 10)), Some(date(2026, 4, 15)));
+    assert!(range.contains_date(date(2026, 4, 10)));
+    assert!(range.contains_date(date(2026, 4, 12)));
+    assert!(range.contains_date(date(2026, 4, 15)));
+    assert!(!range.contains_date(date(2026, 4, 9)));
+    assert!(!range.contains_date(date(2026, 4, 16)));
+
+    let partial = DateRange::new(Some(date(2026, 4, 10)), None);
+    assert!(partial.contains_date(date(2026, 4, 10)));
+    assert!(!partial.contains_date(date(2026, 4, 11)));
+
+    let cfg = CalendarConfig::new()
+        .with_locale(CalendarLocale::EnUs)
+        .with_min_value(Some(date(2026, 4, 5)))
+        .with_max_value(Some(date(2026, 4, 20)));
+    assert_eq!(cfg.effective_week_starts_on(), Weekday::Sunday);
+    assert!(cfg.is_date_disabled_with(date(2026, 4, 4), false));
+    assert!(!cfg.is_date_disabled_with(date(2026, 4, 10), false));
+    assert!(cfg.is_date_disabled_with(date(2026, 4, 10), true));
+    assert!(cfg.is_date_disabled_with(date(2026, 4, 21), false));
+}

@@ -1,0 +1,98 @@
+use super::{ComponentDoc, DataAttrDoc, KeyboardDoc, PartDoc, PropDoc};
+
+pub(super) const TABS_DOC: ComponentDoc = ComponentDoc {
+    slug: "tabs",
+    title: "Tabs",
+    description: "Accessible tabbed interface with roving focus, horizontal/vertical orientation, RTL support, and automatic or manual activation.",
+    keywords: "tabs tablist tabpanel roving focus orientation activation",
+    features: &[
+        "Controlled (value Signal) and uncontrolled (default_value) active tab state",
+        "Horizontal and vertical orientation with RTL-aware arrow-key navigation",
+        "Automatic (activate on focus) or Manual (activate on Enter/Space/click) modes",
+        "Optional focus wrapping via loop_focus on TabsList",
+        "Automatic aria-controls and aria-labelledby wiring across triggers and panels",
+    ],
+    anatomy: "use monoxus::tabs::{TabsContent, TabsList, TabsRoot, TabsTrigger};\n\nrsx! {\n    TabsRoot { default_value: Some(\"account\".into()),\n        TabsList {\n            TabsTrigger { value: \"account\".to_string(), \"Account\" }\n            TabsTrigger { value: \"password\".to_string(), \"Password\" }\n        }\n        TabsContent { value: \"account\".to_string(), \"Account settings\" }\n        TabsContent { value: \"password\".to_string(), \"Password settings\" }\n    }\n}",
+    source_path: "src/tabs/components.rs",
+    aria_url: "https://www.w3.org/WAI/ARIA/apg/patterns/tabs/",
+    aria_label: "WAI-ARIA Tabs Pattern",
+    parts: &[
+        PartDoc {
+            name: "TabsRoot",
+            description: "Root container managing active tab value, orientation, direction, and activation mode.",
+            props: &[
+                PropDoc { name: "id", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Custom root element ID." },
+                PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
+                PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "value", type_simple: "Option<Signal<String>>", type_full: "Option<Signal<String>>", default: None, required: false, description: "Controlled active tab value signal." },
+                PropDoc { name: "default_value", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Initial active tab value when uncontrolled." },
+                PropDoc { name: "on_value_change", type_simple: "Option<EventHandler<String>>", type_full: "Option<EventHandler<String>>", default: None, required: false, description: "Called when the active tab changes." },
+                PropDoc { name: "orientation", type_simple: "Option<TabsOrientation>", type_full: "Option<TabsOrientation>", default: Some("Horizontal"), required: false, description: "Layout and keyboard navigation orientation." },
+                PropDoc { name: "dir", type_simple: "Option<TabsDirection>", type_full: "Option<TabsDirection>", default: None, required: false, description: "Reading direction override (Ltr or Rtl)." },
+                PropDoc { name: "activation_mode", type_simple: "Option<TabsActivationMode>", type_full: "Option<TabsActivationMode>", default: Some("Automatic"), required: false, description: "Automatic activates on focus; Manual requires Enter/Space/click." },
+                PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "TabsList and TabsContent children." },
+            ],
+            data_attrs: &[DataAttrDoc { name: "data-orientation", values: "\"horizontal\" | \"vertical\"", description: "Current tabs orientation." }],
+            css_vars: &[],
+        },
+        PartDoc {
+            name: "TabsList",
+            description: "Tablist container (role=\"tablist\") coordinating roving focus across TabsTrigger children.",
+            props: &[
+                PropDoc { name: "id", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Custom tablist element ID." },
+                PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
+                PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "loop_focus", type_simple: "bool", type_full: "bool", default: Some("true"), required: false, description: "Wraps keyboard focus from last trigger to first." },
+                PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "TabsTrigger elements." },
+            ],
+            data_attrs: &[
+                DataAttrDoc { name: "data-orientation", values: "\"horizontal\" | \"vertical\"", description: "Current tabs orientation." },
+                DataAttrDoc { name: "data-disabled", values: "\"\"", description: "Present when tabs root is disabled." },
+            ],
+            css_vars: &[],
+        },
+        PartDoc {
+            name: "TabsTrigger",
+            description: "Tab button (role=\"tab\") that activates its matching TabsContent.",
+            props: &[
+                PropDoc { name: "value", type_simple: "String", type_full: "String", default: None, required: true, description: "Unique value matching a TabsContent." },
+                PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, description: "Disables this tab and skips it in roving focus." },
+                PropDoc { name: "id", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Custom trigger element ID." },
+                PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
+                PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Tab button label." },
+            ],
+            data_attrs: &[
+                DataAttrDoc { name: "data-state", values: "\"active\" | \"inactive\"", description: "Whether this tab is currently active." },
+                DataAttrDoc { name: "data-orientation", values: "\"horizontal\" | \"vertical\"", description: "Current tabs orientation." },
+                DataAttrDoc { name: "data-disabled", values: "\"\"", description: "Present when disabled is true; omitted when enabled." },
+            ],
+            css_vars: &[],
+        },
+        PartDoc {
+            name: "TabsContent",
+            description: "Tab panel (role=\"tabpanel\") rendered when its matching tab is active.",
+            props: &[
+                PropDoc { name: "value", type_simple: "String", type_full: "String", default: None, required: true, description: "Matching value of the controlling TabsTrigger." },
+                PropDoc { name: "force_mount", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, description: "Keeps the panel mounted in the DOM when inactive." },
+                PropDoc { name: "id", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Custom panel element ID." },
+                PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
+                PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "tabindex", type_simple: "Option<i32>", type_full: "Option<i32>", default: Some("0"), required: false, description: "Tabindex applied to the tabpanel." },
+                PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Panel content." },
+            ],
+            data_attrs: &[
+                DataAttrDoc { name: "data-state", values: "\"active\" | \"inactive\"", description: "Whether this panel is currently active." },
+                DataAttrDoc { name: "data-orientation", values: "\"horizontal\" | \"vertical\"", description: "Current tabs orientation." },
+            ],
+            css_vars: &[],
+        },
+    ],
+    keyboard: &[
+        KeyboardDoc { key: "Tab", description: "Moves focus into the active TabsTrigger or into the active TabsContent." },
+        KeyboardDoc { key: "ArrowRight / ArrowLeft", description: "Moves focus between horizontal tabs (RTL-aware)." },
+        KeyboardDoc { key: "ArrowDown / ArrowUp", description: "Moves focus between vertical tabs." },
+        KeyboardDoc { key: "Home / End", description: "Moves focus to the first or last enabled tab." },
+        KeyboardDoc { key: "Space / Enter", description: "Activates the focused tab (required in Manual activation mode)." },
+    ],
+};

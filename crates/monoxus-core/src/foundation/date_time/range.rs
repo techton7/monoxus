@@ -1,19 +1,56 @@
+use std::cmp::Ordering;
+
 use super::{
-    date::{CalendarDate, DateValue, TimeValue},
+    date::{CalendarDate, DateValue, TimeValue, days_between_inclusive},
     field::FieldInvalidReason,
 };
 
-/// Contiguous inclusive date range (`{ start, end }`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct DateRange {
-    pub start: Option<CalendarDate>,
-    pub end: Option<CalendarDate>,
+/// Chronological comparison contract for range endpoints (`CalendarDate`, `DateValue`, `TimeValue`).
+pub trait ChronoComparable: Copy {
+    fn cmp_chronological(&self, other: &Self) -> Ordering;
 }
 
-impl DateRange {
-    /// Creates a [`DateRange`] from optional `start` and `end` endpoints.
-    pub const fn new(start: Option<CalendarDate>, end: Option<CalendarDate>) -> Self {
+impl ChronoComparable for CalendarDate {
+    #[inline]
+    fn cmp_chronological(&self, other: &Self) -> Ordering {
+        self.days_since_epoch().cmp(&other.days_since_epoch())
+    }
+}
+
+impl ChronoComparable for DateValue {
+    #[inline]
+    fn cmp_chronological(&self, other: &Self) -> Ordering {
+        self.compare_chronological(other)
+    }
+}
+
+impl ChronoComparable for TimeValue {
+    #[inline]
+    fn cmp_chronological(&self, other: &Self) -> Ordering {
+        self.time().cmp(&other.time())
+    }
+}
+
+/// Generic contiguous inclusive chronological range (`{ start, end }`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct ChronoRange<T> {
+    pub start: Option<T>,
+    pub end: Option<T>,
+}
+
+impl<T> Default for ChronoRange<T> {
+    fn default() -> Self {
+        Self {
+            start: None,
+            end: None,
+        }
+    }
+}
+
+impl<T> ChronoRange<T> {
+    /// Creates a range from optional `start` and `end` endpoints.
+    pub const fn new(start: Option<T>, end: Option<T>) -> Self {
         Self { start, end }
     }
 
@@ -26,70 +63,17 @@ impl DateRange {
     pub const fn is_complete(&self) -> bool {
         self.start.is_some() && self.end.is_some()
     }
-
-    /// Returns `true` when both endpoints are set and `end < start`.
-    pub const fn is_inverted(&self) -> bool {
-        match (self.start, self.end) {
-            (Some(s), Some(e)) => e.days_since_epoch() < s.days_since_epoch(),
-            _ => false,
-        }
-    }
-
-    /// Validates that a complete range is not inverted (`end < start` -> [`FieldInvalidReason::RangeOrder`]).
-    pub fn validate_range_order(&self) -> Result<(), FieldInvalidReason> {
-        if self.is_inverted() {
-            Err(FieldInvalidReason::RangeOrder)
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Returns the ordered `(lo, hi)` pair when both endpoints are set.
-    pub const fn ordered(&self) -> Option<(CalendarDate, CalendarDate)> {
-        match (self.start, self.end) {
-            (Some(s), Some(e)) => {
-                if s.days_since_epoch() <= e.days_since_epoch() {
-                    Some((s, e))
-                } else {
-                    Some((e, s))
-                }
-            }
-            _ => None,
-        }
-    }
 }
 
-/// Contiguous inclusive date or date-time range (`{ start, end }`) for `DateRangeField` and `DateRangePicker`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct DateValueRange {
-    pub start: Option<DateValue>,
-    pub end: Option<DateValue>,
-}
-
-/// Alias for [`DateValueRange`] matching Sub-wave 5C specification naming.
-pub type DateTimeRange = DateValueRange;
-
-impl DateValueRange {
-    /// Creates a [`DateValueRange`] from optional `start` and `end` endpoints.
-    pub const fn new(start: Option<DateValue>, end: Option<DateValue>) -> Self {
-        Self { start, end }
-    }
-
-    /// Returns `true` when neither `start` nor `end` is set.
-    pub const fn is_empty(&self) -> bool {
-        self.start.is_none() && self.end.is_none()
-    }
-
-    /// Returns `true` when both `start` and `end` are set.
-    pub const fn is_complete(&self) -> bool {
-        self.start.is_some() && self.end.is_some()
-    }
-
+impl<T: ChronoComparable> ChronoRange<T> {
     /// Returns `true` when both endpoints are set and `end < start` chronologically.
+    ///
+    /// For [`TimeRange`], this is an opt-in helper for consumers enforcing same-day ordering via
+    /// the `validate` callback; overnight ranges (e.g. `20:00..05:00`) remain valid by default in
+    /// [`validate_time_range`].
     pub fn is_inverted(&self) -> bool {
         match (self.start, self.end) {
-            (Some(s), Some(e)) => e.compare_chronological(&s).is_lt(),
+            (Some(s), Some(e)) => e.cmp_chronological(&s).is_lt(),
             _ => false,
         }
     }
@@ -104,10 +88,10 @@ impl DateValueRange {
     }
 
     /// Returns the chronologically ordered `(lo, hi)` pair when both endpoints are set.
-    pub fn ordered(&self) -> Option<(DateValue, DateValue)> {
+    pub fn ordered(&self) -> Option<(T, T)> {
         match (self.start, self.end) {
             (Some(s), Some(e)) => {
-                if s.compare_chronological(&e).is_le() {
+                if s.cmp_chronological(&e).is_le() {
                     Some((s, e))
                 } else {
                     Some((e, s))
@@ -116,7 +100,34 @@ impl DateValueRange {
             _ => None,
         }
     }
+}
 
+/// Contiguous inclusive date range (`{ start, end }`).
+pub type DateRange = ChronoRange<CalendarDate>;
+
+/// Contiguous inclusive date or date-time range (`{ start, end }`) for `DateRangeField` and `DateRangePicker`.
+pub type DateValueRange = ChronoRange<DateValue>;
+
+/// Alias for [`DateValueRange`] matching Sub-wave 5C specification naming.
+pub type DateTimeRange = DateValueRange;
+
+/// Contiguous inclusive time range (`{ start, end }`) for `TimeRangeField`.
+pub type TimeRange = ChronoRange<TimeValue>;
+
+impl ChronoRange<CalendarDate> {
+    /// Returns `true` when `date` equals either endpoint or lies inclusively between `start` and `end`.
+    pub fn contains_date(&self, date: CalendarDate) -> bool {
+        if self.start == Some(date) || self.end == Some(date) {
+            return true;
+        }
+        if let (Some(start), Some(end)) = (self.start, self.end) {
+            return date.is_between_inclusive(start, end);
+        }
+        false
+    }
+}
+
+impl ChronoRange<DateValue> {
     /// Extracts the date-only [`DateRange`] endpoints.
     pub const fn to_date_range(&self) -> DateRange {
         DateRange {
@@ -146,68 +157,6 @@ impl From<DateValueRange> for DateRange {
     #[inline]
     fn from(range: DateValueRange) -> Self {
         range.to_date_range()
-    }
-}
-
-/// Contiguous inclusive time range (`{ start, end }`) for `TimeRangeField`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct TimeRange {
-    pub start: Option<TimeValue>,
-    pub end: Option<TimeValue>,
-}
-
-impl TimeRange {
-    /// Creates a [`TimeRange`] from optional `start` and `end` endpoints.
-    pub const fn new(start: Option<TimeValue>, end: Option<TimeValue>) -> Self {
-        Self { start, end }
-    }
-
-    /// Returns `true` when neither `start` nor `end` is set.
-    pub const fn is_empty(&self) -> bool {
-        self.start.is_none() && self.end.is_none()
-    }
-
-    /// Returns `true` when both `start` and `end` are set.
-    pub const fn is_complete(&self) -> bool {
-        self.start.is_some() && self.end.is_some()
-    }
-
-    /// Returns `true` when both endpoints are set and `end < start`.
-    ///
-    /// Opt-in helper for consumers enforcing same-day ordering via the `validate` callback.
-    /// Overnight ranges (e.g. `20:00..05:00`) are valid by default in [`validate_time_range`].
-    pub fn is_inverted(&self) -> bool {
-        match (self.start, self.end) {
-            (Some(s), Some(e)) => e.time() < s.time(),
-            _ => false,
-        }
-    }
-
-    /// Validates that a complete time range is not inverted (`end < start` -> [`FieldInvalidReason::RangeOrder`]).
-    ///
-    /// Opt-in helper for consumers enforcing same-day ordering via the `validate` callback.
-    /// [`validate_time_range`] does not call this automatically so overnight ranges (`20:00..05:00`) remain valid by default.
-    pub fn validate_range_order(&self) -> Result<(), FieldInvalidReason> {
-        if self.is_inverted() {
-            Err(FieldInvalidReason::RangeOrder)
-        } else {
-            Ok(())
-        }
-    }
-
-    /// Returns the ordered `(lo, hi)` pair when both endpoints are set.
-    pub fn ordered(&self) -> Option<(TimeValue, TimeValue)> {
-        match (self.start, self.end) {
-            (Some(s), Some(e)) => {
-                if s.time() <= e.time() {
-                    Some((s, e))
-                } else {
-                    Some((e, s))
-                }
-            }
-            _ => None,
-        }
     }
 }
 
@@ -376,7 +325,7 @@ where
     } else {
         (end, start)
     };
-    let days_in_range = (hi.days_since_epoch() - lo.days_since_epoch() + 1) as usize;
+    let days_in_range = days_between_inclusive(lo, hi);
 
     if min_days.is_some_and(|min| days_in_range < min) {
         return false;

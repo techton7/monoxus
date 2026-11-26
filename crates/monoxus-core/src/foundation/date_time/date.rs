@@ -1181,17 +1181,17 @@ impl DateValue {
         self.to_date_time().cmp(&other.to_date_time())
     }
 
-    /// Clamps `self` into the optional `[min, max]` inclusive interval.
+    /// Clamps `self` into the optional `[min, max]` inclusive interval using chronological comparison.
     #[inline]
     pub fn clamp(self, min: Option<Self>, max: Option<Self>) -> Self {
         let mut out = self;
         if let Some(min_val) = min
-            && out < min_val
+            && out.compare_chronological(&min_val).is_lt()
         {
             out = min_val;
         }
         if let Some(max_val) = max
-            && out > max_val
+            && out.compare_chronological(&max_val).is_gt()
         {
             out = max_val;
         }

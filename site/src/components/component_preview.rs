@@ -7,22 +7,8 @@ use monoxus::tooltip::{TooltipContent, TooltipPortal, TooltipRoot, TooltipTrigge
 use crate::components::doc_page_header::schedule_copied_reset;
 use crate::components::icons::{CheckIcon, ChevronDownIcon, CodeIcon, CopyIcon};
 use crate::demos::{demo_filename, demo_source, render_demo};
-use crate::docs_data::highlight_rust_html;
+use crate::docs_data::{CSS_TOKENS_SNIPPET, HIGHLIGHTED_CSS_TOKENS, highlighted_demo};
 use crate::theme::copy_to_clipboard;
-
-const CSS_TOKENS_SNIPPET: &str = r#"/* Monoxus primitives expose semantic state via data-* attributes */
-[data-state="open"]   { /* open / active / expanded styling */ }
-[data-state="closed"] { /* closed / collapsed styling */ }
-[data-disabled]       { opacity: 0.5; pointer-events: none; }
-
-/* Tailwind v4 theme variables used in demos */
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-muted: var(--muted);
-  --color-dark: var(--dark);
-  --color-border-card: var(--border-card);
-}"#;
 
 /// Live component preview box paired with an expandable syntax-highlighted code panel.
 #[component]
@@ -33,8 +19,8 @@ pub fn ComponentPreview(slug: String, #[props(default = true)] default_open: boo
 
     let source = demo_source(&slug);
     let filename = demo_filename(&slug);
-    let highlighted_demo = highlight_rust_html(source);
-    let highlighted_css = highlight_rust_html(CSS_TOKENS_SNIPPET);
+    let highlighted_demo = highlighted_demo(&slug);
+    let highlighted_css = HIGHLIGHTED_CSS_TOKENS;
 
     let copy_target = if active_tab() == "css" {
         CSS_TOKENS_SNIPPET

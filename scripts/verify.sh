@@ -2,7 +2,7 @@
 
 set -euo pipefail
 
-REPO_ROOT="/Volumes/SSD-512G-Mac/business/dioxus/ui/monoxus"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOCK_DIR="/tmp/monoxus-cargo.lockdir"
 
 cd "$REPO_ROOT"
@@ -47,10 +47,22 @@ if command -v sccache >/dev/null 2>&1; then
 fi
 
 skip_checks=false
-if [[ "${1-}" == "--skip-checks" || "${1-}" == "--fast" ]]; then
-    skip_checks=true
-    shift
-fi
+run_site=false
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --skip-checks|--fast)
+            skip_checks=true
+            shift
+            ;;
+        --site)
+            run_site=true
+            shift
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
 
 if [[ "$skip_checks" == false ]]; then
     cargo check -p monoxus-core --lib
@@ -61,3 +73,7 @@ if [[ "$skip_checks" == false ]]; then
 fi
 
 cargo nextest run --no-default-features --features native "$@"
+
+if [[ "$run_site" == true ]]; then
+    cargo test --manifest-path "$REPO_ROOT/site/Cargo.toml"
+fi
