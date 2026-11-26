@@ -2,9 +2,11 @@ use std::{cell::RefCell, rc::Rc};
 
 use dioxus::prelude::*;
 use monoxus::context_menu::{
-    ContextMenu, ContextMenuContent, ContextMenuContentRenderProps, ContextMenuContentStatic,
-    ContextMenuItem, ContextMenuPortal, ContextMenuRoot, ContextMenuSub, ContextMenuSubContent,
-    ContextMenuSubTrigger, ContextMenuTrigger, ContextMenuTriggerRenderProps, MenuRootContext,
+    CheckedState, ContextMenu, ContextMenuCheckboxGroup, ContextMenuCheckboxItem,
+    ContextMenuContent, ContextMenuContentRenderProps, ContextMenuContentStatic, ContextMenuItem,
+    ContextMenuItemIndicator, ContextMenuPortal, ContextMenuRadioGroup, ContextMenuRadioItem,
+    ContextMenuRoot, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger,
+    ContextMenuTrigger, ContextMenuTriggerRenderProps, MenuRootContext,
 };
 
 #[derive(Clone, Default, PartialEq)]
@@ -629,6 +631,174 @@ mod native_tests {
         right_click_at(&mut harness, bx, by);
         assert!(harness.query("#cm-vh-content-a").is_none());
         assert!(harness.query("#cm-vh-content-b").is_some());
+    }
+
+    #[component]
+    fn NativeContextMenuReactiveIndicatorScenario() -> Element {
+        let mut disabled_flag = use_signal(|| false);
+        let mut swap_cb = use_signal(|| false);
+        let mut cb_log1 = use_signal(Vec::<String>::new);
+        let mut cb_log2 = use_signal(Vec::<String>::new);
+        let mut radio_log1 = use_signal(Vec::<String>::new);
+        let mut radio_log2 = use_signal(Vec::<String>::new);
+
+        let cb_on_change = if swap_cb() {
+            EventHandler::new(move |vals: Vec<String>| cb_log2.write().push(vals.join("+")))
+        } else {
+            EventHandler::new(move |vals: Vec<String>| cb_log1.write().push(vals.join("+")))
+        };
+        let radio_on_change = if swap_cb() {
+            EventHandler::new(move |val: String| radio_log2.write().push(val))
+        } else {
+            EventHandler::new(move |val: String| radio_log1.write().push(val))
+        };
+
+        rsx! {
+            div { style: "padding: 20px;",
+                span { id: "cm-d6-cbg-log1", "{cb_log1.read().join(\",\")}" }
+                span { id: "cm-d6-cbg-log2", "{cb_log2.read().join(\",\")}" }
+                span { id: "cm-d6-rg-log1", "{radio_log1.read().join(\",\")}" }
+                span { id: "cm-d6-rg-log2", "{radio_log2.read().join(\",\")}" }
+
+                ContextMenuRoot {
+                    modal: false,
+                    default_open: true,
+                    ContextMenuTrigger { id: "cm-d6-trig", "Canvas" }
+                    ContextMenuContentStatic {
+                        id: "cm-d6-content",
+                        button {
+                            id: "cm-d6-toggle-disabled",
+                            r#type: "button",
+                            onclick: move |_| disabled_flag.toggle(),
+                            "Toggle Disabled"
+                        }
+                        button {
+                            id: "cm-d6-swap-cb",
+                            r#type: "button",
+                            onclick: move |_| swap_cb.set(true),
+                            "Swap Callbacks"
+                        }
+                        ContextMenuCheckboxItem {
+                            id: "cm-d6-tri",
+                            default_checked: CheckedState::Indeterminate,
+                            disabled: disabled_flag(),
+                            close_on_select: false,
+                            ContextMenuItemIndicator { id: "cm-d6-tri-ind", "*" }
+                            "Grid"
+                        }
+                        ContextMenuCheckboxGroup {
+                            default_value: Some(vec!["rulers".to_string()]),
+                            disabled: disabled_flag(),
+                            on_value_change: Some(cb_on_change),
+                            ContextMenuCheckboxItem {
+                                id: "cm-d6-rulers",
+                                value: Some("rulers".to_string()),
+                                close_on_select: false,
+                                ContextMenuItemIndicator { id: "cm-d6-rulers-ind", "✓" }
+                                "Rulers"
+                            }
+                            ContextMenuCheckboxItem {
+                                id: "cm-d6-guides",
+                                value: Some("guides".to_string()),
+                                close_on_select: false,
+                                ContextMenuItemIndicator {
+                                    id: "cm-d6-guides-ind",
+                                    force_mount: true,
+                                    "✓"
+                                }
+                                "Guides"
+                            }
+                        }
+                        ContextMenuRadioGroup {
+                            default_value: Some("light".to_string()),
+                            on_value_change: Some(radio_on_change),
+                            ContextMenuRadioItem {
+                                id: "cm-d6-r-light",
+                                value: "light".to_string(),
+                                disabled: disabled_flag(),
+                                close_on_select: false,
+                                ContextMenuItemIndicator { id: "cm-d6-r-light-ind", "●" }
+                                "Light"
+                            }
+                            ContextMenuRadioItem {
+                                id: "cm-d6-r-dark",
+                                value: "dark".to_string(),
+                                close_on_select: false,
+                                ContextMenuItemIndicator {
+                                    id: "cm-d6-r-dark-ind",
+                                    force_mount: true,
+                                    "●"
+                                }
+                                "Dark"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_w3_d6_context_menu_reactive_item_indicator_and_group_callbacks() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeContextMenuReactiveIndicatorScenario);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        // Standalone tri-state CheckboxItem
+        assert_eq!(
+            harness.attr("#cm-d6-tri-ind", "data-state").as_deref(),
+            Some("indeterminate")
+        );
+        click_and_pump(&mut harness, "#cm-d6-tri");
+        assert_eq!(
+            harness.attr("#cm-d6-tri-ind", "data-state").as_deref(),
+            Some("checked")
+        );
+        click_and_pump(&mut harness, "#cm-d6-tri");
+        assert!(harness.query("#cm-d6-tri-ind").is_none());
+        click_and_pump(&mut harness, "#cm-d6-tri");
+        assert_eq!(
+            harness.attr("#cm-d6-tri-ind", "data-state").as_deref(),
+            Some("checked")
+        );
+
+        // Swap callbacks post-mount then exercise CheckboxGroup & RadioGroup
+        click_and_pump(&mut harness, "#cm-d6-swap-cb");
+        click_and_pump(&mut harness, "#cm-d6-rulers");
+        assert!(harness.query("#cm-d6-rulers-ind").is_none());
+        click_and_pump(&mut harness, "#cm-d6-guides");
+        assert_eq!(
+            harness.attr("#cm-d6-guides-ind", "data-state").as_deref(),
+            Some("checked")
+        );
+        assert_eq!(harness.text_content("#cm-d6-cbg-log1"), "");
+        assert_eq!(harness.text_content("#cm-d6-cbg-log2"), ",guides");
+
+        click_and_pump(&mut harness, "#cm-d6-r-dark");
+        assert!(harness.query("#cm-d6-r-light-ind").is_none());
+        assert_eq!(
+            harness.attr("#cm-d6-r-dark-ind", "data-state").as_deref(),
+            Some("checked")
+        );
+        assert_eq!(harness.text_content("#cm-d6-rg-log1"), "");
+        assert_eq!(harness.text_content("#cm-d6-rg-log2"), "dark");
+
+        // Dynamic disabled propagation
+        click_and_pump(&mut harness, "#cm-d6-r-light");
+        assert!(harness.query("#cm-d6-r-light-ind").is_some());
+        click_and_pump(&mut harness, "#cm-d6-toggle-disabled");
+        assert_eq!(
+            harness.attr("#cm-d6-tri-ind", "data-disabled").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#cm-d6-guides-ind", "data-disabled").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#cm-d6-r-light-ind", "data-disabled").as_deref(),
+            Some("")
+        );
     }
 }
 

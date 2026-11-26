@@ -277,6 +277,7 @@ where
         shield_policy: ModalShieldPolicy::None,
         prevent_scroll,
         prevent_body_pointer_events: prevent_scroll,
+        restore_delay: None,
     };
     let modal_layer = use_modal_layer(is_open && prevent_scroll, modal_cfg);
 

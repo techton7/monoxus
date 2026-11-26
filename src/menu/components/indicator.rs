@@ -39,16 +39,15 @@ pub struct MenuItemIndicatorProps {
 #[component]
 pub fn MenuItemIndicator(props: MenuItemIndicatorProps) -> Element {
     let root = use_context::<MenuRootContext>();
-    let ctx = try_use_context::<MenuIndicatorContext>().unwrap_or(MenuIndicatorContext {
-        checked: CheckedState::Unchecked,
-        disabled: false,
-    });
+    let (checked, disabled) = try_use_context::<MenuIndicatorContext>()
+        .map(|ctx| (*ctx.checked.read(), *ctx.disabled.read()))
+        .unwrap_or((CheckedState::Unchecked, false));
     let id = use_stable_id(props.id.map(Into::into)).into_owned();
 
     let attrs = MenuItemIndicatorAttributes::from_parts(
         id,
-        ctx.checked,
-        ctx.disabled,
+        checked,
+        disabled,
         props.force_mount,
         root.variant,
     );

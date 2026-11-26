@@ -186,6 +186,19 @@ fn floating_readiness_exposes_measurement_and_positioning_labels() {
 
     assert_eq!(measuring.position_style(None), unpositioned);
     assert_eq!(ready.position_style(None), unpositioned);
+
+    let placement = FloatingLayer::new(PlacementSide::Bottom)
+        .with_align(PlacementAlign::Start)
+        .with_direction(Direction::Rtl)
+        .with_side_offset(8.0)
+        .with_align_offset(4.0)
+        .with_available_space(Size::new(120.0, 80.0))
+        .position(Rect::new(10.0, 20.0, 40.0, 16.0), Size::new(30.0, 12.0));
+    let positioned = ready.position_style(Some(&placement));
+    assert_eq!(
+        positioned,
+        "position: fixed; left: 0px; top: 0px; transform: translate(24px, 44px); visibility: visible; pointer-events: auto;",
+    );
 }
 
 #[test]

@@ -280,6 +280,139 @@ mod native_tests {
     }
 
     #[component]
+    fn UnmountScrollLockDialogScenario() -> Element {
+        let mut mounted = use_signal(|| true);
+        let open = use_signal(|| true);
+        rsx! {
+            div {
+                if mounted() {
+                    DialogRoot {
+                        id: "unmount-delay-dialog",
+                        open: open,
+                        DialogPortal {
+                            DialogOverlay { id: "unmount-delay-overlay" }
+                            DialogContent {
+                                id: "unmount-delay-content",
+                                DialogTitle { "Unmount Lock Title" }
+                                button {
+                                    id: "unmount-dialog-btn",
+                                    r#type: "button",
+                                    onclick: move |_| mounted.set(false),
+                                    "Unmount Dialog"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_dialog_restore_delay_holds_scroll_lock_until_delay_elapses_or_unmount() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+        // 1. On Dialog close, pointer-events releases synchronously while scroll lock /
+        //    overflow: hidden stays held across the 200ms restore_delay and releases after.
+        {
+            let mut harness = mount_native_scenario(ModalShieldScenario);
+            let body_id = harness.node("body");
+
+            click_and_pump(&mut harness, "#shield-trigger");
+            advance_frame_and_pump(&mut harness, 0.02);
+
+            assert!(oxidase::dom::is_scroll_locked());
+            assert!(oxidase::dom::is_body_pointer_events_locked());
+
+            harness.click("#shield-close");
+            harness.pump();
+
+            assert!(
+                !oxidase::dom::is_body_pointer_events_locked(),
+                "pointer-events lock must release synchronously on Dialog close"
+            );
+            assert!(
+                oxidase::dom::is_scroll_locked(),
+                "scroll lock must remain held immediately on Dialog close during 200ms restore_delay"
+            );
+            {
+                let base = harness.base();
+                let body_style = base
+                    .get_node(body_id)
+                    .unwrap()
+                    .attr("style".into())
+                    .unwrap_or_default();
+                assert!(
+                    !body_style.contains("pointer-events: none"),
+                    "pointer-events: none must clear synchronously on close, got: {body_style}"
+                );
+                assert!(
+                    body_style.contains("overflow: hidden"),
+                    "overflow: hidden must remain held during restore_delay, got: {body_style}"
+                );
+            }
+
+            // Mid-delay (80ms < 200ms): scroll lock still held
+            advance_frame_and_pump(&mut harness, 0.08);
+            assert!(
+                oxidase::dom::is_scroll_locked(),
+                "scroll lock must stay held at 80ms (< 200ms restore_delay)"
+            );
+            {
+                let base = harness.base();
+                let body_style = base
+                    .get_node(body_id)
+                    .unwrap()
+                    .attr("style".into())
+                    .unwrap_or_default();
+                assert!(
+                    body_style.contains("overflow: hidden"),
+                    "overflow: hidden must remain held at 80ms, got: {body_style}"
+                );
+            }
+
+            // Past 200ms restore_delay: scroll lock and overflow: hidden release cleanly
+            advance_frame_and_pump(&mut harness, 0.20);
+            assert!(
+                !oxidase::dom::is_scroll_locked(),
+                "scroll lock must release once 200ms restore_delay elapses"
+            );
+            {
+                let base = harness.base();
+                let body_style = base
+                    .get_node(body_id)
+                    .unwrap()
+                    .attr("style".into())
+                    .unwrap_or_default();
+                assert!(
+                    !body_style.contains("overflow: hidden"),
+                    "overflow: hidden must clear after restore_delay elapses, got: {body_style}"
+                );
+            }
+        }
+
+        // 2. Unmounting an open Dialog releases scroll lock synchronously (no restore_delay).
+        {
+            let mut harness = mount_native_scenario(UnmountScrollLockDialogScenario);
+            advance_frame_and_pump(&mut harness, 0.02);
+            assert!(oxidase::dom::is_scroll_locked());
+            assert!(oxidase::dom::is_body_pointer_events_locked());
+
+            harness.click("#unmount-dialog-btn");
+            harness.pump();
+
+            assert!(
+                !oxidase::dom::is_scroll_locked(),
+                "unmounting Dialog must release scroll lock synchronously"
+            );
+            assert!(
+                !oxidase::dom::is_body_pointer_events_locked(),
+                "unmounting Dialog must release pointer-events lock synchronously"
+            );
+        }
+    }
+
+    #[component]
     fn ModalPopoverAndScrollLockedSelectScenario() -> Element {
         let select_open = use_signal(|| false);
         let scope = ScopeHandle::root("shield-test").child("select");

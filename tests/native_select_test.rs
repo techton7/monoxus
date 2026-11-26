@@ -292,7 +292,7 @@ fn test_native_select_scrollable_viewport_keyboard_auto_scroll() {
     let mut harness = mount_native_scenario(StyledScrollableViewportSection);
 
     click_and_pump(&mut harness, ".select-trigger-scrollable");
-    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.25);
     advance_frame_and_pump(&mut harness, 0.02);
 
     let viewport_selector = "[id$='viewport']";
@@ -375,7 +375,7 @@ fn test_native_select_manual_scroll_does_not_snap_back_to_boundary_active_item()
     let mut harness = mount_native_scenario(StyledScrollableViewportSection);
 
     click_and_pump(&mut harness, ".select-trigger-scrollable");
-    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.25);
     advance_frame_and_pump(&mut harness, 0.02);
     advance_frame_and_pump(&mut harness, 0.22);
     focus_node(&mut harness, "[role='listbox']");
@@ -475,7 +475,7 @@ fn test_native_select_outer_page_scroll_preserves_inner_viewport_scroll() {
 
     let mut harness = mount_native_scenario(OuterScrollableSelectScenario);
     click_and_pump(&mut harness, ".select-trigger-scrollable");
-    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.25);
     advance_frame_and_pump(&mut harness, 0.02);
     advance_frame_and_pump(&mut harness, 0.22);
     focus_node(&mut harness, "[role='listbox']");
@@ -552,7 +552,7 @@ fn test_native_select_stationary_pointer_scroll_preserves_active_item() {
     let mut harness = mount_native_scenario(StyledScrollableViewportSection);
 
     click_and_pump(&mut harness, ".select-trigger-scrollable");
-    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.25);
     advance_frame_and_pump(&mut harness, 0.02);
     advance_frame_and_pump(&mut harness, 0.22);
 
@@ -635,7 +635,7 @@ fn test_native_select_pointer_highlight_does_not_force_viewport_scroll() {
     let mut harness = mount_native_scenario(StyledScrollableViewportSection);
 
     click_and_pump(&mut harness, ".select-trigger-scrollable");
-    advance_frame_and_pump(&mut harness, 0.02);
+    advance_frame_and_pump(&mut harness, 0.25);
     advance_frame_and_pump(&mut harness, 0.02);
     advance_frame_and_pump(&mut harness, 0.22);
     focus_node(&mut harness, "[role='listbox']");

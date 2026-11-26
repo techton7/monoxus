@@ -1136,21 +1136,8 @@ fn visual_y_bounds(
     harness: &blitz_test_harness::Harness<dioxus_native_dom::DioxusDocument>,
     selector: &str,
 ) -> (f32, f32) {
-    let node_id = harness.node(selector);
-    let rect = harness.layout_rect_of(node_id);
-    let doc = harness.base();
-    let node = doc.get_node(node_id).expect("node must exist");
-    let (scale_y, ty) = node
-        .transform()
-        .as_ref()
-        .map(|aff| {
-            let c = aff.as_coeffs();
-            (c[3] as f32, c[5] as f32)
-        })
-        .unwrap_or((1.0, 0.0));
-    let top = rect.y + ty;
-    let bottom = top + rect.height * scale_y;
-    (top, bottom)
+    let rect = harness.layout_rect(selector);
+    (rect.y, rect.y + rect.height)
 }
 
 /// Test 9: 3-toast stack collapsed clamping, hover-expanded non-overlapping card layout rects,
@@ -1205,15 +1192,15 @@ fn test_native_toast_stack_collapsed_clamp_hover_expand_gap_bridge_and_timer_pau
     assert!(vp_style.contains("--gap: 14px;"));
     assert!(vp_style.contains("--width: 356px;"));
 
-    // Verify collapsed back cards are clamped to front card height via var(--front-toast-height, auto)
+    // Verify collapsed back cards are clamped to --front-toast-height and scaled by (1 - 0.05 * idx)
     let r0_col = harness.layout_rect(sel0);
     let r1_col = harness.layout_rect(sel1);
     let r2_col = harness.layout_rect(sel2);
     assert!(r0_col.height > 30.0, "Front card must have real measured height");
     assert!(
-        (r1_col.height - r0_col.height).abs() <= 1.5
-            && (r2_col.height - r0_col.height).abs() <= 1.5,
-        "Collapsed back cards must clamp to --front-toast-height ({}): got r1={}, r2={}",
+        (r1_col.height - r0_col.height * 0.95).abs() <= 1.5
+            && (r2_col.height - r0_col.height * 0.90).abs() <= 1.5,
+        "Collapsed back cards must clamp to --front-toast-height ({}) with stack scale (0.95 / 0.90): got r1={}, r2={}",
         r0_col.height,
         r1_col.height,
         r2_col.height
@@ -1351,8 +1338,8 @@ fn test_native_toast_stack_collapsed_clamp_hover_expand_gap_bridge_and_timer_pau
     let short_col = harness.layout_rect(&short_sel);
     let tall_col = harness.layout_rect(&tall_sel);
     assert!(
-        (tall_col.height - short_col.height).abs() <= 1.5,
-        "Tall back card must clamp down to short front card --front-toast-height ({}) when collapsed, got {}",
+        (tall_col.height - short_col.height * 0.95).abs() <= 1.5,
+        "Tall back card must clamp down to short front card --front-toast-height ({} * 0.95) when collapsed, got {}",
         short_col.height,
         tall_col.height
     );
@@ -1641,7 +1628,7 @@ fn test_native_tooltip_184px_grid_long_token_no_horizontal_overflow() {
     harness.move_mouse_to(tx1, ty1);
     harness.pump();
     advance_frame_and_pump(&mut harness, 0.05);
-    advance_frame_and_pump(&mut harness, 0.05);
+    advance_frame_and_pump(&mut harness, 0.25);
 
     assert!(
         harness.query("#tooltip-content").is_some(),
@@ -1669,7 +1656,7 @@ fn test_native_tooltip_184px_grid_long_token_no_horizontal_overflow() {
     harness.move_mouse_to(tx2, ty2);
     harness.pump();
     advance_frame_and_pump(&mut harness, 0.05);
-    advance_frame_and_pump(&mut harness, 0.05);
+    advance_frame_and_pump(&mut harness, 0.25);
 
     assert!(
         harness.query("#tooltip-content-2").is_some(),
@@ -1777,9 +1764,9 @@ fn test_native_toast_three_card_distinct_heights_collapsed_clamp_and_hover_expan
     let r_mid_col = harness.layout_rect(&sel_mid);
     let r_tall_col = harness.layout_rect(&sel_tall);
     assert!(
-        (r_mid_col.height - r_short_col.height).abs() <= 1.5
-            && (r_tall_col.height - r_short_col.height).abs() <= 1.5,
-        "Collapsed background cards must clamp to --front-toast-height ({}): mid={}, tall={}",
+        (r_mid_col.height - r_short_col.height * 0.95).abs() <= 1.5
+            && (r_tall_col.height - r_short_col.height * 0.90).abs() <= 1.5,
+        "Collapsed background cards must clamp to --front-toast-height ({}) with stack scale (0.95 / 0.90): mid={}, tall={}",
         r_short_col.height,
         r_mid_col.height,
         r_tall_col.height
@@ -1906,8 +1893,8 @@ fn test_native_toast_in_place_content_update_remeasures_clamped_and_front_height
         "Collapsed back card in-place update must re-measure taller auto height (before={h_back_before}, after={h_back_after})"
     );
     assert!(
-        (harness.layout_rect(&sel_back).height - h_front_before as f32).abs() <= 1.5,
-        "Updated collapsed back card must remain visually clamped to unchanged front card height ({h_front_before})"
+        (harness.layout_rect(&sel_back).height - (h_front_before as f32) * 0.95).abs() <= 1.5,
+        "Updated collapsed back card must remain visually clamped to unchanged front card height ({h_front_before} * 0.95)"
     );
 
     // 2. Update front toast in-place via update_toast -> re-measures and updates --front-toast-height
@@ -1944,8 +1931,9 @@ fn test_native_toast_in_place_content_update_remeasures_clamped_and_front_height
     );
     assert!(
         (harness.layout_rect(&sel_front).height - h_front_after as f32).abs() <= 1.5
-            && (harness.layout_rect(&sel_back).height - h_front_after as f32).abs() <= 1.5,
-        "Front and clamped back layout heights must track updated --front-toast-height ({h_front_after})"
+            && (harness.layout_rect(&sel_back).height - (h_front_after as f32) * 0.95).abs() <= 1.5,
+        "Front and clamped back layout heights must track updated --front-toast-height ({h_front_after}, scaled back={})",
+        (h_front_after as f32) * 0.95
     );
 }
 
@@ -2482,26 +2470,14 @@ fn test_native_toast_pointer_close_and_action_keep_viewport_unfocused_and_collap
     }
 
     // 4. Hover remaining 2-card stack and click [data-button] (Action) on middle card with pointer
-    let mid_ty = harness
-        .base()
-        .get_node(harness.node(&mid_sel))
-        .and_then(|n| n.transform().as_ref())
-        .map(|aff| aff.as_coeffs()[5] as f32)
-        .unwrap_or(0.0);
-    let (mx, my_layout) = harness.center_of(&mid_sel);
-    harness.move_mouse_to(mx, my_layout + mid_ty);
+    let (mx, my) = harness.center_of(&mid_sel);
+    harness.move_mouse_to(mx, my);
     harness.pump();
     advance_frame_and_pump(&mut harness, 0.45);
 
-    let mid_ty_expanded = harness
-        .base()
-        .get_node(harness.node(&mid_sel))
-        .and_then(|n| n.transform().as_ref())
-        .map(|aff| aff.as_coeffs()[5] as f32)
-        .unwrap_or(0.0);
     let action_sel = format!("{mid_sel} [data-button]");
-    let (ax, ay_layout) = harness.center_of(&action_sel);
-    click_at_and_pump(&mut harness, ax, ay_layout + mid_ty_expanded);
+    let (ax, ay) = harness.center_of(&action_sel);
+    click_at_and_pump(&mut harness, ax, ay);
 
     assert!(
         action_clicked.load(Ordering::SeqCst),

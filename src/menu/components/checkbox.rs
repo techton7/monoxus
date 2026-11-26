@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::use_stable_id;
+use crate::foundation::{shared::use_stable_id, state::sync_signal};
 use crate::menu::{
     CheckedState, MenuCheckboxGroupContext, MenuCheckboxItemAttributes, MenuGroupAttributes,
     MenuIndicatorContext, MenuItemKind, MenuPart, MenuRootContext, MenuSelectEvent,
@@ -62,7 +62,10 @@ pub fn MenuCheckboxGroup(props: MenuCheckboxGroupProps) -> Element {
         }
     }
 
-    let on_value_change = props.on_value_change;
+    let mut is_controlled_slot = use_hook(|| CopyValue::new(is_controlled));
+    is_controlled_slot.set(is_controlled);
+    let mut on_value_change_slot = use_hook(|| CopyValue::new(props.on_value_change));
+    on_value_change_slot.set(props.on_value_change);
     let toggle_sig = value_sig;
     let toggle_disabled = disabled_sig;
     use_context_provider(|| MenuCheckboxGroupContext {
@@ -74,11 +77,12 @@ pub fn MenuCheckboxGroup(props: MenuCheckboxGroupProps) -> Element {
             }
             let current = toggle_sig.try_read().map(|g| g.clone()).unwrap_or_default();
             let next = toggle_checkbox_group_value(&current, item_val);
-            if !is_controlled {
+            let controlled = is_controlled_slot.try_read().map(|g| *g).unwrap_or(false);
+            if !controlled {
                 let mut w = toggle_sig;
                 let _ = w.try_write().map(|mut dst| *dst = next.clone());
             }
-            if let Some(cb) = on_value_change.as_ref() {
+            if let Some(cb) = on_value_change_slot.try_read().ok().and_then(|s| *s) {
                 cb.call(next);
             }
         }),
@@ -204,9 +208,13 @@ pub fn MenuCheckboxItem(props: MenuCheckboxItemProps) -> Element {
         MenuItemKind::CheckboxItem,
     );
 
+    let mut indicator_checked = use_signal(|| current_checked);
+    let mut indicator_disabled = use_signal(|| effective_disabled);
+    sync_signal(&mut indicator_checked, current_checked);
+    sync_signal(&mut indicator_disabled, effective_disabled);
     use_context_provider(|| MenuIndicatorContext {
-        checked: current_checked,
-        disabled: effective_disabled,
+        checked: indicator_checked,
+        disabled: indicator_disabled,
     });
 
     let highlighted =

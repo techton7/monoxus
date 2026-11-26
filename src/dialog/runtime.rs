@@ -50,7 +50,6 @@ struct DialogRuntimeState {
     on_dismiss_request: CopyValue<Option<EventHandler<bool>>>,
     on_open_change: CopyValue<Option<EventHandler<bool>>>,
     has_on_open_change_slot: CopyValue<bool>,
-    close_focus_applied: CopyValue<bool>,
 }
 
 #[derive(Clone)]
@@ -73,7 +72,6 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
     let on_dismiss_request = use_hook(|| CopyValue::new(Option::<EventHandler<bool>>::None));
     let on_open_change_slot = use_hook(|| CopyValue::new(Option::<EventHandler<bool>>::None));
     let has_on_open_change_slot = use_hook(|| CopyValue::new(false));
-    let close_focus_applied = use_hook(|| CopyValue::new(false));
 
     let is_open = dialog.is_open();
     let retain_mount = dialog.lifecycle().presence().retain_mount();
@@ -168,6 +166,7 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
             shield_policy: ModalShieldPolicy::InertAndAriaHidden,
             prevent_scroll: dialog.lifecycle().scroll_lock_policy().is_enabled(),
             prevent_body_pointer_events: effective_pbpe,
+            restore_delay: dialog.lifecycle().scroll_lock_policy().restore_delay(),
         },
     );
 
@@ -241,14 +240,10 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
 
     let mut was_open = use_hook(|| CopyValue::new(is_open));
     let mut ptr_dismiss_for_effect = last_dismiss_was_pointer;
-    let mut close_focus_applied_for_effect = close_focus_applied;
     use_effect(use_reactive((&is_open,), move |(open_now,)| {
         let prev = was_open.try_read().map(|g| *g).unwrap_or(false);
         if open_now && !prev {
             if let Ok(mut w) = ptr_dismiss_for_effect.try_write() {
-                *w = false;
-            }
-            if let Ok(mut w) = close_focus_applied_for_effect.try_write() {
                 *w = false;
             }
         } else if !open_now && prev {
@@ -256,9 +251,6 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
                 .try_read()
                 .map(|g| *g)
                 .unwrap_or(false);
-            if let Ok(mut w) = close_focus_applied_for_effect.try_write() {
-                *w = true;
-            }
             focus_scope.apply_close_focus(was_pointer);
         }
         if prev != open_now
@@ -287,7 +279,6 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         on_dismiss_request,
         on_open_change: on_open_change_slot,
         has_on_open_change_slot,
-        close_focus_applied,
     };
 
     DialogRuntime { dialog, state }
@@ -440,8 +431,9 @@ impl DialogRuntime {
         let target = target.into();
         let mut oft = self.state.open_focus_target;
         if oft.peek().as_deref() != Some(target.as_str()) {
-            oft.set(Some(target));
+            oft.set(Some(target.clone()));
         }
+        self.state.focus_scope.set_open_focus_target_id(Some(target));
     }
 
     pub fn register_branch(&self, id: impl Into<String>) {
@@ -631,35 +623,6 @@ impl DialogRuntime {
         if let Some(h) = handler {
             h.call(next);
         }
-    }
-
-    pub(crate) fn restore_close_focus_with_fallback(&self, fallback_trigger_id: Option<&str>) {
-        if self
-            .state
-            .close_focus_applied
-            .try_read()
-            .map(|g| *g)
-            .unwrap_or(false)
-        {
-            return;
-        }
-        if matches!(
-            self.dialog.lifecycle().close_focus_policy(),
-            DialogCloseFocusPolicy::Trigger
-        ) && self.state.trigger_id.peek().is_none()
-            && let Some(fb) = fallback_trigger_id
-        {
-            self.state
-                .focus_scope
-                .set_restore_target(Some(fb.to_string()));
-        }
-        let mut applied = self.state.close_focus_applied;
-        if let Ok(mut w) = applied.try_write() {
-            *w = true;
-        }
-        self.state
-            .focus_scope
-            .apply_close_focus(self.last_dismiss_was_pointer());
     }
 }
 

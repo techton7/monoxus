@@ -74,7 +74,7 @@ pub fn DialogPage() -> Element {
                                                 TooltipPortal {
                                                     TooltipContent {
                                                         id: "dialog-nested-tooltip-content".to_string(),
-                                                        class: "rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white shadow-lg".to_string(),
+                                                        class: "z-50 rounded-lg bg-slate-900 px-3 py-1.5 text-xs text-white shadow-lg".to_string(),
                                                         "Registered in Dialog OverlayBranchContext"
                                                     }
                                                 }

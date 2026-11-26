@@ -123,11 +123,25 @@ pub fn CommandDialog(props: CommandDialogProps) -> Element {
     on_state_change_slot.set(props.on_state_change);
 
     let mut filter_slot = use_hook(|| CopyValue::new(props.filter));
+    filter_slot.set(props.filter);
     let mut filter_rev = use_hook(|| CopyValue::new(0_u64));
-    if filter_slot.try_read().is_ok_and(|cur| *cur != props.filter) {
-        filter_slot.set(props.filter);
-        let next = filter_rev.try_read().map(|r| r.wrapping_add(1)).unwrap_or(1);
-        filter_rev.set(next);
+    let has_filter = props.filter.is_some();
+    let mut filter_initialized = use_hook(|| CopyValue::new(false));
+    let mut prev_had_filter = use_hook(|| CopyValue::new(has_filter));
+    // Dioxus 0.8 `Props::memoize` updates `Some(cb1) -> Some(cb2)` in place via
+    // `Callback::__point_to`, preserving `GenerationalBox` pointer equality. Bump
+    // `filter_rev` on post-mount re-renders whenever a custom filter is (or was)
+    // present; `CommandDialog` only passes the plain `u64` to `CommandDialogFilterSync`
+    // (no root signal subscription), so there is zero render loop.
+    if filter_initialized.try_read().is_ok_and(|init| *init) {
+        let had_filter = prev_had_filter.try_read().is_ok_and(|had| *had);
+        prev_had_filter.set(has_filter);
+        if has_filter || had_filter {
+            let next = filter_rev.try_read().map(|r| r.wrapping_add(1)).unwrap_or(1);
+            filter_rev.set(next);
+        }
+    } else {
+        filter_initialized.set(true);
     }
     let current_filter_rev = filter_rev.try_read().map(|r| *r).unwrap_or(0);
 

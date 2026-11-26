@@ -22,7 +22,6 @@ pub mod date_range_picker;
 #[path = "../../tests/fixtures/scenarios/dialog.rs"]
 pub mod dialog;
 pub mod dropdown_menu;
-pub mod form_1b;
 pub mod hover_card;
 pub mod label;
 pub mod menubar;
@@ -69,7 +68,6 @@ use date_range_field::DateRangeFieldShowcase;
 use date_range_picker::DateRangePickerShowcase;
 use dioxus::prelude::*;
 use dropdown_menu::DropdownMenuPlayground;
-use form_1b::Form1bPlayground;
 use hover_card::HoverCardPlayground;
 use label::LabelPlayground;
 use menubar::MenubarPlayground;
@@ -206,7 +204,6 @@ pub enum ComponentPage {
     TimeRangeField,
     DatePicker,
     DateRangePicker,
-    Form1B,
     Select,
     Collapsible,
     Accordion,
@@ -256,7 +253,6 @@ impl ComponentPage {
             Self::TimeRangeField => "Time Range Field",
             Self::DatePicker => "Date Picker",
             Self::DateRangePicker => "Date Range Picker",
-            Self::Form1B => "Form (1B)",
             Self::Select => "Select",
             Self::Collapsible => "Collapsible",
             Self::Accordion => "Accordion",
@@ -306,7 +302,6 @@ impl ComponentPage {
             Self::TimeRangeField => "⏲",
             Self::DatePicker => "📆",
             Self::DateRangePicker => "🗓",
-            Self::Form1B => "📝",
             Self::Select => "▾",
             Self::Collapsible => "◰",
             Self::Accordion => "≡",
@@ -356,7 +351,6 @@ impl ComponentPage {
             Self::TimeRangeField => "Time Range",
             Self::DatePicker => "Popover Cal",
             Self::DateRangePicker => "Range Picker",
-            Self::Form1B => "FormData Reset",
             Self::Select => "7 Scenarios",
             Self::Collapsible => "Disclosure",
             Self::Accordion => "Interactive",
@@ -393,7 +387,6 @@ pub fn App() -> Element {
         ComponentPage::DateRangePicker,
         ComponentPage::Dialog,
         ComponentPage::DropdownMenu,
-        ComponentPage::Form1B,
         ComponentPage::HoverCard,
         ComponentPage::Label,
         ComponentPage::Menubar,
@@ -476,7 +469,6 @@ pub fn App() -> Element {
                                 ComponentPage::Checkbox => "nav-checkbox",
                                 ComponentPage::Switch => "nav-switch",
                                 ComponentPage::RadioGroup => "nav-radio-group",
-                                ComponentPage::Form1B => "nav-form-1b",
                                 _ => "",
                             };
                             let legacy_id = format!("nav-link-{}", page.title().to_lowercase().replace(' ', "-").replace('(', "").replace(')', ""));
@@ -501,13 +493,6 @@ pub fn App() -> Element {
                                     span {
                                         style: "font-size: 0.6875rem; padding: 0.125rem 0.375rem; border-radius: 0.25rem; background-color: rgba(147, 51, 234, 0.08); color: #7e22ce;",
                                         "{page.badge()}"
-                                    }
-                                }
-                                if page == ComponentPage::Form1B {
-                                    button {
-                                        id: "nav-sw1b-form",
-                                        style: "display: none;",
-                                        onclick: move |_| current_page.set(ComponentPage::Form1B),
                                     }
                                 }
                                 if primary_id != legacy_id {
@@ -575,7 +560,6 @@ pub fn App() -> Element {
                     ComponentPage::TimeRangeField => rsx! { TimeRangeFieldShowcase {} },
                     ComponentPage::DatePicker => rsx! { DatePickerShowcase {} },
                     ComponentPage::DateRangePicker => rsx! { DateRangePickerShowcase {} },
-                    ComponentPage::Form1B => rsx! { Form1bPlayground {} },
                     ComponentPage::Select => rsx! { SelectPage {} },
                     ComponentPage::Collapsible => rsx! { CollapsiblePlayground {} },
                     ComponentPage::Accordion => rsx! { AccordionPage {} },

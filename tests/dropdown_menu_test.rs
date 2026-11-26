@@ -1040,6 +1040,212 @@ mod native_tests {
         advance_frame_and_pump(&mut harness, 0.02);
         assert!(harness.query("#dm-cb-content").is_some());
     }
+
+    #[component]
+    fn NativeDropdownReactiveIndicatorScenario() -> Element {
+        let mut group_disabled = use_signal(|| false);
+        let mut standalone_disabled = use_signal(|| false);
+        let mut radio_disabled = use_signal(|| false);
+        let mut swap_callbacks = use_signal(|| false);
+        let mut cb_group_log1 = use_signal(Vec::<String>::new);
+        let mut cb_group_log2 = use_signal(Vec::<String>::new);
+        let mut radio_log1 = use_signal(Vec::<String>::new);
+        let mut radio_log2 = use_signal(Vec::<String>::new);
+
+        let cb_on_change = if swap_callbacks() {
+            EventHandler::new(move |vals: Vec<String>| cb_group_log2.write().push(vals.join("+")))
+        } else {
+            EventHandler::new(move |vals: Vec<String>| cb_group_log1.write().push(vals.join("+")))
+        };
+        let radio_on_change = if swap_callbacks() {
+            EventHandler::new(move |val: String| radio_log2.write().push(val))
+        } else {
+            EventHandler::new(move |val: String| radio_log1.write().push(val))
+        };
+
+        rsx! {
+            div { style: "padding: 20px;",
+                span { id: "dm-d6-cbg-log1", "{cb_group_log1.read().join(\",\")}" }
+                span { id: "dm-d6-cbg-log2", "{cb_group_log2.read().join(\",\")}" }
+                span { id: "dm-d6-rg-log1", "{radio_log1.read().join(\",\")}" }
+                span { id: "dm-d6-rg-log2", "{radio_log2.read().join(\",\")}" }
+
+                DropdownMenuRoot {
+                    modal: false,
+                    default_open: true,
+                    DropdownMenuTrigger { id: "dm-d6-trig", "Open" }
+                    DropdownMenuContentStatic {
+                        id: "dm-d6-content",
+                        button {
+                            id: "dm-d6-toggle-disabled",
+                            r#type: "button",
+                            onclick: move |_| {
+                                let next = !group_disabled();
+                                group_disabled.set(next);
+                                standalone_disabled.set(next);
+                                radio_disabled.set(next);
+                            },
+                            "Toggle Disabled"
+                        }
+                        button {
+                            id: "dm-d6-swap-cb",
+                            r#type: "button",
+                            onclick: move |_| swap_callbacks.set(true),
+                            "Swap Callbacks"
+                        }
+                        DropdownMenuCheckboxItem {
+                            id: "dm-d6-tri",
+                            default_checked: CheckedState::Indeterminate,
+                            disabled: standalone_disabled(),
+                            close_on_select: false,
+                            DropdownMenuItemIndicator { id: "dm-d6-tri-ind", "*" }
+                            "Tri-state"
+                        }
+                        DropdownMenuCheckboxGroup {
+                            default_value: Some(vec!["bold".to_string()]),
+                            disabled: group_disabled(),
+                            on_value_change: Some(cb_on_change),
+                            DropdownMenuCheckboxItem {
+                                id: "dm-d6-bold",
+                                value: Some("bold".to_string()),
+                                close_on_select: false,
+                                DropdownMenuItemIndicator { id: "dm-d6-bold-ind", "✓" }
+                                "Bold"
+                            }
+                            DropdownMenuCheckboxItem {
+                                id: "dm-d6-italic",
+                                value: Some("italic".to_string()),
+                                close_on_select: false,
+                                DropdownMenuItemIndicator {
+                                    id: "dm-d6-italic-ind",
+                                    force_mount: true,
+                                    "✓"
+                                }
+                                "Italic"
+                            }
+                        }
+                        DropdownMenuRadioGroup {
+                            default_value: Some("a".to_string()),
+                            on_value_change: Some(radio_on_change),
+                            DropdownMenuRadioItem {
+                                id: "dm-d6-r-a",
+                                value: "a".to_string(),
+                                disabled: radio_disabled(),
+                                close_on_select: false,
+                                DropdownMenuItemIndicator { id: "dm-d6-r-a-ind", "●" }
+                                "Alpha"
+                            }
+                            DropdownMenuRadioItem {
+                                id: "dm-d6-r-b",
+                                value: "b".to_string(),
+                                close_on_select: false,
+                                DropdownMenuItemIndicator {
+                                    id: "dm-d6-r-b-ind",
+                                    force_mount: true,
+                                    "●"
+                                }
+                                "Beta"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_w3_d6_dropdown_menu_reactive_item_indicator_and_group_callbacks() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeDropdownReactiveIndicatorScenario);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        // Standalone tri-state CheckboxItem: Indeterminate -> Checked -> Unchecked while open
+        assert_eq!(
+            harness.attr("#dm-d6-tri-ind", "data-state").as_deref(),
+            Some("indeterminate")
+        );
+        click_and_pump(&mut harness, "#dm-d6-tri");
+        assert!(harness.query("#dm-d6-content").is_some());
+        assert_eq!(
+            harness.attr("#dm-d6-tri-ind", "data-state").as_deref(),
+            Some("checked")
+        );
+        click_and_pump(&mut harness, "#dm-d6-tri");
+        assert!(
+            harness.query("#dm-d6-tri-ind").is_none(),
+            "Unchecked standalone CheckboxItem indicator must unmount live"
+        );
+        click_and_pump(&mut harness, "#dm-d6-tri");
+        assert_eq!(
+            harness.attr("#dm-d6-tri-ind", "data-state").as_deref(),
+            Some("checked")
+        );
+
+        // CheckboxGroup default & force_mount indicators + post-mount callback swap
+        assert_eq!(
+            harness.attr("#dm-d6-bold-ind", "data-state").as_deref(),
+            Some("checked")
+        );
+        assert_eq!(
+            harness.attr("#dm-d6-italic-ind", "data-state").as_deref(),
+            Some("unchecked")
+        );
+        click_and_pump(&mut harness, "#dm-d6-swap-cb");
+        click_and_pump(&mut harness, "#dm-d6-bold");
+        assert!(
+            harness.query("#dm-d6-bold-ind").is_none(),
+            "Unchecked CheckboxGroup item indicator must unmount live"
+        );
+        click_and_pump(&mut harness, "#dm-d6-italic");
+        assert_eq!(
+            harness.attr("#dm-d6-italic-ind", "data-state").as_deref(),
+            Some("checked")
+        );
+        assert_eq!(harness.text_content("#dm-d6-cbg-log1"), "");
+        assert_eq!(harness.text_content("#dm-d6-cbg-log2"), ",italic");
+
+        // RadioGroup default & force_mount indicators + post-mount callback swap
+        assert_eq!(
+            harness.attr("#dm-d6-r-a-ind", "data-state").as_deref(),
+            Some("checked")
+        );
+        assert_eq!(
+            harness.attr("#dm-d6-r-b-ind", "data-state").as_deref(),
+            Some("unchecked")
+        );
+        click_and_pump(&mut harness, "#dm-d6-r-b");
+        assert!(
+            harness.query("#dm-d6-r-a-ind").is_none(),
+            "Deselected RadioItem indicator must unmount live"
+        );
+        assert_eq!(
+            harness.attr("#dm-d6-r-b-ind", "data-state").as_deref(),
+            Some("checked")
+        );
+        assert_eq!(harness.text_content("#dm-d6-rg-log1"), "");
+        assert_eq!(harness.text_content("#dm-d6-rg-log2"), "b");
+
+        // Dynamic disabled propagation to mounted indicators
+        click_and_pump(&mut harness, "#dm-d6-r-a");
+        assert!(harness.query("#dm-d6-r-a-ind").is_some());
+        assert_eq!(harness.attr("#dm-d6-tri-ind", "data-disabled"), None);
+        assert_eq!(harness.attr("#dm-d6-italic-ind", "data-disabled"), None);
+        assert_eq!(harness.attr("#dm-d6-r-a-ind", "data-disabled"), None);
+
+        click_and_pump(&mut harness, "#dm-d6-toggle-disabled");
+        assert_eq!(
+            harness.attr("#dm-d6-tri-ind", "data-disabled").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#dm-d6-italic-ind", "data-disabled").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#dm-d6-r-a-ind", "data-disabled").as_deref(),
+            Some("")
+        );
+    }
 }
 
 #[test]

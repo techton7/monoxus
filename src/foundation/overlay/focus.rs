@@ -48,6 +48,7 @@ pub struct ModalLayerConfig {
     pub shield_policy: ModalShieldPolicy,
     pub prevent_scroll: bool,
     pub prevent_body_pointer_events: bool,
+    pub restore_delay: Option<u64>,
 }
 
 impl ModalLayerConfig {
@@ -58,6 +59,7 @@ impl ModalLayerConfig {
             shield_policy: ModalShieldPolicy::InertAndAriaHidden,
             prevent_scroll: true,
             prevent_body_pointer_events: true,
+            restore_delay: None,
         }
     }
 }
@@ -161,7 +163,7 @@ pub fn use_modal_layer(active: bool, config: ModalLayerConfig) -> ModalLayerHand
                 })
                 .unwrap_or(false);
             if was_held && !cur_cfg.lock_id.is_empty() {
-                release_scroll_lock(&cur_cfg.lock_id, None);
+                release_scroll_lock(&cur_cfg.lock_id, cur_cfg.restore_delay);
             }
             return;
         }
@@ -284,6 +286,16 @@ impl FocusScopeHandle {
         }
     }
 
+    /// Synchronously updates the preferred open-focus target ID (e.g. `AlertDialogCancel`).
+    pub fn set_open_focus_target_id(&self, target_id: Option<String>) {
+        let mut cfg_slot = self.config;
+        if let Ok(mut cfg) = cfg_slot.try_write()
+            && cfg.open_focus_target_id != target_id
+        {
+            cfg.open_focus_target_id = target_id;
+        }
+    }
+
     /// Fires `on_open_auto_focus` (checking `defaultPrevented`, `bits#2219`) and, unless prevented,
     /// focuses the target with a bounded 5-frame `next_frame()` retry loop.
     pub fn apply_open_focus(&self) {
@@ -341,10 +353,17 @@ impl FocusScopeHandle {
                     .try_read()
                     .map(|g| g.container_id.clone())
                     .unwrap_or_else(|_| container_id.clone());
+                let live_preferred = handle
+                    .config
+                    .try_read()
+                    .ok()
+                    .and_then(|g| g.open_focus_target_id.clone())
+                    .filter(|id| !id.is_empty())
+                    .or_else(|| preferred_id.clone());
                 if !super::is_topmost_overlay_layer(&live_cid) {
                     return;
                 }
-                if try_focus_scope_target_sync(&live_cid, preferred_id.as_deref(), &selector) {
+                if try_focus_scope_target_sync(&live_cid, live_preferred.as_deref(), &selector) {
                     return;
                 }
             }

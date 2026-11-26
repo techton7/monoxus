@@ -1266,6 +1266,7 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
         shield_policy,
         prevent_scroll: is_modal || prevent_scroll,
         prevent_body_pointer_events: is_modal && root.variant != MenuVariant::ContextMenu,
+        restore_delay: None,
     };
     let modal_handle = use_modal_layer(modal_active, modal_cfg);
     let mut modal_slot = surface.modal_layer;
@@ -1516,10 +1517,10 @@ pub struct MenuRadioGroupContext {
 }
 
 /// Indicator state provided by `CheckboxItem` and `RadioItem` to `ItemIndicator` (`M-10`).
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub struct MenuIndicatorContext {
-    pub checked: CheckedState,
-    pub disabled: bool,
+    pub checked: Signal<CheckedState>,
+    pub disabled: Signal<bool>,
 }
 
 /// Submenu state provided by `MenuSub` to `SubTrigger`, `Portal`, `SubContent`, and `SubContentStatic`.

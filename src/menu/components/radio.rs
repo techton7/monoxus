@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::use_stable_id;
+use crate::foundation::{shared::use_stable_id, state::sync_signal};
 use crate::menu::{
     CheckedState, MenuGroupAttributes, MenuIndicatorContext, MenuItemKind, MenuPart,
     MenuRadioGroupContext, MenuRadioItemAttributes, MenuRootContext, MenuSelectEvent,
@@ -53,7 +53,10 @@ pub fn MenuRadioGroup(props: MenuRadioGroupProps) -> Element {
         }
     }
 
-    let on_value_change = props.on_value_change;
+    let mut is_controlled_slot = use_hook(|| CopyValue::new(is_controlled));
+    is_controlled_slot.set(is_controlled);
+    let mut on_value_change_slot = use_hook(|| CopyValue::new(props.on_value_change));
+    on_value_change_slot.set(props.on_value_change);
     let select_sig = value_sig;
     use_context_provider(|| MenuRadioGroupContext {
         value: value_sig,
@@ -62,11 +65,12 @@ pub fn MenuRadioGroup(props: MenuRadioGroupProps) -> Element {
             if current == next_val {
                 return;
             }
-            if !is_controlled {
+            let controlled = is_controlled_slot.try_read().map(|g| *g).unwrap_or(false);
+            if !controlled {
                 let mut w = select_sig;
                 let _ = w.try_write().map(|mut dst| *dst = next_val.to_owned());
             }
-            if let Some(cb) = on_value_change.as_ref() {
+            if let Some(cb) = on_value_change_slot.try_read().ok().and_then(|s| *s) {
                 cb.call(next_val.to_owned());
             }
         }),
@@ -153,9 +157,14 @@ pub fn MenuRadioItem(props: MenuRadioItemProps) -> Element {
         MenuItemKind::RadioItem,
     );
 
+    let checked_state = CheckedState::from(checked);
+    let mut indicator_checked = use_signal(|| checked_state);
+    let mut indicator_disabled = use_signal(|| props.disabled);
+    sync_signal(&mut indicator_checked, checked_state);
+    sync_signal(&mut indicator_disabled, props.disabled);
     use_context_provider(|| MenuIndicatorContext {
-        checked: CheckedState::from(checked),
-        disabled: props.disabled,
+        checked: indicator_checked,
+        disabled: indicator_disabled,
     });
 
     let highlighted =

@@ -209,7 +209,7 @@ impl FloatingReadiness {
             (Self::Ready, Some(p)) => {
                 let geom = p.geometry();
                 format!(
-                    "position: fixed; left: {}px; top: {}px; visibility: visible; pointer-events: auto;",
+                    "position: fixed; left: 0px; top: 0px; transform: translate({}px, {}px); visibility: visible; pointer-events: auto;",
                     geom.x(),
                     geom.y()
                 )

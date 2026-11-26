@@ -231,10 +231,11 @@ pub fn AlertDialogRoot(props: AlertDialogRootProps) -> Element {
     }
 
     let alert_runtime = use_alert_dialog_runtime(alert);
+    alert_runtime
+        .dialog_runtime()
+        .set_on_open_change(on_open_change);
     let mut runtime_sig = use_signal(|| alert_runtime.dialog_runtime().clone());
-    if runtime_sig.peek().is_open() != alert_runtime.dialog_runtime().is_open()
-        || runtime_sig.peek().root().id() != alert_runtime.dialog_runtime().root().id()
-    {
+    if runtime_sig.peek().dialog() != alert_runtime.dialog_runtime().dialog() {
         runtime_sig.set(alert_runtime.dialog_runtime().clone());
     }
 
@@ -250,20 +251,6 @@ pub fn AlertDialogRoot(props: AlertDialogRootProps) -> Element {
         trigger_id,
         title_id,
         description_id,
-    });
-
-    let mut was_open_sig = use_signal(|| open_signal());
-    use_effect(move || {
-        let is_curr = open_signal();
-        let was_open = *was_open_sig.peek();
-        if was_open && !is_curr {
-            runtime_sig
-                .peek()
-                .restore_close_focus_with_fallback(trigger_id.peek().as_deref());
-        }
-        if was_open != is_curr {
-            was_open_sig.set(is_curr);
-        }
     });
 
     let attrs = alert_runtime.root();

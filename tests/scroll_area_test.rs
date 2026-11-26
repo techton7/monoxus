@@ -351,12 +351,14 @@ mod native_w2_scroll_tests {
             .unwrap_or(0.0);
         let corner_w = ctx.runtime.corner_width();
         let corner_h = ctx.runtime.corner_height();
+        let hide_delay = *ctx.scroll_hide_delay.read();
         rsx! {
             div {
                 id: "{id}",
                 "data-scroll-top": "{scroll_top}",
                 "data-corner-w": "{corner_w}",
                 "data-corner-h": "{corner_h}",
+                "data-hide-delay": "{hide_delay}",
             }
         }
     }
@@ -365,6 +367,7 @@ mod native_w2_scroll_tests {
     fn ReactiveScrollAreaScenario() -> Element {
         let mut scroll_type = use_signal(|| ScrollAreaType::Hover);
         let mut dir = use_signal(|| Direction::Ltr);
+        let mut hide_delay = use_signal(|| 600_u64);
 
         rsx! {
             div {
@@ -386,11 +389,19 @@ mod native_w2_scroll_tests {
                     onclick: move |_| scroll_type.set(ScrollAreaType::Scroll),
                     "Scroll"
                 }
+                button {
+                    id: "scr-set-delay-150",
+                    r#type: "button",
+                    onclick: move |_| hide_delay.set(150),
+                    "Delay 150"
+                }
                 ScrollAreaRoot {
                     id: "scr-react-root",
                     r#type: scroll_type(),
                     dir: dir(),
+                    scroll_hide_delay: hide_delay(),
                     style: "width: 200px; height: 200px;",
+                    ScrollMetricsProbe { id: "scr-react-probe".to_string() }
                     ScrollAreaViewport {
                         id: "scr-react-vp",
                         style: "width: 200px; height: 200px;",
@@ -481,6 +492,19 @@ mod native_w2_scroll_tests {
         assert!(
             harness.query("#scr-react-corner").is_none(),
             "FM-W2-SCR: post-mount ScrollAreaType::Scroll must hide corner"
+        );
+
+        // Post-mount scroll_hide_delay mutation propagates reactively through ScrollAreaContext
+        assert_eq!(
+            harness.attr("#scr-react-probe", "data-hide-delay").as_deref(),
+            Some("600"),
+            "FM-W2-SCR: initial scroll_hide_delay must be 600ms"
+        );
+        click_and_pump(&mut harness, "#scr-set-delay-150");
+        assert_eq!(
+            harness.attr("#scr-react-probe", "data-hide-delay").as_deref(),
+            Some("150"),
+            "FM-W2-SCR: post-mount scroll_hide_delay mutation must propagate reactively"
         );
     }
 

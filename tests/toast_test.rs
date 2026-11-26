@@ -1789,26 +1789,13 @@ fn pointer_close_and_action_keep_viewport_unfocused_collapse_on_mouseleave_and_e
     }
 
     // 4. Re-hover remaining 2-card stack and click [data-button] (Action) on id_mid with pointer
-    let mid_ty = harness
-        .base()
-        .get_node(harness.node(&mid_sel))
-        .and_then(|n| n.transform().as_ref())
-        .map(|aff| aff.as_coeffs()[5] as f32)
-        .unwrap_or(0.0);
-    let (mx, my_layout) = harness.center_of(&mid_sel);
-    harness.move_mouse_to(mx, my_layout + mid_ty);
+    let (mx, my) = harness.center_of(&mid_sel);
+    harness.move_mouse_to(mx, my);
     harness.pump();
     advance_frame(&mut harness, 0.02);
 
-    let mid_ty_expanded = harness
-        .base()
-        .get_node(harness.node(&mid_sel))
-        .and_then(|n| n.transform().as_ref())
-        .map(|aff| aff.as_coeffs()[5] as f32)
-        .unwrap_or(0.0);
     let action_sel = format!("{mid_sel} [data-button]");
-    let (ax, ay_layout) = harness.center_of(&action_sel);
-    let ay = ay_layout + mid_ty_expanded;
+    let (ax, ay) = harness.center_of(&action_sel);
     harness.mouse_down_at(ax, ay);
     advance_frame(&mut harness, 0.04);
     harness.mouse_up_at(ax, ay);

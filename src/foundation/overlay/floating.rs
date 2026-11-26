@@ -87,6 +87,56 @@ pub fn compute_overlay_position(config: &OverlayPositionConfig) -> Option<Floati
     compute_virtual_overlay_position(&VirtualOverlayPositionConfig::from(config))
 }
 
+/// Returns the viewport origin `(x, y)` of the innermost transformed ancestor
+/// `[data-monoxus-floating-content-wrapper]` containing `content_id`'s wrapper, if any.
+///
+/// Under CSS Transforms Level 1, any ancestor with `transform != none` establishes the
+/// containing block for `position: fixed` descendants. When a nested floating overlay
+/// remains a DOM descendant of an outer transformed floating wrapper (for example,
+/// non-reparented Native portals or inline portals), subtracting this containing-block
+/// origin converts viewport-space coordinates into wrapper-local `translate(x, y)` coords.
+fn fixed_containing_wrapper_offset(content_id: &str) -> (f32, f32) {
+    let Some(doc) = oxidase::dom::Document::current() else {
+        return (0.0, 0.0);
+    };
+    let Some(el) = doc.element_by_id(content_id) else {
+        return (0.0, 0.0);
+    };
+    let own_wrapper = el.closest("[data-monoxus-floating-content-wrapper]");
+    let own_wrapper_id = own_wrapper.as_ref().and_then(|w| w.id());
+    let target = own_wrapper.as_ref().unwrap_or(&el);
+
+    let Some(root) = doc
+        .query_selector("body")
+        .or_else(|| doc.query_selector("html"))
+    else {
+        return (0.0, 0.0);
+    };
+
+    let mut nearest_ancestor_id: Option<String> = None;
+    for candidate in root.query_selector_all("[data-monoxus-floating-content-wrapper]") {
+        let Some(cand_id) = candidate.id() else {
+            continue;
+        };
+        if own_wrapper_id.as_deref() == Some(cand_id.as_str()) {
+            continue;
+        }
+        if candidate.get_attribute("data-positioning").as_deref() != Some("positioned") {
+            continue;
+        }
+        if candidate.contains(target) {
+            nearest_ancestor_id = Some(cand_id);
+        }
+    }
+
+    if let Some(anc_id) = nearest_ancestor_id
+        && let Some(rect) = doc.measure_rect(&anc_id)
+    {
+        return (rect.x as f32, rect.y as f32);
+    }
+    (0.0, 0.0)
+}
+
 pub fn compute_virtual_overlay_position(
     config: &VirtualOverlayPositionConfig,
 ) -> Option<FloatingPlacement> {
@@ -319,11 +369,12 @@ pub fn compute_virtual_overlay_position(
         ),
     };
 
+    let (cb_x, cb_y) = fixed_containing_wrapper_offset(&content_str);
     let ns = config.namespace.unwrap_or(GeometryVars::DEFAULT_NAMESPACE);
     let geometry = GeometryVars::new(
         ns.to_string(),
-        x,
-        y,
+        x - cb_x,
+        y - cb_y,
         transform_origin_x,
         transform_origin_y,
         available_size.width(),
@@ -547,19 +598,30 @@ impl FloatingHandle {
         let Ok(spec) = self.spec.try_read() else {
             return;
         };
+        let measurement_id = spec.effective_measurement_id().to_owned();
         let content_id = spec.content_id.clone();
         drop(spec);
 
-        let next = normalize_hoisted_z_index(get_element_computed_z_index(&content_id).as_deref())
-            .or_else(|| {
-                let handle = self
-                    .content_handle
-                    .try_peek()
-                    .ok()
-                    .and_then(|h| h.clone())?;
-                let el = oxidase::Element::from_mounted(handle);
-                normalize_hoisted_z_index(computed_z_index_for_element(&el).as_deref())
-            });
+        let next =
+            normalize_hoisted_z_index(get_element_computed_z_index(&measurement_id).as_deref())
+                .or_else(|| {
+                    (content_id != measurement_id)
+                        .then(|| {
+                            normalize_hoisted_z_index(
+                                get_element_computed_z_index(&content_id).as_deref(),
+                            )
+                        })
+                        .flatten()
+                })
+                .or_else(|| {
+                    let handle = self
+                        .content_handle
+                        .try_peek()
+                        .ok()
+                        .and_then(|h| h.clone())?;
+                    let el = oxidase::Element::from_mounted(handle);
+                    normalize_hoisted_z_index(computed_z_index_for_element(&el).as_deref())
+                });
 
         let mut sig = self.content_z_index;
         sync_signal(&mut sig, next);

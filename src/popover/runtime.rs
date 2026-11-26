@@ -265,6 +265,7 @@ where
         },
         prevent_scroll: is_modal && popover.lifecycle().scroll_lock_policy().is_enabled(),
         prevent_body_pointer_events: true,
+        restore_delay: popover.lifecycle().scroll_lock_policy().restore_delay(),
     };
     let modal = use_modal_layer(popover.is_open() && is_modal, modal_config);
 
