@@ -1139,4 +1139,131 @@ mod native_tests {
 
         clear_active_overlay_stack();
     }
+
+    #[component]
+    fn NativeDateRangePickerReactivePredicateScenario() -> Element {
+        let mut pred_stage = use_signal(|| 0_u8);
+        let mut last_invalid_reason = use_signal(|| Option::<FieldInvalidReason>::None);
+        let stage = *pred_stage.read();
+        let is_date_unavailable = if stage == 0 {
+            Some(Callback::new(|date: CalendarDate| date.day == 10))
+        } else {
+            Some(Callback::new(|date: CalendarDate| date.day == 22))
+        };
+
+        rsx! {
+            div {
+                style: "padding: 16px;",
+                button {
+                    id: "drp-pred-swap",
+                    r#type: "button",
+                    style: "width: 80px; height: 28px;",
+                    onclick: move |_| {
+                        let next = 1 - *pred_stage.read();
+                        pred_stage.set(next);
+                    },
+                    "Swap"
+                }
+                DateRangePickerRoot {
+                    id: "drp-pred-root",
+                    locale: CalendarLocale::EnUs,
+                    default_placeholder: d(2026, 4, 15),
+                    is_date_unavailable,
+                    on_invalid: move |evt: FieldInvalidEvent| {
+                        last_invalid_reason.set(Some(evt.reason));
+                    },
+                    div {
+                        style: "display: flex; align-items: center; gap: 8px;",
+                        DateRangePickerInput {
+                            kind: RangeFieldInputKind::Start,
+                            id: "drp-pred-start-input",
+                            name: Some("drp_pred_start".to_string()),
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    DateRangePickerSegment {
+                                        key: "{seg.index}",
+                                        id: format!("drp-pred-start-seg-{}", seg.index),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        style: "display: inline-block; min-width: 24px; height: 24px;",
+                                    }
+                                }
+                            }
+                        }
+                        DateRangePickerInput {
+                            kind: RangeFieldInputKind::End,
+                            id: "drp-pred-end-input",
+                            name: Some("drp_pred_end".to_string()),
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    DateRangePickerSegment {
+                                        key: "{seg.index}",
+                                        id: format!("drp-pred-end-seg-{}", seg.index),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        style: "display: inline-block; min-width: 24px; height: 24px;",
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                span {
+                    id: "drp-pred-invalid-reason",
+                    "{last_invalid_reason.read():?}"
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_date_range_picker_reactive_predicate_swap_updates_field_invalid_from_none() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_active_overlay_stack();
+        let mut harness = mount_native_scenario(NativeDateRangePickerReactivePredicateScenario);
+
+        // Mounted with empty range -> enter 2026-04-22 into Start (valid under cb1 which blocks day 10)
+        crate::common::native_fixture::focus_node(&mut harness, "#drp-pred-start-seg-0");
+        send_key_and_pump(&mut harness, Key::Character("4".to_string()), Code::Digit4);
+        send_key_and_pump(&mut harness, Key::Character("2".to_string()), Code::Digit2);
+        send_key_and_pump(&mut harness, Key::Character("2".to_string()), Code::Digit2);
+        send_key_and_pump(&mut harness, Key::Character("2".to_string()), Code::Digit2);
+        send_key_and_pump(&mut harness, Key::Character("0".to_string()), Code::Digit0);
+        send_key_and_pump(&mut harness, Key::Character("2".to_string()), Code::Digit2);
+        send_key_and_pump(&mut harness, Key::Character("6".to_string()), Code::Digit6);
+
+        assert_eq!(
+            harness.attr("input[name='drp_pred_start']", "value").as_deref(),
+            Some("2026-04-22")
+        );
+        assert_eq!(harness.attr("[data-date-range-field-root]", "data-invalid"), None);
+        assert_eq!(harness.attr("#drp-pred-start-input", "data-invalid"), None);
+
+        // Swap is_date_unavailable Some(cb1) -> Some(cb2) (blocks day 22) without changing value/placeholder
+        click_and_pump(&mut harness, "#drp-pred-swap");
+        assert_eq!(
+            harness
+                .attr("[data-date-range-field-root]", "data-invalid")
+                .as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#drp-pred-start-input", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(harness.attr("#drp-pred-end-input", "data-invalid"), None);
+        assert_eq!(
+            harness.text_content("#drp-pred-invalid-reason"),
+            "Some(Unavailable)"
+        );
+
+        // Swap back Some(cb2) -> Some(cb1) -> invalid state clears immediately
+        click_and_pump(&mut harness, "#drp-pred-swap");
+        assert_eq!(harness.attr("[data-date-range-field-root]", "data-invalid"), None);
+        assert_eq!(harness.attr("#drp-pred-start-input", "data-invalid"), None);
+
+        clear_active_overlay_stack();
+    }
 }

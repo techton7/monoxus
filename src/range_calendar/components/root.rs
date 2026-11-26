@@ -243,6 +243,7 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
     {
         let mut rt = runtime.clone();
         use_effect(move || {
+            let _ = rt.predicate_rev();
             let current = *rt.value.read();
             if *last_value_seen.read() != current {
                 last_value_seen.set(current);
@@ -317,6 +318,32 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         body,
     );
 
+    let mut consumer_on_key_down_slot = use_hook(|| CopyValue::new(props.on_key_down));
+    consumer_on_key_down_slot.set(props.on_key_down);
+    let composed_on_key_down = use_hook(|| {
+        let mut rt_for_key = runtime.clone();
+        let consumed_flag = Rc::clone(&guard_consumed_escape);
+        EventHandler::new(move |evt: KeyboardEvent| {
+            if let Some(handler) = consumer_on_key_down_slot
+                .try_read()
+                .ok()
+                .and_then(|slot| *slot)
+            {
+                handler.call(evt.clone());
+            }
+            if evt.default_action_enabled()
+                && !is_ime_composing_key(&evt)
+                && evt.key() == Key::Named(NamedKey::Escape)
+                && !crate::foundation::overlay::is_overlay_escape_consumed()
+                && (consumed_flag.replace(false) || rt_for_key.handle_escape())
+            {
+                crate::foundation::overlay::mark_overlay_escape_consumed();
+                evt.prevent_default();
+                evt.stop_propagation();
+            }
+        })
+    });
+
     if props.as_child {
         if let Some(render_child) = props.render_child.as_ref() {
             return render_child.call(RangeCalendarRootRenderProps {
@@ -324,7 +351,7 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
                 snapshot,
                 class: props.class,
                 style: props.style,
-                on_key_down: props.on_key_down,
+                on_key_down: Some(composed_on_key_down),
                 on_mounted: props.on_mounted,
                 attributes: props.attributes,
                 children: internal_children,
@@ -341,8 +368,6 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         props.style.as_deref(),
         props.attributes,
     );
-    let mut rt_for_key = runtime.clone();
-    let consumer_on_key_down = props.on_key_down;
     let on_mounted = props.on_mounted;
 
     rsx! {
@@ -357,21 +382,7 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
             "data-invalid": root_attrs.data_invalid,
             "data-disabled": root_attrs.data_disabled,
             "data-readonly": root_attrs.data_readonly,
-            onkeydown: move |evt: KeyboardEvent| {
-                if let Some(handler) = consumer_on_key_down {
-                    handler.call(evt.clone());
-                }
-                if evt.default_action_enabled()
-                    && !is_ime_composing_key(&evt)
-                    && evt.key() == Key::Named(NamedKey::Escape)
-                    && !crate::foundation::overlay::is_overlay_escape_consumed()
-                    && (guard_consumed_escape.replace(false) || rt_for_key.handle_escape())
-                {
-                    crate::foundation::overlay::mark_overlay_escape_consumed();
-                    evt.prevent_default();
-                    evt.stop_propagation();
-                }
-            },
+            onkeydown: move |evt: KeyboardEvent| composed_on_key_down.call(evt),
             onmounted: move |evt| {
                 if let Some(handler) = on_mounted {
                     handler.call(evt);

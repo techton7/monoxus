@@ -13,7 +13,9 @@ use crate::{
     },
     date_range_field::{
         DateRangeFieldRootRenderProps,
-        components::{RangeFieldRootSpec, render_range_field_root},
+        components::{
+            RangeFieldRootSpec, render_range_field_root_with_runtime, use_range_field_runtime,
+        },
         try_use_date_range_field_context,
     },
     foundation::{
@@ -287,8 +289,27 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
     let mut on_open_change = use_hook(|| CopyValue::new(props.on_open_change));
     on_open_change.set(props.on_open_change);
 
-    let is_date_disabled = use_signal(|| props.is_date_disabled);
-    let is_date_unavailable = use_signal(|| props.is_date_unavailable);
+    let mut is_date_disabled = use_signal(|| props.is_date_disabled);
+    let mut is_date_unavailable = use_signal(|| props.is_date_unavailable);
+    let mut predicate_rev = use_signal(|| 0_u64);
+    let has_unavailable_pred =
+        props.is_date_disabled.is_some() || props.is_date_unavailable.is_some();
+    let mut pred_initialized = use_hook(|| CopyValue::new(false));
+    let mut prev_had_pred = use_hook(|| CopyValue::new(has_unavailable_pred));
+    if pred_initialized.try_read().is_ok_and(|init| *init) {
+        crate::foundation::state::sync_signal(&mut is_date_disabled, props.is_date_disabled);
+        crate::foundation::state::sync_signal(&mut is_date_unavailable, props.is_date_unavailable);
+        let had_pred = prev_had_pred.try_read().is_ok_and(|had| *had);
+        prev_had_pred.set(has_unavailable_pred);
+        if has_unavailable_pred || had_pred {
+            let next_rev = predicate_rev.try_peek().ok().map(|cur| cur.wrapping_add(1));
+            if let Some(next_rev) = next_rev {
+                crate::foundation::state::sync_signal(&mut predicate_rev, next_rev);
+            }
+        }
+    } else {
+        pred_initialized.set(true);
+    }
 
     let runtime = DateRangePickerRuntime {
         core: PickerRuntimeCore {
@@ -307,6 +328,7 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
             on_open_change,
             is_date_disabled,
             is_date_unavailable,
+            predicate_rev,
         },
         calendar_start: calendar_start_sig,
         calendar_end: calendar_end_sig,
@@ -378,80 +400,101 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
         .close_focus
         .unwrap_or(PopoverCloseFocusPolicy::Trigger);
 
-    let has_unavailable_pred =
-        props.is_date_disabled.is_some() || props.is_date_unavailable.is_some();
     let stable_unavailable_cb = use_hook(|| {
         let is_disabled_sig = runtime.is_date_disabled;
         let is_unavailable_sig = runtime.is_date_unavailable;
         Callback::new(move |date: CalendarDate| -> bool {
-            let disabled = is_disabled_sig.read().is_some_and(|cb| cb.call(date));
-            let unavailable = is_unavailable_sig.read().is_some_and(|cb| cb.call(date));
+            let disabled = is_disabled_sig
+                .try_read()
+                .ok()
+                .and_then(|slot| *slot)
+                .is_some_and(|cb| cb.call(date));
+            let unavailable = is_unavailable_sig
+                .try_read()
+                .ok()
+                .and_then(|slot| *slot)
+                .is_some_and(|cb| cb.call(date));
             disabled || unavailable
         })
     });
     let combined_unavailable = has_unavailable_pred.then_some(stable_unavailable_cb);
 
     let render_child = props.render_child;
-    render_range_field_root::<DateFieldPolicy, _>(
-        RangeFieldRootSpec {
-            id: Some(rels.field_scope().token().to_string()),
-            class: props.class,
-            style: props.style,
-            value: Some(runtime.value),
-            default_value: props.default_value,
-            on_value_change: Some(EventHandler::new(move |next| {
-                rt_for_field_val.handle_field_value_change(next);
-            })),
-            on_start_value_change: None,
-            on_end_value_change: None,
-            placeholder: Some(runtime.placeholder),
-            on_placeholder_change: Some(EventHandler::new(move |next| {
-                rt_for_field_ph.handle_field_placeholder_change(next);
-            })),
-            granularity: props.granularity,
-            hour_cycle: props.hour_cycle,
-            locale: props.locale,
-            hide_time_zone: props.hide_time_zone,
-            min_value: props.min_value,
-            max_value: props.max_value,
-            disabled: props.disabled,
-            read_only: props.read_only,
-            required: props.required,
-            readonly_segments: props.readonly_segments,
-            is_date_unavailable: combined_unavailable,
-            validate: props.validate,
-            on_invalid: props.on_invalid,
-            error_message_id: props.error_message_id,
-            dir: Some(resolved_dir),
-            is_invalid_override: None,
-            as_child: props.as_child,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: rsx! {
-                PopoverRoot {
-                    id: Some(rels.popover_scope().token().to_string()),
-                    open: Some(runtime.open),
-                    on_open_change: move |next| rt_for_popover_open.handle_popover_open_change(next),
-                    on_open_change_complete: props.on_open_change_complete,
-                    modal: props.modal,
-                    open_focus: Some(resolved_open_focus),
-                    close_focus: Some(resolved_close_focus),
-                    scroll_lock: props.scroll_lock,
-                    outside_interaction: props.outside_interaction,
-                    portal_host: props.portal_host,
-                    side: props.side,
-                    side_offset: props.side_offset,
-                    align: props.align,
-                    align_offset: props.align_offset,
-                    avoid_collisions: props.avoid_collisions,
-                    collision_padding: props.collision_padding,
-                    sticky: props.sticky,
-                    {props.children}
-                }
-            },
-            debug_name: "DateRangePickerRoot",
+    let range_field_spec = RangeFieldRootSpec::<DateFieldPolicy> {
+        id: Some(rels.field_scope().token().to_string()),
+        class: props.class,
+        style: props.style,
+        value: Some(runtime.value),
+        default_value: props.default_value,
+        on_value_change: Some(EventHandler::new(move |next| {
+            rt_for_field_val.handle_field_value_change(next);
+        })),
+        on_start_value_change: None,
+        on_end_value_change: None,
+        placeholder: Some(runtime.placeholder),
+        on_placeholder_change: Some(EventHandler::new(move |next| {
+            rt_for_field_ph.handle_field_placeholder_change(next);
+        })),
+        granularity: props.granularity,
+        hour_cycle: props.hour_cycle,
+        locale: props.locale,
+        hide_time_zone: props.hide_time_zone,
+        min_value: props.min_value,
+        max_value: props.max_value,
+        disabled: props.disabled,
+        read_only: props.read_only,
+        required: props.required,
+        readonly_segments: props.readonly_segments,
+        is_date_unavailable: combined_unavailable,
+        validate: props.validate,
+        on_invalid: props.on_invalid,
+        error_message_id: props.error_message_id,
+        dir: Some(resolved_dir),
+        is_invalid_override: None,
+        as_child: props.as_child,
+        on_mounted: props.on_mounted,
+        attributes: props.attributes,
+        children: rsx! {
+            PopoverRoot {
+                id: Some(rels.popover_scope().token().to_string()),
+                open: Some(runtime.open),
+                on_open_change: move |next| rt_for_popover_open.handle_popover_open_change(next),
+                on_open_change_complete: props.on_open_change_complete,
+                modal: props.modal,
+                open_focus: Some(resolved_open_focus),
+                close_focus: Some(resolved_close_focus),
+                scroll_lock: props.scroll_lock,
+                outside_interaction: props.outside_interaction,
+                portal_host: props.portal_host,
+                side: props.side,
+                side_offset: props.side_offset,
+                align: props.align,
+                align_offset: props.align_offset,
+                avoid_collisions: props.avoid_collisions,
+                collision_padding: props.collision_padding,
+                sticky: props.sticky,
+                {props.children}
+            }
         },
-        initial_placeholder,
+        debug_name: "DateRangePickerRoot",
+    };
+    let range_field_rt =
+        use_range_field_runtime::<DateFieldPolicy>(&range_field_spec, initial_placeholder);
+    {
+        let mut rfrt = range_field_rt.clone();
+        let is_disabled_sig = runtime.is_date_disabled;
+        let is_unavailable_sig = runtime.is_date_unavailable;
+        let pred_rev_sig = runtime.predicate_rev;
+        use_effect(move || {
+            let _ = *pred_rev_sig.read();
+            let _ = *is_disabled_sig.read();
+            let _ = *is_unavailable_sig.read();
+            rfrt.sync_validation_and_notify();
+        });
+    }
+    render_range_field_root_with_runtime::<DateFieldPolicy, _>(
+        range_field_rt,
+        range_field_spec,
         move |view| {
             render_child.map(|cb| {
                 cb.call(DateRangeFieldRootRenderProps {
@@ -763,6 +806,7 @@ pub fn DateRangePickerCalendar(props: DateRangePickerCalendarProps) -> Element {
     let picker_rt = use_date_range_picker_context();
     let cfg = picker_rt.calendar_config.read().clone();
 
+    let _ = *picker_rt.predicate_rev.read();
     let is_date_disabled = *picker_rt.is_date_disabled.read();
     let is_date_unavailable = *picker_rt.is_date_unavailable.read();
 

@@ -162,6 +162,23 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
         on_next_boundary,
     };
 
+    let mut predicate_rev = use_signal(|| 0_u64);
+    let has_pred = spec.is_date_unavailable.is_some() || spec.validate.is_some();
+    let mut pred_initialized = use_hook(|| CopyValue::new(false));
+    let mut prev_had_pred = use_hook(|| CopyValue::new(has_pred));
+    if pred_initialized.try_read().is_ok_and(|init| *init) {
+        let had_pred = prev_had_pred.try_read().is_ok_and(|had| *had);
+        prev_had_pred.set(has_pred);
+        if has_pred || had_pred {
+            let next_rev = predicate_rev.try_peek().ok().map(|cur| cur.wrapping_add(1));
+            if let Some(next_rev) = next_rev {
+                crate::foundation::state::sync_signal(&mut predicate_rev, next_rev);
+            }
+        }
+    } else {
+        pred_initialized.set(true);
+    }
+
     // DEF-5C-09 & B5: Reconcile definition, predicates (`validate`, `is_date_unavailable`),
     // controlled signals, and validation inside guarded effects for BOTH DateField and TimeField.
     use_effect(use_reactive(
@@ -174,6 +191,7 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
         {
             let mut rt = runtime.clone();
             move |(next_def, label_override, _next_unavailable, _next_validate)| {
+                let _ = *predicate_rev.read();
                 if *rt.label_id_override.peek() != label_override {
                     rt.label_id_override.set(label_override);
                 }
@@ -648,7 +666,7 @@ where
         let rt = runtime.clone();
         let user_cb = spec.on_click;
         EventHandler::new(move |evt: MouseEvent| {
-            if !rt.state.peek().def().disabled {
+            if rt.state.try_peek().is_ok_and(|st| !st.def().disabled) {
                 rt.focus_first_segment();
             }
             if let Some(cb) = user_cb {

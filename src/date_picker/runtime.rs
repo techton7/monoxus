@@ -40,6 +40,7 @@ pub struct PickerRuntimeCore<P: PickerPolicy> {
     pub on_open_change: CopyValue<Option<EventHandler<bool>>>,
     pub is_date_disabled: Signal<Option<Callback<CalendarDate, bool>>>,
     pub is_date_unavailable: Signal<Option<Callback<CalendarDate, bool>>>,
+    pub predicate_rev: Signal<u64>,
 }
 
 impl<P: PickerPolicy> Clone for PickerRuntimeCore<P> {
@@ -60,6 +61,7 @@ impl<P: PickerPolicy> Clone for PickerRuntimeCore<P> {
             on_open_change: self.on_open_change,
             is_date_disabled: self.is_date_disabled,
             is_date_unavailable: self.is_date_unavailable,
+            predicate_rev: self.predicate_rev,
         }
     }
 }

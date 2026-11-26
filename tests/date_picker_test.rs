@@ -943,4 +943,142 @@ mod native_tests {
 
         clear_active_overlay_stack();
     }
+
+    #[component]
+    fn NativeDatePickerReactivePredicateScenario() -> Element {
+        let mut pred_stage = use_signal(|| 0_u8);
+        let mut last_invalid_reason = use_signal(|| Option::<FieldInvalidReason>::None);
+        let stage = *pred_stage.read();
+        let is_date_unavailable = if stage == 0 {
+            Some(Callback::new(|date: CalendarDate| date.day == 10))
+        } else {
+            Some(Callback::new(|date: CalendarDate| date.day == 20))
+        };
+
+        rsx! {
+            div {
+                style: "padding: 16px;",
+                button {
+                    id: "dp-pred-swap",
+                    r#type: "button",
+                    style: "width: 80px; height: 28px;",
+                    onclick: move |_| {
+                        let next = 1 - *pred_stage.read();
+                        pred_stage.set(next);
+                    },
+                    "Swap"
+                }
+                DatePickerRoot {
+                    id: "dp-pred-root",
+                    locale: CalendarLocale::EnUs,
+                    default_placeholder: d(2026, 4, 15),
+                    is_date_unavailable,
+                    on_invalid: move |evt: FieldInvalidEvent| {
+                        last_invalid_reason.set(Some(evt.reason));
+                    },
+                    div {
+                        style: "display: flex; align-items: center; gap: 8px;",
+                        DatePickerInput {
+                            id: "dp-pred-input",
+                            name: Some("pred_date".to_string()),
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    DatePickerSegment {
+                                        key: "{seg.index}",
+                                        id: format!("dp-pred-seg-{}", seg.index),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        style: "display: inline-block; min-width: 24px; height: 24px;",
+                                    }
+                                }
+                            }
+                        }
+                        DatePickerTrigger {
+                            id: "dp-pred-trigger",
+                            style: "width: 80px; height: 28px;",
+                            "Open"
+                        }
+                    }
+                    DatePickerPortal {
+                        DatePickerContent {
+                            id: "dp-pred-content",
+                            style: "width: 280px; padding: 8px; background: white;",
+                            DatePickerCalendar {
+                                render_children: move |snap: CalendarSnapshot| rsx! {
+                                    for month in snap.months {
+                                        DatePickerMonthGrid { month, weekdays: snap.weekdays.clone() }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                span {
+                    id: "dp-pred-invalid-reason",
+                    "{last_invalid_reason.read():?}"
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_date_picker_reactive_predicate_swap_updates_field_invalid_from_none() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_active_overlay_stack();
+        let mut harness = mount_native_scenario(NativeDatePickerReactivePredicateScenario);
+
+        // Mounted with value: None -> initially valid
+        assert_eq!(
+            harness.attr("input[name='pred_date']", "value").as_deref(),
+            Some("")
+        );
+        assert_eq!(harness.attr("#dp-pred-input", "data-invalid"), None);
+
+        // Enter 2026-04-20 into segments (valid under cb1 which blocks day 10)
+        focus_node(&mut harness, "#dp-pred-seg-0");
+        send_key_and_pump(&mut harness, Key::Character("4".to_string()), Code::Digit4);
+        send_key_and_pump(&mut harness, Key::Character("2".to_string()), Code::Digit2);
+        send_key_and_pump(&mut harness, Key::Character("0".to_string()), Code::Digit0);
+        send_key_and_pump(&mut harness, Key::Character("2".to_string()), Code::Digit2);
+        send_key_and_pump(&mut harness, Key::Character("0".to_string()), Code::Digit0);
+        send_key_and_pump(&mut harness, Key::Character("2".to_string()), Code::Digit2);
+        send_key_and_pump(&mut harness, Key::Character("6".to_string()), Code::Digit6);
+        assert_eq!(
+            harness.attr("input[name='pred_date']", "value").as_deref(),
+            Some("2026-04-20")
+        );
+        assert_eq!(harness.attr("#dp-pred-input", "data-invalid"), None);
+
+        // Swap is_date_unavailable Some(cb1) -> Some(cb2) (blocks day 20) without changing value/placeholder
+        click_and_pump(&mut harness, "#dp-pred-swap");
+        assert_eq!(
+            harness.attr("#dp-pred-input", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.text_content("#dp-pred-invalid-reason"),
+            "Some(Unavailable)"
+        );
+
+        // Calendar popup also reflects updated predicate
+        click_and_pump(&mut harness, "#dp-pred-trigger");
+        assert_eq!(
+            harness
+                .attr("[data-calendar-day][data-value='2026-04-20']", "data-unavailable")
+                .as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("[data-calendar-day][data-value='2026-04-10']", "data-unavailable"),
+            None
+        );
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+
+        // Swap back Some(cb2) -> Some(cb1) -> field data-invalid clears immediately
+        click_and_pump(&mut harness, "#dp-pred-swap");
+        assert_eq!(harness.attr("#dp-pred-input", "data-invalid"), None);
+
+        clear_active_overlay_stack();
+    }
 }

@@ -269,13 +269,15 @@ impl<P: SegmentFieldUiPolicy> SegmentFieldRuntime<P> {
     }
 
     pub fn first_interactive_segment_id(&self) -> Option<String> {
-        let segs = self.state.peek().rendered_segments(&self.rels);
+        let state = self.state.try_peek().ok()?;
+        let segs = state.rendered_segments(&self.rels);
         first_interactive_field_segment(&segs)
             .map(|s| self.resolve_segment_dom_id(s.index, &s.id))
     }
 
     pub fn last_interactive_segment_id(&self) -> Option<String> {
-        let segs = self.state.peek().rendered_segments(&self.rels);
+        let state = self.state.try_peek().ok()?;
+        let segs = state.rendered_segments(&self.rels);
         last_interactive_field_segment(&segs)
             .map(|s| self.resolve_segment_dom_id(s.index, &s.id))
     }
@@ -445,7 +447,11 @@ impl<P: SegmentFieldUiPolicy> SegmentFieldRuntime<P> {
     }
 
     fn apply_focus_move(&self, current_index: usize, move_dir: SegmentFocusMove) {
-        let segs = self.state.peek().rendered_segments(&self.rels);
+        let Ok(state) = self.state.try_peek() else {
+            return;
+        };
+        let segs = state.rendered_segments(&self.rels);
+        drop(state);
         match resolve_adjacent_interactive_field_index(&segs, current_index, move_dir) {
             Ok(target_idx) => {
                 if let Some(target) = segs.iter().find(|s| s.index == target_idx) {
@@ -457,7 +463,9 @@ impl<P: SegmentFieldUiPolicy> SegmentFieldRuntime<P> {
                 if let Some(handler) = self.on_next_boundary.try_read().ok().and_then(|slot| *slot)
                 {
                     handler.call(());
-                } else if let Some(trigger_id) = self.trailing_trigger_id.peek().as_deref() {
+                } else if let Ok(guard) = self.trailing_trigger_id.try_peek()
+                    && let Some(trigger_id) = guard.as_deref()
+                {
                     focus_element_by_id(trigger_id);
                 }
             }

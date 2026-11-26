@@ -94,6 +94,7 @@ pub fn CalendarDay(props: CalendarDayProps) -> Element {
     let ctx = use_calendar_context();
     let cell_ctx = use_calendar_cell_context();
     let runtime = ctx.runtime.clone();
+    let _ = runtime.predicate_rev();
 
     let cell_date = (cell_ctx.date)();
     let cell_month = (cell_ctx.month)();

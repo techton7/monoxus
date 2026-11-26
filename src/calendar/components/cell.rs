@@ -56,6 +56,7 @@ pub struct CalendarCellProps {
 #[component]
 pub fn CalendarCell(props: CalendarCellProps) -> Element {
     let ctx = use_calendar_context();
+    let _ = ctx.runtime.predicate_rev();
     let mut date_sig = use_signal(|| props.date);
     sync_signal(&mut date_sig, props.date);
     let mut month_sig = use_signal(|| props.month);

@@ -152,6 +152,23 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
         }
     }
 
+    /// Clears `start_runtime` or `end_runtime` only when the registered runtime still matches
+    /// `expected`, preventing keyed endpoint replacements from being clobbered on drop.
+    pub fn unregister_part_runtime(
+        &self,
+        kind: FieldRangeEndpoint,
+        expected: &SegmentFieldRuntime<P>,
+    ) {
+        let slot = match kind {
+            FieldRangeEndpoint::Start => &self.start_runtime,
+            FieldRangeEndpoint::End => &self.end_runtime,
+        };
+        let mut guard = slot.borrow_mut();
+        if guard.as_ref().is_some_and(|cur| cur == expected) {
+            *guard = None;
+        }
+    }
+
     /// Registers an optional trailing picker trigger ID (`DateRangePickerTrigger`)
     /// so navigating past the last `End` segment focuses the trigger.
     pub fn register_trigger_id(&mut self, id: Option<String>) {
@@ -181,30 +198,59 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
     }
 
     pub fn focus_first_segment(&self) {
-        if let Some(rt) = self.start_runtime.borrow().as_ref() {
-            rt.focus_first_segment();
-        } else if let Some(rt) = self.end_runtime.borrow().as_ref() {
-            rt.focus_first_segment();
+        let target = self
+            .start_runtime
+            .borrow()
+            .as_ref()
+            .and_then(|rt| rt.first_interactive_segment_id())
+            .or_else(|| {
+                self.end_runtime
+                    .borrow()
+                    .as_ref()
+                    .and_then(|rt| rt.first_interactive_segment_id())
+            });
+        if let Some(id) = target {
+            focus_element_by_id(&id);
         }
     }
 
     pub fn focus_last_segment(&self) {
-        if let Some(rt) = self.end_runtime.borrow().as_ref() {
-            rt.focus_last_segment();
-        } else if let Some(rt) = self.start_runtime.borrow().as_ref() {
-            rt.focus_last_segment();
+        let target = self
+            .end_runtime
+            .borrow()
+            .as_ref()
+            .and_then(|rt| rt.last_interactive_segment_id())
+            .or_else(|| {
+                self.start_runtime
+                    .borrow()
+                    .as_ref()
+                    .and_then(|rt| rt.last_interactive_segment_id())
+            });
+        if let Some(id) = target {
+            focus_element_by_id(&id);
         }
     }
 
     pub fn handle_part_next_boundary(&self, kind: FieldRangeEndpoint) {
         match kind {
             FieldRangeEndpoint::Start => {
-                if let Some(rt) = self.end_runtime.borrow().as_ref() {
-                    rt.focus_first_segment();
+                let target = self
+                    .end_runtime
+                    .borrow()
+                    .as_ref()
+                    .and_then(|rt| rt.first_interactive_segment_id());
+                if let Some(id) = target {
+                    focus_element_by_id(&id);
+                } else if let Ok(guard) = self.trailing_trigger_id.try_peek()
+                    && let Some(trigger_id) = guard.as_deref()
+                {
+                    focus_element_by_id(trigger_id);
                 }
             }
             FieldRangeEndpoint::End => {
-                if let Some(trigger_id) = self.trailing_trigger_id.peek().as_deref() {
+                if let Ok(guard) = self.trailing_trigger_id.try_peek()
+                    && let Some(trigger_id) = guard.as_deref()
+                {
                     focus_element_by_id(trigger_id);
                 }
             }
@@ -212,10 +258,15 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
     }
 
     pub fn handle_part_prev_boundary(&self, kind: FieldRangeEndpoint) {
-        if kind == FieldRangeEndpoint::End
-            && let Some(rt) = self.start_runtime.borrow().as_ref()
-        {
-            rt.focus_last_segment();
+        if kind == FieldRangeEndpoint::End {
+            let target = self
+                .start_runtime
+                .borrow()
+                .as_ref()
+                .and_then(|rt| rt.last_interactive_segment_id());
+            if let Some(id) = target {
+                focus_element_by_id(&id);
+            }
         }
     }
 

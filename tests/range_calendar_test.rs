@@ -780,4 +780,205 @@ mod native_tests {
         click_and_pump(&mut harness, "#rc-custom-dis-year-probe-on-select");
         assert_eq!(harness.text_content("#rc-custom-dis-heading"), "May 2024");
     }
+
+    #[component]
+    fn NativeRangeCalendarPredicateAndAsChildEscapeScenario() -> Element {
+        let mut pred_stage = use_signal(|| 0_u8);
+        let stage = *pred_stage.read();
+        let is_date_disabled = if stage == 0 {
+            Some(Callback::new(|date: CalendarDate| date == d(2024, 1, 25)))
+        } else {
+            Some(Callback::new(|date: CalendarDate| date == d(2024, 1, 12)))
+        };
+        let is_date_unavailable = if stage == 0 {
+            Some(Callback::new(|date: CalendarDate| date == d(2024, 1, 26)))
+        } else {
+            Some(Callback::new(|date: CalendarDate| date == d(2024, 1, 18)))
+        };
+
+        rsx! {
+            div {
+                style: "padding: 16px; display: flex; flex-direction: column; gap: 16px;",
+                button {
+                    id: "rc-pred-swap",
+                    r#type: "button",
+                    style: "width: 80px; height: 28px;",
+                    onclick: move |_| {
+                        let next = 1 - *pred_stage.read();
+                        pred_stage.set(next);
+                    },
+                    "Swap"
+                }
+
+                // (a) Reactive predicate swap + exclude_disabled reconciliation
+                RangeCalendarRoot {
+                    id: "rc-pred",
+                    default_placeholder: d(2024, 1, 1),
+                    exclude_disabled: true,
+                    is_date_disabled,
+                    is_date_unavailable,
+                    render_children: move |snap: RangeCalendarSnapshot| rsx! {
+                        div {
+                            id: "rc-pred-probe",
+                            "data-start": snap.start_value.map(|x| x.to_iso_string()).unwrap_or_default(),
+                            "data-end": snap.end_value.map(|x| x.to_iso_string()).unwrap_or_default(),
+                        }
+                        RangeCalendarGrid {
+                            RangeCalendarGridBody {
+                                for (r_idx, week) in snap.months[0].weeks.iter().enumerate() {
+                                    RangeCalendarGridRow {
+                                        key: "{r_idx}",
+                                        for date in week.iter().copied() {
+                                            RangeCalendarCell {
+                                                key: "{date}",
+                                                id: "rc-pred-cell-{date}",
+                                                date,
+                                                month: snap.months[0].value,
+                                                RangeCalendarDay {
+                                                    id: "rc-pred-day-{date}",
+                                                    style: "display: inline-block; width: 28px; height: 28px;",
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // (b) Standalone RangeCalendarRoot(as_child: true) Escape cancellation outside day cell
+                RangeCalendarRoot {
+                    id: "rc-ac",
+                    default_placeholder: d(2024, 1, 1),
+                    as_child: true,
+                    render_child: move |rp: monoxus::range_calendar::RangeCalendarRootRenderProps| {
+                        let on_key_down = rp.on_key_down;
+                        rsx! {
+                            section {
+                                id: "{rp.attrs.id}",
+                                role: rp.attrs.role,
+                                tabindex: "-1",
+                                onkeydown: move |evt| {
+                                    if let Some(cb) = on_key_down {
+                                        cb.call(evt);
+                                    }
+                                },
+                                {rp.children}
+                            }
+                        }
+                    },
+                    render_children: move |snap: RangeCalendarSnapshot| rsx! {
+                        div {
+                            id: "rc-ac-probe",
+                            "data-start": snap.start_value.map(|x| x.to_iso_string()).unwrap_or_default(),
+                            "data-end": snap.end_value.map(|x| x.to_iso_string()).unwrap_or_default(),
+                        }
+                        button {
+                            id: "rc-ac-outside-day",
+                            r#type: "button",
+                            style: "width: 80px; height: 24px;",
+                            "Header Focus Target"
+                        }
+                        RangeCalendarGrid {
+                            RangeCalendarGridBody {
+                                for (r_idx, week) in snap.months[0].weeks.iter().enumerate() {
+                                    RangeCalendarGridRow {
+                                        key: "{r_idx}",
+                                        for date in week.iter().copied() {
+                                            RangeCalendarCell {
+                                                key: "{date}",
+                                                date,
+                                                month: snap.months[0].value,
+                                                RangeCalendarDay {
+                                                    id: "rc-ac-day-{date}",
+                                                    style: "display: inline-block; width: 28px; height: 28px;",
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_range_calendar_reactive_predicate_reconciles_and_as_child_escape() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness =
+            mount_native_scenario(NativeRangeCalendarPredicateAndAsChildEscapeScenario);
+
+        // (a) Select valid range Jan 10..Jan 15 while Jan 25 is disabled
+        click_and_pump(&mut harness, "#rc-pred-day-2024-01-10");
+        click_and_pump(&mut harness, "#rc-pred-day-2024-01-15");
+        assert_eq!(
+            harness.attr("#rc-pred-probe", "data-start").as_deref(),
+            Some("2024-01-10")
+        );
+        assert_eq!(
+            harness.attr("#rc-pred-probe", "data-end").as_deref(),
+            Some("2024-01-15")
+        );
+        assert_eq!(harness.attr("#rc-pred-cell-2024-01-12", "data-disabled"), None);
+        assert_eq!(
+            harness.attr("#rc-pred-cell-2024-01-25", "data-disabled").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#rc-pred-cell-2024-01-26", "data-unavailable").as_deref(),
+            Some("")
+        );
+
+        // Swap is_date_disabled -> Jan 12 (inside 10..15) and is_date_unavailable -> Jan 18
+        click_and_pump(&mut harness, "#rc-pred-swap");
+
+        // Cell attributes update immediately AND exclude_disabled reconciles (clears) the active range
+        assert_eq!(
+            harness.attr("#rc-pred-cell-2024-01-12", "data-disabled").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#rc-pred-day-2024-01-12", "aria-disabled").as_deref(),
+            Some("true")
+        );
+        assert_eq!(harness.attr("#rc-pred-cell-2024-01-25", "data-disabled"), None);
+        assert_eq!(
+            harness.attr("#rc-pred-cell-2024-01-18", "data-unavailable").as_deref(),
+            Some("")
+        );
+        assert_eq!(harness.attr("#rc-pred-cell-2024-01-26", "data-unavailable"), None);
+        assert_eq!(
+            harness.attr("#rc-pred-probe", "data-start").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#rc-pred-probe", "data-end").as_deref(),
+            Some("")
+        );
+
+        // (b) Standalone RangeCalendarRoot(as_child: true): start partial range, move focus outside day cell, press Escape
+        click_and_pump(&mut harness, "#rc-ac-day-2024-01-10");
+        assert_eq!(
+            harness.attr("#rc-ac-probe", "data-start").as_deref(),
+            Some("2024-01-10")
+        );
+        assert_eq!(
+            harness.attr("#rc-ac-probe", "data-end").as_deref(),
+            Some("")
+        );
+        focus_node(&mut harness, "#rc-ac-outside-day");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        assert_eq!(
+            harness.attr("#rc-ac-probe", "data-start").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#rc-ac-probe", "data-end").as_deref(),
+            Some("")
+        );
+    }
 }

@@ -88,16 +88,14 @@ pub(crate) struct RangeFieldRootView {
     pub children: Element,
 }
 
-/// Monomorphized plain-fn root renderer shared by `DateRangeFieldRoot` and `TimeRangeFieldRoot`
-/// (fixes `B5` by including `&spec.validate` in `use_reactive` for both policies).
-pub(crate) fn render_range_field_root<P, F>(
-    spec: RangeFieldRootSpec<P>,
+/// Initializes a [`RangeFieldRuntime<P>`], wires `B5`-compliant reactive prop/validate effects,
+/// and provides `RangeFieldContext<P>` for descendants.
+pub(crate) fn use_range_field_runtime<P>(
+    spec: &RangeFieldRootSpec<P>,
     initial_placeholder: P::Value,
-    render_as_child: F,
-) -> Element
+) -> RangeFieldRuntime<P>
 where
     P: RangeFieldPolicy + SegmentFieldUiPolicy,
-    F: FnOnce(RangeFieldRootView) -> Option<Element>,
 {
     let resolved_dir = use_direction_context(spec.dir);
     let stable_id = use_stable_id(spec.id.clone().map(Cow::Owned)).into_owned();
@@ -191,6 +189,23 @@ where
         on_invalid,
     };
 
+    let mut predicate_rev = use_signal(|| 0_u64);
+    let has_pred = spec.is_date_unavailable.is_some() || spec.validate.is_some();
+    let mut pred_initialized = use_hook(|| CopyValue::new(false));
+    let mut prev_had_pred = use_hook(|| CopyValue::new(has_pred));
+    if pred_initialized.try_read().is_ok_and(|init| *init) {
+        let had_pred = prev_had_pred.try_read().is_ok_and(|had| *had);
+        prev_had_pred.set(has_pred);
+        if has_pred || had_pred {
+            let next_rev = predicate_rev.try_peek().ok().map(|cur| cur.wrapping_add(1));
+            if let Some(next_rev) = next_rev {
+                crate::foundation::state::sync_signal(&mut predicate_rev, next_rev);
+            }
+        }
+    } else {
+        pred_initialized.set(true);
+    }
+
     // DEF-5C-09 & B5: Reconcile definition, predicates (`validate`, `is_date_unavailable`),
     // controlled signals, and validation inside guarded effects for BOTH DateRangeField and TimeRangeField.
     use_effect(use_reactive(
@@ -198,6 +213,7 @@ where
         {
             let mut rt = runtime.clone();
             move |(next_def, _next_unavailable, _next_validate)| {
+                let _ = *predicate_rev.read();
                 if *rt.state.peek().def() != next_def {
                     rt.state.write().sync_definition(next_def);
                 }
@@ -219,7 +235,19 @@ where
     ));
 
     use_context_provider(|| RangeFieldContext::<P>(runtime.clone()));
+    runtime
+}
 
+/// Renders the root group container for a pre-initialized [`RangeFieldRuntime<P>`].
+pub(crate) fn render_range_field_root_with_runtime<P, F>(
+    runtime: RangeFieldRuntime<P>,
+    spec: RangeFieldRootSpec<P>,
+    render_as_child: F,
+) -> Element
+where
+    P: RangeFieldPolicy + SegmentFieldUiPolicy,
+    F: FnOnce(RangeFieldRootView) -> Option<Element>,
+{
     let attrs = runtime.root_attrs(spec.id.clone());
 
     if spec.as_child {
@@ -268,6 +296,21 @@ where
             {spec.children}
         }
     }
+}
+
+/// Monomorphized plain-fn root renderer shared by `DateRangeFieldRoot` and `TimeRangeFieldRoot`
+/// (fixes `B5` by including `&spec.validate` in `use_reactive` for both policies).
+pub(crate) fn render_range_field_root<P, F>(
+    spec: RangeFieldRootSpec<P>,
+    initial_placeholder: P::Value,
+    render_as_child: F,
+) -> Element
+where
+    P: RangeFieldPolicy + SegmentFieldUiPolicy,
+    F: FnOnce(RangeFieldRootView) -> Option<Element>,
+{
+    let runtime = use_range_field_runtime::<P>(&spec, initial_placeholder);
+    render_range_field_root_with_runtime(runtime, spec, render_as_child)
 }
 
 /// Specification for [`render_range_field_input`].
@@ -362,7 +405,24 @@ where
     };
 
     let field_rt = use_segment_field_runtime::<P>(&root_spec, initial_placeholder);
+    let registered_kind = use_hook(|| Rc::new(RefCell::new(kind)));
+    {
+        let mut prev_kind = registered_kind.borrow_mut();
+        if *prev_kind != kind {
+            range_rt.unregister_part_runtime(*prev_kind, &field_rt);
+            *prev_kind = kind;
+        }
+    }
     range_rt.register_part_runtime(kind, field_rt.clone());
+    {
+        let range_rt_drop = range_rt.clone();
+        let field_rt_drop = field_rt.clone();
+        let kind_drop = Rc::clone(&registered_kind);
+        use_drop(move || {
+            let current_kind = *kind_drop.borrow();
+            range_rt_drop.unregister_part_runtime(current_kind, &field_rt_drop);
+        });
+    }
 
     let input_el = render_segment_field_input_with_runtime(
         field_rt.clone(),
@@ -452,7 +512,7 @@ where
         let rt = runtime.clone();
         let user_cb = spec.on_click;
         EventHandler::new(move |evt: MouseEvent| {
-            if !rt.state.peek().def().disabled {
+            if rt.state.try_peek().is_ok_and(|st| !st.def().disabled) {
                 rt.focus_first_segment();
             }
             if let Some(cb) = user_cb {

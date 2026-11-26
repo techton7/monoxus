@@ -500,4 +500,137 @@ mod native_tests {
         );
         assert_eq!(harness.attr("#drf-fm4-iso-end", "data-invalid"), None);
     }
+
+    #[component]
+    fn NativeDateRangeFieldDropSafetyScenario() -> Element {
+        let mut show_start = use_signal(|| true);
+        let mut show_end = use_signal(|| true);
+        let mut start_key_idx = use_signal(|| 0_u8);
+
+        let start_key = if *start_key_idx.read() == 0 {
+            "start-0"
+        } else {
+            "start-1"
+        };
+
+        rsx! {
+            div {
+                style: "padding: 16px;",
+                div {
+                    style: "display: flex; gap: 8px; margin-bottom: 8px;",
+                    button {
+                        id: "drf-drop-toggle-start",
+                        r#type: "button",
+                        style: "width: 90px; height: 28px;",
+                        onclick: move |_| show_start.toggle(),
+                        "Toggle Start"
+                    }
+                    button {
+                        id: "drf-drop-toggle-end",
+                        r#type: "button",
+                        style: "width: 90px; height: 28px;",
+                        onclick: move |_| show_end.toggle(),
+                        "Toggle End"
+                    }
+                    button {
+                        id: "drf-drop-swap-start-key",
+                        r#type: "button",
+                        style: "width: 90px; height: 28px;",
+                        onclick: move |_| {
+                            let next = 1 - *start_key_idx.read();
+                            start_key_idx.set(next);
+                        },
+                        "Swap Key"
+                    }
+                }
+                DateRangeFieldRoot {
+                    id: "drf-drop-root",
+                    locale: CalendarLocale::EnUs,
+                    default_value: DateValueRange::new(
+                        Some(d(2026, 5, 10)),
+                        Some(d(2026, 5, 20)),
+                    ),
+                    DateRangeFieldLabel {
+                        id: "drf-drop-label",
+                        style: "display: block; width: 120px; height: 24px;",
+                        "Drop Safe Range"
+                    }
+                    if *show_start.read() {
+                        for sk in [start_key] {
+                            DateRangeFieldInput {
+                                key: "{sk}",
+                                id: format!("drf-drop-{sk}"),
+                                kind: RangeFieldInputKind::Start,
+                                style: "display: flex; gap: 4px;",
+                                render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                    for seg in segments {
+                                        DateRangeFieldSegment {
+                                            key: "{seg.index}",
+                                            id: format!("drf-drop-{sk}-seg-{}", seg.index),
+                                            part: seg.kind(),
+                                            index: Some(seg.index),
+                                            style: "display: inline-block; min-width: 24px; height: 24px;",
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if *show_end.read() {
+                        DateRangeFieldInput {
+                            id: "drf-drop-end",
+                            kind: RangeFieldInputKind::End,
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    DateRangeFieldSegment {
+                                        key: "{seg.index}",
+                                        id: format!("drf-drop-end-seg-{}", seg.index),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        style: "display: inline-block; min-width: 24px; height: 24px;",
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_date_range_field_unmount_endpoint_drop_safety_and_keyed_swap() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeDateRangeFieldDropSafetyScenario);
+
+        // 1. Keyed replacement of Start must not clobber start_runtime on old drop
+        click_and_pump(&mut harness, "#drf-drop-swap-start-key");
+        assert!(harness.query("#drf-drop-start-1").is_some());
+        click_and_pump(&mut harness, "#drf-drop-label");
+        assert_native_focus_id(&harness, "drf-drop-start-1-seg-0");
+
+        // 2. Unmount End -> ArrowRight from Start's last segment & label click cause zero ValueDroppedError
+        click_and_pump(&mut harness, "#drf-drop-toggle-end");
+        assert!(harness.query("#drf-drop-end").is_none());
+        focus_node(&mut harness, "#drf-drop-start-1-seg-4");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowRight), Code::ArrowRight);
+        click_and_pump(&mut harness, "#drf-drop-label");
+        assert_native_focus_id(&harness, "drf-drop-start-1-seg-0");
+
+        // 3. Remount End, unmount Start -> label click falls back to End & ArrowLeft from End causes zero panic
+        click_and_pump(&mut harness, "#drf-drop-toggle-end");
+        click_and_pump(&mut harness, "#drf-drop-toggle-start");
+        assert!(harness.query("#drf-drop-start-1").is_none());
+        assert!(harness.query("#drf-drop-end").is_some());
+        click_and_pump(&mut harness, "#drf-drop-label");
+        assert_native_focus_id(&harness, "drf-drop-end-seg-0");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowLeft), Code::ArrowLeft);
+        assert_native_focus_id(&harness, "drf-drop-end-seg-0");
+
+        // 4. Unmount both endpoints -> label click causes zero panic
+        click_and_pump(&mut harness, "#drf-drop-toggle-end");
+        assert!(harness.query("#drf-drop-end").is_none());
+        click_and_pump(&mut harness, "#drf-drop-label");
+    }
 }

@@ -1046,4 +1046,144 @@ mod native_tests {
         click_and_pump(&mut harness, "#cal-custom-dis-year-probe-on-select");
         assert_eq!(harness.text_content("#cal-custom-dis-heading"), "March 2024");
     }
+
+    #[component]
+    fn NativeCalendarReactivePredicateScenario() -> Element {
+        let mut pred_stage = use_signal(|| 0_u8);
+        let stage = *pred_stage.read();
+        let is_date_disabled = if stage == 0 {
+            Some(Callback::new(|date: CalendarDate| date == d(2024, 1, 10)))
+        } else {
+            Some(Callback::new(|date: CalendarDate| date == d(2024, 1, 15)))
+        };
+        let is_date_unavailable = if stage == 0 {
+            Some(Callback::new(|date: CalendarDate| date == d(2024, 1, 12)))
+        } else {
+            Some(Callback::new(|date: CalendarDate| date == d(2024, 1, 16)))
+        };
+
+        rsx! {
+            div {
+                style: "padding: 16px;",
+                button {
+                    id: "cal-pred-swap",
+                    r#type: "button",
+                    style: "width: 80px; height: 28px;",
+                    onclick: move |_| {
+                        let next = 1 - *pred_stage.read();
+                        pred_stage.set(next);
+                    },
+                    "Swap"
+                }
+                CalendarRoot {
+                    id: "cal-pred",
+                    default_placeholder: d(2024, 1, 15),
+                    is_date_disabled,
+                    is_date_unavailable,
+                    render_children: move |snap: CalendarSnapshot| rsx! {
+                        CalendarGrid {
+                            CalendarGridBody {
+                                for (r_idx, week) in snap.months[0].weeks.iter().enumerate() {
+                                    CalendarGridRow {
+                                        key: "{r_idx}",
+                                        for date in week.iter().copied() {
+                                            CalendarCell {
+                                                key: "{date}",
+                                                id: "cal-pred-cell-{date}",
+                                                date,
+                                                month: snap.months[0].value,
+                                                CalendarDay {
+                                                    id: "cal-pred-day-{date}",
+                                                    style: "display: inline-block; width: 28px; height: 28px;",
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_calendar_reactive_predicate_swap_updates_cells_and_click_guard() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeCalendarReactivePredicateScenario);
+
+        // Initial predicates: Jan 10 disabled, Jan 12 unavailable; Jan 15 & Jan 16 active
+        assert_eq!(
+            harness.attr("#cal-pred-cell-2024-01-10", "data-disabled").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#cal-pred-day-2024-01-10", "aria-disabled").as_deref(),
+            Some("true")
+        );
+        assert_eq!(harness.attr("#cal-pred-day-2024-01-10", "tabindex"), None);
+        assert_eq!(
+            harness.attr("#cal-pred-cell-2024-01-12", "data-unavailable").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#cal-pred-day-2024-01-12", "aria-disabled").as_deref(),
+            Some("true")
+        );
+        assert_eq!(harness.attr("#cal-pred-day-2024-01-15", "data-disabled"), None);
+        assert_eq!(
+            harness.attr("#cal-pred-day-2024-01-15", "tabindex").as_deref(),
+            Some("0")
+        );
+        assert_eq!(harness.attr("#cal-pred-day-2024-01-16", "data-unavailable"), None);
+
+        // Swap predicates without changing value/placeholder: Jan 15 disabled, Jan 16 unavailable
+        click_and_pump(&mut harness, "#cal-pred-swap");
+
+        assert_eq!(harness.attr("#cal-pred-cell-2024-01-10", "data-disabled"), None);
+        assert_eq!(
+            harness.attr("#cal-pred-day-2024-01-10", "aria-disabled").as_deref(),
+            Some("false")
+        );
+        assert!(harness.attr("#cal-pred-day-2024-01-10", "tabindex").is_some());
+        assert_eq!(harness.attr("#cal-pred-cell-2024-01-12", "data-unavailable"), None);
+        assert_eq!(
+            harness.attr("#cal-pred-day-2024-01-12", "aria-disabled").as_deref(),
+            Some("false")
+        );
+
+        assert_eq!(
+            harness.attr("#cal-pred-cell-2024-01-15", "data-disabled").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#cal-pred-day-2024-01-15", "data-disabled").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#cal-pred-day-2024-01-15", "aria-disabled").as_deref(),
+            Some("true")
+        );
+        assert_eq!(harness.attr("#cal-pred-day-2024-01-15", "tabindex"), None);
+        assert_eq!(
+            harness.attr("#cal-pred-cell-2024-01-16", "data-unavailable").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#cal-pred-day-2024-01-16", "aria-disabled").as_deref(),
+            Some("true")
+        );
+
+        // Click guards reflect updated predicates immediately
+        click_and_pump(&mut harness, "#cal-pred-day-2024-01-15");
+        assert_eq!(harness.attr("#cal-pred-day-2024-01-15", "data-selected"), None);
+        click_and_pump(&mut harness, "#cal-pred-day-2024-01-16");
+        assert_eq!(harness.attr("#cal-pred-day-2024-01-16", "data-selected"), None);
+        click_and_pump(&mut harness, "#cal-pred-day-2024-01-10");
+        assert_eq!(
+            harness.attr("#cal-pred-day-2024-01-10", "data-selected").as_deref(),
+            Some("")
+        );
+    }
 }

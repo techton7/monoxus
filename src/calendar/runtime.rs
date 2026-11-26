@@ -79,6 +79,7 @@ pub struct CalendarBaseRuntime {
     pub initial_placeholder_year: i32,
     pub is_date_disabled_cb: CopyValue<Option<Callback<CalendarDate, bool>>>,
     pub is_date_unavailable_cb: CopyValue<Option<Callback<CalendarDate, bool>>>,
+    pub predicate_rev: Signal<u64>,
     pub on_placeholder_change: CopyValue<Option<EventHandler<CalendarDate>>>,
     pub day_id_overrides: Rc<RefCell<HashMap<(usize, CalendarDate), String>>>,
     pub(crate) pending_focus_target: Rc<RefCell<Option<(usize, CalendarDate)>>>,
@@ -159,6 +160,27 @@ pub(crate) fn use_calendar_base_runtime(
     is_date_disabled_cb.set(is_date_disabled);
     is_date_unavailable_cb.set(is_date_unavailable);
     on_placeholder_change_cb.set(on_placeholder_change);
+    let mut predicate_rev = use_signal(|| 0_u64);
+    let has_pred = is_date_disabled.is_some() || is_date_unavailable.is_some();
+    let mut pred_initialized = use_hook(|| CopyValue::new(false));
+    let mut prev_had_pred = use_hook(|| CopyValue::new(has_pred));
+    // Dioxus 0.8 `Props::memoize` updates `Some(cb1) -> Some(cb2)` in place via
+    // `Callback::__point_to`, preserving `GenerationalBox` pointer equality. Bump
+    // `predicate_rev` on post-mount re-renders whenever a predicate is (or was)
+    // present; `CalendarRoot`/`RangeCalendarRoot` never subscribe to `predicate_rev`,
+    // so only cells/days and range reconciliation re-run (zero render loop).
+    if pred_initialized.try_read().is_ok_and(|init| *init) {
+        let had_pred = prev_had_pred.try_read().is_ok_and(|had| *had);
+        prev_had_pred.set(has_pred);
+        if has_pred || had_pred {
+            let next_rev = predicate_rev.try_peek().ok().map(|cur| cur.wrapping_add(1));
+            if let Some(next_rev) = next_rev {
+                sync_signal(&mut predicate_rev, next_rev);
+            }
+        }
+    } else {
+        pred_initialized.set(true);
+    }
 
     let day_id_overrides = use_hook(|| Rc::new(RefCell::new(HashMap::new())));
     let pending_focus_target = use_hook(|| Rc::new(RefCell::new(None)));
@@ -177,6 +199,7 @@ pub(crate) fn use_calendar_base_runtime(
         initial_placeholder_year,
         is_date_disabled_cb,
         is_date_unavailable_cb,
+        predicate_rev,
         on_placeholder_change: on_placeholder_change_cb,
         day_id_overrides,
         pending_focus_target,
@@ -298,6 +321,10 @@ impl CalendarBaseRuntime {
             .get(&(month_idx, date))
             .cloned()
             .unwrap_or_else(|| self.rels.day_id(month_idx, date))
+    }
+
+    pub fn predicate_rev(&self) -> u64 {
+        *self.predicate_rev.read()
     }
 
     pub fn is_date_disabled(&self, date: CalendarDate) -> bool {
