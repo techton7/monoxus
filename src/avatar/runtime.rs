@@ -6,6 +6,8 @@ use std::{
 use dioxus::prelude::*;
 use oxidase::dom::observer::{ImageLoadOptions, ImageLoadStatus, watch_image_load};
 
+use crate::foundation::state::ControllableSignal;
+
 use super::{
     attrs::{AvatarFallbackAttributes, AvatarImageAttributes, AvatarRootAttributes},
     relationships::AvatarRelationships,
@@ -17,17 +19,15 @@ pub use oxidase::WatcherGuard;
 
 #[derive(Clone)]
 pub struct AvatarContext {
-    pub(crate) status: Signal<AvatarImageLoadingStatus>,
-    pub(crate) controlled: Signal<bool>,
+    pub(crate) status_ctl: ControllableSignal<AvatarImageLoadingStatus>,
     pub(crate) delay_ms: Signal<Option<u64>>,
     pub(crate) relationships: AvatarRelationships,
     pub(crate) image_count: Signal<usize>,
-    pub(crate) on_status_change: Signal<Option<EventHandler<AvatarImageLoadingStatus>>>,
 }
 
 impl AvatarContext {
     pub fn status(&self) -> AvatarImageLoadingStatus {
-        *self.status.read()
+        self.status_ctl.get()
     }
 
     pub fn relationships(&self) -> &AvatarRelationships {
@@ -47,13 +47,7 @@ impl AvatarContext {
     }
 
     pub(crate) fn publish(&self, status: AvatarImageLoadingStatus) {
-        if !*self.controlled.read() {
-            let mut signal = self.status;
-            signal.set(status);
-        }
-        if let Some(handler) = self.on_status_change.read().as_ref() {
-            handler.call(status);
-        }
+        self.status_ctl.set(status);
     }
 
     pub(crate) fn register_image(&self) {
@@ -70,8 +64,9 @@ impl AvatarContext {
 
     pub(crate) fn unregister_image(&self) {
         let mut image_count = self.image_count;
-        let next = image_count.peek().saturating_sub(1);
-        image_count.set(next);
+        if let Ok(mut count) = image_count.try_write() {
+            *count = count.saturating_sub(1);
+        }
     }
 }
 
@@ -135,10 +130,12 @@ impl AvatarImageProbe {
     }
 
     pub fn replace_watcher(&mut self, watcher: Option<WatcherGuard>) {
-        if let Some(previous) = self.watcher.write().take() {
-            previous.stop();
+        if let Ok(mut slot) = self.watcher.try_write() {
+            if let Some(previous) = slot.take() {
+                previous.stop();
+            }
+            *slot = watcher;
         }
-        self.watcher.set(watcher);
     }
 
     pub fn watcher_slot(&self) -> Signal<Option<WatcherGuard>> {

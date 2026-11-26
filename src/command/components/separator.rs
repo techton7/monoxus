@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::foundation::shared::use_stable_id;
+use crate::foundation::{compose::merge_global_attributes, shared::use_stable_id};
 
 use super::super::{
     attrs::CommandSeparatorAttrs,
@@ -72,19 +72,25 @@ pub fn CommandSeparator(props: CommandSeparatorProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id}",
             aria_hidden: "{attrs.aria_hidden}",
             "data-command-separator": attrs.data_command_separator,
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             onmounted: move |evt| {
                 if let Some(handler) = props.on_mounted.as_ref() {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
         }
     }
 }

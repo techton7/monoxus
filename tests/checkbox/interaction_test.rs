@@ -97,6 +97,46 @@ fn test_controlled_checkbox_vdom_mounts() {
     dom.rebuild_in_place();
 }
 
+#[test]
+fn test_checkbox_indicator_unmount_mid_exit_no_panic() {
+    #[component]
+    fn UnmountHost(
+        state_holder: Rc<RefCell<Option<(Signal<CheckedState>, Signal<bool>)>>>,
+    ) -> Element {
+        let checked = use_signal(|| CheckedState::Checked);
+        let mounted = use_signal(|| true);
+        *state_holder.borrow_mut() = Some((checked, mounted));
+        rsx! {
+            if mounted() {
+                Checkbox {
+                    id: "fm-col-2-cb",
+                    checked: checked(),
+                    CheckboxIndicator {
+                        id: "fm-col-2-cb-ind",
+                        "✓"
+                    }
+                }
+            }
+        }
+    }
+
+    let holder = Rc::new(RefCell::new(None));
+    let mut dom = VirtualDom::new_with_props(
+        UnmountHost,
+        UnmountHostProps {
+            state_holder: holder.clone(),
+        },
+    );
+    dom.rebuild_in_place();
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+
+    let (mut checked, mut mounted) = holder.borrow().expect("signals captured");
+    dom.in_scope(ScopeId::APP, || checked.set(CheckedState::Unchecked));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    dom.in_scope(ScopeId::APP, || mounted.set(false));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+}
+
 #[cfg(feature = "native")]
 mod native_tests {
     use super::*;
@@ -309,5 +349,53 @@ mod native_tests {
             Some("false"),
             "Consumer on_click evt.prevent_default() must suppress state change"
         );
+    }
+
+    #[component]
+    fn AnimatedCheckboxUnmountMidExitApp() -> Element {
+        let mut mounted = use_signal(|| true);
+        rsx! {
+            style {
+                "@keyframes cb-mid-exit {{ from {{ opacity: 1; }} to {{ opacity: 0; }} }}"
+                "#cb-mid-exit-ind[data-state=\"unchecked\"] {{ animation: cb-mid-exit 200ms linear; }}"
+            }
+            div {
+                button {
+                    id: "cb-mid-exit-unmount",
+                    onclick: move |_| mounted.set(false),
+                    "Unmount"
+                }
+                if mounted() {
+                    Checkbox {
+                        id: "cb-mid-exit-root",
+                        default_checked: CheckedState::Unchecked,
+                        CheckboxIndicator {
+                            id: "cb-mid-exit-ind",
+                            "✓"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_checkbox_indicator_unmount_mid_exit_animation_no_panic() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(AnimatedCheckboxUnmountMidExitApp);
+        advance_frame_and_pump(&mut harness, 0.0);
+
+        click_and_pump(&mut harness, "#cb-mid-exit-root");
+        click_and_pump(&mut harness, "#cb-mid-exit-root");
+        advance_frame_and_pump(&mut harness, 0.05);
+        assert!(
+            harness.query("#cb-mid-exit-ind").is_some(),
+            "indicator must be mid-exit at 50ms of 200ms animation"
+        );
+
+        // FM-COL-2: unmount CheckboxIndicator mid-exit animation and advance past completion.
+        click_and_pump(&mut harness, "#cb-mid-exit-unmount");
+        advance_frame_and_pump(&mut harness, 0.25);
+        assert!(harness.query("#cb-mid-exit-ind").is_none());
     }
 }

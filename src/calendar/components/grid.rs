@@ -2,12 +2,9 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::use_stable_id;
+use crate::foundation::{compose::merge_global_attributes, shared::use_stable_id};
 
-use super::super::{
-    runtime::use_calendar_shared_context,
-    types::CalendarPart,
-};
+use super::super::{runtime::use_calendar_shared_context, types::CalendarPart};
 
 #[derive(Clone, PartialEq, Props)]
 pub struct CalendarGridProps {
@@ -40,12 +37,18 @@ pub fn CalendarGrid(props: CalendarGridProps) -> Element {
     let attrs = ctx
         .runtime
         .grid_attrs(props.month_idx.unwrap_or(0), custom_or_stable);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+    let on_mounted = props.on_mounted;
 
     rsx! {
         table {
             id: "{attrs.id}",
-            class: props.class,
-            style: props.style,
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             tabindex: "{attrs.tabindex}",
             role: attrs.role,
             "aria-readonly": attrs.aria_readonly,
@@ -55,11 +58,11 @@ pub fn CalendarGrid(props: CalendarGridProps) -> Element {
             "data-calendar-grid": attrs.data_calendar_grid,
             "data-range-calendar-grid": attrs.data_range_calendar_grid,
             onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
+                if let Some(handler) = on_mounted {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -87,22 +90,28 @@ pub fn CalendarGridHead(props: CalendarSubpartProps) -> Element {
     let attrs = ctx
         .runtime
         .subpart_attrs(CalendarPart::GridHead, stable_id, props.id);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+    let on_mounted = props.on_mounted;
 
     rsx! {
         thead {
             id: "{attrs.id}",
-            class: props.class,
-            style: props.style,
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-disabled": attrs.data_disabled,
             "data-readonly": attrs.data_readonly,
             "data-calendar-grid-head": attrs.data_calendar_part,
             "data-range-calendar-grid-head": attrs.data_range_calendar_part,
             onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
+                if let Some(handler) = on_mounted {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -115,22 +124,28 @@ pub fn CalendarGridBody(props: CalendarSubpartProps) -> Element {
     let attrs = ctx
         .runtime
         .subpart_attrs(CalendarPart::GridBody, stable_id, props.id);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+    let on_mounted = props.on_mounted;
 
     rsx! {
         tbody {
             id: "{attrs.id}",
-            class: props.class,
-            style: props.style,
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-disabled": attrs.data_disabled,
             "data-readonly": attrs.data_readonly,
             "data-calendar-grid-body": attrs.data_calendar_part,
             "data-range-calendar-grid-body": attrs.data_range_calendar_part,
             onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
+                if let Some(handler) = on_mounted {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -143,22 +158,28 @@ pub fn CalendarGridRow(props: CalendarSubpartProps) -> Element {
     let attrs = ctx
         .runtime
         .subpart_attrs(CalendarPart::GridRow, stable_id, props.id);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+    let on_mounted = props.on_mounted;
 
     rsx! {
         tr {
             id: "{attrs.id}",
-            class: props.class,
-            style: props.style,
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-disabled": attrs.data_disabled,
             "data-readonly": attrs.data_readonly,
             "data-calendar-grid-row": attrs.data_calendar_part,
             "data-range-calendar-grid-row": attrs.data_range_calendar_part,
             onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
+                if let Some(handler) = on_mounted {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -171,22 +192,28 @@ pub fn CalendarHeadCell(props: CalendarSubpartProps) -> Element {
     let attrs = ctx
         .runtime
         .subpart_attrs(CalendarPart::HeadCell, stable_id, props.id);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+    let on_mounted = props.on_mounted;
 
     rsx! {
         th {
             id: "{attrs.id}",
-            class: props.class,
-            style: props.style,
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-disabled": attrs.data_disabled,
             "data-readonly": attrs.data_readonly,
             "data-calendar-head-cell": attrs.data_calendar_part,
             "data-range-calendar-head-cell": attrs.data_range_calendar_part,
             onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
+                if let Some(handler) = on_mounted {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

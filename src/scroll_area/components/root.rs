@@ -3,7 +3,10 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::{Direction, ScopeHandle, use_direction_context, use_stable_id};
+use crate::foundation::{
+    compose::{join_styles, merge_global_attributes},
+    shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
+};
 
 use super::{
     super::{
@@ -25,10 +28,11 @@ pub struct ScrollAreaRootProps {
     pub dir: Option<Direction>,
     #[props(default = 600)]
     pub scroll_hide_delay: u64,
-    pub as_child: Option<bool>,
     pub children: Element,
     pub class: Option<String>,
     pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
 }
 
 #[component]
@@ -62,12 +66,15 @@ pub fn ScrollAreaRoot(props: ScrollAreaRootProps) -> Element {
     let corner_w = runtime.corner_width();
     let corner_h = runtime.corner_height();
 
-    let mut root_style = format!(
-        "position: relative; --monoxus-scroll-area-corner-width: {corner_w}px; --monoxus-scroll-area-corner-height: {corner_h}px; --radix-scroll-area-corner-width: {corner_w}px; --radix-scroll-area-corner-height: {corner_h}px; "
+    let base_style = format!(
+        "position: relative; --monoxus-scroll-area-corner-width: {corner_w}px; --monoxus-scroll-area-corner-height: {corner_h}px; --radix-scroll-area-corner-width: {corner_w}px; --radix-scroll-area-corner-height: {corner_h}px;"
     );
-    if let Some(user_style) = &props.style {
-        root_style.push_str(user_style);
-    }
+    let combined_style = join_styles([base_style.as_str(), props.style.as_deref().unwrap_or("")]);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        combined_style.as_deref(),
+        props.attributes,
+    );
 
     let root_attrs = ScrollAreaRootAttributes::new(relationships_sig.read().root_id().to_string())
         .with_dir(Some(dir));
@@ -111,12 +118,13 @@ pub fn ScrollAreaRoot(props: ScrollAreaRootProps) -> Element {
     rsx! {
         div {
             id: "{root_attrs.id()}",
-            class: props.class.as_deref(),
-            style: "{root_style}",
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             dir: "{dir_str}",
             "data-monoxus-scroll-area-root": "",
             onpointerenter: onpointerenter,
             onpointerleave: onpointerleave,
+            ..merged.rest,
             {props.children}
         }
     }

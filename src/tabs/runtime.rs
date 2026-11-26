@@ -9,7 +9,8 @@ pub use crate::foundation::state::{ControllableStateProps, use_controllable_stat
 
 use crate::foundation::{
     browser::focus_element_by_id,
-    roving_focus::{RovingFocusRuntime, RovingItemMeta, RovingModifiers},
+    roving_focus::{RovingFocusRuntime, RovingItemMeta, RovingModifiers, use_roving_focus_group},
+    state::sync_signal,
 };
 
 use super::{
@@ -43,14 +44,11 @@ where
     let initial_tab_stop = (!tabs.current_tab_stop().is_empty())
         .then(|| tabs.current_tab_stop().to_owned());
 
-    let roving = RovingFocusRuntime::new(
+    let roving = use_roving_focus_group(
         tabs.roving_config(),
         initial_tab_stop,
         tabs.relationships().root_id(),
     );
-    roving.set_orientation(tabs.orientation().into());
-    roving.set_direction(tabs.dir().into());
-    roving.set_root_dom_id(tabs.relationships().root_id());
 
     let state = TabsRuntimeState {
         active_value: use_signal(|| initial_active),
@@ -63,9 +61,7 @@ where
 
     use_effect(use_reactive((&tabs,), move |(tabs,)| {
         let mut active = effect_state.active_value;
-        if *active.peek() != tabs.active_value() {
-            active.set(tabs.active_value().to_owned());
-        }
+        sync_signal(&mut active, tabs.active_value().to_owned());
         let desired_stop = (!tabs.current_tab_stop().is_empty())
             .then(|| tabs.current_tab_stop().to_owned());
         effect_state.roving.set_current_tab_stop(desired_stop);

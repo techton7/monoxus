@@ -85,7 +85,7 @@ fn range_calendar_public_contracts_and_as_child() {
         &cell,
         true,
     );
-    let (_, proj, _) = monoxus::range_calendar::project_range_calendar_day_as_child(
+    let (_, proj, _) = monoxus::foundation::compose::project_attrs_as_child(
         &day,
         "div",
         Slottable::new("10"),

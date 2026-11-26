@@ -8,7 +8,11 @@ use crate::collapsible::{
     runtime::use_collapsible_runtime,
     state::Collapsible,
 };
-use crate::foundation::shared::{ScopeHandle, data_disabled_attr, use_stable_id};
+use crate::foundation::{
+    compose::merge_global_attributes,
+    shared::{ScopeHandle, data_disabled_attr, use_stable_id},
+    state::sync_signal,
+};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct CollapsibleRootProps {
@@ -26,6 +30,8 @@ pub struct CollapsibleRootProps {
     pub disabled: bool,
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     pub children: Element,
 }
 
@@ -34,11 +40,8 @@ pub fn CollapsibleRoot(props: CollapsibleRootProps) -> Element {
     let fallback_open = use_signal(|| props.default_open.unwrap_or(false));
     let open_signal = props.open.unwrap_or(fallback_open);
 
-    let disabled_signal = use_signal(|| props.disabled);
-    let mut disabled_sig = disabled_signal;
-    if *disabled_sig.peek() != props.disabled {
-        disabled_sig.set(props.disabled);
-    }
+    let mut disabled_signal = use_signal(|| props.disabled);
+    sync_signal(&mut disabled_signal, props.disabled);
 
     let scope_id = use_stable_id(props.id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("collapsible").child(scope_id);
@@ -76,14 +79,20 @@ pub fn CollapsibleRoot(props: CollapsibleRootProps) -> Element {
     });
 
     let attrs = runtime.root();
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         div {
             id: "{attrs.id()}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             "data-state": attrs.data_state_str(),
             "data-disabled": data_disabled_attr(attrs.is_disabled()),
+            ..merged.rest,
             {props.children}
         }
     }

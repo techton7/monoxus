@@ -3,7 +3,11 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::{ScopeHandle, use_stable_id};
+use crate::foundation::{
+    compose::merge_global_attributes,
+    shared::{ScopeHandle, use_stable_id},
+    state::sync_signal,
+};
 use crate::visually_hidden::VisuallyHiddenState;
 
 use super::super::{
@@ -96,49 +100,33 @@ pub fn CommandRoot(props: CommandRootProps) -> Element {
     let fallback_value = use_signal(|| props.default_value.clone().unwrap_or_default());
     let value_sig = props.value.unwrap_or(fallback_value);
 
-    let mut on_value_change = use_signal(|| props.on_value_change);
-    if *on_value_change.peek() != props.on_value_change {
-        on_value_change.set(props.on_value_change);
-    }
-    let mut on_state_change = use_signal(|| props.on_state_change);
-    if *on_state_change.peek() != props.on_state_change {
-        on_state_change.set(props.on_state_change);
-    }
+    let mut on_value_change = use_hook(|| CopyValue::new(props.on_value_change));
+    on_value_change.set(props.on_value_change);
+    let mut on_state_change = use_hook(|| CopyValue::new(props.on_state_change));
+    on_state_change.set(props.on_state_change);
+
     let mut should_filter = use_signal(|| props.should_filter);
-    let should_filter_changed = *should_filter.peek() != props.should_filter;
-    if should_filter_changed {
-        should_filter.set(props.should_filter);
-    }
-    let mut filter = use_signal(|| props.filter);
-    let filter_changed = *filter.peek() != props.filter;
+    let should_filter_changed = sync_signal(&mut should_filter, props.should_filter);
+
+    let mut filter = use_hook(|| CopyValue::new(props.filter));
+    let filter_changed = filter.try_read().is_ok_and(|cur| *cur != props.filter);
     if filter_changed {
         filter.set(props.filter);
     }
+
     let mut loop_focus = use_signal(|| props.loop_focus);
-    if *loop_focus.peek() != props.loop_focus {
-        loop_focus.set(props.loop_focus);
-    }
+    sync_signal(&mut loop_focus, props.loop_focus);
     let mut vim_bindings = use_signal(|| props.vim_bindings);
-    if *vim_bindings.peek() != props.vim_bindings {
-        vim_bindings.set(props.vim_bindings);
-    }
+    sync_signal(&mut vim_bindings, props.vim_bindings);
     let mut disable_pointer_selection = use_signal(|| props.disable_pointer_selection);
-    if *disable_pointer_selection.peek() != props.disable_pointer_selection {
-        disable_pointer_selection.set(props.disable_pointer_selection);
-    }
+    sync_signal(&mut disable_pointer_selection, props.disable_pointer_selection);
     let mut disable_initial_scroll = use_signal(|| props.disable_initial_scroll);
-    if *disable_initial_scroll.peek() != props.disable_initial_scroll {
-        disable_initial_scroll.set(props.disable_initial_scroll);
-    }
+    sync_signal(&mut disable_initial_scroll, props.disable_initial_scroll);
     let resolved_columns = props.columns.filter(|&c| c > 0);
     let mut columns = use_signal(|| resolved_columns);
-    if *columns.peek() != resolved_columns {
-        columns.set(resolved_columns);
-    }
+    sync_signal(&mut columns, resolved_columns);
     let mut label_sig = use_signal(|| props.label.clone());
-    if *label_sig.peek() != props.label {
-        label_sig.set(props.label.clone());
-    }
+    sync_signal(&mut label_sig, props.label.clone());
 
     let input_id = use_signal(|| rels.input_id());
     let label_id = use_signal(|| rels.label_id());
@@ -198,14 +186,15 @@ pub fn CommandRoot(props: CommandRootProps) -> Element {
         }
     });
 
-    let attrs = CommandRootAttrs::new(root_id.clone(), None);
+    let attrs = CommandRootAttrs::new(root_id, None);
     let label_attrs = CommandInputLabelAttrs::new(label_id.read().clone(), input_id.read().clone());
     let vh_attrs = VisuallyHiddenState::new().attributes();
 
-    let consumer_keydown = props.on_keydown;
+    let mut consumer_keydown = use_hook(|| CopyValue::new(props.on_keydown));
+    consumer_keydown.set(props.on_keydown);
     let mut ctx_for_key = ctx;
     let handle_keydown = EventHandler::new(move |evt: KeyboardEvent| {
-        if let Some(handler) = consumer_keydown {
+        if let Some(handler) = consumer_keydown.try_read().ok().and_then(|s| *s) {
             handler.call(evt.clone());
         }
         ctx_for_key.handle_keydown(&evt);
@@ -223,23 +212,29 @@ pub fn CommandRoot(props: CommandRootProps) -> Element {
         {props.children}
     };
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(CommandRootRenderProps {
-                id: attrs.id,
-                role: attrs.role,
-                tabindex: attrs.tabindex,
-                aria_label: attrs.aria_label,
-                data_command_root: attrs.data_command_root,
-                class: props.class,
-                style: props.style,
-                on_keydown: handle_keydown,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-                children: inner,
-            });
-        }
+    if props.as_child
+        && let Some(render_child) = props.render_child.as_ref()
+    {
+        return render_child.call(CommandRootRenderProps {
+            id: attrs.id,
+            role: attrs.role,
+            tabindex: attrs.tabindex,
+            aria_label: attrs.aria_label,
+            data_command_root: attrs.data_command_root,
+            class: props.class,
+            style: props.style,
+            on_keydown: handle_keydown,
+            on_mounted: props.on_mounted,
+            attributes: props.attributes,
+            children: inner,
+        });
     }
+
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         div {
@@ -248,15 +243,15 @@ pub fn CommandRoot(props: CommandRootProps) -> Element {
             tabindex: "{attrs.tabindex}",
             aria_label: attrs.aria_label.as_deref(),
             "data-command-root": attrs.data_command_root,
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             onkeydown: move |evt| handle_keydown.call(evt),
             onmounted: move |evt| {
                 if let Some(handler) = props.on_mounted.as_ref() {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {inner}
         }
     }

@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use crate::foundation::shared::{Direction, Orientation, ScopeHandle, use_direction_context, use_stable_id};
+use crate::foundation::{
+    compose::merge_global_attributes,
+    shared::{Direction, Orientation, ScopeHandle, use_direction_context, use_stable_id},
+};
 use crate::toolbar::{
     components::ToolbarRootContext,
     runtime::use_toolbar_runtime,
@@ -56,18 +59,23 @@ pub fn ToolbarRoot(props: ToolbarRootProps) -> Element {
 
     let root_attrs = runtime.root_attributes();
     let resolved_id = props.id.as_deref().unwrap_or(root_attrs.id());
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         div {
             id: "{resolved_id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             role: root_attrs.role(),
             "aria-orientation": root_attrs.aria_orientation(),
             dir: root_attrs.dir(),
             "data-orientation": root_attrs.data_orientation(),
             "data-toolbar-root": root_attrs.data_toolbar_root(),
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

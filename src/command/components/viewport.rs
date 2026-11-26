@@ -1,6 +1,10 @@
 use dioxus::prelude::*;
 
-use crate::foundation::browser::{ResizeObserverBox, use_element_size_with_mount};
+use crate::foundation::{
+    browser::{ResizeObserverBox, use_element_size_with_mount},
+    compose::merge_global_attributes,
+    state::sync_signal,
+};
 
 use super::super::{
     attrs::{CommandViewportAttrs, merge_flex_column_style},
@@ -48,18 +52,14 @@ pub fn CommandViewport(props: CommandViewportProps) -> Element {
         .id
         .clone()
         .unwrap_or_else(|| ctx.relationships.peek().viewport_id());
-    if *ctx.viewport_id.peek() != resolved_id {
-        ctx.viewport_id.set(resolved_id.clone());
-    }
+    sync_signal(&mut ctx.viewport_id, resolved_id.clone());
 
     let mut mount_rev = use_signal(|| 0u64);
     let size_sig = use_element_size_with_mount(&resolved_id, ResizeObserverBox::BorderBox, mount_rev);
 
     use_effect(move || {
         let next_height = size_sig().map(|s| s.height).filter(|&h| h > 0.0);
-        if *ctx.list_height.peek() != next_height {
-            ctx.list_height.set(next_height);
-        }
+        sync_signal(&mut ctx.list_height, next_height);
     });
 
     let attrs = CommandViewportAttrs::new(resolved_id);
@@ -88,14 +88,20 @@ pub fn CommandViewport(props: CommandViewportProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        merged_style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id}",
             "data-command-viewport": attrs.data_command_viewport,
-            class: props.class,
-            style: merged_style,
+            class: merged.class,
+            style: merged.style,
             onmounted: move |evt| handle_mounted.call(evt),
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

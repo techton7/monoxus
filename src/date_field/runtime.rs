@@ -2,31 +2,65 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
+use monoxus_core::foundation::date_time::field_policy::{
+    DateFieldPolicy, FieldRangeRole, FieldRelationships, FieldSegmentItem, SegmentFieldPolicy,
+    SegmentFieldSnapshot, SegmentFieldState, TimeFieldPolicy, first_interactive_field_segment,
+    last_interactive_field_segment, resolve_adjacent_interactive_field_index,
+};
 
 use crate::foundation::{
-    browser::{focus_element_by_id, local_today_ymd},
+    browser::focus_element_by_id,
     date_time::{
         CalendarDate, DateValue, FieldInvalidEvent, FieldInvalidReason, FieldSegmentIntent,
         SegmentFocusMove, SegmentKind, parse_day_period_key, parse_pasted_date_value,
-        validate_date_value_with_unavailable,
+        parse_pasted_time_value,
     },
+    keyboard::is_ime_composing_key,
     shared::Direction,
 };
 
-use super::{
-    attrs::{DateFieldInputAttrs, DateFieldLabelAttrs, DateFieldSegmentAttrs},
-    relationships::DateFieldRelationships,
-    state::{
-        DateFieldState, first_interactive_segment, last_interactive_segment,
-        resolve_adjacent_interactive_index,
-    },
-    types::{DateFieldRangeRole, DateFieldSegmentItem, DateFieldSnapshot},
-};
+use super::attrs::{SegmentFieldInputAttrs, SegmentFieldLabelAttrs, SegmentFieldSegmentAttrs};
 
-/// Returns the host local calendar date via `oxidase::time::local_today_ymd()`.
-pub fn local_today() -> CalendarDate {
-    let (year, month, day) = local_today_ymd();
-    CalendarDate::from_ymd_clamped(year, month, day)
+/// Zero-overhead UI policy extension specializing [`SegmentFieldRuntime`] and
+/// [`crate::date_range_field::RangeFieldRuntime`] for `DateField`/`DateRangeField` vs
+/// `TimeField`/`TimeRangeField`.
+pub trait SegmentFieldUiPolicy: SegmentFieldPolicy {
+    const SCOPE_PREFIX: &'static str;
+    const RANGE_SCOPE_PREFIX: &'static str;
+
+    fn extract_calendar_date(value: Self::Value) -> Option<CalendarDate>;
+
+    fn can_parse_paste(text: &str, granularity: Self::ResolvedGranularity) -> bool;
+}
+
+impl SegmentFieldUiPolicy for DateFieldPolicy {
+    const SCOPE_PREFIX: &'static str = "date-field";
+    const RANGE_SCOPE_PREFIX: &'static str = "date-range-field";
+
+    #[inline]
+    fn extract_calendar_date(value: DateValue) -> Option<CalendarDate> {
+        Some(value.date())
+    }
+
+    #[inline]
+    fn can_parse_paste(text: &str, granularity: Self::ResolvedGranularity) -> bool {
+        parse_pasted_date_value(text, granularity).is_some()
+    }
+}
+
+impl SegmentFieldUiPolicy for TimeFieldPolicy {
+    const SCOPE_PREFIX: &'static str = "time-field";
+    const RANGE_SCOPE_PREFIX: &'static str = "time-range-field";
+
+    #[inline]
+    fn extract_calendar_date(_value: Self::Value) -> Option<CalendarDate> {
+        None
+    }
+
+    #[inline]
+    fn can_parse_paste(text: &str, _granularity: Self::ResolvedGranularity) -> bool {
+        parse_pasted_time_value(text).is_some()
+    }
 }
 
 /// Translates a Dioxus `keyboard_types::Key` into a host-neutral [`FieldSegmentIntent`].
@@ -91,42 +125,67 @@ pub fn translate_segment_keydown(
     }
 }
 
-/// Reactive runtime for `DateField`.
-#[derive(Clone)]
-pub struct DateFieldRuntime {
-    pub state: Signal<DateFieldState>,
-    pub rels: DateFieldRelationships,
-    pub range_role: Rc<RefCell<DateFieldRangeRole>>,
+/// Zero-overhead policy-parameterized reactive runtime shared by `DateField` and `TimeField`.
+pub struct SegmentFieldRuntime<P: SegmentFieldUiPolicy> {
+    pub state: Signal<SegmentFieldState<P>>,
+    pub rels: FieldRelationships,
+    pub range_role: CopyValue<FieldRangeRole>,
     pub label_id_override: Signal<Option<String>>,
     pub custom_label_id: Signal<Option<String>>,
     pub trailing_trigger_id: Signal<Option<String>>,
     pub segment_dom_ids: Rc<RefCell<BTreeMap<usize, String>>>,
     pub announcement: Signal<String>,
     pub last_invalid_reason: Signal<Option<FieldInvalidReason>>,
-    pub controlled_value: Rc<RefCell<Option<Signal<Option<DateValue>>>>>,
-    pub controlled_placeholder: Rc<RefCell<Option<Signal<DateValue>>>>,
-    pub default_value: Rc<RefCell<Option<DateValue>>>,
-    pub on_value_change: Rc<RefCell<Option<EventHandler<Option<DateValue>>>>>,
-    pub on_placeholder_change: Rc<RefCell<Option<EventHandler<DateValue>>>>,
-    pub is_date_unavailable: Rc<RefCell<Option<Callback<CalendarDate, bool>>>>,
-    pub validate: Rc<RefCell<Option<Callback<DateValue, Option<Vec<String>>>>>>,
-    pub on_invalid: Rc<RefCell<Option<EventHandler<FieldInvalidEvent>>>>,
-    pub on_prev_boundary: Rc<RefCell<Option<EventHandler<()>>>>,
-    pub on_next_boundary: Rc<RefCell<Option<EventHandler<()>>>>,
+    pub controlled_value: CopyValue<Option<Signal<Option<P::Value>>>>,
+    pub controlled_placeholder: CopyValue<Option<Signal<P::Value>>>,
+    pub default_value: CopyValue<Option<P::Value>>,
+    pub on_value_change: CopyValue<Option<EventHandler<Option<P::Value>>>>,
+    pub on_placeholder_change: CopyValue<Option<EventHandler<P::Value>>>,
+    pub is_date_unavailable: CopyValue<Option<Callback<CalendarDate, bool>>>,
+    pub validate: CopyValue<Option<Callback<P::Value, Option<Vec<String>>>>>,
+    pub on_invalid: CopyValue<Option<EventHandler<FieldInvalidEvent>>>,
+    pub on_prev_boundary: CopyValue<Option<EventHandler<()>>>,
+    pub on_next_boundary: CopyValue<Option<EventHandler<()>>>,
 }
 
-impl PartialEq for DateFieldRuntime {
+impl<P: SegmentFieldUiPolicy> Clone for SegmentFieldRuntime<P> {
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state,
+            rels: self.rels.clone(),
+            range_role: self.range_role,
+            label_id_override: self.label_id_override,
+            custom_label_id: self.custom_label_id,
+            trailing_trigger_id: self.trailing_trigger_id,
+            segment_dom_ids: Rc::clone(&self.segment_dom_ids),
+            announcement: self.announcement,
+            last_invalid_reason: self.last_invalid_reason,
+            controlled_value: self.controlled_value,
+            controlled_placeholder: self.controlled_placeholder,
+            default_value: self.default_value,
+            on_value_change: self.on_value_change,
+            on_placeholder_change: self.on_placeholder_change,
+            is_date_unavailable: self.is_date_unavailable,
+            validate: self.validate,
+            on_invalid: self.on_invalid,
+            on_prev_boundary: self.on_prev_boundary,
+            on_next_boundary: self.on_next_boundary,
+        }
+    }
+}
+
+impl<P: SegmentFieldUiPolicy> PartialEq for SegmentFieldRuntime<P> {
     fn eq(&self, other: &Self) -> bool {
         self.rels == other.rels && self.state == other.state
     }
 }
 
-impl DateFieldRuntime {
-    pub fn snapshot(&self) -> DateFieldSnapshot {
+impl<P: SegmentFieldUiPolicy> SegmentFieldRuntime<P> {
+    pub fn snapshot(&self) -> SegmentFieldSnapshot<P> {
         self.state.read().snapshot(&self.rels)
     }
 
-    pub fn segments(&self) -> Vec<DateFieldSegmentItem> {
+    pub fn segments(&self) -> Vec<FieldSegmentItem> {
         self.state.read().rendered_segments(&self.rels)
     }
 
@@ -144,19 +203,56 @@ impl DateFieldRuntime {
             .unwrap_or_else(|| self.rels.label_id().to_string())
     }
 
-    /// Registers a custom `id` from `DateFieldLabel` so `aria-labelledby` stays synced (`DEF-5C-07`).
+    /// Registers a custom `id` from `*FieldLabel` so `aria-labelledby` stays synced (`DEF-5C-07`).
     pub fn register_custom_label_id(&mut self, id: Option<String>) {
         let normalized = id.filter(|s| !s.is_empty());
-        if *self.custom_label_id.peek() != normalized {
-            self.custom_label_id.set(normalized);
+        if self.custom_label_id.try_peek().is_ok_and(|cur| *cur != normalized)
+            && let Ok(mut guard) = self.custom_label_id.try_write()
+        {
+            *guard = normalized;
+        }
+    }
+
+    /// Clears `custom_label_id` only if it still matches `expected`, preventing keyed label
+    /// swaps from clobbering the replacement label's ID.
+    pub fn unregister_custom_label_id(&mut self, expected: &str) {
+        if self
+            .custom_label_id
+            .try_peek()
+            .ok()
+            .and_then(|cur| cur.as_deref().map(|s| s == expected))
+            .unwrap_or(false)
+            && let Ok(mut guard) = self.custom_label_id.try_write()
+        {
+            *guard = None;
         }
     }
 
     /// Registers an optional trailing picker trigger button ID (`data-segment="trigger"`)
-    /// so `ArrowRight` from the last editable segment focuses the trigger.
+    /// so navigating past the last editable segment focuses the trigger.
     pub fn register_trigger_id(&mut self, id: Option<String>) {
-        if *self.trailing_trigger_id.peek() != id {
-            self.trailing_trigger_id.set(id);
+        if self
+            .trailing_trigger_id
+            .try_peek()
+            .is_ok_and(|cur| *cur != id)
+            && let Ok(mut guard) = self.trailing_trigger_id.try_write()
+        {
+            *guard = id;
+        }
+    }
+
+    /// Clears `trailing_trigger_id` only when it still matches `expected`, preventing keyed
+    /// trigger swaps from clobbering the replacement trigger's ID.
+    pub fn unregister_trigger_id(&mut self, expected: &str) {
+        if self
+            .trailing_trigger_id
+            .try_peek()
+            .ok()
+            .and_then(|cur| cur.as_deref().map(|s| s == expected))
+            .unwrap_or(false)
+            && let Ok(mut guard) = self.trailing_trigger_id.try_write()
+        {
+            *guard = None;
         }
     }
 
@@ -174,13 +270,13 @@ impl DateFieldRuntime {
 
     pub fn first_interactive_segment_id(&self) -> Option<String> {
         let segs = self.state.peek().rendered_segments(&self.rels);
-        first_interactive_segment(&segs)
+        first_interactive_field_segment(&segs)
             .map(|s| self.resolve_segment_dom_id(s.index, &s.id))
     }
 
     pub fn last_interactive_segment_id(&self) -> Option<String> {
         let segs = self.state.peek().rendered_segments(&self.rels);
-        last_interactive_segment(&segs)
+        last_interactive_field_segment(&segs)
             .map(|s| self.resolve_segment_dom_id(s.index, &s.id))
     }
 
@@ -196,7 +292,7 @@ impl DateFieldRuntime {
         }
     }
 
-    pub fn input_attrs(&self, id_override: Option<String>) -> DateFieldInputAttrs {
+    pub fn input_attrs(&self, id_override: Option<String>) -> SegmentFieldInputAttrs {
         let st = self.state.read();
         let id = id_override
             .filter(|s| !s.is_empty())
@@ -206,9 +302,10 @@ impl DateFieldRuntime {
         } else {
             Some(self.rels.description_id().to_string())
         };
-        DateFieldInputAttrs::new(
+        let role = self.range_role.try_read().map(|r| *r).unwrap_or_default();
+        SegmentFieldInputAttrs::new(
             id,
-            *self.range_role.borrow(),
+            role,
             Some(self.effective_label_id()),
             desc,
             st.def().dir,
@@ -218,22 +315,22 @@ impl DateFieldRuntime {
         .with_required(st.def().required)
     }
 
-    pub fn label_attrs(&self, id_override: Option<String>) -> DateFieldLabelAttrs {
+    pub fn label_attrs(&self, id_override: Option<String>) -> SegmentFieldLabelAttrs {
         let st = self.state.read();
         let id = id_override
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| self.effective_label_id());
-        DateFieldLabelAttrs::new(id, st.is_invalid(), st.def().disabled)
+        SegmentFieldLabelAttrs::new(id, st.is_invalid(), st.def().disabled)
     }
 
     pub fn segment_attrs(
         &self,
-        item: &DateFieldSegmentItem,
+        item: &FieldSegmentItem,
         id_override: Option<String>,
-    ) -> DateFieldSegmentAttrs {
+    ) -> SegmentFieldSegmentAttrs {
         let st = self.state.read();
         let segs = st.rendered_segments(&self.rels);
-        let first_idx = first_interactive_segment(&segs).map(|s| s.index);
+        let first_idx = first_interactive_field_segment(&segs).map(|s| s.index);
         let is_first = first_idx == Some(item.index);
         let desc_id = if st.description_text().is_empty() {
             None
@@ -243,7 +340,7 @@ impl DateFieldRuntime {
         let template = st.def().locale.field_template();
         let label_id = self.effective_label_id();
         let seg_readonly = st.def().is_segment_read_only(item.kind());
-        DateFieldSegmentAttrs::new(
+        SegmentFieldSegmentAttrs::new(
             item,
             id_override,
             Some(&label_id),
@@ -262,33 +359,33 @@ impl DateFieldRuntime {
             let st = self.state.peek();
             (st.value(), st.def().min_value, st.def().max_value)
         };
-        let is_unavailable = current_val.map(|v| v.date()).is_some_and(|date| {
-            self.is_date_unavailable
-                .borrow()
-                .as_ref()
-                .is_some_and(|cb| cb.call(date))
-        });
+        let is_unavailable = current_val
+            .and_then(P::extract_calendar_date)
+            .is_some_and(|date| {
+                self.is_date_unavailable
+                    .try_read()
+                    .ok()
+                    .and_then(|slot| *slot)
+                    .is_some_and(|cb| cb.call(date))
+            });
         let custom_errors = if is_unavailable {
             None
         } else {
             current_val.and_then(|v| {
                 self.validate
-                    .borrow()
-                    .as_ref()
+                    .try_read()
+                    .ok()
+                    .and_then(|slot| *slot)
                     .and_then(|cb| cb.call(v))
             })
         };
 
-        let next_reason = validate_date_value_with_unavailable(
-            current_val,
-            min_val,
-            max_val,
-            is_unavailable,
-            custom_errors,
-        )
-        .err();
+        let next_reason =
+            P::validate_value(current_val, min_val, max_val, is_unavailable, custom_errors).err();
         if self.state.peek().local_invalid_reason() != next_reason.as_ref() {
-            self.state.write().set_local_invalid_reason(next_reason.clone());
+            self.state
+                .write()
+                .set_local_invalid_reason(next_reason.clone());
         }
         let prev_reason = self.last_invalid_reason.peek().clone();
         if next_reason != prev_reason {
@@ -298,7 +395,7 @@ impl DateFieldRuntime {
                     FieldInvalidReason::Custom(msgs) => msgs.clone(),
                     _ => Vec::new(),
                 };
-                if let Some(handler) = self.on_invalid.borrow().as_ref() {
+                if let Some(handler) = self.on_invalid.try_read().ok().and_then(|slot| *slot) {
                     handler.call(FieldInvalidEvent { reason, messages });
                 }
             }
@@ -307,8 +404,8 @@ impl DateFieldRuntime {
 
     fn emit_value_and_placeholder_changes(
         &mut self,
-        prev_value: Option<DateValue>,
-        prev_placeholder: DateValue,
+        prev_value: Option<P::Value>,
+        prev_placeholder: P::Value,
     ) {
         let (next_value, next_placeholder) = {
             let st = self.state.peek();
@@ -316,23 +413,32 @@ impl DateFieldRuntime {
         };
 
         if next_value != prev_value {
-            if let Some(mut sig) = *self.controlled_value.borrow()
+            if let Some(mut sig) = self.controlled_value.try_read().ok().and_then(|slot| *slot)
                 && *sig.peek() != next_value
             {
                 sig.set(next_value);
             }
-            if let Some(handler) = self.on_value_change.borrow().as_ref() {
+            if let Some(handler) = self.on_value_change.try_read().ok().and_then(|slot| *slot) {
                 handler.call(next_value);
             }
         }
 
         if next_placeholder != prev_placeholder {
-            if let Some(mut sig) = *self.controlled_placeholder.borrow()
+            if let Some(mut sig) = self
+                .controlled_placeholder
+                .try_read()
+                .ok()
+                .and_then(|slot| *slot)
                 && *sig.peek() != next_placeholder
             {
                 sig.set(next_placeholder);
             }
-            if let Some(handler) = self.on_placeholder_change.borrow().as_ref() {
+            if let Some(handler) = self
+                .on_placeholder_change
+                .try_read()
+                .ok()
+                .and_then(|slot| *slot)
+            {
                 handler.call(next_placeholder);
             }
         }
@@ -340,7 +446,7 @@ impl DateFieldRuntime {
 
     fn apply_focus_move(&self, current_index: usize, move_dir: SegmentFocusMove) {
         let segs = self.state.peek().rendered_segments(&self.rels);
-        match resolve_adjacent_interactive_index(&segs, current_index, move_dir) {
+        match resolve_adjacent_interactive_field_index(&segs, current_index, move_dir) {
             Ok(target_idx) => {
                 if let Some(target) = segs.iter().find(|s| s.index == target_idx) {
                     let dom_id = self.resolve_segment_dom_id(target.index, &target.id);
@@ -348,14 +454,16 @@ impl DateFieldRuntime {
                 }
             }
             Err(SegmentFocusMove::Next) => {
-                if let Some(handler) = self.on_next_boundary.borrow().as_ref() {
+                if let Some(handler) = self.on_next_boundary.try_read().ok().and_then(|slot| *slot)
+                {
                     handler.call(());
                 } else if let Some(trigger_id) = self.trailing_trigger_id.peek().as_deref() {
                     focus_element_by_id(trigger_id);
                 }
             }
             Err(SegmentFocusMove::Prev) => {
-                if let Some(handler) = self.on_prev_boundary.borrow().as_ref() {
+                if let Some(handler) = self.on_prev_boundary.try_read().ok().and_then(|slot| *slot)
+                {
                     handler.call(());
                 }
             }
@@ -368,7 +476,7 @@ impl DateFieldRuntime {
         kind: SegmentKind,
         evt: &KeyboardEvent,
     ) {
-        if evt.data().is_composing() {
+        if is_ime_composing_key(evt) {
             return;
         }
         // DEF-5C-12: Do not prevent_default() when the field is disabled.
@@ -429,7 +537,7 @@ impl DateFieldRuntime {
 
     pub fn handle_segment_paste(&mut self, kind: SegmentKind, text: &str) -> bool {
         let granularity = self.state.peek().resolved_granularity();
-        if parse_pasted_date_value(text, granularity).is_none() {
+        if !P::can_parse_paste(text, granularity) {
             return false;
         }
         let (prev_val, prev_ph) = {
@@ -458,7 +566,7 @@ impl DateFieldRuntime {
             let st = self.state.peek();
             (st.value(), st.placeholder())
         };
-        let default_val = *self.default_value.borrow();
+        let default_val = self.default_value.try_read().ok().and_then(|v| *v);
         self.state.write().reset_value(default_val);
         self.emit_value_and_placeholder_changes(prev_val, prev_ph);
         self.sync_validation_and_notify();
@@ -466,8 +574,8 @@ impl DateFieldRuntime {
 
     pub fn reconcile_external_state(
         &mut self,
-        external_value: Option<Option<DateValue>>,
-        external_placeholder: Option<DateValue>,
+        external_value: Option<Option<P::Value>>,
+        external_placeholder: Option<P::Value>,
         is_invalid_override: Option<bool>,
     ) {
         if let Some(val) = external_value
@@ -489,16 +597,43 @@ impl DateFieldRuntime {
     }
 }
 
+/// Dioxus context wrapping [`SegmentFieldRuntime`].
+pub struct SegmentFieldContext<P: SegmentFieldUiPolicy>(pub SegmentFieldRuntime<P>);
+
+impl<P: SegmentFieldUiPolicy> Clone for SegmentFieldContext<P> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<P: SegmentFieldUiPolicy> PartialEq for SegmentFieldContext<P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+/// Consumes the nearest ancestor [`SegmentFieldRuntime<P>`] context.
+pub fn use_segment_field_context<P: SegmentFieldUiPolicy>() -> SegmentFieldRuntime<P> {
+    use_context::<SegmentFieldContext<P>>().0
+}
+
+/// Attempts to consume the nearest ancestor [`SegmentFieldRuntime<P>`] context.
+pub fn try_use_segment_field_context<P: SegmentFieldUiPolicy>() -> Option<SegmentFieldRuntime<P>> {
+    try_consume_context::<SegmentFieldContext<P>>().map(|ctx| ctx.0)
+}
+
+/// Reactive runtime for `DateField`.
+pub type DateFieldRuntime = SegmentFieldRuntime<DateFieldPolicy>;
+
 /// Dioxus context wrapping [`DateFieldRuntime`].
-#[derive(Clone, PartialEq)]
-pub struct DateFieldContext(pub DateFieldRuntime);
+pub type DateFieldContext = SegmentFieldContext<DateFieldPolicy>;
 
 /// Consumes the nearest ancestor [`DateFieldRuntime`] context (panics if outside `DateFieldRoot`).
 pub fn use_date_field_context() -> DateFieldRuntime {
-    use_context::<DateFieldContext>().0
+    use_segment_field_context::<DateFieldPolicy>()
 }
 
 /// Attempts to consume the nearest ancestor [`DateFieldRuntime`] context.
 pub fn try_use_date_field_context() -> Option<DateFieldRuntime> {
-    try_consume_context::<DateFieldContext>().map(|ctx| ctx.0)
+    try_use_segment_field_context::<DateFieldPolicy>()
 }

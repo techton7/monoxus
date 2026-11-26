@@ -1,75 +1,81 @@
-use std::{cell::RefCell, rc::Rc};
+use std::ops::{Deref, DerefMut};
 
 use dioxus::prelude::*;
+use monoxus_core::date_picker::{PickerPolicy, PickerRelationships, PickerState};
 
-use crate::foundation::{
-    date_time::{
-        CalendarDate, CalendarLocale, DateValue, MonthFormat, Weekday, WeekdayFormat, YearFormat,
-    },
-    shared::Direction,
-};
+use crate::foundation::date_time::{CalendarConfig, CalendarDate, DateValue};
 
-use super::{
-    relationships::DatePickerRelationships,
-    state::DatePickerState,
-    types::DatePickerSnapshot,
-};
+use super::state::DatePickerPolicy;
 
 /// Shared calendar configuration forwarded from `DatePickerRoot` to `DatePickerCalendar`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct DatePickerCalendarConfig {
-    pub min_value: Option<CalendarDate>,
-    pub max_value: Option<CalendarDate>,
-    pub disabled: bool,
-    pub read_only: bool,
-    pub prevent_deselect: bool,
-    pub paged_navigation: bool,
-    pub fixed_weeks: bool,
-    pub number_of_months: usize,
-    pub week_starts_on: Option<Weekday>,
-    pub weekday_format: WeekdayFormat,
-    pub month_format: MonthFormat,
-    pub year_format: YearFormat,
-    pub locale: CalendarLocale,
-    pub calendar_label: String,
-    pub dir: Direction,
-    pub disable_days_outside_month: bool,
+    pub config: CalendarConfig,
     pub initial_focus: bool,
 }
 
-/// Reactive runtime coordinating `DateField`, `Popover`, and `Calendar` for `DatePicker`.
-#[derive(Clone)]
-pub struct DatePickerRuntime {
-    pub state: Signal<DatePickerState>,
-    pub rels: DatePickerRelationships,
-    pub value: Signal<Option<DateValue>>,
-    pub calendar_value: Signal<Option<CalendarDate>>,
+impl Deref for DatePickerCalendarConfig {
+    type Target = CalendarConfig;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.config
+    }
+}
+
+/// Zero-overhead policy-parameterized runtime core shared by `DatePicker` and `DateRangePicker`.
+pub struct PickerRuntimeCore<P: PickerPolicy> {
+    pub state: Signal<PickerState<P>>,
+    pub rels: PickerRelationships<P>,
+    pub value: Signal<P::Value>,
+    pub calendar_value: Signal<P::CalendarValue>,
     pub placeholder: Signal<DateValue>,
     pub calendar_placeholder: Signal<CalendarDate>,
     pub open: Signal<bool>,
-    pub calendar_config: Signal<DatePickerCalendarConfig>,
-    pub controlled_value: Rc<RefCell<Option<Signal<Option<DateValue>>>>>,
-    pub controlled_placeholder: Rc<RefCell<Option<Signal<DateValue>>>>,
-    pub controlled_open: Rc<RefCell<Option<Signal<bool>>>>,
-    pub on_value_change: Rc<RefCell<Option<EventHandler<Option<DateValue>>>>>,
-    pub on_placeholder_change: Rc<RefCell<Option<EventHandler<DateValue>>>>,
-    pub on_open_change: Rc<RefCell<Option<EventHandler<bool>>>>,
+    pub controlled_value: CopyValue<Option<Signal<P::Value>>>,
+    pub controlled_placeholder: CopyValue<Option<Signal<DateValue>>>,
+    pub controlled_open: CopyValue<Option<Signal<bool>>>,
+    pub on_value_change: CopyValue<Option<EventHandler<P::Value>>>,
+    pub on_placeholder_change: CopyValue<Option<EventHandler<DateValue>>>,
+    pub on_open_change: CopyValue<Option<EventHandler<bool>>>,
     pub is_date_disabled: Signal<Option<Callback<CalendarDate, bool>>>,
     pub is_date_unavailable: Signal<Option<Callback<CalendarDate, bool>>>,
 }
 
-impl PartialEq for DatePickerRuntime {
+impl<P: PickerPolicy> Clone for PickerRuntimeCore<P> {
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state,
+            rels: self.rels.clone(),
+            value: self.value,
+            calendar_value: self.calendar_value,
+            placeholder: self.placeholder,
+            calendar_placeholder: self.calendar_placeholder,
+            open: self.open,
+            controlled_value: self.controlled_value,
+            controlled_placeholder: self.controlled_placeholder,
+            controlled_open: self.controlled_open,
+            on_value_change: self.on_value_change,
+            on_placeholder_change: self.on_placeholder_change,
+            on_open_change: self.on_open_change,
+            is_date_disabled: self.is_date_disabled,
+            is_date_unavailable: self.is_date_unavailable,
+        }
+    }
+}
+
+impl<P: PickerPolicy> PartialEq for PickerRuntimeCore<P> {
     fn eq(&self, other: &Self) -> bool {
         self.rels == other.rels && self.state == other.state
     }
 }
 
-impl DatePickerRuntime {
-    pub fn snapshot(&self) -> DatePickerSnapshot {
+impl<P: PickerPolicy> PickerRuntimeCore<P> {
+    pub fn snapshot(&self) -> P::Snapshot {
         self.state.read().snapshot()
     }
 
-    fn sync_signals_from_state(&mut self) {
+    pub(crate) fn sync_signals_from_state(&mut self) {
         let (val, cal_val, ph, cal_ph, open) = {
             let st = self.state.peek();
             (
@@ -97,35 +103,35 @@ impl DatePickerRuntime {
         }
     }
 
-    fn notify_value_change(&self, next: Option<DateValue>) {
-        if let Some(mut sig) = *self.controlled_value.borrow()
+    pub(crate) fn notify_value_change(&self, next: P::Value) {
+        if let Some(mut sig) = self.controlled_value.try_read().ok().and_then(|s| *s)
             && *sig.peek() != next
         {
             sig.set(next);
         }
-        if let Some(cb) = self.on_value_change.borrow().as_ref() {
+        if let Some(cb) = self.on_value_change.try_read().ok().and_then(|s| *s) {
             cb.call(next);
         }
     }
 
-    fn notify_placeholder_change(&self, next: DateValue) {
-        if let Some(mut sig) = *self.controlled_placeholder.borrow()
+    pub(crate) fn notify_placeholder_change(&self, next: DateValue) {
+        if let Some(mut sig) = self.controlled_placeholder.try_read().ok().and_then(|s| *s)
             && *sig.peek() != next
         {
             sig.set(next);
         }
-        if let Some(cb) = self.on_placeholder_change.borrow().as_ref() {
+        if let Some(cb) = self.on_placeholder_change.try_read().ok().and_then(|s| *s) {
             cb.call(next);
         }
     }
 
-    fn notify_open_change(&self, next: bool) {
-        if let Some(mut sig) = *self.controlled_open.borrow()
+    pub(crate) fn notify_open_change(&self, next: bool) {
+        if let Some(mut sig) = self.controlled_open.try_read().ok().and_then(|s| *s)
             && *sig.peek() != next
         {
             sig.set(next);
         }
-        if let Some(cb) = self.on_open_change.borrow().as_ref() {
+        if let Some(cb) = self.on_open_change.try_read().ok().and_then(|s| *s) {
             cb.call(next);
         }
     }
@@ -143,6 +149,55 @@ impl DatePickerRuntime {
         self.set_open(next);
     }
 
+    pub fn handle_field_placeholder_change(&mut self, next: DateValue) {
+        if self.state.peek().placeholder() == next {
+            return;
+        }
+        self.state.write().set_placeholder(next);
+        self.sync_signals_from_state();
+        self.notify_placeholder_change(next);
+    }
+
+    pub fn handle_calendar_placeholder_change(&mut self, next_date: CalendarDate) {
+        let prev_ph = self.state.peek().placeholder();
+        let next_ph = self.state.write().set_calendar_placeholder(next_date);
+        self.sync_signals_from_state();
+        if next_ph != prev_ph {
+            self.notify_placeholder_change(next_ph);
+        }
+    }
+}
+
+/// Reactive runtime coordinating `DateField`, `Popover`, and `Calendar` for `DatePicker`.
+#[derive(Clone)]
+pub struct DatePickerRuntime {
+    pub core: PickerRuntimeCore<DatePickerPolicy>,
+    pub calendar_config: Signal<DatePickerCalendarConfig>,
+}
+
+impl Deref for DatePickerRuntime {
+    type Target = PickerRuntimeCore<DatePickerPolicy>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.core
+    }
+}
+
+impl DerefMut for DatePickerRuntime {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.core
+    }
+}
+
+impl PartialEq for DatePickerRuntime {
+    fn eq(&self, other: &Self) -> bool {
+        self.core == other.core
+    }
+}
+
+impl DatePickerRuntime {
     pub fn handle_field_value_change(&mut self, next: Option<DateValue>) {
         let (prev_val, prev_ph) = {
             let st = self.state.peek();
@@ -158,15 +213,6 @@ impl DatePickerRuntime {
         if next_ph != prev_ph {
             self.notify_placeholder_change(next_ph);
         }
-    }
-
-    pub fn handle_field_placeholder_change(&mut self, next: DateValue) {
-        if self.state.peek().placeholder() == next {
-            return;
-        }
-        self.state.write().set_placeholder(next);
-        self.sync_signals_from_state();
-        self.notify_placeholder_change(next);
     }
 
     pub fn handle_calendar_value_change(&mut self, next: Option<CalendarDate>) {
@@ -200,15 +246,6 @@ impl DatePickerRuntime {
         }
         if next_open != prev_open {
             self.notify_open_change(next_open);
-        }
-    }
-
-    pub fn handle_calendar_placeholder_change(&mut self, next_date: CalendarDate) {
-        let prev_ph = self.state.peek().placeholder();
-        let next_ph = self.state.write().set_calendar_placeholder(next_date);
-        self.sync_signals_from_state();
-        if next_ph != prev_ph {
-            self.notify_placeholder_change(next_ph);
         }
     }
 

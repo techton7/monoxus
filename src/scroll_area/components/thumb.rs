@@ -4,11 +4,11 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    browser::{
-        PresenceMonitorEvent, WatcherGuard, get_element_client_rect, start_presence_monitor,
-    },
-    overlay::PresenceController,
+    browser::{WatcherGuard, get_element_client_rect},
+    compose::{join_styles, merge_global_attributes},
+    overlay::use_presence,
     shared::Orientation,
+    state::sync_signal,
 };
 
 use super::{
@@ -26,10 +26,11 @@ pub struct ScrollAreaThumbProps {
     pub id: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
-    pub as_child: Option<bool>,
     pub children: Option<Element>,
     pub class: Option<String>,
     pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
 }
 
 #[component]
@@ -47,9 +48,7 @@ pub fn ScrollAreaThumb(props: ScrollAreaThumbProps) -> Element {
         let mut rels = ctx.relationships;
         let orientation = scrollbar_ctx.orientation;
         move |(tid,)| {
-            if tid_sig.peek().as_str() != tid {
-                tid_sig.set(tid.clone());
-            }
+            sync_signal(&mut tid_sig, tid.clone());
             let cur = rels.peek().clone();
             let needs_update = match orientation {
                 Orientation::Horizontal => cur.thumb_x_id() != tid,
@@ -67,58 +66,8 @@ pub fn ScrollAreaThumb(props: ScrollAreaThumbProps) -> Element {
 
     let current_sizes = scrollbar_ctx.sizes();
     let has_thumb_val = has_thumb(current_sizes);
-
-    let presence = use_hook(|| {
-        Rc::new(RefCell::new(
-            PresenceController::new(has_thumb_val).with_retained_mount(true),
-        ))
-    });
-    let mut presence_epoch = use_signal(|| 0u64);
-    let presence_monitor = use_hook(|| Rc::new(RefCell::new(None::<WatcherGuard>)));
-    let _ = presence_epoch();
-
-    let needs_sync = presence.borrow().desired_present() != has_thumb_val;
-    if needs_sync {
-        let update = presence.borrow_mut().sync(has_thumb_val);
-        if let Some(cycle_id) = update.started_close_cycle() {
-            let presence_cb = Rc::clone(&presence);
-            let watcher =
-                start_presence_monitor(thumb_id.as_str(), cycle_id, move |event| match event {
-                    PresenceMonitorEvent::TransitionEnd {
-                        cycle_id: event_cycle,
-                        ..
-                    }
-                    | PresenceMonitorEvent::TransitionCancel {
-                        cycle_id: event_cycle,
-                        ..
-                    }
-                    | PresenceMonitorEvent::AnimationEnd {
-                        cycle_id: event_cycle,
-                        ..
-                    }
-                    | PresenceMonitorEvent::AnimationCancel {
-                        cycle_id: event_cycle,
-                        ..
-                    }
-                    | PresenceMonitorEvent::Fallback {
-                        cycle_id: event_cycle,
-                        ..
-                    } => {
-                        if presence_cb.borrow_mut().complete_close_cycle(event_cycle) {
-                            if let Ok(mut epoch) = presence_epoch.try_write() {
-                                *epoch += 1;
-                            }
-                        }
-                    }
-                    _ => {}
-                });
-            *presence_monitor.borrow_mut() = Some(watcher);
-        } else if !update.should_render() || update.invalidated_close_cycle().is_some() {
-            *presence_monitor.borrow_mut() = None;
-        }
-    }
-
-    let should_render = props.force_mount || presence.borrow().should_render();
+    let presence = use_presence(has_thumb_val, &thumb_id, true, None);
+    let should_render = props.force_mount || presence.should_render();
 
     let mut mounted_rev = use_signal(|| 0u64);
     let scroll_sync_guard_cell = use_hook(|| Rc::new(RefCell::new(WatcherGuard::noop())));
@@ -147,14 +96,12 @@ pub fn ScrollAreaThumb(props: ScrollAreaThumbProps) -> Element {
 
     use_drop({
         let scroll_sync_guard_cell = Rc::clone(&scroll_sync_guard_cell);
-        let presence_monitor = Rc::clone(&presence_monitor);
         move || {
             std::mem::replace(
                 &mut *scroll_sync_guard_cell.borrow_mut(),
                 WatcherGuard::noop(),
             )
             .stop();
-            *presence_monitor.borrow_mut() = None;
         }
     });
 
@@ -178,17 +125,20 @@ pub fn ScrollAreaThumb(props: ScrollAreaThumbProps) -> Element {
     let offset = get_thumb_offset_from_scroll(scroll_pos, current_sizes, ctx.dir);
     let thumb_size = get_thumb_size(current_sizes);
 
-    let mut thumb_style = match scrollbar_ctx.orientation {
+    let base_style = match scrollbar_ctx.orientation {
         Orientation::Vertical | Orientation::Both => format!(
-            "width: 100%; height: var(--monoxus-scroll-area-thumb-height, var(--radix-scroll-area-thumb-height, {thumb_size}px)); transform: translate3d(0, {offset}px, 0); "
+            "width: 100%; height: var(--monoxus-scroll-area-thumb-height, var(--radix-scroll-area-thumb-height, {thumb_size}px)); transform: translate3d(0, {offset}px, 0);"
         ),
         Orientation::Horizontal => format!(
-            "height: 100%; width: var(--monoxus-scroll-area-thumb-width, var(--radix-scroll-area-thumb-width, {thumb_size}px)); transform: translate3d({offset}px, 0, 0); "
+            "height: 100%; width: var(--monoxus-scroll-area-thumb-width, var(--radix-scroll-area-thumb-width, {thumb_size}px)); transform: translate3d({offset}px, 0, 0);"
         ),
     };
-    if let Some(user_style) = &props.style {
-        thumb_style.push_str(user_style);
-    }
+    let combined_style = join_styles([base_style.as_str(), props.style.as_deref().unwrap_or("")]);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        combined_style.as_deref(),
+        props.attributes,
+    );
 
     let thumb_attrs = ScrollAreaThumbAttributes::new(&thumb_id).with_visible(has_thumb_val);
 
@@ -210,47 +160,22 @@ pub fn ScrollAreaThumb(props: ScrollAreaThumbProps) -> Element {
         }
     };
 
-    let ontransitionend = {
-        let presence = Rc::clone(&presence);
-        let mut presence_epoch = presence_epoch;
-        move |_evt: Event<TransitionData>| {
-            let cycle = presence.borrow().active_close_cycle();
-            if let Some(cycle) = cycle {
-                if presence.borrow_mut().complete_close_cycle(cycle) {
-                    if let Ok(mut epoch) = presence_epoch.try_write() {
-                        *epoch += 1;
-                    }
-                }
-            }
-        }
-    };
-
-    let onanimationend = {
-        let presence = Rc::clone(&presence);
-        let mut presence_epoch = presence_epoch;
-        move |_evt: Event<AnimationData>| {
-            let cycle = presence.borrow().active_close_cycle();
-            if let Some(cycle) = cycle {
-                if presence.borrow_mut().complete_close_cycle(cycle) {
-                    if let Ok(mut epoch) = presence_epoch.try_write() {
-                        *epoch += 1;
-                    }
-                }
-            }
-        }
-    };
-
     rsx! {
         div {
             id: "{thumb_attrs.id()}",
-            class: props.class.as_deref(),
-            style: "{thumb_style}",
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-state": "{thumb_attrs.data_state()}",
             "data-monoxus-scroll-area-thumb": "",
             onmounted: move |_| mounted_rev += 1,
             onpointerdown: onpointerdown,
-            ontransitionend: ontransitionend,
-            onanimationend: onanimationend,
+            ontransitionend: move |_| {
+                presence.finish_active_exit();
+            },
+            onanimationend: move |_| {
+                presence.finish_active_exit();
+            },
+            ..merged.rest,
             {props.children}
         }
     }

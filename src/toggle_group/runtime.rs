@@ -6,15 +6,13 @@ use crate::foundation::{
         use_roving_focus_group,
     },
     shared::{CollectionRegistry, Direction, ScopeHandle},
+    state::{ControllableSignal, sync_signal, use_controllable_signal},
 };
 
 use super::{
     attrs::{ToggleGroupItemAttributes, ToggleGroupRootAttributes},
     state::ToggleGroup,
-    types::{
-        ToggleGroupItemRegistration, ToggleGroupMode, ToggleGroupMultipleChangeHandler,
-        ToggleGroupOrientation, ToggleGroupSingleChangeHandler,
-    },
+    types::{ToggleGroupItemRegistration, ToggleGroupMode, ToggleGroupOrientation},
 };
 
 #[derive(Clone)]
@@ -22,6 +20,8 @@ pub struct ToggleGroupRuntime {
     pub mode: Signal<ToggleGroupMode>,
     pub single_value: Signal<String>,
     pub multiple_values: Signal<Vec<String>>,
+    pub(crate) single_ctl: ControllableSignal<String>,
+    pub(crate) multiple_ctl: ControllableSignal<Vec<String>>,
     pub single_controlled: Signal<bool>,
     pub multiple_controlled: Signal<bool>,
     pub roving: RovingFocusRuntime,
@@ -34,56 +34,70 @@ pub struct ToggleGroupRuntime {
     pub disabled: Signal<bool>,
     pub root_id: Signal<String>,
     pub root_dom_id: Signal<String>,
-    pub on_single_change: Option<ToggleGroupSingleChangeHandler>,
-    pub on_multiple_change: Option<ToggleGroupMultipleChangeHandler>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn use_toggle_group_runtime(
+    mode: ToggleGroupMode,
+    value: Option<String>,
+    default_value: Option<String>,
+    on_value_change: Option<EventHandler<String>>,
+    values: Option<Vec<String>>,
+    default_values: Option<Vec<String>>,
+    on_values_change: Option<EventHandler<Vec<String>>>,
+    orientation: ToggleGroupOrientation,
+    dir: Direction,
+    roving_focus: bool,
+    loop_focus: bool,
+    disabled: bool,
+    root_id: String,
+    root_dom_id: String,
+) -> ToggleGroupRuntime {
+    let single_ctl =
+        use_controllable_signal(value, default_value.unwrap_or_default(), on_value_change);
+    let multiple_ctl =
+        use_controllable_signal(values, default_values.unwrap_or_default(), on_values_change);
+
+    let roving_cfg = RovingFocusConfig::new()
+        .with_orientation(orientation.into())
+        .with_direction(dir)
+        .with_loop_focus(loop_focus)
+        .with_enabled(roving_focus);
+    let roving = use_roving_focus_group(roving_cfg, None, root_dom_id);
+
+    let mut rt = ToggleGroupRuntime {
+        mode: use_signal(|| mode),
+        single_value: single_ctl.signal(),
+        multiple_values: multiple_ctl.signal(),
+        single_ctl,
+        multiple_ctl,
+        single_controlled: use_signal(|| single_ctl.is_controlled()),
+        multiple_controlled: use_signal(|| multiple_ctl.is_controlled()),
+        roving,
+        current_tab_stop: roving.current_tab_stop,
+        registry: roving.registry,
+        orientation: use_signal(|| orientation),
+        dir: use_signal(|| dir),
+        roving_focus: use_signal(|| roving_focus),
+        loop_focus: use_signal(|| loop_focus),
+        disabled: use_signal(|| disabled),
+        root_id: use_signal(|| root_id),
+        root_dom_id: roving.root_dom_id,
+    };
+
+    sync_signal(&mut rt.mode, mode);
+    sync_signal(&mut rt.single_controlled, single_ctl.is_controlled());
+    sync_signal(&mut rt.multiple_controlled, multiple_ctl.is_controlled());
+    sync_signal(&mut rt.orientation, orientation);
+    sync_signal(&mut rt.dir, dir);
+    sync_signal(&mut rt.roving_focus, roving_focus);
+    sync_signal(&mut rt.loop_focus, loop_focus);
+    sync_signal(&mut rt.disabled, disabled);
+
+    rt
 }
 
 impl ToggleGroupRuntime {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        mode: ToggleGroupMode,
-        initial_single: String,
-        initial_multiple: Vec<String>,
-        single_controlled: bool,
-        multiple_controlled: bool,
-        orientation: ToggleGroupOrientation,
-        dir: Direction,
-        roving_focus: bool,
-        loop_focus: bool,
-        disabled: bool,
-        root_id: String,
-        root_dom_id: String,
-        on_single_change: Option<ToggleGroupSingleChangeHandler>,
-        on_multiple_change: Option<ToggleGroupMultipleChangeHandler>,
-    ) -> Self {
-        let roving_cfg = RovingFocusConfig::new()
-            .with_orientation(orientation.into())
-            .with_direction(dir)
-            .with_loop_focus(loop_focus)
-            .with_enabled(roving_focus);
-        let roving = use_roving_focus_group(roving_cfg, None, root_dom_id);
-
-        Self {
-            mode: use_signal(|| mode),
-            single_value: use_signal(|| initial_single),
-            multiple_values: use_signal(|| initial_multiple),
-            single_controlled: use_signal(|| single_controlled),
-            multiple_controlled: use_signal(|| multiple_controlled),
-            roving,
-            current_tab_stop: roving.current_tab_stop,
-            registry: roving.registry,
-            orientation: use_signal(|| orientation),
-            dir: use_signal(|| dir),
-            roving_focus: use_signal(|| roving_focus),
-            loop_focus: use_signal(|| loop_focus),
-            disabled: use_signal(|| disabled),
-            root_id: use_signal(|| root_id),
-            root_dom_id: roving.root_dom_id,
-            on_single_change,
-            on_multiple_change,
-        }
-    }
-
     pub fn roving(&self) -> RovingFocusRuntime {
         self.roving
     }
@@ -149,36 +163,24 @@ impl ToggleGroupRuntime {
     pub fn toggle_item(&self, value: &str) {
         match (self.mode)() {
             ToggleGroupMode::Single => {
-                let current = (self.single_value)();
+                let current = self.single_ctl.peek();
                 let next = if current == value {
                     String::new()
                 } else {
                     value.to_string()
                 };
-                if !*(self.single_controlled).peek() {
-                    let mut sig = self.single_value;
-                    sig.set(next.clone());
-                }
+                self.single_ctl.set(next);
                 self.roving.set_current_tab_stop(Some(value.to_string()));
-                if let Some(ref handler) = self.on_single_change {
-                    handler(next);
-                }
             }
             ToggleGroupMode::Multiple => {
-                let mut list = (self.multiple_values)();
+                let mut list = self.multiple_ctl.peek();
                 if let Some(pos) = list.iter().position(|v| v == value) {
                     list.remove(pos);
                 } else {
                     list.push(value.to_string());
                 }
-                if !*(self.multiple_controlled).peek() {
-                    let mut sig = self.multiple_values;
-                    sig.set(list.clone());
-                }
+                self.multiple_ctl.set(list);
                 self.roving.set_current_tab_stop(Some(value.to_string()));
-                if let Some(ref handler) = self.on_multiple_change {
-                    handler(list);
-                }
             }
         }
     }

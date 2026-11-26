@@ -493,7 +493,7 @@ mod native_tests {
                                                 role: "{rp.role}",
                                                 "data-as-child-picker": "true",
                                                 "data-state": rp.attrs.data_state,
-                                                "data-date-picker-content": rp.attrs.data_date_picker_content,
+                                                "data-date-picker-content": rp.attrs.data_marker,
                                                 style: "width: 280px; height: 340px; padding: 8px; background: white; {rp.style}",
                                                 tabindex: rp.attrs.tabindex,
                                                 onmounted: move |evt| rp.on_mounted.call(evt),
@@ -688,6 +688,257 @@ mod native_tests {
         assert_eq!(
             harness.attr("#dp-so-trigger", "aria-expanded").as_deref(),
             Some("true")
+        );
+
+        clear_active_overlay_stack();
+    }
+
+    #[component]
+    fn PickerWrapperStyleProbe() -> Element {
+        let popover = use_context::<PopoverContext>();
+        let style = popover.runtime.read().wrapper_style();
+        rsx! {
+            span { id: "dp-fm-wrapper-style", "{style}" }
+        }
+    }
+
+    #[component]
+    fn NativeDatePickerStage3FmScenario() -> Element {
+        use monoxus::{
+            calendar::CalendarRootRenderProps,
+            foundation::date_time::{CalendarDateTime, CalendarTime, Granularity, HourCycle},
+        };
+
+        let mut show_content = use_signal(|| true);
+        let mut cb_stage = use_signal(|| 0_u8);
+        let mut swap_trigger = use_signal(|| false);
+
+        let dt = DateValue::DateTime(CalendarDateTime::new(
+            CalendarDate::new(2026, 4, 15).expect("valid date"),
+            CalendarTime::from_hms(14, 35, 0).expect("valid time"),
+        ));
+
+        let render_child = match *cb_stage.read() {
+            0 => None,
+            1 => Some(Callback::new(|rp: CalendarRootRenderProps| {
+                rsx! {
+                    div {
+                        id: "{rp.attrs.id}",
+                        "data-cb-stage": "cb1",
+                        {rp.children}
+                    }
+                }
+            })),
+            _ => Some(Callback::new(|rp: CalendarRootRenderProps| {
+                rsx! {
+                    div {
+                        id: "{rp.attrs.id}",
+                        "data-cb-stage": "cb2",
+                        {rp.children}
+                    }
+                }
+            })),
+        };
+        let on_key_down = match *cb_stage.read() {
+            0 => None,
+            1 => Some(EventHandler::new(|_evt: KeyboardEvent| {})),
+            _ => Some(EventHandler::new(|_evt: KeyboardEvent| {})),
+        };
+
+        let trig_key = if *swap_trigger.read() { "t-b" } else { "t-a" };
+        let trig_id = if *swap_trigger.read() {
+            "dp-fm-trig-b"
+        } else {
+            "dp-fm-trig-a"
+        };
+
+        rsx! {
+            div {
+                style: "padding: 16px;",
+                button {
+                    id: "dp-fm-swap-trigger",
+                    r#type: "button",
+                    style: "width: 80px; height: 28px;",
+                    onclick: move |_| swap_trigger.toggle(),
+                    "Swap Trigger"
+                }
+
+                // Floating picker testing FM-DT-1 (B4 z-index drop), FM-DT-2 (time preservation), FM-DT-5 (trigger swap), FM-API-4
+                DatePickerRoot {
+                    id: "dp-fm-floating",
+                    locale: CalendarLocale::Iso,
+                    granularity: Granularity::Minute,
+                    hour_cycle: HourCycle::H24,
+                    hide_time_zone: true,
+                    default_value: dt,
+                    close_on_date_select: true,
+                    PickerWrapperStyleProbe {}
+                    div {
+                        style: "display: flex; align-items: center; gap: 8px;",
+                        DatePickerInput {
+                            id: "dp-fm-input",
+                            name: Some("fm_dt".to_string()),
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    DatePickerSegment {
+                                        key: "{seg.index}",
+                                        id: format!("dp-fm-seg-{}", seg.index),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                        style: "display: inline-block; min-width: 24px; height: 24px;",
+                                    }
+                                }
+                            }
+                        }
+                        for (tkey, tid) in [(trig_key, trig_id)] {
+                            DatePickerTrigger {
+                                key: "{tkey}",
+                                id: tid.to_string(),
+                                style: "width: 80px; height: 28px;",
+                                "Open"
+                            }
+                        }
+                    }
+                    DatePickerPortal {
+                        if *show_content.read() {
+                            DatePickerContent {
+                                id: "dp-fm-content",
+                                style: "width: 280px; z-index: 77; background: white;",
+                                button {
+                                    id: "dp-fm-step-cb",
+                                    r#type: "button",
+                                    style: "width: 80px; height: 24px;",
+                                    onclick: move |_| {
+                                        let next = (*cb_stage.read() + 1) % 3;
+                                        cb_stage.set(next);
+                                    },
+                                    "Step CB"
+                                }
+                                button {
+                                    id: "dp-fm-toggle-content",
+                                    r#type: "button",
+                                    style: "width: 80px; height: 24px;",
+                                    onclick: move |_| show_content.toggle(),
+                                    "Unmount Content"
+                                }
+                                DatePickerCalendar {
+                                    id: "dp-fm-cal",
+                                    as_child: *cb_stage.read() > 0,
+                                    render_child,
+                                    on_key_down,
+                                    render_children: move |snap: CalendarSnapshot| rsx! {
+                                        for month in snap.months {
+                                            DatePickerMonthGrid { month, weekdays: snap.weekdays.clone() }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Static picker testing FM-DT-1 (no floating wrapper, data-date-picker-content, Escape)
+                DatePickerRoot {
+                    id: "dp-fm-static",
+                    locale: CalendarLocale::EnUs,
+                    default_placeholder: d(2026, 4, 15),
+                    DatePickerTrigger {
+                        id: "dp-fm-static-trigger",
+                        style: "width: 80px; height: 28px;",
+                        "Static"
+                    }
+                    DatePickerContentStatic {
+                        id: "dp-fm-static-content",
+                        style: "width: 280px; background: white;",
+                        DatePickerCalendar {
+                            render_children: move |snap: CalendarSnapshot| rsx! {
+                                for month in snap.months {
+                                    DatePickerMonthGrid { month, weekdays: snap.weekdays.clone() }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_date_picker_fm_dt1_dt2_dt5_and_api4() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_active_overlay_stack();
+        let mut harness = mount_native_scenario(NativeDatePickerStage3FmScenario);
+
+        // FM-DT-5: keyed trigger swap does not clobber trailing_trigger_id
+        click_and_pump(&mut harness, "#dp-fm-swap-trigger");
+        focus_node(&mut harness, "#dp-fm-seg-8");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowRight), Code::ArrowRight);
+        assert_native_focus_id(&harness, "dp-fm-trig-b");
+
+        // Open floating picker -> verify FM-API-4 (`DatePickerCalendar` callback toggling None -> Some(cb1) -> Some(cb2))
+        click_and_pump(&mut harness, "#dp-fm-trig-b");
+        assert_eq!(
+            harness.attr("#dp-fm-content", "data-state").as_deref(),
+            Some("open")
+        );
+        assert_eq!(
+            harness
+                .attr("#dp-fm-content", "data-date-picker-content")
+                .as_deref(),
+            Some("")
+        );
+        click_and_pump(&mut harness, "#dp-fm-step-cb");
+        assert_eq!(
+            harness.attr("#dp-fm-cal", "data-cb-stage").as_deref(),
+            Some("cb1")
+        );
+        click_and_pump(&mut harness, "#dp-fm-step-cb");
+        assert_eq!(
+            harness.attr("#dp-fm-cal", "data-cb-stage").as_deref(),
+            Some("cb2")
+        );
+
+        // FM-DT-2: selecting calendar day preserves wall-clock CalendarTime (14:35:00) and closes
+        click_and_pump(&mut harness, "[data-calendar-day][data-value='2026-04-20']");
+        assert_eq!(
+            harness.attr("input[name='fm_dt']", "value").as_deref(),
+            Some("2026-04-20T14:35:00")
+        );
+        assert_eq!(
+            harness.attr("#dp-fm-trig-b", "aria-expanded").as_deref(),
+            Some("false")
+        );
+
+        // FM-DT-1 (B4): unmounting DatePickerContent clears hoisted z-index on PopoverRuntime
+        click_and_pump(&mut harness, "#dp-fm-trig-b");
+        assert_eq!(
+            harness.attr("#dp-fm-content", "data-state").as_deref(),
+            Some("open")
+        );
+        click_and_pump(&mut harness, "#dp-fm-toggle-content");
+        assert!(
+            !harness
+                .text_content("#dp-fm-wrapper-style")
+                .contains("z-index: 77"),
+            "DatePickerContent unmount must clear hoisted z-index"
+        );
+
+        // FM-DT-1: DatePickerContentStatic renders without floating wrapper, emits data-date-picker-content, honors Escape
+        click_and_pump(&mut harness, "#dp-fm-static-trigger");
+        assert_eq!(
+            harness
+                .attr("#dp-fm-static-content", "data-date-picker-content")
+                .as_deref(),
+            Some("")
+        );
+        assert!(harness.query("#dp-fm-static-content-wrapper").is_none());
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        assert_eq!(
+            harness
+                .attr("#dp-fm-static-trigger", "aria-expanded")
+                .as_deref(),
+            Some("false")
         );
 
         clear_active_overlay_stack();

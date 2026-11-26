@@ -228,7 +228,7 @@ fn SingleComboboxScenario() -> Element {
                                 same_width: true,
                                 side_offset: 6.0,
                                 style: Some(CONTENT_STYLE.to_string()),
-                                on_escape_key_down: move |evt: KeyboardEvent| {
+                                on_escape_key_down: move |evt: monoxus::foundation::shared::EscapeKeyDownEvent| {
                                     if prevent_escape() {
                                         evt.prevent_default();
                                     }

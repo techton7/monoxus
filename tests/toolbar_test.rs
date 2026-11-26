@@ -389,6 +389,53 @@ mod native_tests {
         assert_native_focus_id(&harness, "inner-2");
     }
 
+    #[test]
+    fn native_toolbar_mixed_single_tab_stop_invariant() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let clicks = Rc::new(RefCell::new(0usize));
+        let mut harness = mount_native_scenario_with_props(
+            Orientation::Horizontal,
+            Direction::Ltr,
+            true,
+            clicks,
+        );
+
+        let all_items = [
+            "#ntb-btn-1",
+            "#ntb-btn-disabled",
+            "#ntb-single-left",
+            "#ntb-single-right",
+            "#ntb-multi-bold",
+            "#ntb-multi-italic",
+            "#ntb-link",
+        ];
+
+        let count_tabindex_zero =
+            |h: &blitz_test_harness::Harness<dioxus_native_dom::DioxusDocument>| {
+                all_items
+                    .iter()
+                    .filter(|sel| h.attr(sel, "tabindex").as_deref() == Some("0"))
+                    .count()
+            };
+
+        // FM-COL-4: mixed Toolbar (Button + ToggleGroup/ToggleItem + Link) must maintain exactly one tabindex="0".
+        assert_eq!(
+            count_tabindex_zero(&harness),
+            1,
+            "initial mixed toolbar must expose exactly one tabindex=0"
+        );
+
+        focus_node(&mut harness, "#ntb-btn-1");
+        for _ in 0..6 {
+            send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowRight), Code::ArrowRight);
+            assert_eq!(
+                count_tabindex_zero(&harness),
+                1,
+                "mixed toolbar must keep exactly one tabindex=0 after navigation"
+            );
+        }
+    }
+
     fn mount_native_scenario_with_props(
         orientation: Orientation,
         dir: Direction,

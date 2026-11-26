@@ -111,5 +111,5 @@ fn date_picker_attrs_follow_boolean_omission_invariant() {
     assert_eq!(content.role, "dialog");
     assert_eq!(content.tabindex, "-1");
     assert_eq!(content.data_state, "open");
-    assert_eq!(content.data_date_picker_content, "");
+    assert_eq!(content.data_marker, "");
 }

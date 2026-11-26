@@ -4,10 +4,11 @@ use crate::{
     foundation::{
         roving_focus::{RovingFocusRuntime, use_roving_focus_group},
         shared::{Direction, Orientation, ScopeHandle},
+        state::sync_signal,
     },
     toggle_group::{
-        ToggleGroup, ToggleGroupMode, ToggleGroupMultipleChangeHandler, ToggleGroupOrientation,
-        ToggleGroupSingleChangeHandler,
+        ToggleGroup, ToggleGroupMode, ToggleGroupOrientation,
+        runtime::{ToggleGroupRuntime, use_toggle_group_runtime},
     },
 };
 
@@ -47,27 +48,25 @@ impl ToolbarRuntime {
             .with_loop_focus((self.loop_focus)())
     }
 
-    pub fn sync_props(&self, orientation: Orientation, dir: Direction, loop_focus: bool, root_dom_id: &str) {
+    pub fn sync_props(
+        &self,
+        orientation: Orientation,
+        dir: Direction,
+        loop_focus: bool,
+        root_dom_id: &str,
+    ) {
         let normalized = match orientation {
             Orientation::Vertical => Orientation::Vertical,
             Orientation::Horizontal | Orientation::Both => Orientation::Horizontal,
         };
         let mut ori_sig = self.orientation;
-        if *ori_sig.peek() != normalized {
-            ori_sig.set(normalized);
-        }
+        sync_signal(&mut ori_sig, normalized);
         let mut dir_sig = self.dir;
-        if *dir_sig.peek() != dir {
-            dir_sig.set(dir);
-        }
+        sync_signal(&mut dir_sig, dir);
         let mut loop_sig = self.loop_focus;
-        if *loop_sig.peek() != loop_focus {
-            loop_sig.set(loop_focus);
-        }
+        sync_signal(&mut loop_sig, loop_focus);
         self.roving.set_root_dom_id(root_dom_id);
-        self.roving.set_config(
-            self.state().roving_config(),
-        );
+        self.roving.set_config(self.state().roving_config());
     }
 
     pub fn toggle_group_orientation(&self) -> ToggleGroupOrientation {
@@ -79,111 +78,86 @@ impl ToolbarRuntime {
     }
 }
 
+/// Toolbar toggle-group runtime delegating value/mode state to [`ToggleGroupRuntime`] with
+/// `roving_focus: false` so parent [`ToolbarRuntime::roving`] retains single-tab-stop ownership.
 #[derive(Clone)]
 pub struct ToolbarToggleGroupRuntime {
-    pub mode: Signal<ToggleGroupMode>,
-    pub single_value: Signal<String>,
-    pub multiple_values: Signal<Vec<String>>,
-    pub single_controlled: Signal<bool>,
-    pub multiple_controlled: Signal<bool>,
-    pub disabled: Signal<bool>,
+    pub inner: ToggleGroupRuntime,
     pub group_id: Signal<String>,
     pub group_dom_id: Signal<String>,
-    pub on_single_change: Option<ToggleGroupSingleChangeHandler>,
-    pub on_multiple_change: Option<ToggleGroupMultipleChangeHandler>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn use_toolbar_toggle_group_runtime(
+    mode: ToggleGroupMode,
+    value: Option<String>,
+    default_value: Option<String>,
+    on_value_change: Option<EventHandler<String>>,
+    values: Option<Vec<String>>,
+    default_values: Option<Vec<String>>,
+    on_values_change: Option<EventHandler<Vec<String>>>,
+    orientation: ToggleGroupOrientation,
+    dir: Direction,
+    disabled: bool,
+    group_id: String,
+    group_dom_id: String,
+) -> ToolbarToggleGroupRuntime {
+    let inner = use_toggle_group_runtime(
+        mode,
+        value,
+        default_value,
+        on_value_change,
+        values,
+        default_values,
+        on_values_change,
+        orientation,
+        dir,
+        false,
+        false,
+        disabled,
+        group_id.clone(),
+        group_dom_id.clone(),
+    );
+
+    let mut group_id_sig = use_signal(|| group_id.clone());
+    sync_signal(&mut group_id_sig, group_id);
+    let mut group_dom_id_sig = use_signal(|| group_dom_id.clone());
+    sync_signal(&mut group_dom_id_sig, group_dom_id);
+
+    ToolbarToggleGroupRuntime {
+        inner,
+        group_id: group_id_sig,
+        group_dom_id: group_dom_id_sig,
+    }
 }
 
 impl ToolbarToggleGroupRuntime {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        mode: ToggleGroupMode,
-        initial_single: String,
-        initial_multiple: Vec<String>,
-        single_controlled: bool,
-        multiple_controlled: bool,
-        disabled: bool,
-        group_id: String,
-        group_dom_id: String,
-        on_single_change: Option<ToggleGroupSingleChangeHandler>,
-        on_multiple_change: Option<ToggleGroupMultipleChangeHandler>,
-    ) -> Self {
-        Self {
-            mode: use_signal(|| mode),
-            single_value: use_signal(|| initial_single),
-            multiple_values: use_signal(|| initial_multiple),
-            single_controlled: use_signal(|| single_controlled),
-            multiple_controlled: use_signal(|| multiple_controlled),
-            disabled: use_signal(|| disabled),
-            group_id: use_signal(|| group_id),
-            group_dom_id: use_signal(|| group_dom_id),
-            on_single_change,
-            on_multiple_change,
-        }
-    }
-
     pub fn group_dom_id(&self) -> String {
         (self.group_dom_id)()
     }
 
     pub fn state(&self, orientation: ToggleGroupOrientation, dir: Direction) -> ToggleGroup {
         let scope = ScopeHandle::root("toolbar-toggle-group").child((self.group_id)());
-        ToggleGroup::new(scope, (self.mode)())
+        ToggleGroup::new(scope, (self.inner.mode)())
             .with_orientation(orientation)
             .with_direction(dir)
             .with_roving_focus(false)
             .with_loop_focus(false)
-            .with_disabled((self.disabled)())
-            .with_single_value((self.single_value)())
-            .with_multiple_values((self.multiple_values)())
+            .with_disabled((self.inner.disabled)())
+            .with_single_value((self.inner.single_value)())
+            .with_multiple_values((self.inner.multiple_values)())
     }
 
     pub fn is_item_pressed(&self, value: &str) -> bool {
-        match (self.mode)() {
-            ToggleGroupMode::Single => {
-                let current = (self.single_value)();
-                !current.is_empty() && current == value
-            }
-            ToggleGroupMode::Multiple => (self.multiple_values)().iter().any(|v| v == value),
-        }
+        self.inner.is_item_pressed(value)
     }
 
     pub fn is_effective_disabled(&self, item_disabled: bool) -> bool {
-        (self.disabled)() || item_disabled
+        self.inner.is_effective_disabled(item_disabled)
     }
 
     pub fn toggle_item(&self, value: &str) {
-        match (self.mode)() {
-            ToggleGroupMode::Single => {
-                let current = (self.single_value)();
-                let next = if current == value {
-                    String::new()
-                } else {
-                    value.to_string()
-                };
-                if !*(self.single_controlled).peek() {
-                    let mut sig = self.single_value;
-                    sig.set(next.clone());
-                }
-                if let Some(ref handler) = self.on_single_change {
-                    handler(next);
-                }
-            }
-            ToggleGroupMode::Multiple => {
-                let mut list = (self.multiple_values)();
-                if let Some(pos) = list.iter().position(|v| v == value) {
-                    list.remove(pos);
-                } else {
-                    list.push(value.to_string());
-                }
-                if !*(self.multiple_controlled).peek() {
-                    let mut sig = self.multiple_values;
-                    sig.set(list.clone());
-                }
-                if let Some(ref handler) = self.on_multiple_change {
-                    handler(list);
-                }
-            }
-        }
+        self.inner.toggle_item(value);
     }
 
     pub fn root_attributes(

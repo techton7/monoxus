@@ -1,10 +1,14 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
+use dioxus::prelude::keyboard_types::Key;
 use dioxus::prelude::*;
 
-use crate::foundation::browser::{FocusOptions, focus_element_sync_or_defer, get_element_client_rect};
+use crate::foundation::{
+    browser::{FocusOptions, focus_element_sync_or_defer, get_element_client_rect},
+    keyboard::{NavKey, translate_nav_key},
+    state::{ControllableSignal, sync_f64_signal, sync_signal, use_controllable_signal_by},
+};
 
 use super::{
     attrs::{RatingGroupItemAttributes, RatingGroupRootAttributes},
@@ -20,28 +24,34 @@ use super::{
     },
 };
 
+fn f64_bits_eq(a: &f64, b: &f64) -> bool {
+    a.to_bits() == b.to_bits()
+}
+
 /// Translates Dioxus `keyboard_types::Key` into host-neutral [`RatingGroupKey`].
 pub fn translate_keyboard_key(key: &Key) -> RatingGroupKey {
-    match key {
-        Key::Named(NamedKey::ArrowUp) => RatingGroupKey::ArrowUp,
-        Key::Named(NamedKey::ArrowRight) => RatingGroupKey::ArrowRight,
-        Key::Named(NamedKey::ArrowDown) => RatingGroupKey::ArrowDown,
-        Key::Named(NamedKey::ArrowLeft) => RatingGroupKey::ArrowLeft,
-        Key::Named(NamedKey::Home) => RatingGroupKey::Home,
-        Key::Named(NamedKey::End) => RatingGroupKey::End,
-        Key::Named(NamedKey::PageUp) => RatingGroupKey::PageUp,
-        Key::Named(NamedKey::PageDown) => RatingGroupKey::PageDown,
-        Key::Character(s) => match s.as_str() {
-            "." => RatingGroupKey::DecimalPoint,
-            _ => {
-                let mut chars = s.chars();
-                match (chars.next(), chars.next()) {
-                    (Some(c @ '0'..='9'), None) => RatingGroupKey::Digit(c as u8 - b'0'),
-                    _ => RatingGroupKey::Other,
+    match translate_nav_key(key) {
+        Some(NavKey::ArrowUp) => RatingGroupKey::ArrowUp,
+        Some(NavKey::ArrowRight) => RatingGroupKey::ArrowRight,
+        Some(NavKey::ArrowDown) => RatingGroupKey::ArrowDown,
+        Some(NavKey::ArrowLeft) => RatingGroupKey::ArrowLeft,
+        Some(NavKey::Home) => RatingGroupKey::Home,
+        Some(NavKey::End) => RatingGroupKey::End,
+        Some(NavKey::PageUp) => RatingGroupKey::PageUp,
+        Some(NavKey::PageDown) => RatingGroupKey::PageDown,
+        _ => match key {
+            Key::Character(s) => match s.as_str() {
+                "." => RatingGroupKey::DecimalPoint,
+                _ => {
+                    let mut chars = s.chars();
+                    match (chars.next(), chars.next()) {
+                        (Some(c @ '0'..='9'), None) => RatingGroupKey::Digit(c as u8 - b'0'),
+                        _ => RatingGroupKey::Other,
+                    }
                 }
-            }
+            },
+            _ => RatingGroupKey::Other,
         },
-        _ => RatingGroupKey::Other,
     }
 }
 
@@ -53,12 +63,12 @@ pub struct RatingGroupRuntime {
     pub rels: RatingGroupRelationships,
     pub root_dom_id: Signal<String>,
     pub value: Signal<f64>,
+    pub(crate) value_ctl: ControllableSignal<f64>,
     pub hover_value: Signal<Option<f64>>,
     pub is_controlled: Signal<bool>,
     pub key_sequence: Signal<RatingGroupKeySequence>,
     pub decimal_timer_gen: Rc<Cell<u64>>,
     pub decimal_timer_task: Rc<RefCell<Option<dioxus::core::Task>>>,
-    pub on_value_change: Rc<RefCell<Option<EventHandler<f64>>>>,
     pub aria_label: Signal<Option<String>>,
     pub aria_labelledby: Signal<Option<String>>,
     pub aria_valuetext: Rc<RefCell<Option<RatingGroupAriaValuetext>>>,
@@ -157,10 +167,10 @@ impl RatingGroupRuntime {
                 RATING_GROUP_KEY_SEQUENCE_TIMEOUT_MS,
             ))
             .await;
-            if gen_cell.get() == next_gen {
-                if let Ok(mut seq) = key_seq.try_write() {
-                    *seq = RatingGroupKeySequence::Idle;
-                }
+            if gen_cell.get() == next_gen
+                && let Ok(mut seq) = key_seq.try_write()
+            {
+                *seq = RatingGroupKeySequence::Idle;
             }
         });
         *self.decimal_timer_task.borrow_mut() = Some(task);
@@ -173,16 +183,7 @@ impl RatingGroupRuntime {
             return;
         }
         let clamped = clamp_rating_value(next, def.min, def.max);
-        let current = *self.value.peek();
-        if clamped == current {
-            return;
-        }
-        if !*self.is_controlled.peek() {
-            self.value.set(clamped);
-        }
-        if let Some(handler) = self.on_value_change.borrow().as_ref() {
-            handler.call(clamped);
-        }
+        self.value_ctl.set_by(clamped, f64_bits_eq);
     }
 
     /// Updates hover preview value without modifying committed value or emitting `on_value_change`.
@@ -192,9 +193,7 @@ impl RatingGroupRuntime {
             return;
         }
         let clamped = next.map(|v| clamp_rating_value(v, def.min, def.max));
-        if *self.hover_value.peek() != clamped {
-            self.hover_value.set(clamped);
-        }
+        sync_signal(&mut self.hover_value, clamped);
     }
 
     /// Clears hover preview unconditionally (e.g. on root pointer leave or key press).
@@ -210,18 +209,8 @@ impl RatingGroupRuntime {
         let clamped = clamp_rating_value(initial, def.min, def.max);
         self.clear_hover_value();
         self.cancel_decimal_timer();
-        if *self.key_sequence.peek() != RatingGroupKeySequence::Idle {
-            self.key_sequence.set(RatingGroupKeySequence::Idle);
-        }
-        let current = *self.value.peek();
-        if current != clamped {
-            if !*self.is_controlled.peek() {
-                self.value.set(clamped);
-            }
-            if let Some(handler) = self.on_value_change.borrow().as_ref() {
-                handler.call(clamped);
-            }
-        }
+        sync_signal(&mut self.key_sequence, RatingGroupKeySequence::Idle);
+        self.value_ctl.set_by(clamped, f64_bits_eq);
     }
 
     /// Dispatches a translated keyboard intent; returns `true` if `prevent_default` should run.
@@ -231,9 +220,7 @@ impl RatingGroupRuntime {
         let seq = *self.key_sequence.peek();
         let outcome = reduce_rating_group_key(&def, current, seq, key);
 
-        if *self.key_sequence.peek() != outcome.next_sequence {
-            self.key_sequence.set(outcome.next_sequence);
-        }
+        sync_signal(&mut self.key_sequence, outcome.next_sequence);
         if outcome.clear_hover {
             self.clear_hover_value();
         }
@@ -335,16 +322,29 @@ pub fn use_rating_group_runtime(
     def: RatingGroupDefinition,
     rels: RatingGroupRelationships,
     root_dom_id: String,
-    initial_value: f64,
-    is_controlled: bool,
+    value: Option<f64>,
+    default_value: f64,
     on_value_change: Option<EventHandler<f64>>,
     aria_label: Option<String>,
     aria_labelledby: Option<String>,
     aria_valuetext: Option<RatingGroupAriaValuetext>,
 ) -> RatingGroupRuntime {
-    let clamped_initial = clamp_rating_value(initial_value, def.min, def.max);
-    let on_value_change_slot = use_hook(|| Rc::new(RefCell::new(None)));
-    *on_value_change_slot.borrow_mut() = on_value_change;
+    let min = def.min;
+    let max = def.max;
+    let value_ctl = use_controllable_signal_by(
+        value,
+        default_value,
+        on_value_change,
+        move |v| clamp_rating_value(v, min, max),
+        f64_bits_eq,
+    );
+
+    if !value_ctl.is_controlled() {
+        let mut val_sig = value_ctl.signal();
+        let current = *val_sig.peek();
+        let clamped = clamp_rating_value(current, min, max);
+        sync_f64_signal(&mut val_sig, clamped);
+    }
 
     let aria_valuetext_slot = use_hook(|| Rc::new(RefCell::new(None)));
     *aria_valuetext_slot.borrow_mut() = aria_valuetext;
@@ -362,21 +362,34 @@ pub fn use_rating_group_runtime(
         }
     });
 
-    RatingGroupRuntime {
-        def: use_signal(|| def),
+    let is_controlled = value_ctl.is_controlled();
+    let should_clear_hover = def.disabled || def.read_only || !def.hover_preview;
+    let mut rt = RatingGroupRuntime {
+        def: use_signal(|| def.clone()),
         rels,
-        root_dom_id: use_signal(|| root_dom_id),
-        value: use_signal(|| clamped_initial),
+        root_dom_id: use_signal(|| root_dom_id.clone()),
+        value: value_ctl.signal(),
+        value_ctl,
         hover_value: use_signal(|| None),
         is_controlled: use_signal(|| is_controlled),
         key_sequence: use_signal(RatingGroupKeySequence::default),
         decimal_timer_gen,
         decimal_timer_task,
-        on_value_change: on_value_change_slot,
-        aria_label: use_signal(|| aria_label),
-        aria_labelledby: use_signal(|| aria_labelledby),
+        aria_label: use_signal(|| aria_label.clone()),
+        aria_labelledby: use_signal(|| aria_labelledby.clone()),
         aria_valuetext: aria_valuetext_slot,
+    };
+
+    sync_signal(&mut rt.is_controlled, is_controlled);
+    sync_signal(&mut rt.def, def);
+    sync_signal(&mut rt.root_dom_id, root_dom_id);
+    sync_signal(&mut rt.aria_label, aria_label);
+    sync_signal(&mut rt.aria_labelledby, aria_labelledby);
+    if should_clear_hover {
+        rt.clear_hover_value();
     }
+
+    rt
 }
 
 /// Context struct providing [`RatingGroupRuntime`] to `RatingGroupItem` descendants.

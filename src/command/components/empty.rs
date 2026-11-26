@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+use crate::foundation::compose::merge_global_attributes;
+
 use super::super::{
     attrs::CommandEmptyAttrs,
     runtime::CommandContext,
@@ -75,19 +77,25 @@ pub fn CommandEmpty(props: CommandEmptyProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id}",
             role: "{attrs.role}",
             "data-command-empty": attrs.data_command_empty,
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             onmounted: move |evt| {
                 if let Some(handler) = props.on_mounted.as_ref() {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

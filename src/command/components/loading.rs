@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::use_stable_id;
+use crate::foundation::{compose::merge_global_attributes, shared::use_stable_id};
 
 use super::super::{attrs::CommandLoadingAttrs, runtime::CommandContext};
 
@@ -79,6 +79,12 @@ pub fn CommandLoading(props: CommandLoadingProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id}",
@@ -88,14 +94,14 @@ pub fn CommandLoading(props: CommandLoadingProps) -> Element {
             aria_valuemax: "{attrs.aria_valuemax}",
             aria_label: "{attrs.aria_label}",
             "data-command-loading": attrs.data_command_loading,
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             onmounted: move |evt| {
                 if let Some(handler) = props.on_mounted.as_ref() {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

@@ -1,32 +1,40 @@
-use std::{borrow::Cow, cell::RefCell, rc::Rc};
+use std::borrow::Cow;
 
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
+use monoxus_core::foundation::date_time::field_policy::DateFieldPolicy;
 
 use crate::{
-    date_field::{default_date_field_placeholder, local_today},
+    date_field::default_date_field_placeholder,
+    date_picker::{
+        components::{
+            DatePickerContentProps, render_picker_content_surface, render_picker_trigger_surface,
+        },
+        runtime::PickerRuntimeCore,
+    },
     date_range_field::{
-        DateRangeFieldRoot, DateRangeFieldRootRenderProps, try_use_date_range_field_context,
+        DateRangeFieldRootRenderProps,
+        components::{RangeFieldRootSpec, render_range_field_root},
+        try_use_date_range_field_context,
     },
     foundation::{
+        browser::local_today,
         date_time::{
-            CalendarDate, CalendarLocale, DateValue, DateValueRange, EditableSegmentKind,
-            FieldInvalidEvent, Granularity, HourCycle, MonthFormat, Weekday, WeekdayFormat,
-            YearFormat,
+            CalendarConfig, CalendarDate, CalendarLocale, DateValue, DateValueRange,
+            EditableSegmentKind, FieldInvalidEvent, Granularity, HourCycle, MonthFormat, Weekday,
+            WeekdayFormat, YearFormat,
         },
-        overlay::{
-            OverlayBranchContext, OverlayEscapeGuardContext, OverlayEscapeGuardFn, PlacementAlign,
-            PlacementSide, PortalHost,
-        },
+        overlay::{PlacementAlign, PlacementSide, PortalHost},
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-        state::DataState,
     },
     popover::{
         CloseAutoFocusEvent, EscapeKeyDownEvent, InteractOutsideEvent, OpenAutoFocusEvent,
-        PopoverCloseFocusPolicy, PopoverContext, PopoverOpenFocusPolicy,
-        PopoverOutsideInteractionPolicy, PopoverRoot, PopoverScrollLockPolicy,
+        PopoverCloseFocusPolicy, PopoverOpenFocusPolicy, PopoverOutsideInteractionPolicy,
+        PopoverRoot, PopoverScrollLockPolicy,
     },
-    range_calendar::{RangeCalendarRoot, RangeCalendarRootRenderProps, RangeCalendarSnapshot},
+    range_calendar::{
+        RangeCalendarRootProps, RangeCalendarRootRenderProps, RangeCalendarSnapshot,
+        components::render_range_calendar_root,
+    },
 };
 
 use super::{
@@ -234,89 +242,81 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
     let open_sig = use_signal(|| if props.disabled { false } else { initial_open });
 
     let next_cal_cfg = DateRangePickerCalendarConfig {
-        min_value: props.min_value.map(|v| v.date()),
-        max_value: props.max_value.map(|v| v.date()),
+        config: CalendarConfig::new()
+            .with_min_value(props.min_value.map(|v| v.date()))
+            .with_max_value(props.max_value.map(|v| v.date()))
+            .with_disabled(props.disabled)
+            .with_read_only(props.read_only)
+            .with_prevent_deselect(props.prevent_deselect)
+            .with_paged_navigation(props.paged_navigation)
+            .with_fixed_weeks(props.fixed_weeks)
+            .with_number_of_months(props.number_of_months)
+            .with_week_starts_on(props.week_starts_on)
+            .with_weekday_format(props.weekday_format)
+            .with_month_format(props.month_format)
+            .with_year_format(props.year_format)
+            .with_locale(props.locale.clone())
+            .with_calendar_label(props.calendar_label.clone())
+            .with_direction(resolved_dir)
+            .with_disable_days_outside_month(props.disable_days_outside_month),
         min_days: props.min_days,
         max_days: props.max_days,
         exclude_disabled: props.exclude_disabled,
-        disabled: props.disabled,
-        read_only: props.read_only,
-        prevent_deselect: props.prevent_deselect,
-        paged_navigation: props.paged_navigation,
-        fixed_weeks: props.fixed_weeks,
-        number_of_months: props.number_of_months,
-        week_starts_on: props.week_starts_on,
-        weekday_format: props.weekday_format,
-        month_format: props.month_format,
-        year_format: props.year_format,
-        locale: props.locale.clone(),
-        calendar_label: props.calendar_label.clone(),
-        dir: resolved_dir,
-        disable_days_outside_month: props.disable_days_outside_month,
         initial_focus: props.initial_focus,
     };
     let calendar_config = use_signal(|| next_cal_cfg.clone());
 
-    let controlled_value = use_hook(|| Rc::new(RefCell::new(props.value)));
-    *controlled_value.borrow_mut() = props.value;
-
-    let controlled_start_value = use_hook(|| Rc::new(RefCell::new(props.start_value)));
-    *controlled_start_value.borrow_mut() = props.start_value;
-
-    let controlled_end_value = use_hook(|| Rc::new(RefCell::new(props.end_value)));
-    *controlled_end_value.borrow_mut() = props.end_value;
-
-    let controlled_placeholder = use_hook(|| Rc::new(RefCell::new(props.placeholder)));
-    *controlled_placeholder.borrow_mut() = props.placeholder;
-
-    let controlled_open = use_hook(|| Rc::new(RefCell::new(props.open)));
-    *controlled_open.borrow_mut() = props.open;
-
-    let on_value_change = use_hook(|| Rc::new(RefCell::new(props.on_value_change)));
-    *on_value_change.borrow_mut() = props.on_value_change;
-
-    let on_start_value_change = use_hook(|| Rc::new(RefCell::new(props.on_start_value_change)));
-    *on_start_value_change.borrow_mut() = props.on_start_value_change;
-
-    let on_end_value_change = use_hook(|| Rc::new(RefCell::new(props.on_end_value_change)));
-    *on_end_value_change.borrow_mut() = props.on_end_value_change;
-
-    let on_placeholder_change = use_hook(|| Rc::new(RefCell::new(props.on_placeholder_change)));
-    *on_placeholder_change.borrow_mut() = props.on_placeholder_change;
-
-    let on_open_change = use_hook(|| Rc::new(RefCell::new(props.on_open_change)));
-    *on_open_change.borrow_mut() = props.on_open_change;
+    let mut controlled_value = use_hook(|| CopyValue::new(props.value));
+    controlled_value.set(props.value);
+    let mut controlled_start_value = use_hook(|| CopyValue::new(props.start_value));
+    controlled_start_value.set(props.start_value);
+    let mut controlled_end_value = use_hook(|| CopyValue::new(props.end_value));
+    controlled_end_value.set(props.end_value);
+    let mut controlled_placeholder = use_hook(|| CopyValue::new(props.placeholder));
+    controlled_placeholder.set(props.placeholder);
+    let mut controlled_open = use_hook(|| CopyValue::new(props.open));
+    controlled_open.set(props.open);
+    let mut on_value_change = use_hook(|| CopyValue::new(props.on_value_change));
+    on_value_change.set(props.on_value_change);
+    let mut on_start_value_change = use_hook(|| CopyValue::new(props.on_start_value_change));
+    on_start_value_change.set(props.on_start_value_change);
+    let mut on_end_value_change = use_hook(|| CopyValue::new(props.on_end_value_change));
+    on_end_value_change.set(props.on_end_value_change);
+    let mut on_placeholder_change = use_hook(|| CopyValue::new(props.on_placeholder_change));
+    on_placeholder_change.set(props.on_placeholder_change);
+    let mut on_open_change = use_hook(|| CopyValue::new(props.on_open_change));
+    on_open_change.set(props.on_open_change);
 
     let is_date_disabled = use_signal(|| props.is_date_disabled);
     let is_date_unavailable = use_signal(|| props.is_date_unavailable);
 
     let runtime = DateRangePickerRuntime {
-        state,
-        rels: rels.clone(),
-        value: value_sig,
-        calendar_value: calendar_value_sig,
+        core: PickerRuntimeCore {
+            state,
+            rels: rels.clone(),
+            value: value_sig,
+            calendar_value: calendar_value_sig,
+            placeholder: placeholder_sig,
+            calendar_placeholder: calendar_placeholder_sig,
+            open: open_sig,
+            controlled_value,
+            controlled_placeholder,
+            controlled_open,
+            on_value_change,
+            on_placeholder_change,
+            on_open_change,
+            is_date_disabled,
+            is_date_unavailable,
+        },
         calendar_start: calendar_start_sig,
         calendar_end: calendar_end_sig,
-        placeholder: placeholder_sig,
-        calendar_placeholder: calendar_placeholder_sig,
-        open: open_sig,
         calendar_config,
-        controlled_value,
         controlled_start_value,
         controlled_end_value,
-        controlled_placeholder,
-        controlled_open,
-        on_value_change,
         on_start_value_change,
         on_end_value_change,
-        on_placeholder_change,
-        on_open_change,
-        is_date_disabled,
-        is_date_unavailable,
     };
 
-    // DEF-5C-09: Reconcile definition, calendar config, predicates, and controlled signals
-    // inside guarded effects instead of mutating reactive signals synchronously during render.
     use_effect(use_reactive(
         (
             &def,
@@ -378,32 +378,36 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
         .close_focus
         .unwrap_or(PopoverCloseFocusPolicy::Trigger);
 
-    // DEF-5C-11 / 5C D-8: Forward combined disabled/unavailable predicate to DateRangeFieldRoot
-    // so unavailable typed endpoints (even partial ranges) emit FieldInvalidReason::Unavailable
-    // without conflating with Custom.
-    let combined_unavailable =
-        if props.is_date_disabled.is_some() || props.is_date_unavailable.is_some() {
-            let is_disabled_sig = runtime.is_date_disabled;
-            let is_unavailable_sig = runtime.is_date_unavailable;
-            Some(Callback::new(move |date: CalendarDate| -> bool {
-                let disabled = is_disabled_sig.peek().is_some_and(|cb| cb.call(date));
-                let unavailable = is_unavailable_sig.peek().is_some_and(|cb| cb.call(date));
-                disabled || unavailable
-            }))
-        } else {
-            None
-        };
+    let has_unavailable_pred =
+        props.is_date_disabled.is_some() || props.is_date_unavailable.is_some();
+    let stable_unavailable_cb = use_hook(|| {
+        let is_disabled_sig = runtime.is_date_disabled;
+        let is_unavailable_sig = runtime.is_date_unavailable;
+        Callback::new(move |date: CalendarDate| -> bool {
+            let disabled = is_disabled_sig.read().is_some_and(|cb| cb.call(date));
+            let unavailable = is_unavailable_sig.read().is_some_and(|cb| cb.call(date));
+            disabled || unavailable
+        })
+    });
+    let combined_unavailable = has_unavailable_pred.then_some(stable_unavailable_cb);
 
-    rsx! {
-        DateRangeFieldRoot {
+    let render_child = props.render_child;
+    render_range_field_root::<DateFieldPolicy, _>(
+        RangeFieldRootSpec {
             id: Some(rels.field_scope().token().to_string()),
             class: props.class,
             style: props.style,
             value: Some(runtime.value),
             default_value: props.default_value,
-            on_value_change: move |next| rt_for_field_val.handle_field_value_change(next),
+            on_value_change: Some(EventHandler::new(move |next| {
+                rt_for_field_val.handle_field_value_change(next);
+            })),
+            on_start_value_change: None,
+            on_end_value_change: None,
             placeholder: Some(runtime.placeholder),
-            on_placeholder_change: move |next| rt_for_field_ph.handle_field_placeholder_change(next),
+            on_placeholder_change: Some(EventHandler::new(move |next| {
+                rt_for_field_ph.handle_field_placeholder_change(next);
+            })),
             granularity: props.granularity,
             hour_cycle: props.hour_cycle,
             locale: props.locale,
@@ -419,32 +423,48 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
             on_invalid: props.on_invalid,
             error_message_id: props.error_message_id,
             dir: Some(resolved_dir),
+            is_invalid_override: None,
             as_child: props.as_child,
-            render_child: props.render_child,
             on_mounted: props.on_mounted,
             attributes: props.attributes,
-            PopoverRoot {
-                id: Some(rels.popover_scope().token().to_string()),
-                open: Some(runtime.open),
-                on_open_change: move |next| rt_for_popover_open.handle_popover_open_change(next),
-                on_open_change_complete: props.on_open_change_complete,
-                modal: props.modal,
-                open_focus: Some(resolved_open_focus),
-                close_focus: Some(resolved_close_focus),
-                scroll_lock: props.scroll_lock,
-                outside_interaction: props.outside_interaction,
-                portal_host: props.portal_host,
-                side: props.side,
-                side_offset: props.side_offset,
-                align: props.align,
-                align_offset: props.align_offset,
-                avoid_collisions: props.avoid_collisions,
-                collision_padding: props.collision_padding,
-                sticky: props.sticky,
-                {props.children}
-            }
-        }
-    }
+            children: rsx! {
+                PopoverRoot {
+                    id: Some(rels.popover_scope().token().to_string()),
+                    open: Some(runtime.open),
+                    on_open_change: move |next| rt_for_popover_open.handle_popover_open_change(next),
+                    on_open_change_complete: props.on_open_change_complete,
+                    modal: props.modal,
+                    open_focus: Some(resolved_open_focus),
+                    close_focus: Some(resolved_close_focus),
+                    scroll_lock: props.scroll_lock,
+                    outside_interaction: props.outside_interaction,
+                    portal_host: props.portal_host,
+                    side: props.side,
+                    side_offset: props.side_offset,
+                    align: props.align,
+                    align_offset: props.align_offset,
+                    avoid_collisions: props.avoid_collisions,
+                    collision_padding: props.collision_padding,
+                    sticky: props.sticky,
+                    {props.children}
+                }
+            },
+            debug_name: "DateRangePickerRoot",
+        },
+        initial_placeholder,
+        move |view| {
+            render_child.map(|cb| {
+                cb.call(DateRangeFieldRootRenderProps {
+                    attrs: view.attrs,
+                    class: view.class,
+                    style: view.style,
+                    on_mounted: view.on_mounted,
+                    attributes: view.attributes,
+                    children: view.children,
+                })
+            })
+        },
+    )
 }
 
 pub use DateRangePickerRoot as DateRangePicker;
@@ -497,166 +517,64 @@ pub struct DateRangePickerTriggerProps {
 #[component]
 pub fn DateRangePickerTrigger(props: DateRangePickerTriggerProps) -> Element {
     let picker_rt = use_date_range_picker_context();
-    let popover_ctx = use_context::<PopoverContext>();
     let range_field_rt = try_use_date_range_field_context();
-
-    let popover_rt = popover_ctx.runtime.read().clone();
-    let trigger = popover_rt.trigger();
-    let trigger_id = props
-        .id
-        .clone()
-        .unwrap_or_else(|| trigger.id().to_string());
-    let latest_tid = use_hook(|| Rc::new(RefCell::new(trigger_id.clone())));
-    {
-        let mut prev = latest_tid.borrow_mut();
-        if *prev != trigger_id {
-            popover_rt.unregister_trigger_id(&prev);
-            *prev = trigger_id.clone();
-        }
-    }
-    popover_rt.register_trigger_id(&trigger_id);
-    let popover_rt_for_drop = popover_rt.clone();
-    let popover_tid_for_drop = latest_tid.clone();
-    use_drop(move || {
-        let current = popover_tid_for_drop.borrow().clone();
-        popover_rt_for_drop.unregister_trigger_id(&current);
-    });
-
-    let picker_snap = picker_rt.snapshot();
-    let effective_disabled = props.disabled || picker_snap.disabled;
+    let effective_disabled = props.disabled || picker_rt.snapshot().disabled;
     let dir = picker_rt.state.read().def().dir;
 
-    if let Some(mut rfrt) = range_field_rt.clone() {
-        rfrt.register_trigger_id(if effective_disabled {
-            None
-        } else {
-            Some(trigger_id.clone())
-        });
-    }
+    let mut reg_field = range_field_rt.clone();
+    let mut unreg_field = range_field_rt.clone();
+    let mut drop_field = range_field_rt.clone();
+    let focus_field = range_field_rt;
+    let render_child = props.render_child;
 
-    let range_field_rt_for_drop = range_field_rt.clone();
-    let tid_for_drop = latest_tid.clone();
-    use_drop(move || {
-        let current = tid_for_drop.borrow().clone();
-        if let Some(mut rfrt) = range_field_rt_for_drop {
-            if rfrt
-                .trailing_trigger_id
-                .try_peek()
-                .ok()
-                .and_then(|v| v.clone())
-                .as_deref()
-                == Some(current.as_str())
-            {
-                rfrt.register_trigger_id(None);
-            }
-        }
-    });
-
-    let attrs = DateRangePickerTriggerAttrs::new(
-        trigger_id,
-        trigger.aria_controls().unwrap_or_default().to_string(),
-        popover_rt.is_open(),
+    render_picker_trigger_surface(
+        props.id,
+        props.class,
+        props.style,
         effective_disabled,
-    );
-
-    let on_mounted = {
-        let mut mount_cb = popover_rt.mount_trigger();
-        let user_cb = props.on_mounted;
-        EventHandler::new(move |evt: MountedEvent| {
-            mount_cb(evt.clone());
-            if let Some(cb) = user_cb {
-                cb.call(evt);
+        dir,
+        props.as_child,
+        props.on_click,
+        props.on_key_down,
+        props.on_mounted,
+        props.attributes,
+        props.children,
+        move |tid| {
+            if let Some(ref mut rfrt) = reg_field {
+                rfrt.register_trigger_id(tid);
             }
-        })
-    };
-
-    let on_pointer_down = {
-        let mut pd_cb = popover_rt.trigger_pointer_down();
-        EventHandler::new(move |evt: PointerEvent| {
-            if !effective_disabled {
-                pd_cb(evt);
+        },
+        move |tid| {
+            if let Some(ref mut rfrt) = unreg_field {
+                rfrt.unregister_trigger_id(tid);
             }
-        })
-    };
-
-    let on_click = {
-        let mut click_cb = popover_rt.trigger_click();
-        let user_cb = props.on_click;
-        EventHandler::new(move |evt: MouseEvent| {
-            if !effective_disabled {
-                click_cb(evt.clone());
+        },
+        move |tid| {
+            if let Some(ref mut rfrt) = drop_field {
+                rfrt.unregister_trigger_id(tid);
             }
-            if let Some(cb) = user_cb {
-                cb.call(evt);
+        },
+        move || {
+            if let Some(ref rfrt) = focus_field {
+                rfrt.focus_last_segment();
             }
-        })
-    };
-
-    let on_key_down = {
-        let rfrt = range_field_rt;
-        let user_cb = props.on_key_down;
-        EventHandler::new(move |evt: KeyboardEvent| {
-            if !effective_disabled {
-                let move_to_prev = match evt.key() {
-                    Key::Named(NamedKey::ArrowLeft) => dir == Direction::Ltr,
-                    Key::Named(NamedKey::ArrowRight) => dir == Direction::Rtl,
-                    _ => false,
-                };
-                if move_to_prev {
-                    evt.prevent_default();
-                    if let Some(ref field) = rfrt {
-                        field.focus_last_segment();
-                    }
-                }
-            }
-            if let Some(cb) = user_cb {
-                cb.call(evt);
-            }
-        })
-    };
-
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(DateRangePickerTriggerRenderProps {
-                attrs,
-                class: props.class,
-                style: props.style,
-                on_click,
-                on_pointer_down,
-                on_key_down,
-                on_mounted,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::DateRangePickerTrigger: as_child requires render_child; rendering the default button"
-        );
-    }
-
-    rsx! {
-        button {
-            id: "{attrs.id}",
-            r#type: "button",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
-            disabled: attrs.disabled,
-            tabindex: attrs.tabindex,
-            aria_haspopup: attrs.aria_haspopup,
-            aria_expanded: attrs.aria_expanded,
-            aria_controls: (!attrs.aria_controls.is_empty()).then_some(attrs.aria_controls.as_str()),
-            "data-segment": attrs.data_segment,
-            "data-state": attrs.data_state,
-            "data-disabled": attrs.data_disabled,
-            onmounted: move |evt| on_mounted.call(evt),
-            onpointerdown: move |evt| on_pointer_down.call(evt),
-            onclick: move |evt| on_click.call(evt),
-            onkeydown: move |evt| on_key_down.call(evt),
-            ..props.attributes,
-            {props.children}
-        }
-    }
+        },
+        move |attrs, class, style, on_click, on_pointer_down, on_key_down, on_mounted, attributes, children| {
+            render_child.map(|cb| {
+                cb.call(DateRangePickerTriggerRenderProps {
+                    attrs,
+                    class,
+                    style,
+                    on_click,
+                    on_pointer_down,
+                    on_key_down,
+                    on_mounted,
+                    attributes,
+                    children,
+                })
+            })
+        },
+    )
 }
 
 /// Render props passed to `as_child` for [`DateRangePickerContent`] and [`DateRangePickerContentStatic`].
@@ -731,391 +649,84 @@ pub struct DateRangePickerContentProps {
     pub children: Element,
 }
 
+fn render_date_range_picker_content(
+    props: DateRangePickerContentProps,
+    floating: bool,
+) -> Element {
+    let render_child = props.render_child;
+    render_picker_content_surface(
+        DatePickerContentProps {
+            id: props.id,
+            class: props.class,
+            style: props.style,
+            role: props.role,
+            aria_labelledby: props.aria_labelledby,
+            aria_describedby: props.aria_describedby,
+            force_mount: props.force_mount,
+            side: props.side,
+            align: props.align,
+            side_offset: props.side_offset,
+            align_offset: props.align_offset,
+            avoid_collisions: props.avoid_collisions,
+            collision_padding: props.collision_padding,
+            sticky: props.sticky,
+            on_open_auto_focus: props.on_open_auto_focus,
+            on_close_auto_focus: props.on_close_auto_focus,
+            on_escape_key_down: props.on_escape_key_down,
+            on_interact_outside: props.on_interact_outside,
+            as_child: props.as_child,
+            render_child: None,
+            attributes: props.attributes,
+            children: props.children,
+        },
+        floating,
+        "data-date-range-picker-content",
+        move |attrs,
+              wrapper_id,
+              wrapper_style,
+              role,
+              aria_modal,
+              aria_labelledby,
+              aria_describedby,
+              class,
+              style,
+              on_mounted,
+              on_key_down,
+              on_click,
+              attributes,
+              children| {
+            render_child.map(|cb| {
+                cb.call(DateRangePickerContentRenderProps {
+                    attrs,
+                    wrapper_id,
+                    wrapper_style,
+                    role,
+                    aria_modal,
+                    aria_labelledby,
+                    aria_describedby,
+                    class,
+                    style,
+                    on_mounted,
+                    on_key_down,
+                    on_click,
+                    attributes,
+                    children,
+                })
+            })
+        },
+    )
+}
+
 /// Floating popover dialog content for `DateRangePicker`.
 #[component]
 pub fn DateRangePickerContent(props: DateRangePickerContentProps) -> Element {
-    let mut ctx = use_context::<PopoverContext>();
-    let runtime = ctx.runtime.read().clone();
-    let should_render = props.force_mount || runtime.should_render_content();
-    let is_open = runtime.is_open();
-
-    runtime.set_content_placement_overrides(
-        props.side,
-        props.align,
-        props.side_offset,
-        props.align_offset,
-        props.avoid_collisions,
-        props.collision_padding,
-        props.sticky,
-    );
-    runtime.set_content_event_handlers(
-        props.on_open_auto_focus,
-        props.on_close_auto_focus,
-        props.on_escape_key_down,
-        props.on_interact_outside,
-    );
-
-    let content = runtime.content();
-    let content_id = props.id.unwrap_or_else(|| content.id().to_string());
-    let wrapper_id = format!("{}-wrapper", content_id);
-    let portal_id = runtime.relationships().scope().qualify("portal");
-
-    let parent_branch = try_consume_context::<OverlayBranchContext>();
-    crate::foundation::overlay::use_register_parent_overlay_branches(
-        parent_branch.clone(),
-        should_render,
-        vec![content_id.clone(), wrapper_id.clone(), portal_id],
-    );
-
-    let latest_cid = use_hook(|| Rc::new(RefCell::new(content_id.clone())));
-    {
-        let mut prev = latest_cid.borrow_mut();
-        if *prev != content_id {
-            if ctx.content_id.peek().as_deref() == Some(prev.as_str()) {
-                ctx.content_id.set(None);
-            }
-            runtime.unregister_content_id(&prev);
-            *prev = content_id.clone();
-        }
-    }
-
-    if should_render {
-        if ctx.content_id.peek().as_deref() != Some(content_id.as_str()) {
-            ctx.content_id.set(Some(content_id.clone()));
-        }
-        runtime.register_content_id(&content_id);
-    } else {
-        if ctx.content_id.peek().as_deref() == Some(content_id.as_str()) {
-            ctx.content_id.set(None);
-        }
-        runtime.unregister_content_id(&content_id);
-    }
-    let cid_for_drop = latest_cid.clone();
-    let mut cid_sig_drop = ctx.content_id;
-    let runtime_for_drop = runtime.clone();
-    use_drop(move || {
-        let current_cid = cid_for_drop.borrow().clone();
-        if let Ok(mut sig) = cid_sig_drop.try_write() {
-            if sig.as_deref() == Some(current_cid.as_str()) {
-                *sig = None;
-            }
-        }
-        runtime_for_drop.unregister_content_id(&current_cid);
-    });
-
-    let effect_wrapper_id = wrapper_id.clone();
-    let runtime_for_shield = runtime.clone();
-    let branches_sig = runtime.branches_signal();
-    use_effect(use_reactive(
-        (&should_render, &is_open, &effect_wrapper_id),
-        move |(render_val, _open_val, wid)| {
-            let _ = branches_sig.read();
-            if render_val {
-                runtime_for_shield.sync_modal_shield_with_wrapper(Some(&wid));
-            } else {
-                runtime_for_shield.sync_modal_shield_with_wrapper(None);
-            }
-        },
-    ));
-
-    let runtime_for_branch = runtime.clone();
-    let parent_for_reg = parent_branch.clone();
-    let parent_for_unreg = parent_branch;
-    use_context_provider(|| {
-        let rt_reg = runtime_for_branch.clone();
-        let rt_unreg = runtime_for_branch.clone();
-        OverlayBranchContext::new(
-            move |branch: String| {
-                rt_reg.register_branch(branch.clone());
-                if let Some(ref pb) = parent_for_reg {
-                    pb.register_branch(branch);
-                }
-            },
-            move |branch: String| {
-                rt_unreg.unregister_branch(&branch);
-                if let Some(ref pb) = parent_for_unreg {
-                    pb.unregister_branch(branch);
-                }
-            },
-        )
-    });
-
-    let runtime_for_escape_guard = runtime.clone();
-    use_context_provider(|| {
-        let rt_reg = runtime_for_escape_guard.clone();
-        let rt_unreg = runtime_for_escape_guard.clone();
-        OverlayEscapeGuardContext::new(
-            move |id: String, guard: OverlayEscapeGuardFn| {
-                rt_reg.register_escape_guard(id, guard);
-            },
-            move |id: String| {
-                rt_unreg.unregister_escape_guard(&id);
-            },
-        )
-    });
-
-    if !should_render {
-        return rsx! {};
-    }
-
-    let wrapper_style = runtime.wrapper_style();
-    let css_vars = runtime.content_css_custom_properties();
-
-    let title_id = (ctx.title_id)();
-    let desc_id = (ctx.description_id)();
-    let labelledby = props.aria_labelledby.or(title_id);
-    let describedby = props.aria_describedby.or(desc_id);
-    let resolved_role = props.role.as_deref().unwrap_or(content.role());
-
-    let attrs = DateRangePickerContentAttrs::new(
-        content_id,
-        is_open,
-        Some(content.data_side()),
-        Some(content.data_align()),
-    );
-
-    let mut inner_style = format!("{css_vars} {}", props.style.as_deref().unwrap_or_default());
-    if !is_open || content.data_state() == &DataState::Closed {
-        if !inner_style.trim().is_empty() && !inner_style.trim_end().ends_with(';') {
-            inner_style.push(';');
-        }
-        inner_style.push_str(" pointer-events: none;");
-    } else if runtime.should_force_pointer_events_auto()
-        && !inner_style.contains("pointer-events:")
-    {
-        if !inner_style.trim().is_empty() && !inner_style.trim_end().ends_with(';') {
-            inner_style.push(';');
-        }
-        inner_style.push_str(" pointer-events: auto;");
-    }
-
-    let on_mounted = {
-        let mut cb = runtime.mount_content();
-        EventHandler::new(move |evt: MountedEvent| cb(evt))
-    };
-    let on_key_down = {
-        let mut cb = runtime.escape_keydown();
-        EventHandler::new(move |evt: KeyboardEvent| cb(evt))
-    };
-    let on_click = EventHandler::new(move |evt: MouseEvent| evt.stop_propagation());
-
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(DateRangePickerContentRenderProps {
-                attrs,
-                wrapper_id: Some(wrapper_id),
-                wrapper_style: Some(wrapper_style),
-                role: resolved_role.to_string(),
-                aria_modal: content.aria_modal(),
-                aria_labelledby: labelledby,
-                aria_describedby: describedby,
-                class: props.class,
-                style: inner_style,
-                on_mounted,
-                on_key_down,
-                on_click,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::DateRangePickerContent: as_child requires render_child; rendering the default div"
-        );
-    }
-
-    rsx! {
-        div {
-            id: "{wrapper_id}",
-            "data-monoxus-floating-content-wrapper": "",
-            style: "{wrapper_style}",
-            div {
-                id: "{attrs.id}",
-                role: resolved_role,
-                aria_modal: content.aria_modal(),
-                aria_labelledby: labelledby.as_deref(),
-                aria_describedby: describedby.as_deref(),
-                class: props.class.as_deref().unwrap_or_default(),
-                style: "{inner_style}",
-                "data-state": content.data_state().as_str(),
-                "data-side": attrs.data_side,
-                "data-align": attrs.data_align,
-                "data-date-range-picker-content": attrs.data_date_range_picker_content,
-                tabindex: attrs.tabindex,
-                onmounted: move |evt| on_mounted.call(evt),
-                onkeydown: move |evt| on_key_down.call(evt),
-                onclick: move |evt| on_click.call(evt),
-                ..props.attributes,
-                {props.children}
-            }
-        }
-    }
+    render_date_range_picker_content(props, true)
 }
 
 /// Static (non-floating) popover dialog content for `DateRangePicker`.
 #[component]
 pub fn DateRangePickerContentStatic(props: DateRangePickerContentProps) -> Element {
-    let mut ctx = use_context::<PopoverContext>();
-    let runtime = ctx.runtime.read().clone();
-    let should_render = props.force_mount || runtime.should_render_content();
-    let is_open = runtime.is_open();
-
-    runtime.set_content_event_handlers(
-        props.on_open_auto_focus,
-        props.on_close_auto_focus,
-        props.on_escape_key_down,
-        props.on_interact_outside,
-    );
-
-    let content = runtime.content();
-    let content_id = props.id.unwrap_or_else(|| content.id().to_string());
-    let portal_id = runtime.relationships().scope().qualify("portal");
-
-    let parent_branch = try_consume_context::<OverlayBranchContext>();
-    crate::foundation::overlay::use_register_parent_overlay_branches(
-        parent_branch.clone(),
-        should_render,
-        vec![content_id.clone(), portal_id],
-    );
-
-    let latest_cid = use_hook(|| Rc::new(RefCell::new(content_id.clone())));
-    {
-        let mut prev = latest_cid.borrow_mut();
-        if *prev != content_id {
-            if ctx.content_id.peek().as_deref() == Some(prev.as_str()) {
-                ctx.content_id.set(None);
-            }
-            runtime.unregister_content_id(&prev);
-            *prev = content_id.clone();
-        }
-    }
-
-    if should_render {
-        if ctx.content_id.peek().as_deref() != Some(content_id.as_str()) {
-            ctx.content_id.set(Some(content_id.clone()));
-        }
-        runtime.register_content_id(&content_id);
-    } else {
-        if ctx.content_id.peek().as_deref() == Some(content_id.as_str()) {
-            ctx.content_id.set(None);
-        }
-        runtime.unregister_content_id(&content_id);
-    }
-    let cid_for_drop = latest_cid.clone();
-    let mut cid_sig_drop = ctx.content_id;
-    let runtime_for_drop = runtime.clone();
-    use_drop(move || {
-        let current_cid = cid_for_drop.borrow().clone();
-        if let Ok(mut sig) = cid_sig_drop.try_write() {
-            if sig.as_deref() == Some(current_cid.as_str()) {
-                *sig = None;
-            }
-        }
-        runtime_for_drop.unregister_content_id(&current_cid);
-    });
-
-    let runtime_for_branch = runtime.clone();
-    let parent_for_reg = parent_branch.clone();
-    let parent_for_unreg = parent_branch;
-    use_context_provider(|| {
-        let rt_reg = runtime_for_branch.clone();
-        let rt_unreg = runtime_for_branch.clone();
-        OverlayBranchContext::new(
-            move |branch: String| {
-                rt_reg.register_branch(branch.clone());
-                if let Some(ref pb) = parent_for_reg {
-                    pb.register_branch(branch);
-                }
-            },
-            move |branch: String| {
-                rt_unreg.unregister_branch(&branch);
-                if let Some(ref pb) = parent_for_unreg {
-                    pb.unregister_branch(branch);
-                }
-            },
-        )
-    });
-
-    let runtime_for_escape_guard = runtime.clone();
-    use_context_provider(|| {
-        let rt_reg = runtime_for_escape_guard.clone();
-        let rt_unreg = runtime_for_escape_guard.clone();
-        OverlayEscapeGuardContext::new(
-            move |id: String, guard: OverlayEscapeGuardFn| {
-                rt_reg.register_escape_guard(id, guard);
-            },
-            move |id: String| {
-                rt_unreg.unregister_escape_guard(&id);
-            },
-        )
-    });
-
-    if !should_render {
-        return rsx! {};
-    }
-
-    let title_id = (ctx.title_id)();
-    let desc_id = (ctx.description_id)();
-    let labelledby = props.aria_labelledby.or(title_id);
-    let describedby = props.aria_describedby.or(desc_id);
-    let resolved_role = props.role.as_deref().unwrap_or(content.role());
-
-    let attrs = DateRangePickerContentAttrs::new(content_id, is_open, None, None);
-
-    let on_mounted = {
-        let mut cb = runtime.mount_content();
-        EventHandler::new(move |evt: MountedEvent| cb(evt))
-    };
-    let on_key_down = {
-        let mut cb = runtime.escape_keydown();
-        EventHandler::new(move |evt: KeyboardEvent| cb(evt))
-    };
-    let on_click = EventHandler::new(move |evt: MouseEvent| evt.stop_propagation());
-
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(DateRangePickerContentRenderProps {
-                attrs,
-                wrapper_id: None,
-                wrapper_style: None,
-                role: resolved_role.to_string(),
-                aria_modal: content.aria_modal(),
-                aria_labelledby: labelledby,
-                aria_describedby: describedby,
-                class: props.class,
-                style: props.style.unwrap_or_default(),
-                on_mounted,
-                on_key_down,
-                on_click,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::DateRangePickerContentStatic: as_child requires render_child; rendering the default div"
-        );
-    }
-
-    rsx! {
-        div {
-            id: "{attrs.id}",
-            role: resolved_role,
-            aria_modal: content.aria_modal(),
-            aria_labelledby: labelledby.as_deref(),
-            aria_describedby: describedby.as_deref(),
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
-            "data-state": content.data_state().as_str(),
-            "data-date-range-picker-content": attrs.data_date_range_picker_content,
-            tabindex: attrs.tabindex,
-            onmounted: move |evt| on_mounted.call(evt),
-            onkeydown: move |evt| on_key_down.call(evt),
-            onclick: move |evt| on_click.call(evt),
-            ..props.attributes,
-            {props.children}
-        }
-    }
+    render_date_range_picker_content(props, false)
 }
 
 /// Props for [`DateRangePickerCalendar`].
@@ -1144,6 +755,9 @@ pub struct DateRangePickerCalendarProps {
 }
 
 /// Range calendar view synchronized with its ancestor `DateRangePickerRoot`.
+///
+/// Calls plain-fn [`render_range_calendar_root`] directly (zero nested `#[component]` taking
+/// `Option<Callback|EventHandler>` per `Dioxus #5894`).
 #[component]
 pub fn DateRangePickerCalendar(props: DateRangePickerCalendarProps) -> Element {
     let picker_rt = use_date_range_picker_context();
@@ -1160,47 +774,63 @@ pub fn DateRangePickerCalendar(props: DateRangePickerCalendarProps) -> Element {
         .id
         .unwrap_or_else(|| picker_rt.rels.calendar_scope().token().to_string());
 
-    rsx! {
-        RangeCalendarRoot {
-            id: Some(cal_id),
-            class: props.class,
-            style: props.style,
-            value: Some(picker_rt.calendar_value),
-            start_value: Some(picker_rt.calendar_start),
-            end_value: Some(picker_rt.calendar_end),
-            on_value_change: move |next| rt_for_val.handle_calendar_value_change(next),
-            on_range_select: move |completed| rt_for_select.handle_calendar_range_select(completed),
-            placeholder: Some(picker_rt.calendar_placeholder),
-            on_placeholder_change: move |ph| rt_for_ph.handle_calendar_placeholder_change(ph),
-            min_value: cfg.min_value,
-            max_value: cfg.max_value,
-            min_days: cfg.min_days,
-            max_days: cfg.max_days,
-            exclude_disabled: cfg.exclude_disabled,
-            disabled: cfg.disabled,
-            read_only: cfg.read_only,
-            prevent_deselect: cfg.prevent_deselect,
-            paged_navigation: cfg.paged_navigation,
-            fixed_weeks: cfg.fixed_weeks,
-            number_of_months: cfg.number_of_months,
-            week_starts_on: cfg.week_starts_on,
-            weekday_format: cfg.weekday_format,
-            month_format: cfg.month_format,
-            year_format: cfg.year_format,
-            locale: cfg.locale,
-            calendar_label: cfg.calendar_label,
-            dir: Some(cfg.dir),
-            disable_days_outside_month: cfg.disable_days_outside_month,
-            initial_focus: cfg.initial_focus,
-            is_date_disabled,
-            is_date_unavailable,
-            as_child: props.as_child,
-            render_child: props.render_child,
-            render_children: props.render_children,
-            on_key_down: props.on_key_down,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            {props.children}
-        }
-    }
+    let DateRangePickerCalendarConfig {
+        config: cal_cfg,
+        min_days,
+        max_days,
+        exclude_disabled,
+        initial_focus,
+    } = cfg;
+
+    render_range_calendar_root(RangeCalendarRootProps {
+        id: Some(cal_id),
+        class: props.class,
+        style: props.style,
+        value: Some(picker_rt.calendar_value),
+        default_value: None,
+        on_value_change: Some(EventHandler::new(move |next| {
+            rt_for_val.handle_calendar_value_change(next);
+        })),
+        start_value: Some(picker_rt.calendar_start),
+        on_start_value_change: None,
+        end_value: Some(picker_rt.calendar_end),
+        on_end_value_change: None,
+        on_range_select: Some(EventHandler::new(move |completed| {
+            rt_for_select.handle_calendar_range_select(completed);
+        })),
+        min_days,
+        max_days,
+        exclude_disabled,
+        placeholder: Some(picker_rt.calendar_placeholder),
+        default_placeholder: None,
+        on_placeholder_change: Some(EventHandler::new(move |ph| {
+            rt_for_ph.handle_calendar_placeholder_change(ph);
+        })),
+        min_value: cal_cfg.min_value,
+        max_value: cal_cfg.max_value,
+        disabled: cal_cfg.disabled,
+        read_only: cal_cfg.read_only,
+        prevent_deselect: cal_cfg.prevent_deselect,
+        paged_navigation: cal_cfg.paged_navigation,
+        fixed_weeks: cal_cfg.fixed_weeks,
+        number_of_months: cal_cfg.number_of_months,
+        week_starts_on: cal_cfg.week_starts_on,
+        weekday_format: cal_cfg.weekday_format,
+        month_format: cal_cfg.month_format,
+        year_format: cal_cfg.year_format,
+        locale: cal_cfg.locale,
+        calendar_label: cal_cfg.calendar_label,
+        dir: Some(cal_cfg.dir),
+        disable_days_outside_month: cal_cfg.disable_days_outside_month,
+        initial_focus,
+        is_date_disabled,
+        is_date_unavailable,
+        as_child: props.as_child,
+        render_child: props.render_child,
+        render_children: props.render_children,
+        on_key_down: props.on_key_down,
+        on_mounted: props.on_mounted,
+        attributes: props.attributes,
+        children: props.children,
+    })
 }

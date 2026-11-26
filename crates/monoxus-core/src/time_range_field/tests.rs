@@ -1,14 +1,11 @@
 use crate::foundation::{
-    compose::Slottable,
+    compose::{Slottable, project_attrs_as_child},
     date_time::{CalendarTime, FieldInvalidReason, TimeRange, TimeValue},
     shared::{Direction, ScopeHandle},
 };
 
 use super::{
-    attrs::{
-        TimeRangeFieldLabelAttrs, TimeRangeFieldRootAttrs, project_time_range_field_label_as_child,
-        project_time_range_field_root_as_child,
-    },
+    attrs::{TimeRangeFieldLabelAttrs, TimeRangeFieldRootAttrs},
     relationships::TimeRangeFieldRelationships,
     state::{TimeRangeFieldDefinition, TimeRangeFieldState},
     types::{RangeFieldInputKind, TIME_RANGE_FIELD_PARTS, TimeRangeFieldPart},
@@ -111,18 +108,16 @@ fn time_range_field_attrs_and_as_child() {
         true,
     );
     assert_eq!(root_attrs.role, "group");
-    assert_eq!(root_attrs.data_time_range_field_root, "");
+    assert_eq!(root_attrs.data_marker, "");
     assert_eq!(root_attrs.data_invalid, None);
     assert_eq!(root_attrs.data_disabled, Some(""));
 
     let label_attrs = TimeRangeFieldLabelAttrs::new(rels.label_id().to_string(), false, true);
-    assert_eq!(label_attrs.data_time_range_field_label, "");
+    assert_eq!(label_attrs.data_marker, "");
     assert_eq!(label_attrs.data_disabled, Some(""));
 
-    let (_, proj_root, _) =
-        project_time_range_field_root_as_child(&root_attrs, "div", Slottable::new("r"));
-    let (_, proj_label, _) =
-        project_time_range_field_label_as_child(&label_attrs, "span", Slottable::new("l"));
+    let (_, proj_root, _) = project_attrs_as_child(&root_attrs, "div", Slottable::new("r"));
+    let (_, proj_label, _) = project_attrs_as_child(&label_attrs, "span", Slottable::new("l"));
     assert_eq!(proj_root, root_attrs);
     assert_eq!(proj_label, label_attrs);
 }

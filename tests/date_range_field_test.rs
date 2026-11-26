@@ -386,4 +386,118 @@ mod native_tests {
         send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowRight), Code::ArrowRight);
         assert_native_focus_id(&harness, "drf-rtl-start-seg-4");
     }
+
+    #[component]
+    fn NativeDateRangeFieldFmDt4Scenario() -> Element {
+        use monoxus::foundation::date_time::{FieldInvalidEvent, FieldInvalidReason};
+
+        let mut inverted_reason = use_signal(|| Option::<FieldInvalidReason>::None);
+
+        rsx! {
+            div {
+                style: "padding: 16px;",
+                // Inverted DateRangeField -> RangeOrder invalidates root, Start, AND End
+                DateRangeFieldRoot {
+                    id: "drf-fm4-inv-root",
+                    locale: CalendarLocale::EnUs,
+                    default_value: DateValueRange::new(Some(d(2026, 5, 20)), Some(d(2026, 5, 10))),
+                    on_invalid: move |evt: FieldInvalidEvent| {
+                        inverted_reason.set(Some(evt.reason));
+                    },
+                    DateRangeFieldInput {
+                        id: "drf-fm4-inv-start",
+                        kind: RangeFieldInputKind::Start,
+                        render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                    DateRangeFieldInput {
+                        id: "drf-fm4-inv-end",
+                        kind: RangeFieldInputKind::End,
+                        render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+                span { id: "drf-fm4-inv-reason", "{inverted_reason.read():?}" }
+
+                // Start unavailable + End valid -> per-endpoint isolation (5C D-8)
+                DateRangeFieldRoot {
+                    id: "drf-fm4-iso-root",
+                    locale: CalendarLocale::EnUs,
+                    default_value: DateValueRange::new(Some(d(2026, 5, 12)), Some(d(2026, 5, 20))),
+                    is_date_unavailable: move |date: CalendarDate| date.day == 12,
+                    DateRangeFieldInput {
+                        id: "drf-fm4-iso-start",
+                        kind: RangeFieldInputKind::Start,
+                        render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                    DateRangeFieldInput {
+                        id: "drf-fm4-iso-end",
+                        kind: RangeFieldInputKind::End,
+                        render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_date_range_field_fm_dt4_inverted_range_order_and_endpoint_isolation() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let harness = mount_native_scenario(NativeDateRangeFieldFmDt4Scenario);
+
+        // Inverted range invalidates root, Start, and End with RangeOrder
+        assert_eq!(
+            harness.attr("#drf-fm4-inv-root", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#drf-fm4-inv-start", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#drf-fm4-inv-end", "data-invalid").as_deref(),
+            Some("")
+        );
+
+        // Start unavailable + End valid invalidates root & Start ONLY
+        assert_eq!(
+            harness.attr("#drf-fm4-iso-root", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#drf-fm4-iso-start", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(harness.attr("#drf-fm4-iso-end", "data-invalid"), None);
+    }
 }

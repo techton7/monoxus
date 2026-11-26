@@ -7,6 +7,7 @@ pub mod nav_buttons;
 pub mod root;
 pub mod selects;
 
+pub(crate) use self::root::render_calendar_root;
 pub use self::{
     cell::*, day::*, grid::*, header::*, heading::*, nav_buttons::*, root::*, selects::*,
 };

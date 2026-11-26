@@ -1,62 +1,7 @@
+pub use crate::calendar::types::{
+    CALENDAR_PARTS as RANGE_CALENDAR_PARTS, CalendarPart as RangeCalendarPart,
+};
 use crate::foundation::date_time::{CalendarDate, CalendarMonth, DateRange};
-
-/// All 14 compound parts exported by `range_calendar`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum RangeCalendarPart {
-    Root,
-    Header,
-    Heading,
-    PrevButton,
-    NextButton,
-    Grid,
-    GridHead,
-    GridBody,
-    GridRow,
-    HeadCell,
-    Cell,
-    Day,
-    MonthSelect,
-    YearSelect,
-}
-
-impl RangeCalendarPart {
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Root => "root",
-            Self::Header => "header",
-            Self::Heading => "heading",
-            Self::PrevButton => "prev-button",
-            Self::NextButton => "next-button",
-            Self::Grid => "grid",
-            Self::GridHead => "grid-head",
-            Self::GridBody => "grid-body",
-            Self::GridRow => "grid-row",
-            Self::HeadCell => "head-cell",
-            Self::Cell => "cell",
-            Self::Day => "day",
-            Self::MonthSelect => "month-select",
-            Self::YearSelect => "year-select",
-        }
-    }
-}
-
-pub const RANGE_CALENDAR_PARTS: [RangeCalendarPart; 14] = [
-    RangeCalendarPart::Root,
-    RangeCalendarPart::Header,
-    RangeCalendarPart::Heading,
-    RangeCalendarPart::PrevButton,
-    RangeCalendarPart::NextButton,
-    RangeCalendarPart::Grid,
-    RangeCalendarPart::GridHead,
-    RangeCalendarPart::GridBody,
-    RangeCalendarPart::GridRow,
-    RangeCalendarPart::HeadCell,
-    RangeCalendarPart::Cell,
-    RangeCalendarPart::Day,
-    RangeCalendarPart::MonthSelect,
-    RangeCalendarPart::YearSelect,
-];
 
 /// Per-cell reactive state snapshot exposed to custom `RangeCalendarDay` / `RangeCalendarCell` renderers.
 #[derive(Clone, Debug, PartialEq, Eq)]

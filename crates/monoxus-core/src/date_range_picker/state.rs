@@ -1,12 +1,17 @@
 use crate::{
-    date_picker::{merge_calendar_date_into_value, merge_calendar_placeholder},
+    date_picker::{
+        PickerDefinitionLike, PickerPolicy, PickerSelectOutcome, PickerState,
+        merge_calendar_date_into_value, merge_calendar_placeholder,
+    },
     foundation::{
-        date_time::{CalendarDate, DateRange, DateValue, DateValueRange},
+        date_time::{DateRange, DateValue, DateValueRange},
         shared::Direction,
     },
 };
 
-use super::types::DateRangePickerSnapshot;
+use super::{
+    relationships::DATE_RANGE_PICKER_OPEN_FOCUS_SELECTOR, types::DateRangePickerSnapshot,
+};
 
 /// Immutable configuration for `DateRangePicker`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -61,13 +66,65 @@ impl DateRangePickerDefinition {
     }
 }
 
-/// Result of a range update or range commit from `DateRangePickerCalendar`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DateRangePickerSelectOutcome {
-    pub next_value: DateValueRange,
-    pub next_placeholder: DateValue,
-    pub should_close: bool,
+impl PickerDefinitionLike for DateRangePickerDefinition {
+    #[inline]
+    fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    #[inline]
+    fn close_on_select(&self) -> bool {
+        self.close_on_range_select
+    }
 }
+
+/// Zero-sized policy marker for `DateRangePicker`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct DateRangePickerPolicy;
+
+impl PickerPolicy for DateRangePickerPolicy {
+    type Value = DateValueRange;
+    type CalendarValue = DateRange;
+    type Definition = DateRangePickerDefinition;
+    type Snapshot = DateRangePickerSnapshot;
+
+    const OPEN_FOCUS_SELECTOR: &'static str = DATE_RANGE_PICKER_OPEN_FOCUS_SELECTOR;
+    const CONTENT_DATA_ATTR: &'static str = "data-date-range-picker-content";
+
+    #[inline]
+    fn to_calendar_value(value: Self::Value) -> Self::CalendarValue {
+        value.to_date_range()
+    }
+
+    #[inline]
+    fn placeholder_from_field_value(value: Self::Value) -> Option<DateValue> {
+        value.start.or(value.end)
+    }
+
+    fn build_snapshot(
+        def: &Self::Definition,
+        value: Self::Value,
+        placeholder: DateValue,
+        open: bool,
+        is_invalid: bool,
+    ) -> Self::Snapshot {
+        DateRangePickerSnapshot {
+            value,
+            calendar_value: Self::to_calendar_value(value),
+            placeholder,
+            calendar_placeholder: placeholder.date(),
+            open,
+            disabled: def.disabled,
+            read_only: def.read_only,
+            required: def.required,
+            close_on_range_select: def.close_on_range_select,
+            is_invalid,
+        }
+    }
+}
+
+/// Result of a range update or range commit from `DateRangePickerCalendar`.
+pub type DateRangePickerSelectOutcome = PickerSelectOutcome<DateValueRange>;
 
 /// Merges a [`DateRange`] from `RangeCalendar` into an existing [`DateValueRange`],
 /// preserving any wall-clock `CalendarTime` components on `start` / `end` (or `placeholder`).
@@ -89,105 +146,9 @@ pub const fn merge_calendar_range_into_value(
 }
 
 /// Pure headless state machine coordinating `DateRangeField`, `Popover`, and `RangeCalendar`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DateRangePickerState {
-    def: DateRangePickerDefinition,
-    value: DateValueRange,
-    placeholder: DateValue,
-    open: bool,
-    is_invalid: bool,
-}
+pub type DateRangePickerState = PickerState<DateRangePickerPolicy>;
 
-impl DateRangePickerState {
-    pub fn new(
-        def: DateRangePickerDefinition,
-        value: DateValueRange,
-        placeholder: DateValue,
-        open: bool,
-    ) -> Self {
-        let resolved_open = if def.disabled { false } else { open };
-        Self {
-            def,
-            value,
-            placeholder,
-            open: resolved_open,
-            is_invalid: false,
-        }
-    }
-
-    #[inline]
-    pub fn def(&self) -> &DateRangePickerDefinition {
-        &self.def
-    }
-
-    #[inline]
-    pub fn value(&self) -> DateValueRange {
-        self.value
-    }
-
-    #[inline]
-    pub fn calendar_value(&self) -> DateRange {
-        self.value.to_date_range()
-    }
-
-    #[inline]
-    pub fn placeholder(&self) -> DateValue {
-        self.placeholder
-    }
-
-    #[inline]
-    pub fn calendar_placeholder(&self) -> CalendarDate {
-        self.placeholder.date()
-    }
-
-    #[inline]
-    pub fn is_open(&self) -> bool {
-        self.open
-    }
-
-    #[inline]
-    pub fn is_invalid(&self) -> bool {
-        self.is_invalid
-    }
-
-    pub fn sync_definition(&mut self, def: DateRangePickerDefinition) {
-        if def.disabled {
-            self.open = false;
-        }
-        self.def = def;
-    }
-
-    pub fn set_invalid(&mut self, invalid: bool) {
-        self.is_invalid = invalid;
-    }
-
-    /// Requests an open/close transition. Returns the effective open state.
-    pub fn set_open(&mut self, open: bool) -> bool {
-        self.open = if self.def.disabled { false } else { open };
-        self.open
-    }
-
-    /// Applies a range update originating from `DateRangeField` or external controlled state.
-    pub fn set_field_value(&mut self, value: DateValueRange) {
-        self.value = value;
-        if let Some(start) = value.start {
-            self.placeholder = start;
-        } else if let Some(end) = value.end {
-            self.placeholder = end;
-        }
-    }
-
-    /// Applies a placeholder update originating from `DateRangeField` or external controlled state.
-    pub fn set_placeholder(&mut self, placeholder: DateValue) {
-        self.placeholder = placeholder;
-    }
-
-    /// Applies a placeholder update originating from `RangeCalendar` while preserving any time component.
-    pub fn set_calendar_placeholder(&mut self, date: CalendarDate) -> DateValue {
-        self.placeholder = merge_calendar_placeholder(self.placeholder, date);
-        self.placeholder
-    }
-
+impl PickerState<DateRangePickerPolicy> {
     /// Applies an interim or complete range update from `RangeCalendar` (`on_value_change`).
     /// Never closes the popover by itself.
     pub fn apply_calendar_range(&mut self, range: DateRange) -> DateRangePickerSelectOutcome {
@@ -196,7 +157,7 @@ impl DateRangePickerState {
         if let Some(start) = range.start {
             self.placeholder = merge_calendar_placeholder(self.placeholder, start);
         }
-        DateRangePickerSelectOutcome {
+        PickerSelectOutcome {
             next_value: self.value,
             next_placeholder: self.placeholder,
             should_close: false,
@@ -220,25 +181,10 @@ impl DateRangePickerState {
         if should_close {
             self.open = false;
         }
-        DateRangePickerSelectOutcome {
+        PickerSelectOutcome {
             next_value: self.value,
             next_placeholder: self.placeholder,
             should_close,
-        }
-    }
-
-    pub fn snapshot(&self) -> DateRangePickerSnapshot {
-        DateRangePickerSnapshot {
-            value: self.value,
-            calendar_value: self.calendar_value(),
-            placeholder: self.placeholder,
-            calendar_placeholder: self.calendar_placeholder(),
-            open: self.open,
-            disabled: self.def.disabled,
-            read_only: self.def.read_only,
-            required: self.def.required,
-            close_on_range_select: self.def.close_on_range_select,
-            is_invalid: self.is_invalid,
         }
     }
 }

@@ -1,5 +1,9 @@
 use crate::foundation::{
-    shared::{CollectionRegistry, RovingFocusController, RovingFocusKey, ScopeHandle},
+    roving_focus::{
+        RovingCandidate, RovingFocusConfig, RovingModifiers, is_navigation_key,
+        is_navigation_key_for_orientation, resolve_next_stop,
+    },
+    shared::ScopeHandle,
     state::DataState,
 };
 
@@ -162,27 +166,20 @@ impl Accordion {
         }
     }
 
+    pub fn roving_config(&self) -> RovingFocusConfig {
+        RovingFocusConfig::new()
+            .with_orientation(self.orientation.into())
+            .with_direction(self.dir.into())
+            .with_loop_focus(self.loop_focus)
+            .with_enabled(!self.disabled)
+    }
+
     pub fn is_navigation_key(key: &str) -> bool {
-        matches!(
-            key,
-            "ArrowLeft"
-                | "ArrowRight"
-                | "ArrowUp"
-                | "ArrowDown"
-                | "Home"
-                | "End"
-                | "PageUp"
-                | "PageDown"
-        )
+        is_navigation_key(key)
     }
 
     pub fn is_navigation_key_for_orientation(orientation: AccordionOrientation, key: &str) -> bool {
-        match key {
-            "Home" | "End" | "PageUp" | "PageDown" => true,
-            "ArrowLeft" | "ArrowRight" => matches!(orientation, AccordionOrientation::Horizontal),
-            "ArrowUp" | "ArrowDown" => matches!(orientation, AccordionOrientation::Vertical),
-            _ => false,
-        }
+        is_navigation_key_for_orientation(orientation.into(), key)
     }
 
     pub fn resolve_key_navigation(
@@ -194,31 +191,24 @@ impl Accordion {
         if self.disabled {
             return None;
         }
-
-        let roving_key = match key {
-            "ArrowLeft" => Some(RovingFocusKey::ArrowLeft),
-            "ArrowRight" => Some(RovingFocusKey::ArrowRight),
-            "ArrowUp" => Some(RovingFocusKey::ArrowUp),
-            "ArrowDown" => Some(RovingFocusKey::ArrowDown),
-            "Home" | "PageUp" => Some(RovingFocusKey::Home),
-            "End" | "PageDown" => Some(RovingFocusKey::End),
-            _ => None,
-        }?;
-
-        let mut registry = CollectionRegistry::new();
-        for item in registered_items {
-            registry.register(item.value.clone(), item.disabled);
-        }
-
-        let controller = RovingFocusController::new(self.dir.into())
-            .with_orientation(self.orientation.into())
-            .with_looping(self.loop_focus);
-
-        controller.navigate_by_key(
-            &registry,
-            Some(&current_tab_stop.to_string()),
-            roving_key,
-            |&disabled| !disabled,
+        let candidates: Vec<RovingCandidate> = registered_items
+            .iter()
+            .map(|item| {
+                RovingCandidate::new(
+                    item.value.clone(),
+                    String::new(),
+                    !item.disabled,
+                    self.is_open(&item.value),
+                )
+            })
+            .collect();
+        let current = (!current_tab_stop.is_empty()).then_some(current_tab_stop);
+        resolve_next_stop(
+            &self.roving_config(),
+            &candidates,
+            current,
+            key,
+            RovingModifiers::none(),
         )
     }
 

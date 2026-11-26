@@ -1,20 +1,19 @@
 use std::borrow::Cow;
-use std::rc::Rc;
 
 use dioxus::prelude::*;
 
 use crate::button::ButtonType;
 use crate::foundation::{
+    compose::merge_global_attributes,
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
     shared::{ScopeHandle, use_stable_id},
-    state::{use_controllable_state, ControllableStateProps},
+    state::{sync_signal, use_controllable_signal},
 };
 
 use super::{
     attrs::{SwitchRootAttributes, SwitchThumbAttributes},
     relationships::SwitchRelationships,
-    runtime::{use_switch_context, SwitchContext},
-    types::SwitchCheckedChangeHandler,
+    runtime::{SwitchContext, use_switch_context},
 };
 
 /// Props for [`SwitchRoot`].
@@ -74,55 +73,31 @@ pub fn SwitchRoot(props: SwitchRootProps) -> Element {
     let root_id = relationships.root_id().to_string();
     let thumb_id = relationships.thumb_id().to_string();
 
-    let on_checked_change_cb = props.on_checked_change.as_ref().map(|handler| {
-        let handler = *handler;
-        Rc::new(move |next: bool| {
-            handler.call(next);
-        }) as SwitchCheckedChangeHandler
-    });
-
-    let checked_handle = use_controllable_state(ControllableStateProps {
-        value: props.checked,
-        default_value: props.default_checked,
-        on_change: on_checked_change_cb.clone().map(|cb| {
-            move |v: bool| cb(v)
-        }),
-    });
-
-    let is_checked = *checked_handle.value();
+    let checked_ctl =
+        use_controllable_signal(props.checked, props.default_checked, props.on_checked_change);
+    let is_checked = checked_ctl.get();
 
     let initial_checked_for_reset = props.default_checked;
-    let reset_handle = checked_handle.clone();
     let (should_render_input, reset_epoch) = use_form_control_sync_with_epoch(
         &root_id,
         props.name.as_deref(),
         props.form.as_deref(),
         move || {
-            reset_handle.set(initial_checked_for_reset);
+            checked_ctl.set(initial_checked_for_reset);
         },
     );
 
-    let mut checked_sig = use_signal(|| is_checked);
-    if *checked_sig.peek() != is_checked {
-        checked_sig.set(is_checked);
-    }
     let mut disabled_sig = use_signal(|| props.disabled);
-    if *disabled_sig.peek() != props.disabled {
-        disabled_sig.set(props.disabled);
-    }
+    sync_signal(&mut disabled_sig, props.disabled);
     let mut required_sig = use_signal(|| props.required);
-    if *required_sig.peek() != props.required {
-        required_sig.set(props.required);
-    }
+    sync_signal(&mut required_sig, props.required);
     let mut read_only_sig = use_signal(|| props.read_only);
-    if *read_only_sig.peek() != props.read_only {
-        read_only_sig.set(props.read_only);
-    }
+    sync_signal(&mut read_only_sig, props.read_only);
 
     let context = SwitchContext {
         root_id: root_id.clone(),
         thumb_id: thumb_id.clone(),
-        checked: checked_sig,
+        checked: checked_ctl.signal(),
         disabled: disabled_sig,
         required: required_sig,
         read_only: read_only_sig,
@@ -130,23 +105,22 @@ pub fn SwitchRoot(props: SwitchRootProps) -> Element {
     use_context_provider(|| context);
 
     let on_click = {
-        let on_click = props.on_click.clone();
+        let on_click = props.on_click;
         let disabled = props.disabled;
         let read_only = props.read_only;
-        let handle = checked_handle.clone();
-        let current = is_checked;
         move |evt: MouseEvent| {
             if let Some(ref handler) = on_click {
                 handler.call(evt.clone());
             }
             if evt.default_action_enabled() && !disabled && !read_only {
-                handle.set(!current);
+                let current = checked_ctl.peek();
+                checked_ctl.set(!current);
             }
         }
     };
 
     let on_key_down = {
-        let on_key_down = props.on_key_down.clone();
+        let on_key_down = props.on_key_down;
         move |evt: KeyboardEvent| {
             if let Some(ref handler) = on_key_down {
                 handler.call(evt);
@@ -158,7 +132,7 @@ pub fn SwitchRoot(props: SwitchRootProps) -> Element {
     };
 
     let on_mounted = {
-        let on_mounted = props.on_mounted.clone();
+        let on_mounted = props.on_mounted;
         move |evt: MountedEvent| {
             if let Some(ref handler) = on_mounted {
                 handler.call(evt);
@@ -174,12 +148,17 @@ pub fn SwitchRoot(props: SwitchRootProps) -> Element {
         props.required,
         props.read_only,
     );
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         button {
             id: attrs.id.as_deref(),
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             r#type: attrs.r#type,
             role: attrs.role,
             "aria-checked": attrs.aria_checked,
@@ -195,7 +174,7 @@ pub fn SwitchRoot(props: SwitchRootProps) -> Element {
             onclick: on_click,
             onkeydown: on_key_down,
             onmounted: on_mounted,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
         if should_render_input {
@@ -241,7 +220,7 @@ pub fn SwitchThumb(props: SwitchThumbProps) -> Element {
     let thumb_id = props.id.clone().unwrap_or_else(|| ctx.thumb_id().to_string());
 
     let on_mounted = {
-        let on_mounted = props.on_mounted.clone();
+        let on_mounted = props.on_mounted;
         move |evt: MountedEvent| {
             if let Some(ref handler) = on_mounted {
                 handler.call(evt);
@@ -256,19 +235,24 @@ pub fn SwitchThumb(props: SwitchThumbProps) -> Element {
         ctx.is_required(),
         ctx.is_read_only(),
     );
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         span {
             id: attrs.id.as_deref(),
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             "data-state": attrs.data_state_str(),
             "data-disabled": attrs.data_disabled,
             "data-required": attrs.data_required,
             "data-readonly": attrs.data_readonly,
             "data-switch-thumb": attrs.data_switch_thumb,
             onmounted: on_mounted,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

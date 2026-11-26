@@ -1,5 +1,9 @@
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
+
+use crate::foundation::{
+    compose::merge_global_attributes,
+    keyboard::is_activation_key,
+};
 
 pub use monoxus_core::button::*;
 
@@ -77,17 +81,20 @@ pub fn Button(props: ButtonProps) -> Element {
     };
 
     let handle_keydown = move |evt: KeyboardEvent| {
-        if props.disabled {
-            let key = evt.key();
-            if key == Key::Named(NamedKey::Enter) || key == Key::Character(" ".to_string()) {
-                evt.prevent_default();
-                return;
-            }
+        if props.disabled && is_activation_key(&evt.key()) {
+            evt.prevent_default();
+            return;
         }
         if let Some(handler) = props.on_key_down.as_ref() {
             handler.call(evt);
         }
     };
+
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     if attrs.tag == ButtonTag::Anchor {
         let is_enabled = !props.disabled;
@@ -107,8 +114,8 @@ pub fn Button(props: ButtonProps) -> Element {
                 target: if is_enabled { props.target.as_deref() } else { None },
                 rel: if is_enabled { props.rel.as_deref() } else { None },
                 download: if is_enabled { props.download.as_deref() } else { None },
-                class: props.class,
-                style: props.style,
+                class: merged.class,
+                style: merged.style,
                 "data-button-root": attrs.data_button_root,
                 "data-disabled": attrs.data_disabled,
                 onclick: handle_click,
@@ -118,7 +125,7 @@ pub fn Button(props: ButtonProps) -> Element {
                         handler.call(evt);
                     }
                 },
-                ..props.attributes,
+                ..merged.rest,
                 {props.children}
             }
         }
@@ -137,8 +144,8 @@ pub fn Button(props: ButtonProps) -> Element {
                 aria_controls: props.aria_controls,
                 aria_haspopup: props.aria_haspopup,
                 aria_invalid: props.aria_invalid,
-                class: props.class,
-                style: props.style,
+                class: merged.class,
+                style: merged.style,
                 "data-button-root": attrs.data_button_root,
                 "data-disabled": attrs.data_disabled,
                 onclick: handle_click,
@@ -148,7 +155,7 @@ pub fn Button(props: ButtonProps) -> Element {
                         handler.call(evt);
                     }
                 },
-                ..props.attributes,
+                ..merged.rest,
                 {props.children}
             }
         }

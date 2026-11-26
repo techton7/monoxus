@@ -2,7 +2,11 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::use_stable_id;
+use crate::foundation::{
+    compose::merge_global_attributes,
+    shared::use_stable_id,
+    state::sync_signal,
+};
 
 use super::super::{
     attrs::{
@@ -77,14 +81,10 @@ pub fn CommandGroup(props: CommandGroupProps) -> Element {
         group_value_sig.set(resolved_value.clone());
     }
     let mut group_id_sig = use_signal(|| group_id.clone());
-    if *group_id_sig.peek() != group_id {
-        group_id_sig.set(group_id.clone());
-    }
+    sync_signal(&mut group_id_sig, group_id.clone());
     let heading_id_sig = use_signal(|| None::<String>);
     let mut force_mount_sig = use_signal(|| props.force_mount);
-    if *force_mount_sig.peek() != props.force_mount {
-        force_mount_sig.set(props.force_mount);
-    }
+    sync_signal(&mut force_mount_sig, props.force_mount);
 
     use_context_provider(|| CommandGroupContext {
         value: group_value_sig,
@@ -129,6 +129,12 @@ pub fn CommandGroup(props: CommandGroupProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        rendered_style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id}",
@@ -136,14 +142,14 @@ pub fn CommandGroup(props: CommandGroupProps) -> Element {
             hidden: attrs.hidden,
             "data-command-group": attrs.data_command_group,
             "data-value": "{attrs.data_value}",
-            class: props.class,
-            style: rendered_style,
+            class: merged.class,
+            style: merged.style,
             onmounted: move |evt| {
                 if let Some(handler) = props.on_mounted.as_ref() {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -239,18 +245,24 @@ pub fn CommandGroupHeading(props: CommandGroupHeadingProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id}",
             "data-command-group-heading": attrs.data_command_group_heading,
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             onmounted: move |evt| {
                 if let Some(handler) = props.on_mounted.as_ref() {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -323,20 +335,26 @@ pub fn CommandGroupItems(props: CommandGroupItemsProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        merged_style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id}",
             role: "{attrs.role}",
             aria_labelledby: attrs.aria_labelledby.as_deref(),
             "data-command-group-items": attrs.data_command_group_items,
-            class: props.class,
-            style: merged_style,
+            class: merged.class,
+            style: merged.style,
             onmounted: move |evt| {
                 if let Some(handler) = props.on_mounted.as_ref() {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

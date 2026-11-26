@@ -1,11 +1,15 @@
+use std::marker::PhantomData;
+
 use crate::foundation::shared::ScopeHandle;
 
 /// Default CSS selector used by `DatePickerContent` for `pickerOpenFocus` (`OVL-3`).
 pub const DATE_PICKER_OPEN_FOCUS_SELECTOR: &str = "[data-calendar-day][data-focused]";
 
-/// Deterministic scoped ID relationships for `DatePicker` and its composed primitives.
+use super::state::{DatePickerPolicy, PickerPolicy};
+
+/// Deterministic scoped ID relationships shared by `DatePicker` and `DateRangePicker`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct DatePickerRelationships {
+pub struct PickerRelationships<P: PickerPolicy> {
     scope: ScopeHandle,
     root_id: String,
     popover_scope: ScopeHandle,
@@ -13,9 +17,10 @@ pub struct DatePickerRelationships {
     calendar_scope: ScopeHandle,
     trigger_id: String,
     content_id: String,
+    _policy: PhantomData<P>,
 }
 
-impl DatePickerRelationships {
+impl<P: PickerPolicy> PickerRelationships<P> {
     pub fn new(scope: ScopeHandle) -> Self {
         let root_id = scope.token().to_string();
         let popover_scope = scope.child("popover");
@@ -31,6 +36,7 @@ impl DatePickerRelationships {
             calendar_scope,
             trigger_id,
             content_id,
+            _policy: PhantomData,
         }
     }
 
@@ -71,6 +77,9 @@ impl DatePickerRelationships {
 
     #[inline]
     pub const fn open_focus_selector(&self) -> &'static str {
-        DATE_PICKER_OPEN_FOCUS_SELECTOR
+        P::OPEN_FOCUS_SELECTOR
     }
 }
+
+/// Deterministic scoped ID relationships for `DatePicker` and its composed primitives.
+pub type DatePickerRelationships = PickerRelationships<DatePickerPolicy>;

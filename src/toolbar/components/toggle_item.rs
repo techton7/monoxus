@@ -1,7 +1,8 @@
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
 use crate::foundation::{
+    compose::merge_global_attributes,
+    keyboard::is_activation_key,
     roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::use_stable_id,
 };
@@ -39,10 +40,15 @@ pub fn ToolbarToggleItem(props: ToolbarToggleItemProps) -> Element {
 
     let stable_id = use_stable_id(None);
     let group_dom_id = group_runtime.group_dom_id();
-    let item_id = props
-        .id
-        .clone()
-        .unwrap_or_else(|| format!("{}-{}", toolbar_state.relationships().toggle_item_id(&group_dom_id, &props.value), stable_id));
+    let item_id = props.id.clone().unwrap_or_else(|| {
+        format!(
+            "{}-{}",
+            toolbar_state
+                .relationships()
+                .toggle_item_id(&group_dom_id, &props.value),
+            stable_id
+        )
+    });
     let roving_key = format!("tg:{group_dom_id}:{}", props.value);
 
     let effective_disabled = group_runtime.is_effective_disabled(props.disabled);
@@ -95,8 +101,7 @@ pub fn ToolbarToggleItem(props: ToolbarToggleItemProps) -> Element {
             if !evt.default_action_enabled() || effective_disabled {
                 return;
             }
-            let key = evt.key();
-            if key == Key::Named(NamedKey::Enter) || key == Key::Character(" ".to_string()) {
+            if is_activation_key(&evt.key()) {
                 evt.prevent_default();
                 group_runtime.toggle_item(&val);
                 roving.set_current_tab_stop(Some(key_for_roving.clone()));
@@ -123,11 +128,17 @@ pub fn ToolbarToggleItem(props: ToolbarToggleItemProps) -> Element {
         }
     };
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         button {
             id: "{attrs.id()}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             r#type: attrs.button_type(),
             role: attrs.role(),
             "aria-checked": attrs.aria_checked(),
@@ -144,7 +155,7 @@ pub fn ToolbarToggleItem(props: ToolbarToggleItemProps) -> Element {
             onkeydown: on_key_down,
             onfocus: on_focus,
             onmounted: on_mounted,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

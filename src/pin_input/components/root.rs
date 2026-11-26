@@ -4,9 +4,9 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{focus_element_by_id, is_element_focused_by_id},
+    compose::{join_styles, merge_global_attributes},
     form::use_form_control_sync_with_epoch,
     shared::{ScopeHandle, use_stable_id},
-    state::debug_assert_mode_stable,
 };
 
 use super::super::{
@@ -15,12 +15,11 @@ use super::super::{
     runtime::{PinInputContext, use_pin_input_runtime},
     state::sanitize_pin_value,
     types::{
-        PinInputAutoComplete, PinInputMode, PinInputPattern, PinInputSelection, PinInputSnapshot,
-        PinInputTextAlign,
+        PinInputAutoComplete, PinInputMode, PinInputPattern, PinInputSnapshot, PinInputTextAlign,
     },
 };
 
-/// Render props passed to `render_child` when [`PinInputRoot`] sets `as_child: Some(true)`.
+/// Render props passed to `render_child` when [`PinInputRoot`] sets `as_child: true`.
 #[derive(Clone)]
 pub struct PinInputRootRenderChildProps {
     pub attrs: PinInputRootAttributes,
@@ -75,7 +74,7 @@ pub struct PinInputRootProps {
     #[props(default)]
     pub form: Option<String>,
     #[props(default)]
-    pub as_child: Option<bool>,
+    pub as_child: bool,
     #[props(default)]
     pub render_child: Option<Callback<PinInputRootRenderChildProps, Element>>,
     #[props(default)]
@@ -110,10 +109,6 @@ pub fn PinInputRoot(props: PinInputRootProps) -> Element {
         .clone()
         .unwrap_or_else(|| initial_rels.input_id().to_string());
 
-    let initially_controlled = use_hook(|| props.value.is_some());
-    let is_controlled = props.value.is_some();
-    debug_assert_mode_stable(initially_controlled, is_controlled);
-
     let effective_max_length = props.max_length.max(1);
     let initial_value_for_reset = use_hook(|| {
         sanitize_pin_value(
@@ -127,9 +122,9 @@ pub fn PinInputRoot(props: PinInputRootProps) -> Element {
         )
     });
 
-    let mut runtime = use_pin_input_runtime(
-        initial_value_for_reset.clone(),
-        is_controlled,
+    let runtime = use_pin_input_runtime(
+        props.value.clone(),
+        props.default_value.clone().unwrap_or_default(),
         effective_max_length,
         props.pattern.clone(),
         props.paste_transformer,
@@ -147,90 +142,10 @@ pub fn PinInputRoot(props: PinInputRootProps) -> Element {
         props.placeholder.clone(),
         props.name.clone(),
         props.form.clone(),
-        scope_id.clone(),
+        scope_id,
         resolved_root_id.clone(),
         resolved_input_id.clone(),
     );
-
-    // Keep reactive props synchronized with runtime signals.
-    {
-        *runtime.pattern.borrow_mut() = props.pattern.clone();
-        *runtime.paste_transformer.borrow_mut() = props.paste_transformer;
-        *runtime.on_value_change.borrow_mut() = props.on_value_change;
-        *runtime.on_complete.borrow_mut() = props.on_complete;
-
-        if *runtime.is_controlled.peek() != is_controlled {
-            runtime.is_controlled.set(is_controlled);
-        }
-        if *runtime.max_length.peek() != effective_max_length {
-            runtime.max_length.set(effective_max_length);
-        }
-        if *runtime.text_align.peek() != props.text_align {
-            runtime.text_align.set(props.text_align);
-        }
-        if *runtime.input_mode.peek() != props.input_mode {
-            runtime.input_mode.set(props.input_mode);
-        }
-        if *runtime.autocomplete.peek() != props.autocomplete {
-            runtime.autocomplete.set(props.autocomplete);
-        }
-        if *runtime.mask.peek() != props.mask {
-            runtime.mask.set(props.mask);
-        }
-        if *runtime.mask_char.peek() != props.mask_char {
-            runtime.mask_char.set(props.mask_char);
-        }
-        if *runtime.disabled.peek() != props.disabled {
-            runtime.disabled.set(props.disabled);
-        }
-        if *runtime.read_only.peek() != props.read_only {
-            runtime.read_only.set(props.read_only);
-        }
-        if *runtime.required.peek() != props.required {
-            runtime.required.set(props.required);
-        }
-        if *runtime.auto_focus.peek() != props.auto_focus {
-            runtime.auto_focus.set(props.auto_focus);
-        }
-        if *runtime.placeholder.peek() != props.placeholder {
-            runtime.placeholder.set(props.placeholder.clone());
-        }
-        if *runtime.name.peek() != props.name {
-            runtime.name.set(props.name.clone());
-        }
-        if *runtime.form.peek() != props.form {
-            runtime.form.set(props.form.clone());
-        }
-        if *runtime.scope_id.peek() != scope_id {
-            runtime.scope_id.set(scope_id);
-        }
-        if *runtime.root_dom_id.peek() != resolved_root_id {
-            runtime.root_dom_id.set(resolved_root_id.clone());
-        }
-        if *runtime.input_dom_id.peek() != resolved_input_id {
-            runtime.input_dom_id.set(resolved_input_id.clone());
-        }
-
-        if let Some(ref controlled_val) = props.value {
-            let sanitized =
-                sanitize_pin_value(controlled_val, effective_max_length, &props.pattern);
-            if *runtime.value.peek() != sanitized {
-                runtime.value.set(sanitized);
-            }
-        } else {
-            let current = runtime.value.peek().clone();
-            let clamped = sanitize_pin_value(&current, effective_max_length, &props.pattern);
-            if clamped != current {
-                runtime.value.set(clamped);
-            }
-        }
-
-        if props.disabled && *runtime.is_focused.peek() {
-            runtime.is_focused.set(false);
-            *runtime.prev_selection.borrow_mut() = PinInputSelection::empty();
-            runtime.selection.set(PinInputSelection::empty());
-        }
-    }
 
     // Controlled edge-transition `on_complete` observer (runs post-render).
     use_effect({
@@ -260,7 +175,7 @@ pub fn PinInputRoot(props: PinInputRootProps) -> Element {
     });
 
     let mut reset_runtime = runtime.clone();
-    let reset_initial = initial_value_for_reset.clone();
+    let reset_initial = initial_value_for_reset;
     let (_should_render_hidden, reset_epoch) = use_form_control_sync_with_epoch(
         &resolved_input_id,
         props.name.as_deref(),
@@ -384,14 +299,13 @@ pub fn PinInputRoot(props: PinInputRootProps) -> Element {
         }
     };
 
-    let as_child = props.as_child.unwrap_or(false);
-    if as_child && props.render_child.is_none() {
+    if props.as_child && props.render_child.is_none() {
         #[cfg(debug_assertions)]
         eprintln!(
             "monoxus::PinInputRoot: as_child requires render_child; rendering the default div"
         );
     }
-    if let Some(render_child) = props.render_child.as_ref().filter(|_| as_child) {
+    if let Some(render_child) = props.render_child.as_ref().filter(|_| props.as_child) {
         let combined_children = rsx! {
             {body}
             {overlay_input}
@@ -404,16 +318,18 @@ pub fn PinInputRoot(props: PinInputRootProps) -> Element {
         });
     }
 
-    let merged_style = match props.style.as_deref().filter(|s| !s.is_empty()) {
-        Some(extra) => format!("{} {}", root_attrs.style, extra),
-        None => root_attrs.style.clone(),
-    };
+    let combined_style = join_styles([root_attrs.style.as_str(), props.style.as_deref().unwrap_or("")]);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        combined_style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         div {
             id: "{root_attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: "{merged_style}",
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             aria_disabled: root_attrs.aria_disabled,
             "data-disabled": root_attrs.data_disabled,
             "data-monoxus-pin-input-root": "{root_attrs.data_monoxus_pin_input_root}",
@@ -422,7 +338,7 @@ pub fn PinInputRoot(props: PinInputRootProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {body}
             {overlay_input}
         }

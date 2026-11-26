@@ -1,6 +1,10 @@
 use dioxus::prelude::*;
 
-use crate::foundation::browser::{FocusOptions, focus_element_sync_or_defer};
+use crate::foundation::{
+    browser::{FocusOptions, focus_element_sync_or_defer},
+    compose::merge_global_attributes,
+    state::sync_signal,
+};
 
 use super::super::{attrs::CommandInputAttrs, runtime::CommandContext};
 
@@ -78,9 +82,7 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
         .id
         .clone()
         .unwrap_or_else(|| ctx.relationships.peek().input_id());
-    if *ctx.input_id.peek() != resolved_id {
-        ctx.input_id.set(resolved_id.clone());
-    }
+    sync_signal(&mut ctx.input_id, resolved_id.clone());
 
     let fallback_val = use_signal(|| props.default_value.clone().unwrap_or_default());
     let mut val_sig = props.value.unwrap_or(fallback_val);
@@ -175,6 +177,12 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         input {
             id: "{attrs.id}",
@@ -192,8 +200,8 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
             value: "{current_val}",
             placeholder: props.placeholder.as_deref(),
             disabled: props.disabled,
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             oninput: move |evt| handle_input.call(evt),
             oncompositionstart: move |evt| handle_compositionstart.call(evt),
             oncompositionend: move |evt| handle_compositionend.call(evt),
@@ -202,7 +210,7 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
         }
     }
 }

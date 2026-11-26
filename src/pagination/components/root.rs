@@ -3,16 +3,14 @@ use std::borrow::Cow;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    roving_focus::RovingFocusConfig,
+    compose::merge_global_attributes,
     shared::{Direction, Orientation, ScopeHandle, use_direction_context, use_stable_id},
-    state::debug_assert_mode_stable,
 };
 
 use super::super::{
     attrs::PaginationRootAttributes,
     relationships::PaginationRelationships,
-    runtime::{PaginationContext, PaginationRuntime},
-    state::{clamp_page, compute_total_pages},
+    runtime::{PaginationContext, use_pagination_runtime},
     types::PaginationSnapshot,
 };
 
@@ -49,7 +47,7 @@ pub struct PaginationRootProps {
     #[props(default)]
     pub role: Option<String>,
     #[props(default)]
-    pub as_child: Option<bool>,
+    pub as_child: bool,
     #[props(default)]
     pub render_child: Option<Callback<PaginationRootRenderChildProps, Element>>,
     #[props(default)]
@@ -78,88 +76,25 @@ pub fn PaginationRoot(props: PaginationRootProps) -> Element {
         .clone()
         .unwrap_or_else(|| initial_rels.root_id().to_string());
 
-    let initially_controlled = use_hook(|| props.page.is_some());
-    let is_controlled = props.page.is_some();
-    debug_assert_mode_stable(initially_controlled, is_controlled);
-
-    let effective_per_page = props.per_page.max(1);
-    let total_pages = compute_total_pages(props.count, effective_per_page);
-    let initial_page = clamp_page(props.page.unwrap_or(props.default_page), total_pages);
     let resolved_aria_label = props
         .aria_label
         .clone()
         .unwrap_or_else(|| String::from("pagination"));
 
-    let mut runtime = PaginationRuntime::new(
+    let runtime = use_pagination_runtime(
         props.count,
-        effective_per_page,
+        props.per_page,
         props.sibling_count,
-        initial_page,
-        is_controlled,
+        props.page,
+        props.default_page,
+        props.on_page_change,
         props.loop_focus,
         props.orientation,
         resolved_dir,
-        resolved_aria_label.clone(),
-        scope_id.clone(),
+        resolved_aria_label,
+        scope_id,
         resolved_id.clone(),
-        props.on_page_change,
     );
-
-    // Keep reactive props synchronized with runtime signals.
-    {
-        runtime.on_page_change.set(props.on_page_change);
-
-        if *runtime.count.peek() != props.count {
-            runtime.count.set(props.count);
-        }
-        if *runtime.per_page.peek() != effective_per_page {
-            runtime.per_page.set(effective_per_page);
-        }
-        if *runtime.sibling_count.peek() != props.sibling_count {
-            runtime.sibling_count.set(props.sibling_count);
-        }
-        if *runtime.is_controlled.peek() != is_controlled {
-            runtime.is_controlled.set(is_controlled);
-        }
-
-        if let Some(controlled_page) = props.page {
-            let clamped = clamp_page(controlled_page, total_pages);
-            if *runtime.page.peek() != clamped {
-                runtime.page.set(clamped);
-            }
-        } else {
-            let current = *runtime.page.peek();
-            let clamped = clamp_page(current, total_pages);
-            if clamped != current {
-                runtime.page.set(clamped);
-            }
-        }
-
-        if *runtime.loop_focus.peek() != props.loop_focus {
-            runtime.loop_focus.set(props.loop_focus);
-        }
-        if *runtime.orientation.peek() != props.orientation {
-            runtime.orientation.set(props.orientation);
-        }
-        if *runtime.dir.peek() != resolved_dir {
-            runtime.dir.set(resolved_dir);
-        }
-        if *runtime.aria_label.peek() != resolved_aria_label {
-            runtime.aria_label.set(resolved_aria_label);
-        }
-        if *runtime.scope_id.peek() != scope_id {
-            runtime.scope_id.set(scope_id);
-        }
-
-        runtime.roving.set_config(
-            RovingFocusConfig::new()
-                .with_orientation(props.orientation)
-                .with_direction(resolved_dir)
-                .with_loop_focus(props.loop_focus)
-                .with_enabled(true),
-        );
-        runtime.roving.set_root_dom_id(&resolved_id);
-    }
 
     use_context_provider(|| PaginationContext {
         runtime: runtime.clone(),
@@ -175,14 +110,13 @@ pub fn PaginationRoot(props: PaginationRootProps) -> Element {
         props.children
     };
 
-    let as_child = props.as_child.unwrap_or(false);
-    if as_child && props.render_child.is_none() {
+    if props.as_child && props.render_child.is_none() {
         #[cfg(debug_assertions)]
         eprintln!(
             "monoxus::PaginationRoot: as_child requires render_child; rendering the default nav"
         );
     }
-    if let Some(render_child) = props.render_child.as_ref().filter(|_| as_child) {
+    if let Some(render_child) = props.render_child.as_ref().filter(|_| props.as_child) {
         return render_child.call(PaginationRootRenderChildProps {
             attrs: root_attrs,
             snapshot,
@@ -190,11 +124,17 @@ pub fn PaginationRoot(props: PaginationRootProps) -> Element {
         });
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         nav {
             id: "{root_attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             role: "{resolved_role}",
             aria_label: "{root_attrs.aria_label}",
             dir: "{root_attrs.dir}",
@@ -205,7 +145,7 @@ pub fn PaginationRoot(props: PaginationRootProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {body}
         }
     }

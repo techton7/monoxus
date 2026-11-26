@@ -3,18 +3,47 @@ use std::{cell::RefCell, rc::Rc};
 use dioxus::prelude::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 
-use crate::foundation::date_time::CalendarDate;
+use crate::foundation::{compose::merge_global_attributes, date_time::CalendarDate};
 
 use super::{
     super::{
         attrs::CalendarDayAttrs,
         runtime::{
-            is_calendar_activate_key, translate_calendar_nav_key, use_calendar_context,
+            CalendarBaseRuntime, is_calendar_activate_key, translate_calendar_nav_key,
+            use_calendar_context,
         },
         types::CalendarCellSnapshot,
     },
     cell::use_calendar_cell_context,
 };
+
+/// Shared day-ID registration + drop cleanup hook used by both `CalendarDay` and `RangeCalendarDay`.
+pub(crate) fn use_register_calendar_day_id(
+    base: &CalendarBaseRuntime,
+    month_idx: usize,
+    cell_date: CalendarDate,
+    day_id: &str,
+) {
+    let registered_key: Rc<RefCell<Option<(usize, CalendarDate)>>> =
+        use_hook(|| Rc::new(RefCell::new(None)));
+    {
+        let next_key = (month_idx, cell_date);
+        if *registered_key.borrow() != Some(next_key) {
+            if let Some((prev_idx, prev_date)) = *registered_key.borrow() {
+                base.unregister_day_id(prev_idx, prev_date);
+            }
+            *registered_key.borrow_mut() = Some(next_key);
+        }
+        base.register_day_id(month_idx, cell_date, day_id.to_owned());
+    }
+    let cleanup_base = base.clone();
+    let cleanup_key = Rc::clone(&registered_key);
+    use_drop(move || {
+        if let Some((idx, date)) = cleanup_key.borrow_mut().take() {
+            cleanup_base.unregister_day_id(idx, date);
+        }
+    });
+}
 
 #[derive(Clone, PartialEq, Props)]
 pub struct CalendarDayRenderProps {
@@ -71,38 +100,13 @@ pub fn CalendarDay(props: CalendarDayProps) -> Element {
     let month_idx = runtime.month_index_for(cell_month);
     let cell_attrs = runtime.cell_attrs(cell_date, cell_month, None);
 
-    let day_attrs = runtime.day_attrs(
-        cell_date,
-        cell_month,
-        &cell_attrs,
-        props.id.clone(),
-    );
+    let day_attrs = runtime.day_attrs(cell_date, cell_month, &cell_attrs, props.id.clone());
     let snapshot = runtime.cell_snapshot(cell_date, cell_month, &cell_attrs);
     let is_disabled = day_attrs.data_disabled.is_some();
-    let day_id = day_attrs.id.clone();
 
-    // Register custom/effective ID so cross-month keyboard navigation focuses this exact element.
-    let registered_key: Rc<RefCell<Option<(usize, CalendarDate)>>> =
-        use_hook(|| Rc::new(RefCell::new(None)));
-    {
-        let next_key = (month_idx, cell_date);
-        if *registered_key.borrow() != Some(next_key) {
-            if let Some((prev_idx, prev_date)) = *registered_key.borrow() {
-                runtime.unregister_day_id(prev_idx, prev_date);
-            }
-            *registered_key.borrow_mut() = Some(next_key);
-        }
-        runtime.register_day_id(month_idx, cell_date, day_id.clone());
-    }
-    let cleanup_runtime = runtime.clone();
-    let cleanup_key = Rc::clone(&registered_key);
-    use_drop(move || {
-        if let Some((idx, date)) = cleanup_key.borrow_mut().take() {
-            cleanup_runtime.unregister_day_id(idx, date);
-        }
-    });
+    use_register_calendar_day_id(&runtime.base, month_idx, cell_date, &day_attrs.id);
 
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     struct DayHandlerSlot {
         date: CalendarDate,
         is_disabled: bool,
@@ -110,31 +114,30 @@ pub fn CalendarDay(props: CalendarDayProps) -> Element {
         on_key_down: Option<EventHandler<KeyboardEvent>>,
     }
 
-    let slot = use_hook(|| {
-        Rc::new(RefCell::new(DayHandlerSlot {
+    let mut slot = use_hook(|| {
+        CopyValue::new(DayHandlerSlot {
             date: cell_date,
             is_disabled,
             on_click: props.on_click,
             on_key_down: props.on_key_down,
-        }))
+        })
     });
-    *slot.borrow_mut() = DayHandlerSlot {
+    slot.set(DayHandlerSlot {
         date: cell_date,
         is_disabled,
         on_click: props.on_click,
         on_key_down: props.on_key_down,
-    };
+    });
 
     let on_click = use_hook(|| {
         let mut rt = runtime.clone();
-        let slot = Rc::clone(&slot);
         Callback::new(move |evt: MouseEvent| {
-            let current = slot.borrow().clone();
+            let current = *slot.read();
             if current.is_disabled {
                 evt.prevent_default();
                 return;
             }
-            if let Some(ref handler) = current.on_click {
+            if let Some(handler) = current.on_click {
                 handler.call(evt.clone());
             }
             if evt.default_action_enabled() {
@@ -145,16 +148,15 @@ pub fn CalendarDay(props: CalendarDayProps) -> Element {
 
     let on_key_down = use_hook(|| {
         let mut rt = runtime.clone();
-        let slot = Rc::clone(&slot);
         Callback::new(move |evt: KeyboardEvent| {
-            let current = slot.borrow().clone();
+            let current = *slot.read();
             let key = evt.key();
             if is_calendar_activate_key(&key) {
                 if current.is_disabled {
                     evt.prevent_default();
                     return;
                 }
-                if let Some(ref handler) = current.on_key_down {
+                if let Some(handler) = current.on_key_down {
                     handler.call(evt.clone());
                 }
                 if evt.default_action_enabled() {
@@ -166,13 +168,13 @@ pub fn CalendarDay(props: CalendarDayProps) -> Element {
 
             let shift = evt.modifiers().contains(Modifiers::SHIFT);
             if let Some(nav_key) = translate_calendar_nav_key(&key, shift) {
-                if let Some(ref handler) = current.on_key_down {
+                if let Some(handler) = current.on_key_down {
                     handler.call(evt.clone());
                 }
                 if evt.default_action_enabled() && rt.handle_nav_key(current.date, nav_key) {
                     evt.prevent_default();
                 }
-            } else if let Some(ref handler) = current.on_key_down {
+            } else if let Some(handler) = current.on_key_down {
                 handler.call(evt);
             }
         })
@@ -184,27 +186,34 @@ pub fn CalendarDay(props: CalendarDayProps) -> Element {
         props.children
     };
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(CalendarDayRenderProps {
-                attrs: day_attrs,
-                snapshot,
-                class: props.class,
-                style: props.style,
-                on_click,
-                on_key_down,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-                children: rendered_children,
-            });
-        }
+    if props.as_child
+        && let Some(render_child) = props.render_child.as_ref()
+    {
+        return render_child.call(CalendarDayRenderProps {
+            attrs: day_attrs,
+            snapshot,
+            class: props.class,
+            style: props.style,
+            on_click,
+            on_key_down,
+            on_mounted: props.on_mounted,
+            attributes: props.attributes,
+            children: rendered_children,
+        });
     }
+
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+    let on_mounted = props.on_mounted;
 
     rsx! {
         div {
             id: "{day_attrs.id}",
-            class: props.class,
-            style: props.style,
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             role: day_attrs.role,
             aria_label: "{day_attrs.aria_label}",
             aria_disabled: day_attrs.aria_disabled,
@@ -223,11 +232,11 @@ pub fn CalendarDay(props: CalendarDayProps) -> Element {
             onclick: move |evt| on_click.call(evt),
             onkeydown: move |evt| on_key_down.call(evt),
             onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
+                if let Some(handler) = on_mounted {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             if let Some(children) = rendered_children {
                 {children}
             } else {

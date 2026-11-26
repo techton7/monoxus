@@ -1,6 +1,3 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use dioxus::prelude::*;
 
 use crate::foundation::{
@@ -8,17 +5,19 @@ use crate::foundation::{
         Orientation, RovingFocusConfig, RovingFocusRuntime, use_roving_focus_group,
     },
     shared::{Direction, ScopeHandle},
+    state::{ControllableSignal, sync_signal},
 };
 
 use super::{
     attrs::{RadioGroupIndicatorAttributes, RadioGroupItemAttributes, RadioGroupRootAttributes},
     state::RadioGroup,
-    types::{RadioGroupOrientation, RadioGroupValueChangeHandler},
+    types::RadioGroupOrientation,
 };
 
 #[derive(Clone)]
 pub struct RadioGroupRuntime {
     pub value: Signal<Option<String>>,
+    pub(crate) value_ctl: ControllableSignal<Option<String>>,
     pub is_controlled: Signal<bool>,
     pub initial_value: Signal<Option<String>>,
     pub orientation: Signal<Option<RadioGroupOrientation>>,
@@ -35,13 +34,13 @@ pub struct RadioGroupRuntime {
     pub should_render_hidden_inputs: Signal<bool>,
     pub reset_epoch: Signal<u64>,
     pub roving: RovingFocusRuntime,
-    pub on_value_change: Rc<RefCell<Option<RadioGroupValueChangeHandler>>>,
+    pub on_value_change: CopyValue<Option<EventHandler<String>>>,
 }
 
 #[allow(clippy::too_many_arguments)]
 pub fn use_radio_group_runtime(
+    value_ctl: ControllableSignal<Option<String>>,
     initial_value: Option<String>,
-    is_controlled: bool,
     orientation: Option<RadioGroupOrientation>,
     dir: Direction,
     loop_focus: bool,
@@ -54,88 +53,63 @@ pub fn use_radio_group_runtime(
     root_id: String,
     root_dom_id: String,
     should_render_hidden_inputs: bool,
-    on_value_change: Option<RadioGroupValueChangeHandler>,
+    on_value_change: Option<EventHandler<String>>,
 ) -> RadioGroupRuntime {
-    RadioGroupRuntime::new(
-        initial_value,
-        is_controlled,
-        orientation,
-        dir,
-        loop_focus,
-        disabled,
-        required,
-        read_only,
-        name,
-        form,
-        autocomplete,
-        root_id,
-        root_dom_id,
-        should_render_hidden_inputs,
-        on_value_change,
-    )
+    let mapped_orientation = match orientation {
+        None => Orientation::Both,
+        Some(RadioGroupOrientation::Horizontal) => Orientation::Horizontal,
+        Some(RadioGroupOrientation::Vertical) => Orientation::Vertical,
+    };
+
+    let roving_cfg = RovingFocusConfig::new()
+        .with_orientation(mapped_orientation)
+        .with_direction(dir)
+        .with_loop_focus(loop_focus)
+        .with_enabled(!disabled);
+    let roving = use_roving_focus_group(roving_cfg, None, root_dom_id);
+    let mut on_value_change_slot = use_hook(|| CopyValue::new(on_value_change));
+    on_value_change_slot.set(on_value_change);
+
+    let is_controlled = value_ctl.is_controlled();
+    let mut rt = RadioGroupRuntime {
+        value: value_ctl.signal(),
+        value_ctl,
+        is_controlled: use_signal(|| is_controlled),
+        initial_value: use_signal(|| initial_value),
+        orientation: use_signal(|| orientation),
+        dir: use_signal(|| dir),
+        loop_focus: use_signal(|| loop_focus),
+        disabled: use_signal(|| disabled),
+        required: use_signal(|| required),
+        read_only: use_signal(|| read_only),
+        name: use_signal(|| name.clone()),
+        form: use_signal(|| form.clone()),
+        autocomplete: use_signal(|| autocomplete.clone()),
+        root_id: use_signal(|| root_id.clone()),
+        root_dom_id: roving.root_dom_id,
+        should_render_hidden_inputs: use_signal(|| should_render_hidden_inputs),
+        reset_epoch: use_signal(|| 0_u64),
+        roving,
+        on_value_change: on_value_change_slot,
+    };
+
+    sync_signal(&mut rt.root_id, root_id);
+    sync_signal(&mut rt.is_controlled, is_controlled);
+    sync_signal(&mut rt.should_render_hidden_inputs, should_render_hidden_inputs);
+    sync_signal(&mut rt.orientation, orientation);
+    sync_signal(&mut rt.dir, dir);
+    sync_signal(&mut rt.loop_focus, loop_focus);
+    sync_signal(&mut rt.disabled, disabled);
+    sync_signal(&mut rt.required, required);
+    sync_signal(&mut rt.read_only, read_only);
+    sync_signal(&mut rt.name, name);
+    sync_signal(&mut rt.form, form);
+    sync_signal(&mut rt.autocomplete, autocomplete);
+
+    rt
 }
 
 impl RadioGroupRuntime {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        initial_value: Option<String>,
-        is_controlled: bool,
-        orientation: Option<RadioGroupOrientation>,
-        dir: Direction,
-        loop_focus: bool,
-        disabled: bool,
-        required: bool,
-        read_only: bool,
-        name: Option<String>,
-        form: Option<String>,
-        autocomplete: Option<String>,
-        root_id: String,
-        root_dom_id: String,
-        should_render_hidden_inputs: bool,
-        on_value_change: Option<RadioGroupValueChangeHandler>,
-    ) -> Self {
-        let mapped_orientation = match orientation {
-            None => Orientation::Both,
-            Some(RadioGroupOrientation::Horizontal) => Orientation::Horizontal,
-            Some(RadioGroupOrientation::Vertical) => Orientation::Vertical,
-        };
-
-        let roving_cfg = RovingFocusConfig::new()
-            .with_orientation(mapped_orientation)
-            .with_direction(dir)
-            .with_loop_focus(loop_focus)
-            .with_enabled(!disabled);
-        let roving = use_roving_focus_group(roving_cfg, None, root_dom_id);
-        let on_value_change_slot: Rc<RefCell<Option<RadioGroupValueChangeHandler>>> =
-            use_hook(|| Rc::new(RefCell::new(None)));
-        *on_value_change_slot.borrow_mut() = on_value_change;
-
-        Self {
-            value: use_signal(|| initial_value.clone()),
-            is_controlled: use_signal(|| is_controlled),
-            initial_value: use_signal(|| initial_value),
-            orientation: use_signal(|| orientation),
-            dir: use_signal(|| dir),
-            loop_focus: use_signal(|| loop_focus),
-            disabled: use_signal(|| disabled),
-            required: use_signal(|| required),
-            read_only: use_signal(|| read_only),
-            name: use_signal(|| name),
-            form: use_signal(|| form),
-            autocomplete: use_signal(|| autocomplete),
-            root_id: use_signal(|| root_id),
-            root_dom_id: roving.root_dom_id,
-            should_render_hidden_inputs: use_signal(|| should_render_hidden_inputs),
-            reset_epoch: use_signal(|| 0_u64),
-            roving,
-            on_value_change: on_value_change_slot,
-        }
-    }
-
-    pub fn set_on_value_change(&self, handler: Option<RadioGroupValueChangeHandler>) {
-        *self.on_value_change.borrow_mut() = handler;
-    }
-
     pub fn roving(&self) -> RovingFocusRuntime {
         self.roving
     }
@@ -172,23 +146,31 @@ impl RadioGroupRuntime {
             return;
         }
 
-        let current = (self.value)();
+        let current = self.value.peek().clone();
         if current.as_deref() == Some(value) {
-            // Already checked; irreversible no-op
             return;
         }
 
         let next = Some(value.to_string());
-        if !*(self.is_controlled).peek() {
-            let mut sig = self.value;
-            sig.set(next.clone());
-        }
-
+        self.value_ctl.set(next.clone());
         self.roving.set_current_tab_stop(next);
 
-        let handler = self.on_value_change.borrow().clone();
-        if let Some(handler) = handler {
-            handler(value.to_string());
+        if let Some(handler) = self.on_value_change.try_read().ok().and_then(|s| *s) {
+            handler.call(value.to_string());
+        }
+    }
+
+    pub(crate) fn reset_to(&self, initial: Option<String>) {
+        if self.value_ctl.set(initial.clone()) {
+            if !self.value_ctl.is_controlled() {
+                self.roving.set_current_tab_stop(initial.clone());
+            }
+            if let Some(val) = initial
+                && !val.is_empty()
+                && let Some(handler) = self.on_value_change.try_read().ok().and_then(|s| *s)
+            {
+                handler.call(val);
+            }
         }
     }
 

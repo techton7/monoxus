@@ -1,5 +1,5 @@
 use crate::foundation::{
-    compose::Slottable,
+    compose::{Slottable, project_attrs_as_child},
     date_time::{CalendarDate, CalendarLocale, MonthFormat, YearFormat},
     shared::{Direction, ScopeHandle},
 };
@@ -166,7 +166,7 @@ fn boolean_data_attrs_are_omitted_when_false_and_as_child_projects() {
     );
     assert_eq!(disabled_day.tabindex, None);
 
-    let (_, proj, _) = project_calendar_day_as_child(&day, "slot", Slottable::new("15"));
+    let (_, proj, _) = project_attrs_as_child(&day, "slot", Slottable::new("15"));
     assert_eq!(proj, day);
 }
 

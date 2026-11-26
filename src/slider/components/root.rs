@@ -1,10 +1,12 @@
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    browser::get_element_client_rect,
-    compose::{Slottable, project_as_child},
-    form::HiddenFormInputs,
-    form::use_form_control_sync_with_epoch,
+    browser::{
+        get_element_client_rect,
+        pointer::{try_release_pointer_capture, try_set_pointer_capture},
+    },
+    compose::{Slottable, join_styles, merge_global_attributes, project_as_child},
+    form::{HiddenFormInputs, use_form_control_sync_with_epoch},
     overlay::Rect2D,
     shared::{ScopeHandle, use_stable_id},
 };
@@ -62,12 +64,16 @@ pub struct SliderRootProps {
     pub disabled: bool,
     pub name: Option<String>,
     pub form: Option<String>,
-    pub as_child: Option<bool>,
     pub children: Element,
     pub class: Option<String>,
     pub style: Option<String>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+}
+
+fn finish_slider_pointer(evt: &PointerEvent, runtime: &mut crate::slider::runtime::SliderRuntime) {
+    try_release_pointer_capture(Some(evt), None, None);
+    runtime.end_drag();
 }
 
 /// Headless slider container coordinating value collection, thumb positioning, and form sync.
@@ -96,8 +102,8 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
         props.value.clone(),
         props.default_value.clone(),
         props.dir,
-        props.on_value_change.clone(),
-        props.on_value_commit.clone(),
+        props.on_value_change,
+        props.on_value_commit,
     );
 
     let attrs = runtime.root_attrs();
@@ -113,18 +119,7 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
 
     let mut reset_runtime = runtime.clone();
     let on_reset_fn = move || {
-        let prev = reset_runtime.values.peek().clone();
-        if prev != initial_values_for_reset {
-            reset_runtime.values.set(initial_values_for_reset.clone());
-            if let Some(ref handler) = reset_runtime.on_value_change {
-                let exported = if reset_runtime.is_single {
-                    SliderValue::Single(initial_values_for_reset[0])
-                } else {
-                    SliderValue::Multiple(initial_values_for_reset.clone())
-                };
-                handler.call(exported);
-            }
-        }
+        reset_runtime.reset_values(initial_values_for_reset.clone());
     };
 
     let (should_render_inputs, reset_epoch) = use_form_control_sync_with_epoch(
@@ -150,10 +145,7 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
                 return;
             }
             evt.prevent_default();
-            let pid = oxidase::dom::extract_pointer_id(&evt.data());
-            if let Some(target) = oxidase::dom::pointer_event_target(&evt.data()) {
-                let _ = target.set_pointer_capture(pid);
-            }
+            let _ = try_set_pointer_capture(&evt.data(), None);
             if *runtime.thumb_drag_claimed.peek() {
                 runtime.thumb_drag_claimed.set(false);
                 return;
@@ -164,27 +156,8 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
                 .unwrap_or(Rect2D::new(0.0, 0.0, 100.0, 100.0));
 
             let current_vals = runtime.values.peek().clone();
-            let fraction = match runtime.def.orientation {
-                Orientation::Vertical => {
-                    let is_sliding_from_bottom = !runtime.def.inverted;
-                    let h = rect.height.max(1.0);
-                    let f = (rect.bottom() - coords.y) / h;
-                    if is_sliding_from_bottom { f } else { 1.0 - f }
-                }
-                _ => {
-                    let is_sliding_from_left = (runtime.def.direction == Direction::Ltr
-                        && !runtime.def.inverted)
-                        || (runtime.def.direction == Direction::Rtl && runtime.def.inverted);
-                    let w = rect.width.max(1.0);
-                    let f = (coords.x - rect.left()) / w;
-                    if is_sliding_from_left { f } else { 1.0 - f }
-                }
-            };
-            let raw_val = percent_to_value(
-                fraction.clamp(0.0, 1.0) * 100.0,
-                runtime.def.min,
-                runtime.def.max,
-            );
+            let fraction = runtime.compute_pointer_fraction(coords.x, coords.y, &rect);
+            let raw_val = percent_to_value(fraction * 100.0, runtime.def.min, runtime.def.max);
             let closest_idx = find_closest_thumb(&current_vals, raw_val);
             runtime.start_drag(closest_idx);
             runtime.update_pointer_coord(coords.x, coords.y, &rect);
@@ -208,31 +181,20 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
 
     let on_pointer_up = {
         let mut runtime = runtime.clone();
-        move |evt: PointerEvent| {
-            let pid = oxidase::dom::extract_pointer_id(&evt.data());
-            if let Some(target) = oxidase::dom::pointer_event_target(&evt.data()) {
-                let _ = target.release_pointer_capture(pid);
-            }
-            runtime.end_drag();
-        }
+        move |evt: PointerEvent| finish_slider_pointer(&evt, &mut runtime)
     };
 
     let on_pointer_cancel = {
         let mut runtime = runtime.clone();
-        move |evt: PointerEvent| {
-            let pid = oxidase::dom::extract_pointer_id(&evt.data());
-            if let Some(target) = oxidase::dom::pointer_event_target(&evt.data()) {
-                let _ = target.release_pointer_capture(pid);
-            }
-            runtime.end_drag();
-        }
+        move |evt: PointerEvent| finish_slider_pointer(&evt, &mut runtime)
     };
 
-    let combined_style = if let Some(ref s) = props.style {
-        format!("{}; {}", attrs.style(), s)
-    } else {
-        attrs.style().to_string()
-    };
+    let combined_style = join_styles([attrs.style(), props.style.as_deref().unwrap_or("")]);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        combined_style.as_deref(),
+        props.attributes,
+    );
 
     let current_vals = runtime.current_values();
     let string_values: Vec<String> = current_vals.iter().map(|v| v.to_string()).collect();
@@ -247,8 +209,8 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
     rsx! {
         div {
             id: "{dom_root_id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: "{combined_style}",
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             dir: "{runtime.def.direction.as_str()}",
             "data-orientation": "{attrs.data_orientation()}",
             "data-disabled": attrs.data_disabled(),
@@ -258,7 +220,7 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
             onpointermove: on_pointer_move,
             onpointerup: on_pointer_up,
             onpointercancel: on_pointer_cancel,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
         if should_render_inputs {

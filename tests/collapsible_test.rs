@@ -404,3 +404,172 @@ fn test_collapsible_trigger_mouse_event_callback_contract() {
     assert_eq!(*call_count.borrow(), 0);
 }
 
+#[test]
+fn test_collapsible_content_merge_global_attributes_vdom() {
+    #[component]
+    fn AttrsApp() -> Element {
+        rsx! {
+            CollapsibleRoot {
+                id: "fm-api-3-col-root",
+                default_open: true,
+                CollapsibleTrigger { id: "fm-api-3-col-trig", "Toggle" }
+                CollapsibleContent {
+                    id: "fm-api-3-col-content",
+                    class: "b",
+                    style: "margin: 0",
+                    attributes: vec![
+                        Attribute::new("class", "a", None, false),
+                        Attribute::new("style", "color: red", None, false),
+                        Attribute {
+                            name: "style",
+                            value: dioxus::core::AttributeValue::None,
+                            namespace: None,
+                            volatile: false,
+                        },
+                        Attribute::new("background-color", "blue", Some("style"), false),
+                    ],
+                    "Body"
+                }
+            }
+        }
+    }
+
+    let mut dom = VirtualDom::new(AttrsApp);
+    dom.rebuild_in_place();
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+}
+
+#[cfg(feature = "native")]
+mod native_tests {
+    use super::*;
+    use crate::common::native_fixture::*;
+    use monoxus::accordion::{
+        AccordionContent, AccordionHeader, AccordionItem, AccordionMode, AccordionRoot,
+        AccordionTrigger,
+    };
+
+    #[component]
+    fn NativeDisclosureAndAttrMergeScenario() -> Element {
+        rsx! {
+            div {
+                CollapsibleRoot {
+                    id: "fm-col-open-root",
+                    default_open: true,
+                    CollapsibleTrigger { id: "fm-col-open-trig", "Open" }
+                    CollapsibleContent {
+                        id: "fm-col-open-content",
+                        class: "b",
+                        style: "margin: 0",
+                        attributes: vec![
+                            Attribute::new("class", "a", None, false),
+                            Attribute::new("style", "color: red", None, false),
+                            Attribute {
+                                name: "style",
+                                value: dioxus::core::AttributeValue::None,
+                                namespace: None,
+                                volatile: false,
+                            },
+                            Attribute::new("padding", "4px", Some("style"), false),
+                        ],
+                        "Open Body"
+                    }
+                }
+                CollapsibleRoot {
+                    id: "fm-col-closed-root",
+                    default_open: false,
+                    CollapsibleTrigger { id: "fm-col-closed-trig", "Closed" }
+                    CollapsibleContent {
+                        id: "fm-col-closed-content",
+                        "Unmounted Body"
+                    }
+                }
+                CollapsibleRoot {
+                    id: "fm-col-until-found-root",
+                    default_open: false,
+                    CollapsibleTrigger { id: "fm-col-uf-trig", "UF" }
+                    CollapsibleContent {
+                        id: "fm-col-uf-content",
+                        force_mount: true,
+                        hidden_until_found: true,
+                        "Searchable Body"
+                    }
+                }
+                AccordionRoot {
+                    id: "fm-acc-root",
+                    mode: AccordionMode::Single { collapsible: true },
+                    default_value: "a".to_string(),
+                    AccordionItem {
+                        value: "a".to_string(),
+                        AccordionHeader { AccordionTrigger { id: "fm-acc-trig-a", "A" } }
+                        AccordionContent { "Body A" }
+                    }
+                    AccordionItem {
+                        value: "b".to_string(),
+                        AccordionHeader { AccordionTrigger { id: "fm-acc-trig-b", "B" } }
+                        AccordionContent { "Body B" }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_disclosure_differences_mount_guard_and_attr_merge() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let harness = mount_native_scenario(NativeDisclosureAndAttrMergeScenario);
+
+        // FM-API-3: CollapsibleContent merges class + style without ;; and keeps internal styles.
+        assert_eq!(
+            harness.attr("#fm-col-open-content", "class").as_deref(),
+            Some("b a")
+        );
+        let merged_style = harness
+            .attr("#fm-col-open-content", "style")
+            .expect("CollapsibleContent style must exist");
+        assert!(merged_style.contains("margin: 0"), "style={merged_style}");
+        assert!(merged_style.contains("color: red"), "style={merged_style}");
+        assert!(!merged_style.contains(";;"), "style={merged_style}");
+        // FM-COL-2: declarative mount-open animation guard present on initial open mount.
+        let guard_style = monoxus::foundation::shared::MOUNT_ANIMATION_GUARD_STYLE;
+        assert!(
+            merged_style.contains(guard_style),
+            "default_open=true must include MOUNT_ANIMATION_GUARD_STYLE ({guard_style}) on initial render; got {merged_style}"
+        );
+
+        // FM-COL-2: CollapsibleContent unmounts when closed & !force_mount, and supports hidden="until-found".
+        assert!(harness.query("#fm-col-closed-content").is_none());
+        assert_eq!(
+            harness.attr("#fm-col-uf-content", "hidden").as_deref(),
+            Some("until-found")
+        );
+
+        // FM-COL-2: AccordionContent retains its <div hidden> shell when closed.
+        let closed_acc = harness
+            .query("[role=\"region\"][data-value=\"b\"]")
+            .expect("AccordionContent must keep <div hidden> shell when closed");
+        assert!(
+            harness
+                .base()
+                .get_node(closed_acc)
+                .unwrap()
+                .attr("hidden".into())
+                .is_some(),
+            "Closed AccordionContent must carry hidden attribute"
+        );
+        let open_acc = harness
+            .query("[role=\"region\"][data-value=\"a\"]")
+            .expect("Open AccordionContent must mount");
+        let open_acc_style = harness
+            .base()
+            .get_node(open_acc)
+            .unwrap()
+            .attr("style".into())
+            .unwrap_or_default()
+            .to_string();
+        assert!(
+            open_acc_style.contains(guard_style),
+            "Initially open AccordionContent must include MOUNT_ANIMATION_GUARD_STYLE ({guard_style}); got {open_acc_style}"
+        );
+    }
+}
+

@@ -40,9 +40,7 @@ where
 
     use_effect(use_reactive((&collapsible,), move |(collapsible,)| {
         let mut open_sig = effect_state.open;
-        if *open_sig.peek() != collapsible.is_open() {
-            open_sig.set(collapsible.is_open());
-        }
+        crate::foundation::state::sync_signal(&mut open_sig, collapsible.is_open());
     }));
 
     CollapsibleRuntime {

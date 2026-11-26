@@ -390,4 +390,149 @@ mod native_tests {
             Some("17:00:00")
         );
     }
+
+    #[component]
+    fn NativeTimeRangeFieldFmDt3ValidateAndLabelSwapScenario() -> Element {
+        use monoxus::foundation::date_time::{FieldInvalidEvent, FieldInvalidReason};
+
+        let mut enforce_same_day = use_signal(|| false);
+        let mut swap_label = use_signal(|| false);
+        let mut invalid_reason = use_signal(|| Option::<FieldInvalidReason>::None);
+
+        let validate = if *enforce_same_day.read() {
+            Some(Callback::new(|range: TimeRange| {
+                if let (Some(s), Some(e)) = (range.start, range.end)
+                    && e.time() < s.time()
+                {
+                    return Some(vec!["End time must be after start time".to_string()]);
+                }
+                None
+            }))
+        } else {
+            None
+        };
+        let label_key = if *swap_label.read() { "lbl-b" } else { "lbl-a" };
+        let label_id = if *swap_label.read() {
+            "trf-b5-lbl-b"
+        } else {
+            "trf-b5-lbl-a"
+        };
+
+        rsx! {
+            div {
+                style: "padding: 16px;",
+                button {
+                    id: "trf-b5-toggle-validate",
+                    r#type: "button",
+                    style: "width: 100px; height: 28px;",
+                    onclick: move |_| enforce_same_day.toggle(),
+                    "Toggle Validate"
+                }
+                button {
+                    id: "trf-b5-swap-label",
+                    r#type: "button",
+                    style: "width: 100px; height: 28px;",
+                    onclick: move |_| swap_label.toggle(),
+                    "Swap Label"
+                }
+                TimeRangeFieldRoot {
+                    id: "trf-b5-root",
+                    locale: CalendarLocale::Iso,
+                    granularity: TimeGranularity::Minute,
+                    hour_cycle: HourCycle::H24,
+                    default_value: TimeRange::new(Some(t(20, 0, 0)), Some(t(5, 0, 0))),
+                    validate,
+                    on_invalid: move |evt: FieldInvalidEvent| {
+                        invalid_reason.set(Some(evt.reason));
+                    },
+                    for (lkey, lid) in [(label_key, label_id)] {
+                        TimeRangeFieldLabel {
+                            key: "{lkey}",
+                            id: lid.to_string(),
+                            "Shift Hours"
+                        }
+                    }
+                    TimeRangeFieldInput {
+                        id: "trf-b5-start",
+                        kind: RangeFieldInputKind::Start,
+                        render_children: move |segments: Vec<TimeFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                TimeRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("trf-b5-start-seg-{}", seg.index),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                    TimeRangeFieldInput {
+                        id: "trf-b5-end",
+                        kind: RangeFieldInputKind::End,
+                        render_children: move |segments: Vec<TimeFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                TimeRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("trf-b5-end-seg-{}", seg.index),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+                span { id: "trf-b5-reason", "{invalid_reason.read():?}" }
+            }
+        }
+    }
+
+    #[test]
+    fn native_time_range_field_fm_dt3_dynamic_validate_reactivity_and_keyed_label_swap() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness =
+            mount_native_scenario(NativeTimeRangeFieldFmDt3ValidateAndLabelSwapScenario);
+
+        // FM-DT-4: overnight 20:00..05:00 is valid by default
+        assert_eq!(harness.attr("#trf-b5-root", "data-invalid"), None);
+        assert_eq!(harness.attr("#trf-b5-start", "data-invalid"), None);
+        assert_eq!(harness.attr("#trf-b5-end", "data-invalid"), None);
+
+        // B5 (FM-DT-3): swapping `validate` without changing `value` immediately marks root & endpoints invalid
+        click_and_pump(&mut harness, "#trf-b5-toggle-validate");
+        assert_eq!(
+            harness.attr("#trf-b5-root", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#trf-b5-start", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.attr("#trf-b5-end", "data-invalid").as_deref(),
+            Some("")
+        );
+        assert_eq!(
+            harness.text_content("#trf-b5-reason"),
+            "Some(Custom([\"End time must be after start time\"]))"
+        );
+
+        // Clearing `validate` restores valid state
+        click_and_pump(&mut harness, "#trf-b5-toggle-validate");
+        assert_eq!(harness.attr("#trf-b5-root", "data-invalid"), None);
+
+        // FM-DT-5: keyed label swap preserves replacement `custom_label_id`
+        assert_eq!(
+            harness.attr("#trf-b5-root", "aria-labelledby").as_deref(),
+            Some("trf-b5-lbl-a")
+        );
+        click_and_pump(&mut harness, "#trf-b5-swap-label");
+        assert_eq!(
+            harness.attr("#trf-b5-root", "aria-labelledby").as_deref(),
+            Some("trf-b5-lbl-b")
+        );
+        assert_eq!(
+            harness.attr("#trf-b5-start", "aria-labelledby").as_deref(),
+            Some("trf-b5-lbl-b")
+        );
+    }
 }

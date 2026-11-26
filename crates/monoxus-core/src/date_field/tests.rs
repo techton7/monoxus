@@ -1,5 +1,5 @@
 use crate::foundation::{
-    compose::Slottable,
+    compose::{Slottable, project_attrs_as_child},
     date_time::{
         CalendarDate, CalendarLocale, DateValue, EditableSegmentKind, FieldInvalidReason,
         FieldSegmentIntent, Granularity, SegmentFocusMove, SegmentKind,
@@ -8,11 +8,7 @@ use crate::foundation::{
 };
 
 use super::{
-    attrs::{
-        DateFieldInputAttrs, DateFieldLabelAttrs, DateFieldSegmentAttrs,
-        project_date_field_input_as_child, project_date_field_label_as_child,
-        project_date_field_segment_as_child,
-    },
+    attrs::{DateFieldInputAttrs, DateFieldLabelAttrs, DateFieldSegmentAttrs},
     relationships::DateFieldRelationships,
     state::{
         DateFieldDefinition, DateFieldState, first_interactive_segment, last_interactive_segment,
@@ -169,13 +165,15 @@ fn date_field_attrs_boolean_omission_and_as_child_projection() {
             .contains("err-1")
     );
 
-    let (_, proj_in, _) = project_date_field_input_as_child(&input_attrs, "div", Slottable::new(1));
+    assert_eq!(input_attrs.data_marker, "");
+    assert_eq!(label_attrs.data_marker, "");
+    assert_eq!(seg_attrs.data_marker, "");
+
+    let (_, proj_in, _) = project_attrs_as_child(&input_attrs, "div", Slottable::new(1));
     assert_eq!(proj_in, input_attrs);
-    let (_, proj_lbl, _) =
-        project_date_field_label_as_child(&label_attrs, "div", Slottable::new(2));
+    let (_, proj_lbl, _) = project_attrs_as_child(&label_attrs, "div", Slottable::new(2));
     assert_eq!(proj_lbl, label_attrs);
-    let (_, proj_seg, _) =
-        project_date_field_segment_as_child(&seg_attrs, "span", Slottable::new(3));
+    let (_, proj_seg, _) = project_attrs_as_child(&seg_attrs, "span", Slottable::new(3));
     assert_eq!(proj_seg, seg_attrs);
 }
 

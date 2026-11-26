@@ -1,30 +1,21 @@
-use std::{cell::RefCell, collections::HashMap, rc::Rc};
+use std::ops::{Deref, DerefMut};
 
 use dioxus::prelude::*;
 
 use crate::{
     calendar::{
         attrs::CalendarRootAttrs,
-        runtime::{CalendarViewConfig, local_today},
-        types::{
-            CalendarKind, CalendarSelectOption, build_calendar_month_options,
-            build_calendar_year_options,
-        },
+        runtime::CalendarBaseRuntime,
+        types::CalendarSelectOption,
     },
-    foundation::{
-        browser::{FocusOptions, focus_element_sync_or_defer},
-        date_time::{
-            CalendarDate, CalendarMonth, CalendarNavKey, DateRange, MonthFormat, YearFormat,
-            build_visible_months, compute_highlighted_range, default_year_range,
-            ensure_non_disabled_placeholder, is_next_page_disabled, is_prev_page_disabled,
-            resolve_grid_navigation, resolve_tabbable_date, visible_weekday_headers,
-        },
+    foundation::date_time::{
+        CalendarDate, CalendarMonth, CalendarNavKey, DateRange, MonthFormat, YearFormat,
+        compute_highlighted_range,
     },
 };
 
 use super::{
     attrs::{RangeCalendarCellAttrs, RangeCalendarDayAttrs},
-    relationships::RangeCalendarRelationships,
     state::{
         RangeCalendarDefinition, RangeCalendarState, RangeCalendarUpdate, apply_range_click,
         apply_range_escape, is_date_selected_in_range, is_range_selection_invalid,
@@ -36,92 +27,36 @@ use super::{
 /// Reactive runtime for `RangeCalendar`.
 #[derive(Clone)]
 pub struct RangeCalendarRuntime {
+    pub base: CalendarBaseRuntime,
     pub def: Signal<RangeCalendarDefinition>,
-    pub rels: RangeCalendarRelationships,
-    pub root_dom_id: Signal<String>,
     pub value: Signal<DateRange>,
     pub start_value: Signal<Option<CalendarDate>>,
     pub end_value: Signal<Option<CalendarDate>>,
     pub last_pressed: Signal<Option<CalendarDate>>,
     pub focused_value: Signal<Option<CalendarDate>>,
-    pub placeholder: Signal<CalendarDate>,
-    pub months: Signal<Vec<CalendarMonth>>,
-    pub announcement: Signal<String>,
-    pub today_date: Signal<CalendarDate>,
-    pub initial_placeholder_year: i32,
-    pub is_date_disabled_cb: Rc<RefCell<Option<Callback<CalendarDate, bool>>>>,
-    pub is_date_unavailable_cb: Rc<RefCell<Option<Callback<CalendarDate, bool>>>>,
-    pub on_value_change: Rc<RefCell<Option<EventHandler<DateRange>>>>,
-    pub on_start_value_change: Rc<RefCell<Option<EventHandler<Option<CalendarDate>>>>>,
-    pub on_end_value_change: Rc<RefCell<Option<EventHandler<Option<CalendarDate>>>>>,
-    pub on_placeholder_change: Rc<RefCell<Option<EventHandler<CalendarDate>>>>,
-    pub on_range_select: Rc<RefCell<Option<EventHandler<DateRange>>>>,
-    pub day_id_overrides: Rc<RefCell<HashMap<(usize, CalendarDate), String>>>,
-    pub(crate) pending_focus_target: Rc<RefCell<Option<(usize, CalendarDate)>>>,
-    pub(crate) pending_focus_rev: Signal<u64>,
-    pub(crate) last_view_config: Rc<RefCell<CalendarViewConfig>>,
+    pub on_value_change: CopyValue<Option<EventHandler<DateRange>>>,
+    pub on_start_value_change: CopyValue<Option<EventHandler<Option<CalendarDate>>>>,
+    pub on_end_value_change: CopyValue<Option<EventHandler<Option<CalendarDate>>>>,
+    pub on_range_select: CopyValue<Option<EventHandler<DateRange>>>,
+}
+
+impl Deref for RangeCalendarRuntime {
+    type Target = CalendarBaseRuntime;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.base
+    }
+}
+
+impl DerefMut for RangeCalendarRuntime {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.base
+    }
 }
 
 impl RangeCalendarRuntime {
-    pub fn current_placeholder(&self) -> CalendarDate {
-        (self.placeholder)()
-    }
-
-    pub fn current_months(&self) -> Vec<CalendarMonth> {
-        (self.months)()
-    }
-
-    pub fn month_index_for(&self, month: CalendarDate) -> usize {
-        self.months
-            .read()
-            .iter()
-            .position(|m| m.value.is_same_month(month))
-            .unwrap_or(0)
-    }
-
-    pub fn register_day_id(&self, month_idx: usize, date: CalendarDate, id: String) {
-        self.day_id_overrides
-            .borrow_mut()
-            .insert((month_idx, date), id);
-    }
-
-    pub fn unregister_day_id(&self, month_idx: usize, date: CalendarDate) {
-        self.day_id_overrides.borrow_mut().remove(&(month_idx, date));
-    }
-
-    pub fn resolve_day_id(&self, month_idx: usize, date: CalendarDate) -> String {
-        self.day_id_overrides
-            .borrow()
-            .get(&(month_idx, date))
-            .cloned()
-            .unwrap_or_else(|| self.rels.day_id(month_idx, date))
-    }
-
-    pub fn is_date_disabled(&self, date: CalendarDate) -> bool {
-        let def = self.def.read();
-        let custom = self
-            .is_date_disabled_cb
-            .borrow()
-            .as_ref()
-            .is_some_and(|cb| cb.call(date));
-        def.is_date_disabled_with(date, custom)
-    }
-
-    pub fn is_date_unavailable(&self, date: CalendarDate) -> bool {
-        self.is_date_unavailable_cb
-            .borrow()
-            .as_ref()
-            .is_some_and(|cb| cb.call(date))
-    }
-
-    pub fn is_outside_visible_months(&self, date: CalendarDate) -> bool {
-        !self
-            .months
-            .read()
-            .iter()
-            .any(|month| month.value.is_same_month(date))
-    }
-
     pub fn is_date_selected(&self, date: CalendarDate) -> bool {
         is_date_selected_in_range(date, *self.start_value.read(), *self.end_value.read())
     }
@@ -145,68 +80,6 @@ impl RangeCalendarRuntime {
         )
     }
 
-    pub fn tabbable_date(&self) -> CalendarDate {
-        let placeholder = self.current_placeholder();
-        let months = self.current_months();
-        resolve_tabbable_date(placeholder, &months, |d| self.is_date_disabled(d))
-    }
-
-    pub fn ensure_valid_initial_placeholder(&mut self) {
-        let placeholder = *self.placeholder.peek();
-        let months = self.months.peek().clone();
-        let next = ensure_non_disabled_placeholder(placeholder, &months, |d| {
-            self.is_date_disabled(d)
-        });
-        if next != placeholder {
-            self.set_placeholder_internal(next, false);
-        }
-    }
-
-    pub fn heading_value(&self) -> String {
-        let def = self.def.read();
-        let month_dates: Vec<CalendarDate> = self.months.read().iter().map(|m| m.value).collect();
-        def.locale
-            .heading_label(&month_dates, def.month_format, def.year_format)
-    }
-
-    pub fn full_calendar_label(&self) -> String {
-        let label = self.def.read().calendar_label.clone();
-        format!("{label} {}", self.heading_value())
-    }
-
-    pub fn weekdays(&self) -> Vec<String> {
-        let def = self.def.read();
-        let months = self.months.read();
-        if let Some(first) = months.first() {
-            visible_weekday_headers(first, &def.locale, def.weekday_format)
-        } else {
-            Vec::new()
-        }
-    }
-
-    pub fn default_years(&self) -> Vec<i32> {
-        let def = self.def.read();
-        let today = *self.today_date.read();
-        default_year_range(
-            self.initial_placeholder_year,
-            today.year,
-            def.min_value,
-            def.max_value,
-        )
-    }
-
-    pub fn is_prev_disabled(&self) -> bool {
-        let def = self.def.read();
-        let months = self.months.read();
-        is_prev_page_disabled(&months, def.min_value, def.disabled)
-    }
-
-    pub fn is_next_disabled(&self) -> bool {
-        let def = self.def.read();
-        let months = self.months.read();
-        is_next_page_disabled(&months, def.max_value, def.disabled)
-    }
-
     pub fn snapshot(&self) -> RangeCalendarSnapshot {
         RangeCalendarSnapshot {
             value: *self.value.read(),
@@ -225,97 +98,6 @@ impl RangeCalendarRuntime {
         }
     }
 
-    pub fn rebuild_months_from(&mut self, start_month: CalendarDate) {
-        let def = self.def.read().clone();
-        let next = build_visible_months(
-            start_month,
-            def.number_of_months,
-            def.effective_week_starts_on(),
-            def.fixed_weeks,
-        );
-        self.months.set(next);
-    }
-
-    pub fn set_placeholder(&mut self, next: CalendarDate) {
-        self.set_placeholder_internal(next, true);
-    }
-
-    fn set_placeholder_internal(&mut self, next: CalendarDate, rebuild_if_outside: bool) {
-        let prev = *self.placeholder.peek();
-        if prev != next {
-            self.placeholder.set(next);
-            if let Some(handler) = *self.on_placeholder_change.borrow() {
-                handler.call(next);
-            }
-        }
-        if rebuild_if_outside {
-            let in_view = self
-                .months
-                .peek()
-                .iter()
-                .any(|m| m.value.is_same_month(next));
-            if !in_view {
-                self.rebuild_months_from(next);
-            }
-        }
-    }
-
-    pub fn prev_page(&mut self) {
-        if self.is_prev_disabled() {
-            return;
-        }
-        let def = self.def.read().clone();
-        let step = if def.paged_navigation {
-            def.number_of_months.max(1) as i32
-        } else {
-            1
-        };
-        let first = self
-            .months
-            .peek()
-            .first()
-            .map_or(*self.placeholder.peek(), |m| m.value);
-        let new_first = first.add_months_clamped(-step);
-        self.rebuild_months_from(new_first);
-        self.set_placeholder_internal(new_first, false);
-    }
-
-    pub fn next_page(&mut self) {
-        if self.is_next_disabled() {
-            return;
-        }
-        let def = self.def.read().clone();
-        let step = if def.paged_navigation {
-            def.number_of_months.max(1) as i32
-        } else {
-            1
-        };
-        let first = self
-            .months
-            .peek()
-            .first()
-            .map_or(*self.placeholder.peek(), |m| m.value);
-        let new_first = first.add_months_clamped(step);
-        self.rebuild_months_from(new_first);
-        self.set_placeholder_internal(new_first, false);
-    }
-
-    pub fn set_month(&mut self, month: u8) {
-        if self.def.read().disabled {
-            return;
-        }
-        let next = self.placeholder.peek().with_month_clamped(month);
-        self.set_placeholder(next);
-    }
-
-    pub fn set_year(&mut self, year: i32) {
-        if self.def.read().disabled {
-            return;
-        }
-        let next = self.placeholder.peek().with_year_clamped(year);
-        self.set_placeholder(next);
-    }
-
     pub fn set_focused_value(&mut self, date: Option<CalendarDate>) {
         if *self.focused_value.peek() != date {
             self.focused_value.set(date);
@@ -332,19 +114,34 @@ impl RangeCalendarRuntime {
         }
         if prev_start != update.start_value {
             self.start_value.set(update.start_value);
-            if let Some(handler) = *self.on_start_value_change.borrow() {
+            if let Some(handler) = self
+                .on_start_value_change
+                .try_read()
+                .ok()
+                .and_then(|slot| *slot)
+            {
                 handler.call(update.start_value);
             }
         }
         if prev_end != update.end_value {
             self.end_value.set(update.end_value);
-            if let Some(handler) = *self.on_end_value_change.borrow() {
+            if let Some(handler) = self
+                .on_end_value_change
+                .try_read()
+                .ok()
+                .and_then(|slot| *slot)
+            {
                 handler.call(update.end_value);
             }
         }
         if prev_val != update.value {
             self.value.set(update.value);
-            if let Some(handler) = *self.on_value_change.borrow() {
+            if let Some(handler) = self
+                .on_value_change
+                .try_read()
+                .ok()
+                .and_then(|slot| *slot)
+            {
                 handler.call(update.value);
             }
         }
@@ -355,7 +152,11 @@ impl RangeCalendarRuntime {
             self.announcement.set(text);
         }
         if let Some(completed) = update.range_completed
-            && let Some(handler) = *self.on_range_select.borrow()
+            && let Some(handler) = self
+                .on_range_select
+                .try_read()
+                .ok()
+                .and_then(|slot| *slot)
         {
             handler.call(completed);
         }
@@ -429,56 +230,15 @@ impl RangeCalendarRuntime {
     }
 
     pub fn handle_nav_key(&mut self, current_date: CalendarDate, key: CalendarNavKey) -> bool {
-        let def = self.def.read().clone();
-        let months = self.months.peek().clone();
-        let result = resolve_grid_navigation(
-            current_date,
-            &months,
-            def.number_of_months,
-            def.effective_week_starts_on(),
-            def.dir,
-            key,
-            def.min_value,
-            def.max_value,
-            def.disabled,
-            def.disable_days_outside_month,
-            |d| self.is_date_disabled(d),
-        );
-        let Some(nav) = result else {
+        let Some(target) = self.base.handle_nav_key_target(current_date, key) else {
             return false;
         };
-        if nav.paged
-            && let Some(view_start) = nav.next_view_start
-        {
-            self.rebuild_months_from(view_start);
-        }
-        self.set_placeholder_internal(nav.next_placeholder, !nav.paged);
-        self.set_focused_value(Some(nav.target_date));
-
-        let target_month_idx = self.month_index_for(nav.target_date);
-        if nav.paged {
-            *self.pending_focus_target.borrow_mut() = Some((target_month_idx, nav.target_date));
-            let next_rev = self.pending_focus_rev.peek().wrapping_add(1);
-            self.pending_focus_rev.set(next_rev);
-        } else {
-            let target_id = self.resolve_day_id(target_month_idx, nav.target_date);
-            focus_element_sync_or_defer(&target_id, FocusOptions::new(true));
-        }
+        self.set_focused_value(Some(target));
         true
     }
 
     pub fn root_attrs(&self, custom_id: Option<String>) -> CalendarRootAttrs {
-        let def = self.def.read();
-        let id = custom_id.unwrap_or_else(|| (self.root_dom_id)());
-        CalendarRootAttrs::new(
-            id,
-            CalendarKind::RangeCalendar,
-            self.full_calendar_label(),
-            def.dir,
-            self.is_invalid(),
-            def.disabled,
-            def.read_only,
-        )
+        self.base.root_attrs_with_invalid(self.is_invalid(), custom_id)
     }
 
     pub fn cell_attrs(
@@ -487,7 +247,7 @@ impl RangeCalendarRuntime {
         month: CalendarDate,
         custom_id: Option<String>,
     ) -> RangeCalendarCellAttrs {
-        let def = self.def.read();
+        let cfg = self.config.read();
         let month_idx = self.month_index_for(month);
         let id = custom_id.unwrap_or_else(|| self.rels.cell_id(month_idx, date));
         let is_outside_month = !date.is_same_month(month);
@@ -523,7 +283,7 @@ impl RangeCalendarRuntime {
             is_range_end,
             is_range_middle,
             is_highlighted,
-            def.disable_days_outside_month,
+            cfg.disable_days_outside_month,
         )
     }
 
@@ -534,11 +294,11 @@ impl RangeCalendarRuntime {
         cell_attrs: &RangeCalendarCellAttrs,
         custom_id: Option<String>,
     ) -> RangeCalendarDayAttrs {
-        let def = self.def.read();
+        let cfg = self.config.read();
         let month_idx = self.month_index_for(month);
         let id = custom_id.unwrap_or_else(|| self.rels.day_id(month_idx, date));
         let is_tabbable = date == self.tabbable_date();
-        RangeCalendarDayAttrs::from_cell(id, date, &def.locale, cell_attrs, is_tabbable)
+        RangeCalendarDayAttrs::from_cell(id, date, &cfg.locale, cell_attrs, is_tabbable)
     }
 
     pub fn cell_snapshot(
@@ -599,11 +359,11 @@ impl RangeCalendarContext {
     }
 
     pub fn current_month(&self) -> u8 {
-        self.runtime.current_placeholder().month
+        self.runtime.current_month()
     }
 
     pub fn current_year(&self) -> i32 {
-        self.runtime.current_placeholder().year
+        self.runtime.current_year()
     }
 
     pub fn set_month(&mut self, month: u8) {
@@ -619,14 +379,11 @@ impl RangeCalendarContext {
     }
 
     pub fn month_options(&self, format: MonthFormat) -> Vec<CalendarSelectOption> {
-        let locale = &self.runtime.def.read().locale;
-        build_calendar_month_options(None, locale, format)
+        self.runtime.month_options(format)
     }
 
     pub fn year_options(&self, format: YearFormat) -> Vec<CalendarSelectOption> {
-        let years = self.runtime.default_years();
-        let locale = &self.runtime.def.read().locale;
-        build_calendar_year_options(&years, locale, format)
+        self.runtime.year_options(format)
     }
 }
 
@@ -636,8 +393,4 @@ pub fn use_range_calendar_context() -> RangeCalendarContext {
 
 pub fn try_use_range_calendar_context() -> Option<RangeCalendarContext> {
     try_consume_context::<RangeCalendarContext>()
-}
-
-pub fn default_range_today() -> CalendarDate {
-    local_today()
 }

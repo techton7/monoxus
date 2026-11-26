@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+use crate::foundation::compose::merge_global_attributes;
+
 pub use monoxus_core::separator::*;
 
 /// Properties for the headless `Separator` component.
@@ -29,13 +31,19 @@ pub fn Separator(props: SeparatorProps) -> Element {
         .with_decorative(props.decorative);
     let attrs = state.attributes();
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: props.id,
             role: attrs.role,
             aria_orientation: attrs.aria_orientation,
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             "data-orientation": attrs.data_orientation,
             "data-separator-root": attrs.data_separator_root,
             onmounted: move |evt| {
@@ -43,7 +51,7 @@ pub fn Separator(props: SeparatorProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
         }
     }
 }

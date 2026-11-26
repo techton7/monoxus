@@ -1,9 +1,9 @@
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{ResizeObserverBox, use_element_size_with_mount},
-    compose::{Slottable, project_as_child},
+    compose::{Slottable, join_styles, merge_global_attributes, project_as_child},
+    roving_focus::key_to_roving_str,
 };
 
 use crate::slider::{
@@ -27,8 +27,6 @@ pub struct SliderThumbProps {
     pub index: usize,
     #[props(default)]
     pub id: Option<String>,
-    #[props(default)]
-    pub as_child: Option<bool>,
     pub children: Option<Element>,
     pub class: Option<String>,
     pub style: Option<String>,
@@ -109,16 +107,9 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
             if runtime.def.disabled {
                 return;
             }
-            let key_name = match evt.key() {
-                Key::Named(NamedKey::ArrowRight) => "ArrowRight",
-                Key::Named(NamedKey::ArrowLeft) => "ArrowLeft",
-                Key::Named(NamedKey::ArrowUp) => "ArrowUp",
-                Key::Named(NamedKey::ArrowDown) => "ArrowDown",
-                Key::Named(NamedKey::PageUp) => "PageUp",
-                Key::Named(NamedKey::PageDown) => "PageDown",
-                Key::Named(NamedKey::Home) => "Home",
-                Key::Named(NamedKey::End) => "End",
-                _ => return,
+            let event_key = evt.key();
+            let Some(key_name) = key_to_roving_str(&event_key) else {
+                return;
             };
             evt.prevent_default();
             let shift = evt.modifiers().contains(Modifiers::SHIFT);
@@ -141,11 +132,12 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
         }
     };
 
-    let combined_style = if let Some(ref s) = props.style {
-        format!("{} {}", attrs.style(), s)
-    } else {
-        attrs.style().to_string()
-    };
+    let combined_style = join_styles([attrs.style(), props.style.as_deref().unwrap_or("")]);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        combined_style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         span {
@@ -160,8 +152,8 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
             aria_disabled: attrs.aria_disabled,
             aria_label: attrs.aria_label.as_deref(),
             aria_labelledby: attrs.aria_labelledby.as_deref(),
-            class: props.class.as_deref().unwrap_or_default(),
-            style: "{combined_style}",
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             "data-orientation": "{attrs.data_orientation()}",
             "data-disabled": attrs.data_disabled(),
             "data-value": "{attrs.data_value()}",
@@ -172,7 +164,7 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
             onfocus: on_focus,
             onblur: on_blur,
             onmounted: move |_| mounted_rev += 1,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

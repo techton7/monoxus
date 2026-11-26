@@ -693,13 +693,14 @@ fn slider_contain_range_and_tick_sync_contract() {
             def,
             rels: rels.clone(),
             values: Signal::new(vec![50.0]),
+            values_ctl: None,
             is_single: true,
             active_thumb: Signal::new(None),
             is_dragging: Signal::new(false),
             drag_start_values: Signal::new(None),
             focused_thumb: Signal::new(None),
-            on_value_change: None,
-            on_value_commit: None,
+            on_value_change: CopyValue::new(None),
+            on_value_commit: CopyValue::new(None),
             track_size: Signal::new(Some(300.0)),
             thumb_sizes: Signal::new(vec![Some(30.0)]),
             track_id: Signal::new(rels.track_id().to_string()),
@@ -895,5 +896,165 @@ fn slider_contain_post_mount_size_observation_contract() {
     assert!(
         !style_at_max.contains("left: 100%;"),
         "Contain thumb at value=100 must not remain at left: 100%, got: {style_at_max}"
+    );
+}
+
+#[test]
+fn slider_controlled_rejection_keeps_aria_valuenow_and_nan_safety() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    #[component]
+    fn ControlledProbe(
+        proposed: Rc<RefCell<Vec<SliderValue>>>,
+        observed_after_key: Rc<RefCell<Option<(Vec<f64>, f64)>>>,
+    ) -> Element {
+        let mut rt = use_slider_context().0;
+        let obs = observed_after_key.clone();
+        use_hook(move || {
+            rt.handle_keydown(0, "ArrowRight", false);
+            let vals = rt.current_values();
+            let valuenow = rt.thumb_attrs(0, None, None, None).aria_valuenow;
+            *obs.borrow_mut() = Some((vals, valuenow));
+        });
+        let _ = proposed;
+        rsx! {}
+    }
+
+    #[component]
+    fn ControlledRejectionApp(
+        proposed: Rc<RefCell<Vec<SliderValue>>>,
+        observed_after_key: Rc<RefCell<Option<(Vec<f64>, f64)>>>,
+    ) -> Element {
+        let proposed_cb = proposed.clone();
+        rsx! {
+            SliderRoot {
+                id: "fm-col-1-controlled-slider",
+                value: SliderValue::Single(25.0),
+                min: 0.0,
+                max: 100.0,
+                step: 1.0,
+                on_value_change: move |next: SliderValue| {
+                    // Intentionally reject update (parent does not mutate `value`).
+                    proposed_cb.borrow_mut().push(next);
+                },
+                SliderTrack {
+                    SliderRange {}
+                }
+                SliderThumb { index: 0 }
+                ControlledProbe {
+                    proposed,
+                    observed_after_key,
+                }
+            }
+        }
+    }
+
+    let proposed = Rc::new(RefCell::new(Vec::new()));
+    let observed = Rc::new(RefCell::new(None));
+    let mut dom = VirtualDom::new_with_props(
+        ControlledRejectionApp,
+        ControlledRejectionAppProps {
+            proposed: proposed.clone(),
+            observed_after_key: observed.clone(),
+        },
+    );
+    dom.rebuild_in_place();
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+
+    assert_eq!(*proposed.borrow(), vec![SliderValue::Single(26.0)]);
+    let (vals, valuenow) = observed.borrow().clone().expect("probe ran");
+    assert_eq!(vals, vec![25.0], "controlled rejection must keep internal values at 25.0");
+    assert_eq!(valuenow, 25.0, "controlled rejection must keep aria-valuenow at 25 with zero 1-frame flash");
+
+    // f64::NAN safety: must sanitize to `min` and re-render cleanly without infinite loop.
+    #[component]
+    fn NanProbe(out: Rc<RefCell<Vec<f64>>>) -> Element {
+        let rt = use_slider_context().0;
+        *out.borrow_mut() = rt.current_values();
+        rsx! {}
+    }
+
+    #[component]
+    fn NanSliderApp(out: Rc<RefCell<Vec<f64>>>) -> Element {
+        rsx! {
+            SliderRoot {
+                id: "fm-col-1-nan-slider",
+                value: SliderValue::Single(f64::NAN),
+                min: 10.0,
+                max: 100.0,
+                SliderTrack { SliderRange {} }
+                SliderThumb { index: 0 }
+                NanProbe { out }
+            }
+        }
+    }
+
+    let nan_out = Rc::new(RefCell::new(Vec::new()));
+    let mut nan_dom = VirtualDom::new_with_props(
+        NanSliderApp,
+        NanSliderAppProps {
+            out: nan_out.clone(),
+        },
+    );
+    nan_dom.rebuild_in_place();
+    nan_dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(*nan_out.borrow(), vec![10.0]);
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn slider_native_controlled_rejection_preserves_aria_valuenow() {
+    use crate::common::native_fixture::{
+        NATIVE_TEST_LOCK, focus_node, mount_native_scenario, send_key_and_pump,
+    };
+    use keyboard_types::{Code, Key, NamedKey};
+
+    #[component]
+    fn NativeControlledRejectionScenario() -> Element {
+        let mut last_proposed = use_signal(String::new);
+        rsx! {
+            div {
+                div { id: "ctrl-proposed", "data-val": "{last_proposed}" }
+                SliderRoot {
+                    id: "ctrl-slider",
+                    value: SliderValue::Single(25.0),
+                    min: 0.0,
+                    max: 100.0,
+                    step: 1.0,
+                    on_value_change: move |next: SliderValue| {
+                        let first = next.to_vec().first().copied().unwrap_or_default();
+                        last_proposed.set(format!("{first}"));
+                    },
+                    SliderTrack { SliderRange {} }
+                    SliderThumb {
+                        id: "ctrl-slider-thumb",
+                        index: 0,
+                        aria_label: "Controlled".to_string(),
+                    }
+                }
+            }
+        }
+    }
+
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let mut harness = mount_native_scenario(NativeControlledRejectionScenario);
+    assert_eq!(
+        harness.attr("#ctrl-slider-thumb", "aria-valuenow").as_deref(),
+        Some("25")
+    );
+
+    focus_node(&mut harness, "#ctrl-slider-thumb");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowRight), Code::ArrowRight);
+
+    assert_eq!(
+        harness.attr("#ctrl-proposed", "data-val").as_deref(),
+        Some("26"),
+        "on_value_change must emit proposed value 26"
+    );
+    assert_eq!(
+        harness.attr("#ctrl-slider-thumb", "aria-valuenow").as_deref(),
+        Some("25"),
+        "rejected controlled slider must retain aria-valuenow=25"
     );
 }

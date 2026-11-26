@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::foundation::compose::merge_global_attributes;
 use crate::toolbar::components::ToolbarRootContext;
 
 #[derive(Clone, PartialEq, Props)]
@@ -23,12 +24,17 @@ pub fn ToolbarSeparator(props: ToolbarSeparatorProps) -> Element {
     let ctx = use_context::<ToolbarRootContext>();
     let toolbar_state = ctx.runtime.state();
     let attrs = toolbar_state.separator_attributes(props.id.clone(), props.decorative);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         div {
             id: attrs.id(),
-            class: props.class.as_deref(),
-            style: props.style.as_deref(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             role: attrs.role(),
             aria_orientation: attrs.aria_orientation(),
             "data-orientation": attrs.data_orientation(),
@@ -39,7 +45,7 @@ pub fn ToolbarSeparator(props: ToolbarSeparatorProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
         }
     }
 }

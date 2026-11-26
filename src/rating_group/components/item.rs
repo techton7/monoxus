@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
+use crate::foundation::{compose::merge_global_attributes, state::sync_signal};
 use crate::rating_group::{
     attrs::RatingGroupItemAttributes,
     runtime::{RatingGroupItemContext, use_rating_group_context},
@@ -65,13 +66,9 @@ pub fn RatingGroupItem(props: RatingGroupItemProps) -> Element {
     let item_dom_id = item_attrs.id.clone();
 
     let mut item_index_sig = use_signal(|| props.index);
-    if *item_index_sig.peek() != props.index {
-        item_index_sig.set(props.index);
-    }
+    sync_signal(&mut item_index_sig, props.index);
     let mut item_disabled_sig = use_signal(|| props.disabled);
-    if *item_disabled_sig.peek() != props.disabled {
-        item_disabled_sig.set(props.disabled);
-    }
+    sync_signal(&mut item_disabled_sig, props.disabled);
 
     use_context_provider(|| RatingGroupItemContext {
         runtime: runtime.clone(),
@@ -168,11 +165,17 @@ pub fn RatingGroupItem(props: RatingGroupItemProps) -> Element {
         );
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{item_dom_id}",
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             role: item_attrs.role,
             "data-value": "{item_attrs.data_value}",
             "data-orientation": item_attrs.data_orientation,
@@ -187,7 +190,7 @@ pub fn RatingGroupItem(props: RatingGroupItemProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

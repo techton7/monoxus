@@ -1,17 +1,15 @@
 use std::borrow::Cow;
-use std::cell::RefCell;
-use std::rc::Rc;
 
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
 use crate::button::ButtonType;
 use crate::foundation::{
-    browser::{start_presence_monitor, PresenceMonitorEvent, WatcherGuard},
+    compose::merge_global_attributes,
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
-    overlay::PresenceController,
+    keyboard::is_enter_key,
+    overlay::use_presence,
     shared::{ScopeHandle, use_stable_id},
-    state::{use_controllable_state, ControllableStateProps},
+    state::{sync_signal, use_controllable_signal},
 };
 
 use super::{
@@ -21,12 +19,10 @@ use super::{
     },
     relationships::{CheckboxGroupRelationships, CheckboxRelationships},
     runtime::{
-        try_use_checkbox_group_context, use_checkbox_context,
-        use_checkbox_group_context, CheckboxContext, CheckboxGroupContext,
+        CheckboxContext, CheckboxGroupContext, try_use_checkbox_group_context,
+        use_checkbox_context, use_checkbox_group_context,
     },
-    types::{
-        CheckboxCheckedChangeHandler, CheckboxGroupValuesChangeHandler, CheckedState,
-    },
+    types::CheckedState,
 };
 
 /// Props for [`CheckboxRoot`].
@@ -105,20 +101,10 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
     let is_in_group = group_ctx.is_some() && props.checked.is_none();
     let item_val_for_group = props.value.clone();
 
-    let on_checked_change_cb = props.on_checked_change.as_ref().map(|handler| {
-        let handler = *handler;
-        Rc::new(move |next: CheckedState| {
-            handler.call(next);
-        }) as CheckboxCheckedChangeHandler
-    });
-
-    let standalone_handle = use_controllable_state(ControllableStateProps {
-        value: props.checked,
-        default_value: props.default_checked,
-        on_change: on_checked_change_cb.clone().map(|cb| {
-            move |v: CheckedState| cb(v)
-        }),
-    });
+    let standalone_ctl =
+        use_controllable_signal(props.checked, props.default_checked, props.on_checked_change);
+    let mut on_checked_change_slot = use_hook(|| CopyValue::new(props.on_checked_change));
+    on_checked_change_slot.set(props.on_checked_change);
 
     let current_checked = if is_in_group {
         let g = group_ctx.as_ref().unwrap();
@@ -128,16 +114,15 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
             CheckedState::Unchecked
         }
     } else {
-        *standalone_handle.value()
+        standalone_ctl.get()
     };
 
     let initial_checked_for_reset = props.default_checked;
-    let reset_standalone_handle = standalone_handle.clone();
     let on_reset_fn = {
-        let group_ctx_opt = group_ctx.clone();
+        let has_group = group_ctx.is_some();
         move || {
-            if group_ctx_opt.is_none() {
-                reset_standalone_handle.set(initial_checked_for_reset);
+            if !has_group {
+                standalone_ctl.set(initial_checked_for_reset);
             }
         }
     };
@@ -152,21 +137,13 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
         local_reset_epoch.wrapping_add(group_ctx.as_ref().map_or(0, |g| g.reset_epoch()));
 
     let mut checked_sig = use_signal(|| current_checked);
-    if *checked_sig.peek() != current_checked {
-        checked_sig.set(current_checked);
-    }
+    sync_signal(&mut checked_sig, current_checked);
     let mut disabled_sig = use_signal(|| effective_disabled);
-    if *disabled_sig.peek() != effective_disabled {
-        disabled_sig.set(effective_disabled);
-    }
+    sync_signal(&mut disabled_sig, effective_disabled);
     let mut required_sig = use_signal(|| effective_required);
-    if *required_sig.peek() != effective_required {
-        required_sig.set(effective_required);
-    }
+    sync_signal(&mut required_sig, effective_required);
     let mut read_only_sig = use_signal(|| effective_read_only);
-    if *read_only_sig.peek() != effective_read_only {
-        read_only_sig.set(effective_read_only);
-    }
+    sync_signal(&mut read_only_sig, effective_read_only);
 
     let context = CheckboxContext {
         root_id: root_id.clone(),
@@ -179,13 +156,11 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
     use_context_provider(|| context);
 
     let on_click = {
-        let on_click = props.on_click.clone();
+        let on_click = props.on_click;
         let disabled = effective_disabled;
         let read_only = effective_read_only;
-        let standalone_handle = standalone_handle.clone();
         let group_ctx = group_ctx.clone();
         let item_value = props.value.clone();
-        let change_cb = on_checked_change_cb.clone();
         move |evt: MouseEvent| {
             if let Some(ref handler) = on_click {
                 handler.call(evt.clone());
@@ -198,24 +173,24 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
                         CheckedState::Checked
                     };
                     g.toggle_item(item_value.clone());
-                    if let Some(ref cb) = change_cb {
-                        cb(next);
+                    if let Some(cb) = on_checked_change_slot.try_read().ok().and_then(|s| *s) {
+                        cb.call(next);
                     }
                 } else {
-                    let current = *checked_sig.peek();
-                    standalone_handle.set(current.toggle());
+                    let current = standalone_ctl.peek();
+                    standalone_ctl.set(current.toggle());
                 }
             }
         }
     };
 
     let on_key_down = {
-        let on_key_down = props.on_key_down.clone();
+        let on_key_down = props.on_key_down;
         move |evt: KeyboardEvent| {
             if let Some(ref handler) = on_key_down {
                 handler.call(evt.clone());
             }
-            if evt.key() == Key::Named(NamedKey::Enter) {
+            if is_enter_key(&evt.key()) {
                 // Per WAI-ARIA 1.2 Checkbox Pattern, Enter must NOT toggle checkbox.
                 evt.prevent_default();
             }
@@ -224,7 +199,7 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
     };
 
     let on_mounted = {
-        let on_mounted = props.on_mounted.clone();
+        let on_mounted = props.on_mounted;
         move |evt: MountedEvent| {
             if let Some(ref handler) = on_mounted {
                 handler.call(evt);
@@ -240,12 +215,17 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
         effective_required,
         effective_read_only,
     );
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         button {
             id: attrs.id.as_deref(),
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             r#type: attrs.r#type,
             role: attrs.role,
             "aria-checked": attrs.aria_checked,
@@ -261,7 +241,7 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
             onclick: on_click,
             onkeydown: on_key_down,
             onmounted: on_mounted,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
         if should_render_input {
@@ -309,47 +289,19 @@ pub fn CheckboxIndicator(props: CheckboxIndicatorProps) -> Element {
     let state = ctx.checked_state();
     let desired_present = props.force_mount || state.is_checked() || state.is_indeterminate();
 
-    let mut presence = use_signal(|| PresenceController::new(desired_present).with_retained_mount(true));
-    let watcher_slot: Rc<RefCell<Option<WatcherGuard>>> = use_hook(|| Rc::new(RefCell::new(None)));
-
     let indicator_id = props
         .id
         .clone()
         .unwrap_or_else(|| ctx.indicator_id().to_string());
 
-    use_effect(use_reactive((&desired_present,), {
-        let indicator_id = indicator_id.clone();
-        let watcher_slot = watcher_slot.clone();
-        move |(present,)| {
-            let update = presence.write().sync(present);
-            if let Some(cycle_id) = update.started_close_cycle() {
-                let watcher = start_presence_monitor(
-                    indicator_id.as_str(),
-                    cycle_id,
-                    move |event| match event {
-                        PresenceMonitorEvent::TransitionEnd { cycle_id: c, .. }
-                        | PresenceMonitorEvent::TransitionCancel { cycle_id: c, .. }
-                        | PresenceMonitorEvent::AnimationEnd { cycle_id: c, .. }
-                        | PresenceMonitorEvent::AnimationCancel { cycle_id: c, .. }
-                        | PresenceMonitorEvent::Fallback { cycle_id: c, .. } => {
-                            presence.write().complete_close_cycle(c);
-                        }
-                        PresenceMonitorEvent::Stopped { .. } => {}
-                    },
-                );
-                *watcher_slot.borrow_mut() = Some(watcher);
-            } else if !update.should_render() {
-                *watcher_slot.borrow_mut() = None;
-            }
-        }
-    }));
+    let presence = use_presence(desired_present, &indicator_id, true, None);
 
-    if !presence.read().should_render() {
+    if !presence.should_render() {
         return rsx! {};
     }
 
     let on_mounted = {
-        let on_mounted = props.on_mounted.clone();
+        let on_mounted = props.on_mounted;
         move |evt: MountedEvent| {
             if let Some(ref handler) = on_mounted {
                 handler.call(evt);
@@ -358,24 +310,29 @@ pub fn CheckboxIndicator(props: CheckboxIndicatorProps) -> Element {
     };
 
     let attrs = CheckboxIndicatorAttributes::new(
-        Some(indicator_id.clone()),
+        Some(indicator_id),
         state,
         ctx.is_disabled(),
         ctx.is_read_only(),
         props.style.as_deref(),
     );
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        Some(attrs.style.as_str()),
+        props.attributes,
+    );
 
     rsx! {
         span {
             id: attrs.id.as_deref(),
-            class: props.class.as_deref().unwrap_or_default(),
-            style: "{attrs.style}",
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             "data-state": attrs.data_state_str(),
             "data-disabled": attrs.data_disabled,
             "data-readonly": attrs.data_readonly,
             "data-checkbox-indicator": attrs.data_checkbox_indicator,
             onmounted: on_mounted,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -426,97 +383,37 @@ pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
 
     let group_id = relationships.group_id().to_string();
 
-    let on_values_change_cb = props.on_values_change.as_ref().map(|handler| {
-        let handler = *handler;
-        Rc::new(move |next: Vec<String>| {
-            handler.call(next);
-        }) as CheckboxGroupValuesChangeHandler
-    });
+    let values_ctl = use_controllable_signal(
+        props.values.clone(),
+        props.default_values.clone(),
+        props.on_values_change,
+    );
+    let values_sig = values_ctl.signal();
 
-    let values_handle = use_controllable_state(ControllableStateProps {
-        value: props.values.clone(),
-        default_value: props.default_values.clone(),
-        on_change: on_values_change_cb.clone().map(|cb| {
-            move |v: Vec<String>| cb(v)
-        }),
-    });
-
-    let mut values_sig = use_signal(|| values_handle.value().clone());
-    if *values_sig.peek() != *values_handle.value() {
-        values_sig.set(values_handle.value().clone());
-    }
     let mut name_sig = use_signal(|| props.name.clone());
-    if *name_sig.peek() != props.name {
-        name_sig.set(props.name.clone());
-    }
+    sync_signal(&mut name_sig, props.name.clone());
     let mut form_sig = use_signal(|| props.form.clone());
-    if *form_sig.peek() != props.form {
-        form_sig.set(props.form.clone());
-    }
+    sync_signal(&mut form_sig, props.form.clone());
     let mut disabled_sig = use_signal(|| props.disabled);
-    if *disabled_sig.peek() != props.disabled {
-        disabled_sig.set(props.disabled);
-    }
+    sync_signal(&mut disabled_sig, props.disabled);
     let mut required_sig = use_signal(|| props.required);
-    if *required_sig.peek() != props.required {
-        required_sig.set(props.required);
-    }
+    sync_signal(&mut required_sig, props.required);
     let mut read_only_sig = use_signal(|| props.read_only);
-    if *read_only_sig.peek() != props.read_only {
-        read_only_sig.set(props.read_only);
-    }
+    sync_signal(&mut read_only_sig, props.read_only);
 
     let label_id_sig = use_signal(|| None::<String>);
 
     let initial_values = props.default_values.clone();
-    let reset_values_handle = values_handle.clone();
     let (_, group_reset_epoch) = use_form_control_sync_with_epoch(
         &group_id,
         props.name.as_deref(),
         props.form.as_deref(),
         move || {
-            let mut sig = values_sig;
-            sig.set(initial_values.clone());
-            reset_values_handle.set(initial_values.clone());
+            values_ctl.set(initial_values.clone());
         },
     );
     let mut reset_epoch_sig = use_signal(|| group_reset_epoch);
-    if *reset_epoch_sig.peek() != group_reset_epoch {
-        reset_epoch_sig.set(group_reset_epoch);
-    }
-
-    let on_toggle_fn: Rc<dyn Fn(String)> = {
-        let values_handle = values_handle.clone();
-        let disabled = props.disabled;
-        let read_only = props.read_only;
-        let is_controlled = values_handle.is_controlled();
-        Rc::new(move |val: String| {
-            if disabled || read_only {
-                return;
-            }
-            let mut list = values_sig.read().clone();
-            if let Some(pos) = list.iter().position(|v| v == &val) {
-                list.remove(pos);
-            } else {
-                list.push(val);
-            }
-            if !is_controlled {
-                let mut sig = values_sig;
-                sig.set(list.clone());
-            }
-            values_handle.set(list);
-        })
-    };
-    let on_toggle_slot: Rc<RefCell<Rc<dyn Fn(String)>>> =
-        use_hook(|| Rc::new(RefCell::new(on_toggle_fn.clone())));
-    *on_toggle_slot.borrow_mut() = on_toggle_fn;
-
-    let on_set_label_id = {
-        Rc::new(move |id: Option<String>| {
-            let mut sig = label_id_sig;
-            sig.set(id);
-        })
-    };
+    sync_signal(&mut reset_epoch_sig, group_reset_epoch);
 
     let group_context = CheckboxGroupContext {
         group_id: group_id.clone(),
@@ -528,26 +425,30 @@ pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
         required: required_sig,
         read_only: read_only_sig,
         values: values_sig,
+        values_ctl,
         label_id: label_id_sig,
         reset_epoch: reset_epoch_sig,
-        on_toggle: on_toggle_slot,
-        on_set_label_id,
     };
     use_context_provider(|| group_context);
 
     let attrs = CheckboxGroupAttributes::new(
-        Some(group_id.clone()),
+        Some(group_id),
         label_id_sig.read().clone(),
         props.disabled,
         props.required,
         props.read_only,
     );
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         div {
             id: attrs.id.as_deref(),
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             role: attrs.role,
             "aria-labelledby": attrs.aria_labelledby.as_deref(),
             "aria-readonly": attrs.aria_readonly,
@@ -555,7 +456,7 @@ pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
             "data-required": attrs.data_required,
             "data-readonly": attrs.data_readonly,
             "data-checkbox-group": attrs.data_checkbox_group,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -600,20 +501,25 @@ pub fn CheckboxGroupLabel(props: CheckboxGroupLabelProps) -> Element {
     });
 
     let attrs = CheckboxGroupLabelAttributes::new(
-        Some(label_id.clone()),
+        Some(label_id),
         group_ctx.is_disabled(),
         group_ctx.is_read_only(),
+    );
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
     );
 
     rsx! {
         span {
             id: attrs.id.as_deref(),
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             "data-disabled": attrs.data_disabled,
             "data-readonly": attrs.data_readonly,
             "data-checkbox-group-label": attrs.data_checkbox_group_label,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

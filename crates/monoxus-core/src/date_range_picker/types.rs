@@ -1,54 +1,7 @@
+pub use crate::date_picker::types::{
+    DATE_PICKER_PARTS as DATE_RANGE_PICKER_PARTS, DatePickerPart as DateRangePickerPart,
+};
 use crate::foundation::date_time::{CalendarDate, DateRange, DateValue, DateValueRange};
-
-/// Structural parts belonging to the `DateRangePicker` compound primitive.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum DateRangePickerPart {
-    Root,
-    Input,
-    Label,
-    Segment,
-    Trigger,
-    Portal,
-    Content,
-    ContentStatic,
-    Arrow,
-    Close,
-    Calendar,
-}
-
-impl DateRangePickerPart {
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Root => "root",
-            Self::Input => "input",
-            Self::Label => "label",
-            Self::Segment => "segment",
-            Self::Trigger => "trigger",
-            Self::Portal => "portal",
-            Self::Content => "content",
-            Self::ContentStatic => "content-static",
-            Self::Arrow => "arrow",
-            Self::Close => "close",
-            Self::Calendar => "calendar",
-        }
-    }
-}
-
-/// Canonical list of `DateRangePicker` core parts.
-pub const DATE_RANGE_PICKER_PARTS: &[DateRangePickerPart] = &[
-    DateRangePickerPart::Root,
-    DateRangePickerPart::Input,
-    DateRangePickerPart::Label,
-    DateRangePickerPart::Segment,
-    DateRangePickerPart::Trigger,
-    DateRangePickerPart::Portal,
-    DateRangePickerPart::Content,
-    DateRangePickerPart::ContentStatic,
-    DateRangePickerPart::Arrow,
-    DateRangePickerPart::Close,
-    DateRangePickerPart::Calendar,
-];
 
 /// Read-only snapshot of `DateRangePicker` state.
 #[derive(Clone, Debug, PartialEq, Eq)]

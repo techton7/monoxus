@@ -1,11 +1,10 @@
 use dioxus::prelude::*;
 
-use crate::foundation::date_time::CalendarDate;
-
-use super::super::{
-    attrs::RangeCalendarCellAttrs,
-    runtime::use_range_calendar_context,
+use crate::foundation::{
+    compose::merge_global_attributes, date_time::CalendarDate, state::sync_signal,
 };
+
+use super::super::{attrs::RangeCalendarCellAttrs, runtime::use_range_calendar_context};
 
 #[derive(Clone, Copy, PartialEq)]
 pub struct RangeCalendarCellContext {
@@ -58,13 +57,9 @@ pub struct RangeCalendarCellProps {
 pub fn RangeCalendarCell(props: RangeCalendarCellProps) -> Element {
     let ctx = use_range_calendar_context();
     let mut date_sig = use_signal(|| props.date);
-    if *date_sig.peek() != props.date {
-        date_sig.set(props.date);
-    }
+    sync_signal(&mut date_sig, props.date);
     let mut month_sig = use_signal(|| props.month);
-    if *month_sig.peek() != props.month {
-        month_sig.set(props.month);
-    }
+    sync_signal(&mut month_sig, props.month);
 
     let cell_attrs = ctx
         .runtime
@@ -75,26 +70,33 @@ pub fn RangeCalendarCell(props: RangeCalendarCellProps) -> Element {
         month: month_sig,
     });
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(RangeCalendarCellRenderProps {
-                attrs: cell_attrs,
-                date: props.date,
-                month: props.month,
-                class: props.class,
-                style: props.style,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
+    if props.as_child
+        && let Some(render_child) = props.render_child.as_ref()
+    {
+        return render_child.call(RangeCalendarCellRenderProps {
+            attrs: cell_attrs,
+            date: props.date,
+            month: props.month,
+            class: props.class,
+            style: props.style,
+            on_mounted: props.on_mounted,
+            attributes: props.attributes,
+            children: props.children,
+        });
     }
+
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+    let on_mounted = props.on_mounted;
 
     rsx! {
         td {
             id: "{cell_attrs.id}",
-            class: props.class,
-            style: props.style,
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             role: cell_attrs.role,
             aria_selected: cell_attrs.aria_selected,
             aria_disabled: cell_attrs.aria_disabled,
@@ -115,11 +117,11 @@ pub fn RangeCalendarCell(props: RangeCalendarCellProps) -> Element {
             "data-disabled": cell_attrs.data_disabled,
             "data-range-calendar-cell": cell_attrs.data_range_calendar_cell,
             onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
+                if let Some(handler) = on_mounted {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+use crate::foundation::compose::merge_global_attributes;
+
 pub use monoxus_core::aspect_ratio::*;
 
 /// Values supplied to the component-level `render_child` callback.
@@ -72,11 +74,16 @@ pub fn AspectRatio(props: AspectRatioProps) -> Element {
             }
         }
     } else {
+        let merged = merge_global_attributes(
+            props.class.as_deref(),
+            Some(style.as_str()),
+            props.attributes,
+        );
         rsx! {
             div {
                 id: props.id,
-                class: props.class,
-                style,
+                class: merged.class,
+                style: merged.style,
                 "data-aspect-ratio-root": attributes.data_aspect_ratio_root,
                 onclick: move |event| {
                     if let Some(handler) = props.on_click.as_ref() {
@@ -88,7 +95,7 @@ pub fn AspectRatio(props: AspectRatioProps) -> Element {
                         handler.call(event);
                     }
                 },
-                ..props.attributes,
+                ..merged.rest,
                 {props.children}
             }
         }

@@ -282,4 +282,74 @@ mod native_tests {
             "Click on disabled anchor must be suppressed"
         );
     }
+
+    #[component]
+    fn NativeButtonMergedAttrsApp() -> Element {
+        rsx! {
+            Button {
+                id: "fm-api-3-btn",
+                class: "b",
+                style: "margin: 0",
+                attributes: vec![
+                    Attribute::new("class", "a", None, false),
+                    Attribute::new("style", "color: red", None, false),
+                    Attribute {
+                        name: "style",
+                        value: dioxus::core::AttributeValue::None,
+                        namespace: None,
+                        volatile: false,
+                    },
+                    Attribute::new("padding", "4px", Some("style"), false),
+                ],
+                "Merged"
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_button_merge_global_attributes() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let harness = mount_native_scenario(NativeButtonMergedAttrsApp);
+
+        // FM-API-3: merges class and style without ;; and drops AttributeValue::None style.
+        assert_eq!(
+            harness.attr("#fm-api-3-btn", "class").as_deref(),
+            Some("b a")
+        );
+        let style = harness
+            .attr("#fm-api-3-btn", "style")
+            .expect("Button style attribute must exist");
+        assert!(style.contains("margin: 0"), "style={style}");
+        assert!(style.contains("color: red"), "style={style}");
+        assert!(!style.contains(";;"), "style={style}");
+    }
+}
+
+#[test]
+fn test_button_merge_global_attributes_vdom() {
+    #[component]
+    fn ButtonAttrsVdom() -> Element {
+        rsx! {
+            Button {
+                id: "vdom-fm-api-3-btn",
+                class: "b",
+                style: "margin: 0",
+                attributes: vec![
+                    Attribute::new("class", "a", None, false),
+                    Attribute::new("style", "color: red", None, false),
+                    Attribute {
+                        name: "style",
+                        value: dioxus::core::AttributeValue::None,
+                        namespace: None,
+                        volatile: false,
+                    },
+                ],
+                "Merged"
+            }
+        }
+    }
+
+    let mut dom = VirtualDom::new(ButtonAttrsVdom);
+    dom.rebuild_in_place();
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
 }

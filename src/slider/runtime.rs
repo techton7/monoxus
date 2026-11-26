@@ -4,6 +4,7 @@ use crate::foundation::{
     browser::{restore_body_user_select, set_body_user_select_none},
     overlay::Rect2D,
     shared::use_direction_context,
+    state::{ControllableSignal, sync_signal, use_controllable_signal_by},
 };
 
 use super::{
@@ -19,6 +20,24 @@ use super::{
     },
     types::{Direction, Orientation, SliderLabelPosition, SliderValue},
 };
+
+fn f64_vec_bits_eq(a: &Vec<f64>, b: &Vec<f64>) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .zip(b.iter())
+            .all(|(lhs, rhs)| lhs.to_bits() == rhs.to_bits())
+}
+
+fn sanitize_slider_values(values: Vec<f64>, fallback: f64) -> Vec<f64> {
+    let safe_fallback = if fallback.is_finite() { fallback } else { 0.0 };
+    if values.is_empty() {
+        return vec![safe_fallback];
+    }
+    values
+        .into_iter()
+        .map(|v| if v.is_finite() { v } else { safe_fallback })
+        .collect()
+}
 
 /// Finds the index of the thumb closest in domain value to `target_value`.
 pub fn find_closest_thumb(values: &[f64], target_value: f64) -> usize {
@@ -43,13 +62,14 @@ pub struct SliderRuntime {
     pub def: SliderDefinition,
     pub rels: SliderRelationships,
     pub values: Signal<Vec<f64>>,
+    pub values_ctl: Option<ControllableSignal<Vec<f64>>>,
     pub is_single: bool,
     pub active_thumb: Signal<Option<usize>>,
     pub is_dragging: Signal<bool>,
     pub drag_start_values: Signal<Option<Vec<f64>>>,
     pub focused_thumb: Signal<Option<usize>>,
-    pub on_value_change: Option<EventHandler<SliderValue>>,
-    pub on_value_commit: Option<EventHandler<SliderValue>>,
+    pub on_value_change: CopyValue<Option<EventHandler<SliderValue>>>,
+    pub on_value_commit: CopyValue<Option<EventHandler<SliderValue>>>,
     pub track_size: Signal<Option<f64>>,
     pub thumb_sizes: Signal<Vec<Option<f64>>>,
     pub track_id: Signal<String>,
@@ -58,6 +78,101 @@ pub struct SliderRuntime {
 }
 
 impl SliderRuntime {
+    fn export_value(&self, vals: Vec<f64>) -> SliderValue {
+        if self.is_single {
+            SliderValue::Single(vals.first().copied().unwrap_or(self.def.min))
+        } else {
+            SliderValue::Multiple(vals)
+        }
+    }
+
+    fn emit_change(&self, vals: Vec<f64>) {
+        if let Some(handler) = self.on_value_change.try_read().ok().and_then(|s| *s) {
+            handler.call(self.export_value(vals));
+        }
+    }
+
+    fn emit_commit(&self, vals: Vec<f64>) {
+        if let Some(handler) = self.on_value_commit.try_read().ok().and_then(|s| *s) {
+            handler.call(self.export_value(vals));
+        }
+    }
+
+    /// Proposes `new_vals` through [`ControllableSignal`] (skipping internal signal mutation in
+    /// controlled mode so rejected updates produce zero 1-frame flash, `FM-COL-1`).
+    pub(crate) fn propose_values(&mut self, new_vals: Vec<f64>) -> bool {
+        if let Some(ctl) = self.values_ctl {
+            ctl.set_by(new_vals, f64_vec_bits_eq)
+        } else {
+            let changed = self
+                .values
+                .try_peek()
+                .is_ok_and(|cur| !f64_vec_bits_eq(&cur, &new_vals));
+            if changed {
+                self.values.set(new_vals);
+            }
+            changed
+        }
+    }
+
+    /// Resets slider values on enclosing `<form>` reset, respecting controlled ownership.
+    pub(crate) fn reset_values(&mut self, initial_values: Vec<f64>) {
+        if self.propose_values(initial_values.clone()) {
+            self.emit_change(initial_values);
+        }
+    }
+
+    /// Computes the normalized `[0.0, 1.0]` pointer fraction along the slider track given orientation,
+    /// reading direction, and inversion.
+    pub fn compute_pointer_fraction(&self, client_x: f64, client_y: f64, rect: &Rect2D) -> f64 {
+        let fraction = match self.def.orientation {
+            Orientation::Vertical => {
+                let is_sliding_from_bottom = !self.def.inverted;
+                let h = rect.height.max(1.0);
+                let f = (rect.bottom() - client_y) / h;
+                if is_sliding_from_bottom { f } else { 1.0 - f }
+            }
+            _ => {
+                let is_sliding_from_left = (self.def.direction == Direction::Ltr
+                    && !self.def.inverted)
+                    || (self.def.direction == Direction::Rtl && self.def.inverted);
+                let w = rect.width.max(1.0);
+                let f = (client_x - rect.left()) / w;
+                if is_sliding_from_left { f } else { 1.0 - f }
+            }
+        };
+        fraction.clamp(0.0, 1.0)
+    }
+
+    fn tick_geometry(&self, value: f64) -> (f64, bool, bool, f64) {
+        let values = self.current_values();
+        let raw_pct = value_to_percent(value, self.def.min, self.def.max);
+
+        let (range_min, range_max) = if values.len() <= 1 {
+            let val = values.first().copied().unwrap_or(self.def.min);
+            (self.def.min, val)
+        } else {
+            let min_val = values.iter().copied().fold(f64::INFINITY, f64::min);
+            let max_val = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            (min_val, max_val)
+        };
+
+        let is_bounded = value >= range_min && value <= range_max;
+        let is_selected = values.iter().any(|&v| (v - value).abs() < 1e-9);
+
+        let t_size = *self.track_size.read();
+        let th_size = self.thumb_sizes.read().first().copied().flatten();
+        let effective_pct = get_contained_percent(
+            raw_pct,
+            self.def.thumb_alignment,
+            self.def.track_padding,
+            t_size,
+            th_size,
+        );
+
+        (raw_pct, is_bounded, is_selected, effective_pct)
+    }
+
     /// Returns the active track element id registered or resolved from relationships.
     pub fn resolved_track_id(&self) -> String {
         self.track_id.peek().clone()
@@ -65,9 +180,7 @@ impl SliderRuntime {
 
     /// Registers the DOM element id for the slider track.
     pub fn register_track_id(&mut self, id: String) {
-        if *self.track_id.peek() != id {
-            self.track_id.set(id);
-        }
+        sync_signal(&mut self.track_id, id);
     }
 
     /// Returns the resolved thumb element id for the thumb at `idx`.
@@ -233,33 +346,7 @@ impl SliderRuntime {
 
     /// Derives attributes for [`SliderTick`].
     pub fn tick_attrs(&self, value: f64) -> SliderTickAttributes {
-        let values = self.current_values();
-        let raw_pct = value_to_percent(value, self.def.min, self.def.max);
-
-        let (range_min, range_max) = if values.len() <= 1 {
-            let val = values.first().copied().unwrap_or(self.def.min);
-            (self.def.min, val)
-        } else {
-            let min_val = values.iter().copied().fold(f64::INFINITY, |a, b| a.min(b));
-            let max_val = values
-                .iter()
-                .copied()
-                .fold(f64::NEG_INFINITY, |a, b| a.max(b));
-            (min_val, max_val)
-        };
-
-        let is_bounded = value >= range_min && value <= range_max;
-        let is_selected = values.iter().any(|&v| (v - value).abs() < 1e-9);
-
-        let t_size = *self.track_size.read();
-        let th_size = self.thumb_sizes.read().first().copied().flatten();
-        let effective_pct = get_contained_percent(
-            raw_pct,
-            self.def.thumb_alignment,
-            self.def.track_padding,
-            t_size,
-            th_size,
-        );
+        let (raw_pct, is_bounded, is_selected, effective_pct) = self.tick_geometry(value);
 
         SliderTickAttributes::new(
             self.rels.tick_id((raw_pct * 100.0) as usize),
@@ -280,38 +367,11 @@ impl SliderRuntime {
         value: f64,
         position: Option<SliderLabelPosition>,
     ) -> SliderTickLabelAttributes {
-        let values = self.current_values();
-        let raw_pct = value_to_percent(value, self.def.min, self.def.max);
-
-        let (range_min, range_max) = if values.len() <= 1 {
-            let val = values.first().copied().unwrap_or(self.def.min);
-            (self.def.min, val)
-        } else {
-            let min_val = values.iter().copied().fold(f64::INFINITY, |a, b| a.min(b));
-            let max_val = values
-                .iter()
-                .copied()
-                .fold(f64::NEG_INFINITY, |a, b| a.max(b));
-            (min_val, max_val)
-        };
-
-        let is_bounded = value >= range_min && value <= range_max;
-        let is_selected = values.iter().any(|&v| (v - value).abs() < 1e-9);
-
+        let (raw_pct, is_bounded, is_selected, effective_pct) = self.tick_geometry(value);
         let pos = position.unwrap_or(match self.def.orientation {
             Orientation::Vertical => SliderLabelPosition::Right,
             _ => SliderLabelPosition::Bottom,
         });
-
-        let t_size = *self.track_size.read();
-        let th_size = self.thumb_sizes.read().first().copied().flatten();
-        let effective_pct = get_contained_percent(
-            raw_pct,
-            self.def.thumb_alignment,
-            self.def.track_padding,
-            t_size,
-            th_size,
-        );
 
         SliderTickLabelAttributes::new(
             self.rels.tick_label_id((raw_pct * 100.0) as usize),
@@ -389,24 +449,7 @@ impl SliderRuntime {
             return;
         };
 
-        let fraction = match self.def.orientation {
-            Orientation::Vertical => {
-                let is_sliding_from_bottom = !self.def.inverted;
-                let h = rect.height.max(1.0);
-                let f = (rect.bottom() - client_y) / h;
-                if is_sliding_from_bottom { f } else { 1.0 - f }
-            }
-            _ => {
-                let is_sliding_from_left = (self.def.direction == Direction::Ltr
-                    && !self.def.inverted)
-                    || (self.def.direction == Direction::Rtl && self.def.inverted);
-                let w = rect.width.max(1.0);
-                let f = (client_x - rect.left()) / w;
-                if is_sliding_from_left { f } else { 1.0 - f }
-            }
-        };
-
-        let percent = fraction.clamp(0.0, 1.0) * 100.0;
+        let percent = self.compute_pointer_fraction(client_x, client_y, rect) * 100.0;
         let raw_val = percent_to_value(percent, self.def.min, self.def.max);
 
         let current_vals = self.values.peek().clone();
@@ -422,22 +465,14 @@ impl SliderRuntime {
             self.def.order_policy,
         );
 
-        if new_vals != current_vals {
-            self.values.set(new_vals.clone());
+        if self.propose_values(new_vals.clone()) {
             self.active_thumb.set(Some(new_active_idx));
             if new_active_idx != active_idx && dioxus::core::Runtime::try_current().is_some() {
                 crate::foundation::browser::focus_element_by_id(
                     &self.resolved_thumb_id(new_active_idx),
                 );
             }
-            if let Some(ref handler) = self.on_value_change {
-                let exported = if self.is_single {
-                    SliderValue::Single(new_vals[0])
-                } else {
-                    SliderValue::Multiple(new_vals)
-                };
-                handler.call(exported);
-            }
+            self.emit_change(new_vals);
         }
     }
 
@@ -453,14 +488,7 @@ impl SliderRuntime {
         let current_vals = self.values.peek().clone();
 
         if start_vals.as_ref() != Some(&current_vals) {
-            if let Some(ref handler) = self.on_value_commit {
-                let exported = if self.is_single {
-                    SliderValue::Single(current_vals[0])
-                } else {
-                    SliderValue::Multiple(current_vals)
-                };
-                handler.call(exported);
-            }
+            self.emit_commit(current_vals);
         }
 
         self.active_thumb.set(None);
@@ -517,25 +545,15 @@ impl SliderRuntime {
             self.def.order_policy,
         );
 
-        if new_vals != values {
-            self.values.set(new_vals.clone());
+        if self.propose_values(new_vals.clone()) {
             self.active_thumb.set(Some(new_active_idx));
             if new_active_idx != thumb_idx && dioxus::core::Runtime::try_current().is_some() {
                 crate::foundation::browser::focus_element_by_id(
                     &self.resolved_thumb_id(new_active_idx),
                 );
             }
-            let exported = if self.is_single {
-                SliderValue::Single(new_vals[0])
-            } else {
-                SliderValue::Multiple(new_vals)
-            };
-            if let Some(ref handler) = self.on_value_change {
-                handler.call(exported.clone());
-            }
-            if let Some(ref handler) = self.on_value_commit {
-                handler.call(exported);
-            }
+            self.emit_change(new_vals.clone());
+            self.emit_commit(new_vals);
         }
     }
 }
@@ -570,38 +588,40 @@ pub fn use_slider_runtime(
         true
     };
 
-    let initial_values = if let Some(ref v) = value {
-        v.to_vec()
-    } else if let Some(ref dv) = default_value {
-        dv.to_vec()
-    } else {
-        vec![def.min]
-    };
+    let min_fallback = def.min;
+    let default_values = default_value
+        .as_ref()
+        .map(SliderValue::to_vec)
+        .unwrap_or_else(|| vec![min_fallback]);
 
-    let mut values_signal = use_signal(|| initial_values.clone());
+    let values_ctl = use_controllable_signal_by(
+        value.as_ref().map(SliderValue::to_vec),
+        default_values,
+        None,
+        move |vals| sanitize_slider_values(vals, min_fallback),
+        f64_vec_bits_eq,
+    );
+    let initial_len = values_ctl.peek().len().max(1);
+
+    let mut on_change_slot = use_hook(|| CopyValue::new(on_value_change));
+    on_change_slot.set(on_value_change);
+    let mut on_commit_slot = use_hook(|| CopyValue::new(on_value_commit));
+    on_commit_slot.set(on_value_commit);
+
     let active_thumb = use_signal(|| None);
     let is_dragging = use_signal(|| false);
     let drag_start_values = use_signal(|| None);
     let focused_thumb = use_signal(|| None);
     let track_size = use_signal(|| None);
-    let thumb_sizes = use_signal(|| vec![None; initial_values.len()]);
+    let thumb_sizes = use_signal(|| vec![None; initial_len]);
     let track_id = use_signal(|| rels.track_id().to_string());
-    let thumb_ids = use_signal(|| vec![None; initial_values.len()]);
+    let thumb_ids = use_signal(|| vec![None; initial_len]);
     let thumb_drag_claimed = use_signal(|| false);
-
-    use_effect(use_reactive((&value,), move |(prop_val,)| {
-        if let Some(v) = prop_val {
-            let vec = v.to_vec();
-            if *values_signal.peek() != vec {
-                values_signal.set(vec);
-            }
-        }
-    }));
 
     use_drop({
         let is_dragging = is_dragging;
         move || {
-            if *is_dragging.peek() {
+            if is_dragging.try_peek().is_ok_and(|d| *d) {
                 restore_body_user_select();
             }
         }
@@ -610,14 +630,15 @@ pub fn use_slider_runtime(
     SliderRuntime {
         def,
         rels,
-        values: values_signal,
+        values: values_ctl.signal(),
+        values_ctl: Some(values_ctl),
         is_single,
         active_thumb,
         is_dragging,
         drag_start_values,
         focused_thumb,
-        on_value_change,
-        on_value_commit,
+        on_value_change: on_change_slot,
+        on_value_commit: on_commit_slot,
         track_size,
         thumb_sizes,
         track_id,

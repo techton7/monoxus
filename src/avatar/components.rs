@@ -3,7 +3,11 @@ use std::{borrow::Cow, cell::Cell, rc::Rc, time::Duration};
 use dioxus::prelude::*;
 use futures_timer::Delay;
 
-use crate::foundation::shared::{ScopeHandle, use_stable_id};
+use crate::foundation::{
+    compose::merge_global_attributes,
+    shared::{ScopeHandle, use_stable_id},
+    state::{sync_signal, use_controllable_signal},
+};
 
 use super::{
     attrs::{AvatarFallbackAttributes, AvatarImageAttributes, AvatarRootAttributes},
@@ -64,27 +68,22 @@ pub fn AvatarRoot(props: AvatarRootProps) -> Element {
     let stable_id = use_stable_id(props.id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("avatar").child(stable_id);
     let relationships = AvatarRelationships::new(&scope);
-    let controlled = props.loading_status.is_some();
-    let mut effective_status = use_signal(AvatarImageLoadingStatus::default);
-    if let Some(status) = props.loading_status {
-        effective_status.set(status);
-    }
-    let mut on_status_change = use_signal(|| props.on_loading_status_change.clone());
-    on_status_change.set(props.on_loading_status_change.clone());
+
+    let status_ctl = use_controllable_signal(
+        props.loading_status,
+        AvatarImageLoadingStatus::default(),
+        props.on_loading_status_change,
+    );
     let mut delay_ms = use_signal(|| props.delay_ms);
-    delay_ms.set(props.delay_ms);
-    let mut controlled_signal = use_signal(|| controlled);
-    controlled_signal.set(controlled);
+    sync_signal(&mut delay_ms, props.delay_ms);
     let image_count = use_signal(|| 0);
-    use_context_provider(|| AvatarContext {
-        status: effective_status,
-        controlled: controlled_signal,
+
+    let context = use_context_provider(|| AvatarContext {
+        status_ctl,
         delay_ms,
         relationships,
         image_count,
-        on_status_change,
     });
-    let context = use_avatar_context();
 
     if props.as_child && props.render_child.is_none() {
         #[cfg(debug_assertions)]
@@ -101,11 +100,17 @@ pub fn AvatarRoot(props: AvatarRootProps) -> Element {
         });
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         span {
             id: props.id.clone().unwrap_or_else(|| context.relationships.root_id().to_string()),
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             "data-status": attrs.data_status,
             "data-avatar-root": attrs.data_avatar_root,
             onmounted: move |event| {
@@ -113,7 +118,7 @@ pub fn AvatarRoot(props: AvatarRootProps) -> Element {
                     handler.call(event);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -160,7 +165,8 @@ pub fn AvatarImage(props: AvatarImageProps) -> Element {
     let src = props.src.clone();
     let options_crossorigin = props.crossorigin.clone();
     let options_referrerpolicy = props.referrerpolicy.clone();
-    let callback = props.on_loading_status_change.clone();
+    let mut callback_slot = use_hook(|| CopyValue::new(props.on_loading_status_change));
+    callback_slot.set(props.on_loading_status_change);
     let context_for_effect = context.clone();
     let mut last_request = use_signal(|| None::<(Option<String>, Option<String>, Option<String>)>);
 
@@ -168,7 +174,6 @@ pub fn AvatarImage(props: AvatarImageProps) -> Element {
         let context = context.clone();
         move || {
             context.register_image();
-            ()
         }
     });
     use_drop({
@@ -176,7 +181,9 @@ pub fn AvatarImage(props: AvatarImageProps) -> Element {
         move || {
             alive.set(false);
             cleanup_context.unregister_image();
-            if let Some(watcher) = watcher_slot.write().take() {
+            if let Ok(mut slot) = watcher_slot.try_write()
+                && let Some(watcher) = slot.take()
+            {
                 watcher.stop();
             }
         }
@@ -192,7 +199,6 @@ pub fn AvatarImage(props: AvatarImageProps) -> Element {
             last_request.set(Some(request));
             let generation = probe.begin_generation();
             probe.replace_watcher(None);
-            let status_callback = callback.clone();
             let publish_context = context_for_effect.clone();
             let probe_for_callback = probe.clone();
             let owns = probe.owns_generation(generation);
@@ -203,14 +209,13 @@ pub fn AvatarImage(props: AvatarImageProps) -> Element {
                     .is_some()
                 {
                     publish_context.publish(AvatarImageLoadingStatus::Error);
-                    if let Some(handler) = status_callback.as_ref() {
+                    if let Some(handler) = callback_slot.try_read().ok().and_then(|s| *s) {
                         handler.call(AvatarImageLoadingStatus::Error);
                     }
                 }
                 return;
             };
 
-            let watched_callback = status_callback.clone();
             let watched_context = publish_context.clone();
             let watched_probe = probe_for_callback.clone();
             let watcher = match watch_avatar_image(
@@ -225,7 +230,7 @@ pub fn AvatarImage(props: AvatarImageProps) -> Element {
                 move |generation, status| {
                     if watched_probe.transition(generation, status).is_some() {
                         watched_context.publish(status);
-                        if let Some(handler) = watched_callback.as_ref() {
+                        if let Some(handler) = callback_slot.try_read().ok().and_then(|s| *s) {
                             handler.call(status);
                         }
                     }
@@ -240,7 +245,7 @@ pub fn AvatarImage(props: AvatarImageProps) -> Element {
                         .is_some()
                     {
                         publish_context.publish(AvatarImageLoadingStatus::Error);
-                        if let Some(handler) = status_callback.as_ref() {
+                        if let Some(handler) = callback_slot.try_read().ok().and_then(|s| *s) {
                             handler.call(AvatarImageLoadingStatus::Error);
                         }
                     }
@@ -273,11 +278,17 @@ pub fn AvatarImage(props: AvatarImageProps) -> Element {
         eprintln!("monoxus::AvatarImage: as_child requires render_child");
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         img {
             id: props.id.clone().unwrap_or_else(|| context.relationships.image_id().to_string()),
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             src,
             alt: props.alt,
             crossorigin: props.crossorigin,
@@ -289,7 +300,7 @@ pub fn AvatarImage(props: AvatarImageProps) -> Element {
                     handler.call(event);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -333,8 +344,10 @@ pub fn AvatarFallback(props: AvatarFallbackProps) -> Element {
         move || {
             alive.set(false);
             generation.set(generation.get().wrapping_add(1));
-            if let Some(task) = task.write().take() {
-                task.cancel();
+            if let Ok(mut slot) = task.try_write()
+                && let Some(t) = slot.take()
+            {
+                t.cancel();
             }
         }
     });
@@ -345,8 +358,10 @@ pub fn AvatarFallback(props: AvatarFallbackProps) -> Element {
         move |(status, delay_ms)| {
             generation.set(generation.get().wrapping_add(1));
             let current = generation.get();
-            if let Some(task) = task.write().take() {
-                task.cancel();
+            if let Ok(mut slot) = task.try_write()
+                && let Some(t) = slot.take()
+            {
+                t.cancel();
             }
             let milliseconds = delay_ms.unwrap_or(0);
             let mut fallback_elapsed = elapsed;
@@ -383,11 +398,17 @@ pub fn AvatarFallback(props: AvatarFallbackProps) -> Element {
         eprintln!("monoxus::AvatarFallback: as_child requires render_child");
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         span {
             id: props.id.clone().unwrap_or_else(|| context.relationships.fallback_id().to_string()),
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             "data-status": attrs.data_status,
             "data-avatar-fallback": attrs.data_avatar_fallback,
             onmounted: move |event| {
@@ -395,7 +416,7 @@ pub fn AvatarFallback(props: AvatarFallbackProps) -> Element {
                     handler.call(event);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

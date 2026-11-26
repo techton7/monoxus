@@ -2,7 +2,10 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::{ScopeHandle, use_stable_id};
+use crate::foundation::{
+    compose::merge_global_attributes,
+    shared::{ScopeHandle, use_stable_id},
+};
 
 use super::{
     attrs::{ProgressIndicatorAttributes, ProgressRootAttributes},
@@ -87,11 +90,17 @@ pub fn ProgressRoot(props: ProgressRootProps) -> Element {
         });
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: attrs.id.clone(),
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             role: attrs.role,
             "aria-valuemin": attrs.aria_valuemin.clone(),
             "aria-valuemax": attrs.aria_valuemax.clone(),
@@ -108,7 +117,7 @@ pub fn ProgressRoot(props: ProgressRootProps) -> Element {
                     handler.call(event);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -159,11 +168,17 @@ pub fn ProgressIndicator(props: ProgressIndicatorProps) -> Element {
         });
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: attrs.id.clone(),
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             "data-state": attrs.data_state,
             "data-value": attrs.data_value.clone(),
             "data-max": attrs.data_max.clone(),
@@ -175,7 +190,7 @@ pub fn ProgressIndicator(props: ProgressIndicatorProps) -> Element {
                     handler.call(event);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

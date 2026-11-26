@@ -1,14 +1,14 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
-    date_time::{FieldLocaleTemplate, SegmentKind},
+    date_time::{
+        FieldLocaleTemplate, SegmentKind,
+        field_policy::{FieldRangeRole, FieldSegmentItem},
+    },
     shared::{Direction, data_disabled_attr},
 };
 
-use super::types::{DateFieldRangeRole, DateFieldSegmentItem};
-
-/// WAI-ARIA and `data-*` attributes for `DateFieldInput`.
+/// Shared WAI-ARIA and `data-*` attributes for `DateFieldInput` and `TimeFieldInput` (`D-5`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DateFieldInputAttrs {
+pub struct SegmentFieldInputAttrs {
     pub id: String,
     pub role: &'static str,
     pub aria_labelledby: Option<String>,
@@ -16,18 +16,18 @@ pub struct DateFieldInputAttrs {
     pub aria_disabled: &'static str,
     pub aria_required: Option<&'static str>,
     pub dir: &'static str,
-    pub data_date_field_input: &'static str,
+    pub data_marker: &'static str,
     pub data_range_field_part: Option<&'static str>,
     pub data_invalid: Option<&'static str>,
     pub data_disabled: Option<&'static str>,
     pub data_required: Option<&'static str>,
 }
 
-impl DateFieldInputAttrs {
+impl SegmentFieldInputAttrs {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: String,
-        range_role: DateFieldRangeRole,
+        range_role: FieldRangeRole,
         label_id: Option<String>,
         description_id: Option<String>,
         dir: Direction,
@@ -42,7 +42,7 @@ impl DateFieldInputAttrs {
             aria_disabled: if disabled { "true" } else { "false" },
             aria_required: None,
             dir: dir.as_str(),
-            data_date_field_input: "",
+            data_marker: "",
             data_range_field_part: range_role.range_part_attr(),
             data_invalid: data_disabled_attr(is_invalid),
             data_disabled: data_disabled_attr(disabled),
@@ -57,29 +57,29 @@ impl DateFieldInputAttrs {
     }
 }
 
-/// WAI-ARIA and `data-*` attributes for `DateFieldLabel`.
+/// Shared WAI-ARIA and `data-*` attributes for `DateFieldLabel` and `TimeFieldLabel` (`D-5`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DateFieldLabelAttrs {
+pub struct SegmentFieldLabelAttrs {
     pub id: String,
-    pub data_date_field_label: &'static str,
+    pub data_marker: &'static str,
     pub data_invalid: Option<&'static str>,
     pub data_disabled: Option<&'static str>,
 }
 
-impl DateFieldLabelAttrs {
+impl SegmentFieldLabelAttrs {
     pub fn new(id: String, is_invalid: bool, disabled: bool) -> Self {
         Self {
             id,
-            data_date_field_label: "",
+            data_marker: "",
             data_invalid: data_disabled_attr(is_invalid),
             data_disabled: data_disabled_attr(disabled),
         }
     }
 }
 
-/// WAI-ARIA and `data-*` attributes for `DateFieldSegment`.
+/// Shared WAI-ARIA and `data-*` attributes for `DateFieldSegment` and `TimeFieldSegment` (`D-5`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DateFieldSegmentAttrs {
+pub struct SegmentFieldSegmentAttrs {
     pub id: String,
     pub role: Option<&'static str>,
     pub tabindex: Option<&'static str>,
@@ -96,17 +96,17 @@ pub struct DateFieldSegmentAttrs {
     pub aria_readonly: Option<&'static str>,
     pub aria_hidden: Option<&'static str>,
     pub data_segment: &'static str,
-    pub data_date_field_segment: &'static str,
+    pub data_marker: &'static str,
     pub data_placeholder: Option<&'static str>,
     pub data_invalid: Option<&'static str>,
     pub data_disabled: Option<&'static str>,
     pub data_readonly: Option<&'static str>,
 }
 
-impl DateFieldSegmentAttrs {
+impl SegmentFieldSegmentAttrs {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
-        item: &DateFieldSegmentItem,
+        item: &FieldSegmentItem,
         id_override: Option<String>,
         label_id: Option<&str>,
         description_id: Option<&str>,
@@ -141,7 +141,7 @@ impl DateFieldSegmentAttrs {
                 aria_readonly: None,
                 aria_hidden: Some("true"),
                 data_segment,
-                data_date_field_segment: "",
+                data_marker: "",
                 data_placeholder: None,
                 data_invalid: data_disabled_attr(is_invalid),
                 data_disabled: data_disabled_attr(disabled),
@@ -168,7 +168,7 @@ impl DateFieldSegmentAttrs {
                     aria_readonly: Some("true"),
                     aria_hidden: None,
                     data_segment,
-                    data_date_field_segment: "",
+                    data_marker: "",
                     data_placeholder: None,
                     data_invalid: data_disabled_attr(is_invalid),
                     data_disabled: data_disabled_attr(disabled),
@@ -215,7 +215,7 @@ impl DateFieldSegmentAttrs {
                     aria_readonly: Some(if read_only { "true" } else { "false" }),
                     aria_hidden: None,
                     data_segment,
-                    data_date_field_segment: "",
+                    data_marker: "",
                     data_placeholder: data_disabled_attr(item.segment.is_placeholder),
                     data_invalid: data_disabled_attr(is_invalid),
                     data_disabled: data_disabled_attr(disabled),
@@ -226,29 +226,6 @@ impl DateFieldSegmentAttrs {
     }
 }
 
-pub fn project_date_field_input_as_child<T, C>(
-    attrs: &DateFieldInputAttrs,
-    target: T,
-    content: Slottable<C>,
-) -> (T, DateFieldInputAttrs, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_date_field_label_as_child<T, C>(
-    attrs: &DateFieldLabelAttrs,
-    target: T,
-    content: Slottable<C>,
-) -> (T, DateFieldLabelAttrs, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_date_field_segment_as_child<T, C>(
-    attrs: &DateFieldSegmentAttrs,
-    target: T,
-    content: Slottable<C>,
-) -> (T, DateFieldSegmentAttrs, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
+pub type DateFieldInputAttrs = SegmentFieldInputAttrs;
+pub type DateFieldLabelAttrs = SegmentFieldLabelAttrs;
+pub type DateFieldSegmentAttrs = SegmentFieldSegmentAttrs;

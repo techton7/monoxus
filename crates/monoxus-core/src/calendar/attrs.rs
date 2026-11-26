@@ -1,5 +1,4 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     date_time::{CalendarDate, CalendarLocale},
     shared::{Direction, data_disabled_attr},
 };
@@ -357,22 +356,4 @@ impl CalendarSelectAttrs {
             ),
         }
     }
-}
-
-pub fn project_calendar_root_as_child<T, C>(
-    attrs: &CalendarRootAttrs,
-    target: T,
-    content: Slottable<C>,
-) -> (T, CalendarRootAttrs, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_calendar_day_as_child<T, C>(
-    attrs: &CalendarDayAttrs,
-    target: T,
-    content: Slottable<C>,
-) -> (T, CalendarDayAttrs, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
 }

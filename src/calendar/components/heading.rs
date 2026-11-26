@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+use crate::foundation::compose::merge_global_attributes;
+
 use super::super::{attrs::CalendarHeadingAttrs, runtime::use_calendar_shared_context};
 
 #[derive(Clone, PartialEq, Props)]
@@ -44,36 +46,43 @@ pub fn CalendarHeading(props: CalendarHeadingProps) -> Element {
     let attrs = ctx.runtime.heading_attrs(props.id.clone());
     let heading_value = ctx.runtime.heading_value();
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(CalendarHeadingRenderProps {
-                attrs,
-                heading_value,
-                class: props.class,
-                style: props.style,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
+    if props.as_child
+        && let Some(render_child) = props.render_child.as_ref()
+    {
+        return render_child.call(CalendarHeadingRenderProps {
+            attrs,
+            heading_value,
+            class: props.class,
+            style: props.style,
+            on_mounted: props.on_mounted,
+            attributes: props.attributes,
+            children: props.children,
+        });
     }
+
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+    let on_mounted = props.on_mounted;
 
     rsx! {
         div {
             id: "{attrs.id}",
-            class: props.class,
-            style: props.style,
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "aria-hidden": attrs.aria_hidden,
             "data-calendar-heading": attrs.data_calendar_heading,
             "data-range-calendar-heading": attrs.data_range_calendar_heading,
             "data-disabled": attrs.data_disabled,
             "data-readonly": attrs.data_readonly,
             onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
+                if let Some(handler) = on_mounted {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             if let Some(children) = props.children {
                 {children}
             } else {

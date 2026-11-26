@@ -3,9 +3,13 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::foundation::browser::{
-    ElementSize, ResizeObserverBox, WatcherGuard, get_element_scroll_metrics,
-    start_element_scroll_monitor, start_resize_monitor,
+use crate::foundation::{
+    browser::{
+        ElementSize, ResizeObserverBox, WatcherGuard, get_element_scroll_metrics,
+        start_element_scroll_monitor, start_resize_monitor,
+    },
+    compose::{join_styles, merge_global_attributes},
+    state::sync_signal,
 };
 
 use super::{
@@ -23,10 +27,11 @@ pub struct ScrollAreaViewportProps {
     pub id: Option<String>,
     pub nonce: Option<String>,
     pub disable_implicit_content_element: Option<bool>,
-    pub as_child: Option<bool>,
     pub children: Element,
     pub class: Option<String>,
     pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
 }
 
 #[component]
@@ -43,22 +48,17 @@ pub fn ScrollAreaViewport(props: ScrollAreaViewportProps) -> Element {
     let scrollbar_x_enabled = ctx.runtime.scrollbar_x_enabled();
     let scrollbar_y_enabled = ctx.runtime.scrollbar_y_enabled();
 
-    let mut viewport_style = format!(
-        "scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; align-items: stretch; overflow-x: {}; overflow-y: {}; ",
-        if scrollbar_x_enabled {
-            "scroll"
-        } else {
-            "hidden"
-        },
-        if scrollbar_y_enabled {
-            "scroll"
-        } else {
-            "hidden"
-        },
+    let base_style = format!(
+        "scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; align-items: stretch; overflow-x: {}; overflow-y: {};",
+        if scrollbar_x_enabled { "scroll" } else { "hidden" },
+        if scrollbar_y_enabled { "scroll" } else { "hidden" },
     );
-    if let Some(user_style) = &props.style {
-        viewport_style.push_str(user_style);
-    }
+    let combined_style = join_styles([base_style.as_str(), props.style.as_deref().unwrap_or("")]);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        combined_style.as_deref(),
+        props.attributes,
+    );
 
     let viewport_attrs = ScrollAreaViewportAttributes::new(&viewport_id);
 
@@ -80,38 +80,14 @@ pub fn ScrollAreaViewport(props: ScrollAreaViewportProps) -> Element {
         let resize_guard_cell = Rc::clone(&resize_guard_cell);
         let mut runtime = ctx.runtime;
         move |(vid, _rev)| {
-            if let Some(metrics) = get_element_scroll_metrics(&vid) {
-                if runtime.viewport_metrics.peek().as_ref() != Some(&metrics) {
-                    runtime.viewport_metrics.set(Some(metrics));
-                }
-                let is_overflow_x = metrics.client_width < metrics.scroll_width;
-                let is_overflow_y = metrics.client_height < metrics.scroll_height;
-                if *runtime.scrollbar_x_visible.peek() != is_overflow_x {
-                    runtime.scrollbar_x_visible.set(is_overflow_x);
-                }
-                if *runtime.scrollbar_y_visible.peek() != is_overflow_y {
-                    runtime.scrollbar_y_visible.set(is_overflow_y);
-                }
-            }
+            runtime.sync_viewport_metrics(&vid, None);
 
             {
                 let vid_shot = vid.clone();
                 let mut rt = runtime;
                 spawn(async move {
                     oxidase::frame::next_frame().await;
-                    if let Some(metrics) = get_element_scroll_metrics(&vid_shot) {
-                        if rt.viewport_metrics.peek().as_ref() != Some(&metrics) {
-                            rt.viewport_metrics.set(Some(metrics));
-                        }
-                        let is_overflow_x = metrics.client_width < metrics.scroll_width;
-                        let is_overflow_y = metrics.client_height < metrics.scroll_height;
-                        if *rt.scrollbar_x_visible.peek() != is_overflow_x {
-                            rt.scrollbar_x_visible.set(is_overflow_x);
-                        }
-                        if *rt.scrollbar_y_visible.peek() != is_overflow_y {
-                            rt.scrollbar_y_visible.set(is_overflow_y);
-                        }
-                    }
+                    rt.sync_viewport_metrics(&vid_shot, None);
                 });
             }
 
@@ -121,19 +97,7 @@ pub fn ScrollAreaViewport(props: ScrollAreaViewportProps) -> Element {
                 &vid,
                 ResizeObserverBox::BorderBox,
                 move |size: ElementSize| {
-                    if let Some(metrics) = get_element_scroll_metrics(&vid_for_cb) {
-                        if rt.viewport_metrics.peek().as_ref() != Some(&metrics) {
-                            rt.viewport_metrics.set(Some(metrics));
-                        }
-                        let is_overflow_x = size.width < metrics.scroll_width;
-                        let is_overflow_y = size.height < metrics.scroll_height;
-                        if *rt.scrollbar_x_visible.peek() != is_overflow_x {
-                            rt.scrollbar_x_visible.set(is_overflow_x);
-                        }
-                        if *rt.scrollbar_y_visible.peek() != is_overflow_y {
-                            rt.scrollbar_y_visible.set(is_overflow_y);
-                        }
-                    }
+                    rt.sync_viewport_metrics(&vid_for_cb, Some(size));
                 },
             );
             let prev = std::mem::replace(&mut *resize_guard_cell.borrow_mut(), next_guard);
@@ -156,9 +120,7 @@ pub fn ScrollAreaViewport(props: ScrollAreaViewportProps) -> Element {
 
             let next_guard = start_element_scroll_monitor(&vid, move || {
                 if let Some(metrics) = get_element_scroll_metrics(&vid_scroll) {
-                    if runtime.viewport_metrics.peek().as_ref() != Some(&metrics) {
-                        runtime.viewport_metrics.set(Some(metrics));
-                    }
+                    sync_signal(&mut runtime.viewport_metrics, Some(metrics));
                 }
 
                 if r#type == ScrollAreaType::Scroll {
@@ -240,12 +202,13 @@ pub fn ScrollAreaViewport(props: ScrollAreaViewportProps) -> Element {
         }
         div {
             id: "{viewport_attrs.id()}",
-            class: props.class.as_deref(),
-            style: "{viewport_style}",
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             tabindex: "{viewport_attrs.tabindex()}",
             "data-monoxus-scroll-area-viewport": "",
             "data-radix-scroll-area-viewport": "",
             onmounted: move |_| mounted_rev += 1,
+            ..merged.rest,
             {children}
         }
     }
@@ -255,10 +218,11 @@ pub fn ScrollAreaViewport(props: ScrollAreaViewportProps) -> Element {
 pub struct ScrollAreaContentProps {
     #[props(default)]
     pub id: Option<String>,
-    pub as_child: Option<bool>,
     pub children: Element,
     pub class: Option<String>,
     pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
 }
 
 #[component]
@@ -280,13 +244,17 @@ pub fn ScrollAreaContent(props: ScrollAreaContentProps) -> Element {
         }
     }));
 
-    let mut content_style = String::from("display: flex; flex-direction: column; flex-grow: 1; ");
-    if ctx.runtime.scrollbar_x_enabled() {
-        content_style.push_str("min-width: fit-content; ");
-    }
-    if let Some(user_style) = &props.style {
-        content_style.push_str(user_style);
-    }
+    let base_style = if ctx.runtime.scrollbar_x_enabled() {
+        "display: flex; flex-direction: column; flex-grow: 1; min-width: fit-content;"
+    } else {
+        "display: flex; flex-direction: column; flex-grow: 1;"
+    };
+    let combined_style = join_styles([base_style, props.style.as_deref().unwrap_or("")]);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        combined_style.as_deref(),
+        props.attributes,
+    );
 
     let content_attrs = ScrollAreaContentAttributes::new(&content_id);
     let resize_guard_cell = use_hook(|| Rc::new(std::cell::RefCell::new(WatcherGuard::noop())));
@@ -301,19 +269,7 @@ pub fn ScrollAreaContent(props: ScrollAreaContentProps) -> Element {
                 &cid,
                 ResizeObserverBox::BorderBox,
                 move |_content_size: ElementSize| {
-                    if let Some(metrics) = get_element_scroll_metrics(&vid_for_cb) {
-                        if rt.viewport_metrics.peek().as_ref() != Some(&metrics) {
-                            rt.viewport_metrics.set(Some(metrics));
-                        }
-                        let is_overflow_x = metrics.client_width < metrics.scroll_width;
-                        let is_overflow_y = metrics.client_height < metrics.scroll_height;
-                        if *rt.scrollbar_x_visible.peek() != is_overflow_x {
-                            rt.scrollbar_x_visible.set(is_overflow_x);
-                        }
-                        if *rt.scrollbar_y_visible.peek() != is_overflow_y {
-                            rt.scrollbar_y_visible.set(is_overflow_y);
-                        }
-                    }
+                    rt.sync_viewport_metrics(&vid_for_cb, None);
                 },
             );
             let prev = std::mem::replace(&mut *resize_guard_cell.borrow_mut(), next_guard);
@@ -330,19 +286,7 @@ pub fn ScrollAreaContent(props: ScrollAreaContentProps) -> Element {
             let mut rt = runtime;
             spawn(async move {
                 oxidase::frame::next_frame().await;
-                if let Some(metrics) = get_element_scroll_metrics(&vid_c) {
-                    if rt.viewport_metrics.peek().as_ref() != Some(&metrics) {
-                        rt.viewport_metrics.set(Some(metrics));
-                    }
-                    let is_overflow_x = metrics.client_width < metrics.scroll_width;
-                    let is_overflow_y = metrics.client_height < metrics.scroll_height;
-                    if *rt.scrollbar_x_visible.peek() != is_overflow_x {
-                        rt.scrollbar_x_visible.set(is_overflow_x);
-                    }
-                    if *rt.scrollbar_y_visible.peek() != is_overflow_y {
-                        rt.scrollbar_y_visible.set(is_overflow_y);
-                    }
-                }
+                rt.sync_viewport_metrics(&vid_c, None);
             });
         }
     });
@@ -357,10 +301,11 @@ pub fn ScrollAreaContent(props: ScrollAreaContentProps) -> Element {
     rsx! {
         div {
             id: "{content_attrs.id()}",
-            class: props.class.as_deref(),
-            style: "{content_style}",
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             role: "{content_attrs.role()}",
             "data-monoxus-scroll-area-content": "",
+            ..merged.rest,
             {props.children}
         }
     }

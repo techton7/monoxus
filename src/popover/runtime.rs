@@ -628,10 +628,6 @@ impl PopoverRuntime {
         self.state.dismiss.branches_signal().cloned()
     }
 
-    pub(crate) fn branches_signal(&self) -> Signal<Vec<String>> {
-        self.state.dismiss.branches_signal()
-    }
-
     pub fn register_escape_guard(&self, id: impl Into<String>, guard: OverlayEscapeGuardFn) {
         let id = id.into();
         let mut guards = self.state.escape_guards;

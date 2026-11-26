@@ -995,4 +995,148 @@ mod native_tests {
 
         clear_active_overlay_stack();
     }
+
+    #[component]
+    fn NativeDateRangePickerStaticAndOpenFocusScenario() -> Element {
+        rsx! {
+            div {
+                style: "padding: 16px;",
+                DateRangePickerRoot {
+                    id: "drp-fm-static-root",
+                    locale: CalendarLocale::EnUs,
+                    default_placeholder: d(2026, 4, 15),
+                    close_on_range_select: true,
+                    div {
+                        style: "display: flex; align-items: center; gap: 8px;",
+                        DateRangePickerInput {
+                            kind: RangeFieldInputKind::Start,
+                            id: "drp-fm-static-start",
+                            name: Some("fm_static_start".to_string()),
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    DateRangePickerSegment {
+                                        key: "{seg.index}",
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                    }
+                                }
+                            }
+                        }
+                        DateRangePickerInput {
+                            kind: RangeFieldInputKind::End,
+                            id: "drp-fm-static-end",
+                            name: Some("fm_static_end".to_string()),
+                            style: "display: flex; gap: 4px;",
+                            render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segments {
+                                    DateRangePickerSegment {
+                                        key: "{seg.index}",
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                    }
+                                }
+                            }
+                        }
+                        DateRangePickerTrigger {
+                            id: "drp-fm-static-trigger",
+                            style: "width: 80px; height: 28px;",
+                            "Static Range"
+                        }
+                    }
+                    DateRangePickerContentStatic {
+                        id: "drp-fm-static-content",
+                        style: "width: 280px; padding: 8px; background: white;",
+                        on_open_auto_focus: move |evt: monoxus::date_range_picker::OpenAutoFocusEvent| {
+                            evt.prevent_default();
+                        },
+                        DateRangePickerCalendar {
+                            render_children: move |snap: RangeCalendarSnapshot| rsx! {
+                                for month in snap.months {
+                                    DateRangePickerMonthGrid { month, weekdays: snap.weekdays.clone() }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_date_range_picker_fm_dt1_static_and_fm_dt2_open_focus_and_complete_close() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        clear_active_overlay_stack();
+        let mut harness = mount_native_scenario(NativeDateRangePickerStaticAndOpenFocusScenario);
+
+        // FM-DT-1 + FM-DT-2 (bits#2219): static content has no floating wrapper, emits data-date-range-picker-content,
+        // and honors on_open_auto_focus.prevent_default()
+        crate::common::native_fixture::focus_node(&mut harness, "#drp-fm-static-trigger");
+        click_and_pump(&mut harness, "#drp-fm-static-trigger");
+        assert_eq!(
+            harness
+                .attr("#drp-fm-static-content", "data-date-range-picker-content")
+                .as_deref(),
+            Some("")
+        );
+        assert!(harness.query("#drp-fm-static-content-wrapper").is_none());
+        assert_native_focus_id(&harness, "drp-fm-static-trigger");
+
+        // Partial range selection leaves popover open; 1st Escape clears partial start, 2nd Escape closes
+        click_and_pump(
+            &mut harness,
+            "[data-range-calendar-day][data-value='2026-04-10']",
+        );
+        assert_eq!(
+            harness
+                .attr("#drp-fm-static-content", "data-state")
+                .as_deref(),
+            Some("open")
+        );
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        assert_eq!(
+            harness
+                .attr("#drp-fm-static-content", "data-state")
+                .as_deref(),
+            Some("open")
+        );
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        assert_eq!(
+            harness
+                .attr("#drp-fm-static-trigger", "aria-expanded")
+                .as_deref(),
+            Some("false")
+        );
+
+        // Complete range closes popover when close_on_range_select = true
+        click_and_pump(&mut harness, "#drp-fm-static-trigger");
+        click_and_pump(
+            &mut harness,
+            "[data-range-calendar-day][data-value='2026-04-10']",
+        );
+        click_and_pump(
+            &mut harness,
+            "[data-range-calendar-day][data-value='2026-04-14']",
+        );
+        assert_eq!(
+            harness
+                .attr("input[name='fm_static_start']", "value")
+                .as_deref(),
+            Some("2026-04-10")
+        );
+        assert_eq!(
+            harness
+                .attr("input[name='fm_static_end']", "value")
+                .as_deref(),
+            Some("2026-04-14")
+        );
+        assert_eq!(
+            harness
+                .attr("#drp-fm-static-trigger", "aria-expanded")
+                .as_deref(),
+            Some("false")
+        );
+
+        clear_active_overlay_stack();
+    }
 }

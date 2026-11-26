@@ -1,21 +1,17 @@
 use std::borrow::Cow;
-use std::rc::Rc;
 
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    roving_focus::{RovingFocusConfig, RovingItemMeta, use_roving_focus_item},
+    compose::merge_global_attributes,
+    keyboard::is_activation_key,
+    roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-    state::{ControllableStateProps, use_controllable_state},
 };
 
 use super::{
-    runtime::ToggleGroupRuntime,
-    types::{
-        ToggleGroupMode, ToggleGroupMultipleChangeHandler, ToggleGroupOrientation,
-        ToggleGroupSingleChangeHandler,
-    },
+    runtime::{ToggleGroupRuntime, use_toggle_group_runtime},
+    types::{ToggleGroupMode, ToggleGroupOrientation},
 };
 
 #[derive(Clone)]
@@ -66,132 +62,28 @@ pub struct ToggleGroupRootProps {
 pub fn ToggleGroupRoot(props: ToggleGroupRootProps) -> Element {
     let resolved_dir = use_direction_context(props.dir);
     let scope_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
-
-    let on_single_change_cb = props.on_value_change.as_ref().map(|handler| {
-        let handler = *handler;
-        Rc::new(move |next: String| {
-            handler.call(next);
-        }) as ToggleGroupSingleChangeHandler
-    });
-
-    let on_multiple_change_cb = props.on_values_change.as_ref().map(|handler| {
-        let handler = *handler;
-        Rc::new(move |next: Vec<String>| {
-            handler.call(next);
-        }) as ToggleGroupMultipleChangeHandler
-    });
-
-    let single_handle = use_controllable_state(ControllableStateProps {
-        value: props.value.clone(),
-        default_value: props.default_value.clone().unwrap_or_default(),
-        on_change: on_single_change_cb.as_ref().map(|cb| {
-            let cb = cb.clone();
-            move |v: String| cb(v)
-        }),
-    });
-
-    let multiple_handle = use_controllable_state(ControllableStateProps {
-        value: props.values.clone(),
-        default_value: props.default_values.clone().unwrap_or_default(),
-        on_change: on_multiple_change_cb.as_ref().map(|cb| {
-            let cb = cb.clone();
-            move |v: Vec<String>| cb(v)
-        }),
-    });
-
-    let single_set: ToggleGroupSingleChangeHandler = {
-        let handle = single_handle.clone();
-        Rc::new(move |val: String| {
-            handle.set(val);
-        })
-    };
-
-    let multiple_set: ToggleGroupMultipleChangeHandler = {
-        let handle = multiple_handle.clone();
-        Rc::new(move |val: Vec<String>| {
-            handle.set(val);
-        })
-    };
-
-    let initial_single = single_handle.value().clone();
-    let initial_multiple = multiple_handle.value().clone();
-    let single_is_controlled = single_handle.is_controlled();
-    let multiple_is_controlled = multiple_handle.is_controlled();
     let initial_root_dom_id = props.id.clone().unwrap_or_else(|| {
         ScopeHandle::root("toggle-group")
             .child(scope_id.clone())
             .qualify("root")
     });
 
-    let mut runtime = ToggleGroupRuntime::new(
+    let runtime = use_toggle_group_runtime(
         props.r#type,
-        initial_single,
-        initial_multiple,
-        single_is_controlled,
-        multiple_is_controlled,
+        props.value.clone(),
+        props.default_value.clone(),
+        props.on_value_change,
+        props.values.clone(),
+        props.default_values.clone(),
+        props.on_values_change,
         props.orientation,
         resolved_dir,
         props.roving_focus,
         props.loop_focus,
         props.disabled,
-        scope_id.clone(),
+        scope_id,
         initial_root_dom_id,
-        Some(single_set),
-        Some(multiple_set),
     );
-
-    // Keep reactive props synchronized with runtime signals
-    {
-        if *runtime.mode.peek() != props.r#type {
-            runtime.mode.set(props.r#type);
-        }
-
-        if *runtime.single_controlled.peek() != single_is_controlled {
-            runtime.single_controlled.set(single_is_controlled);
-        }
-
-        if *runtime.multiple_controlled.peek() != multiple_is_controlled {
-            runtime.multiple_controlled.set(multiple_is_controlled);
-        }
-
-        let resolved_single = single_handle.value().clone();
-        if *runtime.single_value.peek() != resolved_single {
-            runtime.single_value.set(resolved_single);
-        }
-
-        let resolved_multiple = multiple_handle.value().clone();
-        if *runtime.multiple_values.peek() != resolved_multiple {
-            runtime.multiple_values.set(resolved_multiple);
-        }
-
-        if *runtime.orientation.peek() != props.orientation {
-            runtime.orientation.set(props.orientation);
-        }
-
-        if *runtime.dir.peek() != resolved_dir {
-            runtime.dir.set(resolved_dir);
-        }
-
-        if *runtime.roving_focus.peek() != props.roving_focus {
-            runtime.roving_focus.set(props.roving_focus);
-        }
-
-        if *runtime.loop_focus.peek() != props.loop_focus {
-            runtime.loop_focus.set(props.loop_focus);
-        }
-
-        if *runtime.disabled.peek() != props.disabled {
-            runtime.disabled.set(props.disabled);
-        }
-
-        runtime.roving.set_config(
-            RovingFocusConfig::new()
-                .with_orientation(props.orientation.into())
-                .with_direction(resolved_dir)
-                .with_loop_focus(props.loop_focus)
-                .with_enabled(props.roving_focus),
-        );
-    }
 
     use_context_provider(|| ToggleGroupContext {
         runtime: runtime.clone(),
@@ -201,18 +93,23 @@ pub fn ToggleGroupRoot(props: ToggleGroupRootProps) -> Element {
     let resolved_id = props.id.as_deref().unwrap_or(root_attrs.id());
     runtime.roving.set_root_dom_id(resolved_id);
     let resolved_role = props.role.as_deref().unwrap_or(root_attrs.role());
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         div {
             id: "{resolved_id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             role: "{resolved_role}",
             dir: "{root_attrs.dir}",
             "data-orientation": "{root_attrs.data_orientation}",
             "data-disabled": root_attrs.data_disabled,
             "data-toggle-group-root": "{root_attrs.data_toggle_group_root}",
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -258,7 +155,7 @@ pub fn ToggleGroupItem(props: ToggleGroupItemProps) -> Element {
         RovingItemMeta::new(item_id.clone(), !effective_disabled, is_pressed),
     );
 
-    let item_attrs = runtime.item_attributes(&props.value, Some(item_id.clone()), props.disabled);
+    let item_attrs = runtime.item_attributes(&props.value, Some(item_id), props.disabled);
 
     let on_click = {
         let runtime = runtime.clone();
@@ -287,8 +184,7 @@ pub fn ToggleGroupItem(props: ToggleGroupItemProps) -> Element {
                 return;
             }
 
-            let key = evt.key();
-            if key == Key::Named(NamedKey::Enter) || key == Key::Character(" ".to_string()) {
+            if is_activation_key(&evt.key()) {
                 evt.prevent_default();
                 runtime.toggle_item(&val);
                 return;
@@ -317,11 +213,17 @@ pub fn ToggleGroupItem(props: ToggleGroupItemProps) -> Element {
         }
     };
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         button {
             id: "{item_attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             r#type: "button",
             role: item_attrs.role,
             "aria-checked": item_attrs.aria_checked,
@@ -337,7 +239,7 @@ pub fn ToggleGroupItem(props: ToggleGroupItemProps) -> Element {
             onkeydown: on_key_down,
             onfocus: on_focus,
             onmounted: on_mounted,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

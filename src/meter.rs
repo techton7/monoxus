@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+use crate::foundation::compose::merge_global_attributes;
+
 pub use monoxus_core::meter::*;
 
 /// Values supplied to an explicit as-child renderer.
@@ -85,11 +87,17 @@ pub fn MeterRoot(props: MeterProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: props.id,
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             role: attrs.role,
             aria_valuemin: attrs.aria_valuemin,
             aria_valuenow: attrs.aria_valuenow,
@@ -106,7 +114,7 @@ pub fn MeterRoot(props: MeterProps) -> Element {
                     handler.call(event);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {children}
         }
     }

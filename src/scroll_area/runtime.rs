@@ -5,10 +5,15 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{
-        ElementScrollMetrics, WatcherGuard, get_element_scroll_metrics,
+        ElementScrollMetrics, ElementSize, WatcherGuard, get_element_scroll_metrics,
+        pointer::{
+            try_release_pointer_capture as foundation_release_pointer_capture,
+            try_set_pointer_capture as foundation_set_pointer_capture,
+        },
         set_element_scroll_position, set_element_style_property, start_element_scroll_monitor,
     },
     shared::{Direction, Orientation},
+    state::{sync_f64_signal, sync_signal},
 };
 
 use super::{
@@ -16,7 +21,7 @@ use super::{
     types::{ScrollAreaSizes, ScrollAreaVisibilityState},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct ScrollAreaRuntime {
     pub hover_visible: Signal<bool>,
     pub scroll_state: Signal<ScrollAreaVisibilityState>,
@@ -79,6 +84,40 @@ impl ScrollAreaRuntime {
     pub fn viewport_metrics(&self) -> Option<ElementScrollMetrics> {
         (self.viewport_metrics)()
     }
+
+    /// Reads scroll metrics for `viewport_id` and synchronizes `viewport_metrics` and axis overflow
+    /// visibility signals without subscribing.
+    pub(crate) fn sync_viewport_metrics(
+        &mut self,
+        viewport_id: &str,
+        size_override: Option<ElementSize>,
+    ) {
+        if let Some(metrics) = get_element_scroll_metrics(viewport_id) {
+            sync_signal(&mut self.viewport_metrics, Some(metrics));
+            let (vw, vh) = size_override
+                .map(|s| (s.width, s.height))
+                .unwrap_or((metrics.client_width, metrics.client_height));
+            sync_signal(&mut self.scrollbar_x_visible, vw < metrics.scroll_width);
+            sync_signal(&mut self.scrollbar_y_visible, vh < metrics.scroll_height);
+        }
+    }
+
+    /// Synchronizes corner dimensions for `orientation` using bitwise `f64` equality and drop-safe
+    /// `try_write`, allowing collapse to `0.0` (`radix#2383/#4009`).
+    pub(crate) fn sync_corner_size(&mut self, orientation: Orientation, width: f64, height: f64) {
+        match orientation {
+            Orientation::Horizontal => {
+                sync_f64_signal(&mut self.corner_height, height);
+            }
+            Orientation::Vertical => {
+                sync_f64_signal(&mut self.corner_width, width);
+            }
+            Orientation::Both => {
+                sync_f64_signal(&mut self.corner_height, height);
+                sync_f64_signal(&mut self.corner_width, width);
+            }
+        }
+    }
 }
 
 impl Default for ScrollAreaRuntime {
@@ -133,18 +172,7 @@ pub fn try_set_pointer_capture(
     evt: &PointerData,
     mounted_el: Option<&oxidase::Element>,
 ) -> Option<i32> {
-    let pointer_id = oxidase::dom::extract_pointer_id(evt);
-    if let Some(el) = mounted_el
-        && el.set_pointer_capture(pointer_id).is_ok()
-    {
-        return Some(pointer_id);
-    }
-    if let Some(target) = oxidase::dom::pointer_event_target(evt)
-        && target.set_pointer_capture(pointer_id).is_ok()
-    {
-        return Some(pointer_id);
-    }
-    None
+    foundation_set_pointer_capture(evt, mounted_el)
 }
 
 pub fn try_release_pointer_capture(
@@ -152,19 +180,7 @@ pub fn try_release_pointer_capture(
     mounted_el: Option<&oxidase::Element>,
     captured_pid: Option<i32>,
 ) {
-    let pointer_id =
-        captured_pid.or_else(|| evt_opt.map(|evt| oxidase::dom::extract_pointer_id(&evt.data())));
-    let Some(pointer_id) = pointer_id else {
-        return;
-    };
-    if let Some(el) = mounted_el {
-        let _ = el.release_pointer_capture(pointer_id);
-    }
-    if let Some(evt) = evt_opt
-        && let Some(target) = oxidase::dom::pointer_event_target(&evt.data())
-    {
-        let _ = target.release_pointer_capture(pointer_id);
-    }
+    foundation_release_pointer_capture(evt_opt, mounted_el, captured_pid)
 }
 
 pub fn forward_wheel_to_viewport(
@@ -302,4 +318,27 @@ pub fn spawn_unlinked_scroll_sync(
             }
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sync_corner_size_resets_to_zero_on_collapse() {
+        let mut dom = VirtualDom::new(|| rsx! {});
+        dom.rebuild_in_place();
+        dom.in_scope(ScopeId::APP, || {
+            let mut rt = ScrollAreaRuntime::new();
+            rt.sync_corner_size(Orientation::Vertical, 14.0, 200.0);
+            rt.sync_corner_size(Orientation::Horizontal, 300.0, 12.0);
+            assert_eq!(rt.corner_width(), 14.0);
+            assert_eq!(rt.corner_height(), 12.0);
+
+            rt.sync_corner_size(Orientation::Vertical, 0.0, 0.0);
+            rt.sync_corner_size(Orientation::Horizontal, 0.0, 0.0);
+            assert_eq!(rt.corner_width(), 0.0);
+            assert_eq!(rt.corner_height(), 0.0);
+        });
+    }
 }

@@ -195,7 +195,7 @@ fn PinInputAsChildVdomApp() -> Element {
         PinInputRoot {
             id: "vdom-as-child-root",
             max_length: 2,
-            as_child: Some(true),
+            as_child: true,
             render_child: move |rc: PinInputRootRenderChildProps| rsx! {
                 section {
                     id: "{rc.attrs.id}",
@@ -206,7 +206,7 @@ fn PinInputAsChildVdomApp() -> Element {
             },
             PinInputCell {
                 index: 0,
-                as_child: Some(true),
+                as_child: true,
                 render_child: move |cell_rc: PinInputCellRenderChildProps| rsx! {
                     span {
                         id: "{cell_rc.attrs.id}",

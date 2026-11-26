@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::{Slottable, project_as_child};
+use crate::foundation::compose::{Slottable, join_styles, merge_global_attributes, project_as_child};
 
 use crate::slider::{attrs::SliderTickAttributes, runtime::use_slider_context};
 
@@ -20,8 +20,6 @@ pub struct SliderTickProps {
     pub value: f64,
     #[props(default)]
     pub id: Option<String>,
-    #[props(default)]
-    pub as_child: Option<bool>,
     pub children: Option<Element>,
     pub class: Option<String>,
     pub style: Option<String>,
@@ -36,24 +34,25 @@ pub fn SliderTick(props: SliderTickProps) -> Element {
     let attrs = ctx.0.tick_attrs(props.value);
     let tick_id = props.id.unwrap_or_else(|| attrs.id().to_string());
 
-    let combined_style = if let Some(ref s) = props.style {
-        format!("{} {}", attrs.style(), s)
-    } else {
-        attrs.style().to_string()
-    };
+    let combined_style = join_styles([attrs.style(), props.style.as_deref().unwrap_or("")]);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        combined_style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         div {
             id: "{tick_id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: "{combined_style}",
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             "data-orientation": "{attrs.data_orientation()}",
             "data-disabled": attrs.data_disabled(),
             "data-value": "{attrs.data_value()}",
             "data-bounded": attrs.data_bounded(),
             "data-selected": attrs.data_selected(),
             "data-monoxus-slider-tick": "",
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

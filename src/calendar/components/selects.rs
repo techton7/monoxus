@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use crate::foundation::date_time::{MonthFormat, YearFormat};
+use crate::foundation::{
+    compose::merge_global_attributes,
+    date_time::{MonthFormat, YearFormat},
+};
 
 use super::super::{
     attrs::CalendarSelectAttrs,
@@ -92,129 +95,6 @@ pub struct CalendarMonthSelectProps {
     pub children: Option<Element>,
 }
 
-#[component]
-pub fn CalendarMonthSelect(props: CalendarMonthSelectProps) -> Element {
-    let ctx = use_calendar_shared_context();
-    let attrs: CalendarSelectAttrs =
-        ctx.runtime
-            .month_select_attrs(props.id.clone(), props.aria_label.clone(), props.disabled);
-    let current_month = ctx.runtime.current_month();
-    let locale = ctx.runtime.locale();
-
-    let month_items: Vec<CalendarSelectOption> = if let Some(ref fmt_cb) = props.month_formatter {
-        let month_numbers: Vec<u8> = props.months.clone().unwrap_or_else(|| (1..=12).collect());
-        month_numbers
-            .into_iter()
-            .map(|month| CalendarSelectOption {
-                value: month as i32,
-                label: fmt_cb.call(month),
-            })
-            .collect()
-    } else {
-        build_calendar_month_options(props.months.as_deref(), &locale, props.month_format)
-    };
-
-    let value_i32 = current_month as i32;
-    let value_string = value_i32.to_string();
-    let selected_item = resolve_selected_calendar_option(&month_items, value_i32);
-
-    let is_disabled = attrs.disabled;
-    let consumer_on_change = props.on_change;
-    let mut rt_change = ctx.runtime.clone();
-    let on_change = Callback::new(move |evt: FormEvent| {
-        if is_disabled {
-            return;
-        }
-        if let Some(ref handler) = consumer_on_change {
-            handler.call(evt.clone());
-        }
-        if let Ok(month) = evt.value().trim().parse::<u8>()
-            && (1..=12).contains(&month)
-        {
-            rt_change.set_month(month);
-        }
-    });
-
-    let mut rt_value_change = ctx.runtime.clone();
-    let on_value_change = Callback::new(move |next: Option<String>| {
-        if is_disabled {
-            return;
-        }
-        if let Some(raw) = next
-            && let Ok(month) = raw.trim().parse::<u8>()
-            && (1..=12).contains(&month)
-        {
-            rt_value_change.set_month(month);
-        }
-    });
-
-    let mut rt_select = ctx.runtime.clone();
-    let on_select = Callback::new(move |month: i32| {
-        if is_disabled {
-            return;
-        }
-        if let Ok(month) = u8::try_from(month)
-            && (1..=12).contains(&month)
-        {
-            rt_select.set_month(month);
-        }
-    });
-
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(CalendarSelectRenderProps {
-            attrs,
-            value: value_i32,
-            value_string,
-            items: month_items,
-            selected_item,
-            disabled: is_disabled,
-            class: props.class,
-            style: props.style,
-            on_change,
-            on_value_change,
-            on_select,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: props.children,
-        });
-    }
-
-    rsx! {
-        select {
-            id: "{attrs.id}",
-            class: props.class,
-            style: props.style,
-            aria_label: "{attrs.aria_label}",
-            disabled: attrs.disabled,
-            value: "{current_month}",
-            "data-disabled": attrs.data_disabled,
-            "data-calendar-month-select": attrs.data_calendar_month_select,
-            "data-range-calendar-month-select": attrs.data_range_calendar_month_select,
-            onchange: move |evt| on_change.call(evt),
-            onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..props.attributes,
-            if let Some(children) = props.children {
-                {children}
-            } else {
-                for item in month_items {
-                    option {
-                        key: "{item.value}",
-                        value: "{item.value}",
-                        selected: item.value == value_i32,
-                        "{item.label}"
-                    }
-                }
-            }
-        }
-    }
-}
-
 #[derive(Clone, PartialEq, Props)]
 pub struct CalendarYearSelectProps {
     #[props(default)]
@@ -247,6 +127,169 @@ pub struct CalendarYearSelectProps {
     pub children: Option<Element>,
 }
 
+#[allow(clippy::too_many_arguments)]
+fn render_calendar_select(
+    attrs: CalendarSelectAttrs,
+    value_i32: i32,
+    items: Vec<CalendarSelectOption>,
+    is_month: bool,
+    class: Option<String>,
+    style: Option<String>,
+    as_child: bool,
+    render_child: Option<Callback<CalendarSelectRenderProps, Element>>,
+    consumer_on_change: Option<EventHandler<FormEvent>>,
+    on_mounted: Option<EventHandler<MountedEvent>>,
+    attributes: Vec<Attribute>,
+    children: Option<Element>,
+    runtime: super::super::runtime::CalendarBaseRuntime,
+) -> Element {
+    let value_string = value_i32.to_string();
+    let selected_item = resolve_selected_calendar_option(&items, value_i32);
+    let is_disabled = attrs.disabled;
+
+    let apply_val = move |rt: &mut super::super::runtime::CalendarBaseRuntime, val: i32| {
+        if is_month {
+            if let Ok(m) = u8::try_from(val)
+                && (1..=12).contains(&m)
+            {
+                rt.set_month(m);
+            }
+        } else {
+            rt.set_year(val);
+        }
+    };
+
+    let mut rt_change = runtime.clone();
+    let on_change = Callback::new(move |evt: FormEvent| {
+        if is_disabled {
+            return;
+        }
+        if let Some(handler) = consumer_on_change {
+            handler.call(evt.clone());
+        }
+        if let Ok(parsed) = evt.value().trim().parse::<i32>() {
+            apply_val(&mut rt_change, parsed);
+        }
+    });
+
+    let mut rt_value_change = runtime.clone();
+    let on_value_change = Callback::new(move |next: Option<String>| {
+        if is_disabled {
+            return;
+        }
+        if let Some(raw) = next
+            && let Ok(parsed) = raw.trim().parse::<i32>()
+        {
+            apply_val(&mut rt_value_change, parsed);
+        }
+    });
+
+    let mut rt_select = runtime;
+    let on_select = Callback::new(move |val: i32| {
+        if is_disabled {
+            return;
+        }
+        apply_val(&mut rt_select, val);
+    });
+
+    if as_child
+        && let Some(render_child) = render_child.as_ref()
+    {
+        return render_child.call(CalendarSelectRenderProps {
+            attrs,
+            value: value_i32,
+            value_string,
+            items,
+            selected_item,
+            disabled: is_disabled,
+            class,
+            style,
+            on_change,
+            on_value_change,
+            on_select,
+            on_mounted,
+            attributes,
+            children,
+        });
+    }
+
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+
+    rsx! {
+        select {
+            id: "{attrs.id}",
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
+            aria_label: "{attrs.aria_label}",
+            disabled: attrs.disabled,
+            value: "{value_string}",
+            "data-disabled": attrs.data_disabled,
+            "data-calendar-month-select": attrs.data_calendar_month_select,
+            "data-calendar-year-select": attrs.data_calendar_year_select,
+            "data-range-calendar-month-select": attrs.data_range_calendar_month_select,
+            "data-range-calendar-year-select": attrs.data_range_calendar_year_select,
+            onchange: move |evt| on_change.call(evt),
+            onmounted: move |evt| {
+                if let Some(handler) = on_mounted {
+                    handler.call(evt);
+                }
+            },
+            ..merged.rest,
+            if let Some(children) = children {
+                {children}
+            } else {
+                for item in items {
+                    option {
+                        key: "{item.value}",
+                        value: "{item.value}",
+                        selected: item.value == value_i32,
+                        "{item.label}"
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
+pub fn CalendarMonthSelect(props: CalendarMonthSelectProps) -> Element {
+    let ctx = use_calendar_shared_context();
+    let attrs =
+        ctx.runtime
+            .month_select_attrs(props.id.clone(), props.aria_label.clone(), props.disabled);
+    let current_month = ctx.runtime.current_month() as i32;
+    let locale = ctx.runtime.locale();
+
+    let items = if let Some(ref fmt_cb) = props.month_formatter {
+        let month_numbers: Vec<u8> = props.months.clone().unwrap_or_else(|| (1..=12).collect());
+        month_numbers
+            .into_iter()
+            .map(|month| CalendarSelectOption {
+                value: month as i32,
+                label: fmt_cb.call(month),
+            })
+            .collect()
+    } else {
+        build_calendar_month_options(props.months.as_deref(), &locale, props.month_format)
+    };
+
+    render_calendar_select(
+        attrs,
+        current_month,
+        items,
+        true,
+        props.class,
+        props.style,
+        props.as_child,
+        props.render_child,
+        props.on_change,
+        props.on_mounted,
+        props.attributes,
+        props.children,
+        ctx.runtime,
+    )
+}
+
 #[component]
 pub fn CalendarYearSelect(props: CalendarYearSelectProps) -> Element {
     let ctx = use_calendar_shared_context();
@@ -261,7 +304,7 @@ pub fn CalendarYearSelect(props: CalendarYearSelectProps) -> Element {
         .clone()
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| ctx.runtime.default_years());
-    let year_items: Vec<CalendarSelectOption> = if let Some(ref fmt_cb) = props.year_formatter {
+    let items = if let Some(ref fmt_cb) = props.year_formatter {
         year_numbers
             .into_iter()
             .map(|year| CalendarSelectOption {
@@ -273,96 +316,19 @@ pub fn CalendarYearSelect(props: CalendarYearSelectProps) -> Element {
         build_calendar_year_options(&year_numbers, &locale, props.year_format)
     };
 
-    let value_i32 = current_year;
-    let value_string = current_year.to_string();
-    let selected_item = resolve_selected_calendar_option(&year_items, value_i32);
-
-    let is_disabled = attrs.disabled;
-    let consumer_on_change = props.on_change;
-    let mut rt_change = ctx.runtime.clone();
-    let on_change = Callback::new(move |evt: FormEvent| {
-        if is_disabled {
-            return;
-        }
-        if let Some(ref handler) = consumer_on_change {
-            handler.call(evt.clone());
-        }
-        if let Ok(year) = evt.value().trim().parse::<i32>() {
-            rt_change.set_year(year);
-        }
-    });
-
-    let mut rt_value_change = ctx.runtime.clone();
-    let on_value_change = Callback::new(move |next: Option<String>| {
-        if is_disabled {
-            return;
-        }
-        if let Some(raw) = next
-            && let Ok(year) = raw.trim().parse::<i32>()
-        {
-            rt_value_change.set_year(year);
-        }
-    });
-
-    let mut rt_select = ctx.runtime.clone();
-    let on_select = Callback::new(move |year: i32| {
-        if is_disabled {
-            return;
-        }
-        rt_select.set_year(year);
-    });
-
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(CalendarSelectRenderProps {
-            attrs,
-            value: value_i32,
-            value_string,
-            items: year_items,
-            selected_item,
-            disabled: is_disabled,
-            class: props.class,
-            style: props.style,
-            on_change,
-            on_value_change,
-            on_select,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: props.children,
-        });
-    }
-
-    rsx! {
-        select {
-            id: "{attrs.id}",
-            class: props.class,
-            style: props.style,
-            aria_label: "{attrs.aria_label}",
-            disabled: attrs.disabled,
-            value: "{current_year}",
-            "data-disabled": attrs.data_disabled,
-            "data-calendar-year-select": attrs.data_calendar_year_select,
-            "data-range-calendar-year-select": attrs.data_range_calendar_year_select,
-            onchange: move |evt| on_change.call(evt),
-            onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..props.attributes,
-            if let Some(children) = props.children {
-                {children}
-            } else {
-                for item in year_items {
-                    option {
-                        key: "{item.value}",
-                        value: "{item.value}",
-                        selected: item.value == current_year,
-                        "{item.label}"
-                    }
-                }
-            }
-        }
-    }
+    render_calendar_select(
+        attrs,
+        current_year,
+        items,
+        false,
+        props.class,
+        props.style,
+        props.as_child,
+        props.render_child,
+        props.on_change,
+        props.on_mounted,
+        props.attributes,
+        props.children,
+        ctx.runtime,
+    )
 }

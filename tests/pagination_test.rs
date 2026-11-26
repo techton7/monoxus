@@ -269,7 +269,7 @@ fn test_pagination_vdom_mounts_with_context_and_render_children() {
                 id: "vdom-as-child-root",
                 count: 20,
                 per_page: 10,
-                as_child: Some(true),
+                as_child: true,
                 render_child: move |rc: PaginationRootRenderChildProps| rsx! {
                     section {
                         id: "{rc.attrs.id}",
@@ -637,4 +637,104 @@ mod native_tests {
         );
         assert_native_focus_id(&harness, "pg-vert-page-3");
     }
+
+    #[component]
+    fn NativePaginationHandlerToggleApp() -> Element {
+        let mut step = use_signal(|| 0u8);
+        let mut cb1_count = use_signal(|| 0usize);
+        let mut cb2_count = use_signal(|| 0usize);
+        let handler: Option<EventHandler<MouseEvent>> = match step() {
+            0 => None,
+            1 => Some(EventHandler::new(move |_| cb1_count += 1)),
+            _ => Some(EventHandler::new(move |_| cb2_count += 1)),
+        };
+
+        rsx! {
+            div {
+                button {
+                    id: "fm-pg-advance",
+                    onclick: move |_| step += 1,
+                    "Advance"
+                }
+                div {
+                    id: "fm-pg-log",
+                    "data-cb1": "{cb1_count}",
+                    "data-cb2": "{cb2_count}",
+                }
+                PaginationRoot {
+                    id: "fm-pg-root",
+                    count: 30,
+                    per_page: 10,
+                    default_page: 2,
+                    PaginationPrevButton {
+                        id: "fm-pg-prev",
+                        on_click: handler,
+                        "Prev"
+                    }
+                    PaginationNextButton {
+                        id: "fm-pg-next",
+                        "Next"
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_pagination_prev_button_handler_toggle_invokes_latest_cb() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativePaginationHandlerToggleApp);
+
+        // FM-API-4: None -> Some(cb1) -> Some(cb2) across 3 renders without ValueDroppedError.
+        click_and_pump(&mut harness, "#fm-pg-advance");
+        click_and_pump(&mut harness, "#fm-pg-advance");
+        click_and_pump(&mut harness, "#fm-pg-prev");
+
+        assert_eq!(harness.attr("#fm-pg-log", "data-cb1").as_deref(), Some("0"));
+        assert_eq!(harness.attr("#fm-pg-log", "data-cb2").as_deref(), Some("1"));
+    }
+}
+
+#[test]
+fn test_pagination_prev_button_optional_handler_toggle_vdom() {
+    #[component]
+    fn ToggleApp(step: Signal<u8>) -> Element {
+        let handler: Option<EventHandler<MouseEvent>> = match step() {
+            0 => None,
+            1 => Some(EventHandler::new(move |_| {})),
+            _ => Some(EventHandler::new(move |_| {})),
+        };
+        rsx! {
+            PaginationRoot {
+                id: "vdom-fm-api-4-pg",
+                count: 30,
+                per_page: 10,
+                default_page: 2,
+                PaginationPrevButton {
+                    on_click: handler,
+                    "Prev"
+                }
+                PaginationNextButton { "Next" }
+            }
+        }
+    }
+
+    let step_holder: std::rc::Rc<std::cell::RefCell<Option<Signal<u8>>>> =
+        std::rc::Rc::new(std::cell::RefCell::new(None));
+    let holder_prop = step_holder.clone();
+
+    #[component]
+    fn Host(holder: std::rc::Rc<std::cell::RefCell<Option<Signal<u8>>>>) -> Element {
+        let step = use_signal(|| 0u8);
+        *holder.borrow_mut() = Some(step);
+        rsx! { ToggleApp { step } }
+    }
+
+    let mut dom = VirtualDom::new_with_props(Host, HostProps { holder: holder_prop });
+    dom.rebuild_in_place();
+    let mut step = step_holder.borrow().expect("step signal captured");
+    dom.in_scope(ScopeId::APP, || step.set(1));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    dom.in_scope(ScopeId::APP, || step.set(2));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
 }

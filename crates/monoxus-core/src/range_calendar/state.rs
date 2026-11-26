@@ -1,7 +1,10 @@
+use std::ops::Deref;
+
 use crate::foundation::{
     date_time::{
-        CalendarDate, CalendarLocale, DateRange, MonthFormat, Weekday, WeekdayFormat, YearFormat,
-        compute_highlighted_range, has_disabled_dates_in_range, is_range_valid,
+        CalendarConfig, CalendarDate, CalendarLocale, DateRange, MonthFormat, Weekday,
+        WeekdayFormat, YearFormat, compute_highlighted_range, has_disabled_dates_in_range,
+        is_range_valid,
     },
     shared::{Direction, ScopeHandle},
 };
@@ -10,47 +13,26 @@ use crate::foundation::{
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RangeCalendarDefinition {
     pub scope: ScopeHandle,
-    pub min_value: Option<CalendarDate>,
-    pub max_value: Option<CalendarDate>,
-    pub disabled: bool,
-    pub read_only: bool,
-    pub prevent_deselect: bool,
-    pub paged_navigation: bool,
-    pub fixed_weeks: bool,
-    pub number_of_months: usize,
-    pub week_starts_on: Option<Weekday>,
-    pub weekday_format: WeekdayFormat,
-    pub month_format: MonthFormat,
-    pub year_format: YearFormat,
-    pub locale: CalendarLocale,
-    pub calendar_label: String,
-    pub dir: Direction,
-    pub disable_days_outside_month: bool,
+    pub config: CalendarConfig,
     pub min_days: Option<usize>,
     pub max_days: Option<usize>,
     pub exclude_disabled: bool,
+}
+
+impl Deref for RangeCalendarDefinition {
+    type Target = CalendarConfig;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.config
+    }
 }
 
 impl RangeCalendarDefinition {
     pub fn new(scope: ScopeHandle) -> Self {
         Self {
             scope,
-            min_value: None,
-            max_value: None,
-            disabled: false,
-            read_only: false,
-            prevent_deselect: false,
-            paged_navigation: false,
-            fixed_weeks: false,
-            number_of_months: 1,
-            week_starts_on: None,
-            weekday_format: WeekdayFormat::Narrow,
-            month_format: MonthFormat::Long,
-            year_format: YearFormat::Numeric,
-            locale: CalendarLocale::EnUs,
-            calendar_label: String::from("Event"),
-            dir: Direction::Ltr,
-            disable_days_outside_month: true,
+            config: CalendarConfig::default(),
             min_days: None,
             max_days: None,
             exclude_disabled: false,
@@ -58,82 +40,84 @@ impl RangeCalendarDefinition {
     }
 
     pub fn with_min_value(mut self, min_value: Option<CalendarDate>) -> Self {
-        self.min_value = min_value;
+        self.config = self.config.with_min_value(min_value);
         self
     }
 
     pub fn with_max_value(mut self, max_value: Option<CalendarDate>) -> Self {
-        self.max_value = max_value;
+        self.config = self.config.with_max_value(max_value);
         self
     }
 
     pub fn with_disabled(mut self, disabled: bool) -> Self {
-        self.disabled = disabled;
+        self.config = self.config.with_disabled(disabled);
         self
     }
 
     pub fn with_read_only(mut self, read_only: bool) -> Self {
-        self.read_only = read_only;
+        self.config = self.config.with_read_only(read_only);
         self
     }
 
     pub fn with_prevent_deselect(mut self, prevent_deselect: bool) -> Self {
-        self.prevent_deselect = prevent_deselect;
+        self.config = self.config.with_prevent_deselect(prevent_deselect);
         self
     }
 
     pub fn with_paged_navigation(mut self, paged_navigation: bool) -> Self {
-        self.paged_navigation = paged_navigation;
+        self.config = self.config.with_paged_navigation(paged_navigation);
         self
     }
 
     pub fn with_fixed_weeks(mut self, fixed_weeks: bool) -> Self {
-        self.fixed_weeks = fixed_weeks;
+        self.config = self.config.with_fixed_weeks(fixed_weeks);
         self
     }
 
     pub fn with_number_of_months(mut self, number_of_months: usize) -> Self {
-        self.number_of_months = number_of_months.max(1);
+        self.config = self.config.with_number_of_months(number_of_months);
         self
     }
 
     pub fn with_week_starts_on(mut self, week_starts_on: Option<Weekday>) -> Self {
-        self.week_starts_on = week_starts_on;
+        self.config = self.config.with_week_starts_on(week_starts_on);
         self
     }
 
     pub fn with_weekday_format(mut self, weekday_format: WeekdayFormat) -> Self {
-        self.weekday_format = weekday_format;
+        self.config = self.config.with_weekday_format(weekday_format);
         self
     }
 
     pub fn with_month_format(mut self, month_format: MonthFormat) -> Self {
-        self.month_format = month_format;
+        self.config = self.config.with_month_format(month_format);
         self
     }
 
     pub fn with_year_format(mut self, year_format: YearFormat) -> Self {
-        self.year_format = year_format;
+        self.config = self.config.with_year_format(year_format);
         self
     }
 
     pub fn with_locale(mut self, locale: CalendarLocale) -> Self {
-        self.locale = locale;
+        self.config = self.config.with_locale(locale);
         self
     }
 
     pub fn with_calendar_label(mut self, calendar_label: impl Into<String>) -> Self {
-        self.calendar_label = calendar_label.into();
+        self.config = self.config.with_calendar_label(calendar_label);
         self
     }
 
     pub fn with_direction(mut self, dir: Direction) -> Self {
-        self.dir = dir;
+        self.config = self.config.with_direction(dir);
         self
     }
 
     pub fn with_disable_days_outside_month(mut self, disable_days_outside_month: bool) -> Self {
-        self.disable_days_outside_month = disable_days_outside_month;
+        self.config = self
+            .config
+            .with_disable_days_outside_month(disable_days_outside_month);
         self
     }
 
@@ -150,24 +134,6 @@ impl RangeCalendarDefinition {
     pub fn with_exclude_disabled(mut self, exclude_disabled: bool) -> Self {
         self.exclude_disabled = exclude_disabled;
         self
-    }
-
-    pub fn effective_week_starts_on(&self) -> Weekday {
-        self.week_starts_on
-            .unwrap_or_else(|| self.locale.default_week_starts_on())
-    }
-
-    pub fn is_date_disabled_with(&self, date: CalendarDate, custom_disabled: bool) -> bool {
-        if self.disabled || custom_disabled {
-            return true;
-        }
-        if self.min_value.is_some_and(|min| date < min) {
-            return true;
-        }
-        if self.max_value.is_some_and(|max| date > max) {
-            return true;
-        }
-        false
     }
 }
 
@@ -206,18 +172,13 @@ pub struct RangeCalendarUpdate {
 }
 
 /// Returns `true` when `date` falls within the current `start_value`/`end_value` selection.
+#[inline]
 pub fn is_date_selected_in_range(
     date: CalendarDate,
     start_value: Option<CalendarDate>,
     end_value: Option<CalendarDate>,
 ) -> bool {
-    if start_value == Some(date) || end_value == Some(date) {
-        return true;
-    }
-    if let (Some(start), Some(end)) = (start_value, end_value) {
-        return date.is_between_inclusive(start, end);
-    }
-    false
+    DateRange::new(start_value, end_value).contains_date(date)
 }
 
 /// Computes `is_invalid` for a `RangeCalendar` (either endpoint invalid/disabled/unavailable or `end < start`).

@@ -853,4 +853,108 @@ mod native_tests {
             "Dialog Y center {dlg_cy} diverged from positioner center {pos_cy}"
         );
     }
+
+    #[component]
+    fn NativeCommandItemHandlerToggleScenario() -> Element {
+        let mut step = use_signal(|| 0u8);
+        let mut cb1_hits = use_signal(|| 0usize);
+        let mut cb2_hits = use_signal(|| 0usize);
+        let on_select: Option<EventHandler<()>> = match step() {
+            0 => None,
+            1 => Some(EventHandler::new(move |()| cb1_hits += 1)),
+            _ => Some(EventHandler::new(move |()| cb2_hits += 1)),
+        };
+        let on_pointer_move: Option<EventHandler<PointerEvent>> = match step() {
+            0 => None,
+            1 => Some(EventHandler::new(move |_| {})),
+            _ => Some(EventHandler::new(move |_| {})),
+        };
+
+        rsx! {
+            div {
+                button {
+                    id: "fm-cmd-advance",
+                    onclick: move |_| step += 1,
+                    "Advance"
+                }
+                div {
+                    id: "fm-cmd-log",
+                    "data-cb1": "{cb1_hits}",
+                    "data-cb2": "{cb2_hits}",
+                }
+                CommandRoot {
+                    id: "fm-cmd-toggle-root",
+                    CommandInput { id: "fm-cmd-toggle-input" }
+                    CommandList {
+                        CommandViewport {
+                            CommandItem {
+                                id: "fm-cmd-toggle-item",
+                                value: "ToggleItem",
+                                on_select: on_select,
+                                on_pointer_move: on_pointer_move,
+                                "ToggleItem"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_native_command_item_handler_toggle_invokes_latest_cb() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeCommandItemHandlerToggleScenario);
+
+        // FM-API-4: None -> Some(cb1) -> Some(cb2) across 3 renders without ValueDroppedError.
+        click_and_pump(&mut harness, "#fm-cmd-advance");
+        click_and_pump(&mut harness, "#fm-cmd-advance");
+        click_and_pump(&mut harness, "#fm-cmd-toggle-item");
+
+        assert_eq!(harness.attr("#fm-cmd-log", "data-cb1").as_deref(), Some("0"));
+        assert_eq!(harness.attr("#fm-cmd-log", "data-cb2").as_deref(), Some("1"));
+    }
+}
+
+#[test]
+fn test_command_item_optional_handler_toggle_vdom() {
+    #[component]
+    fn ToggleHost(holder: std::rc::Rc<std::cell::RefCell<Option<Signal<u8>>>>) -> Element {
+        let step = use_signal(|| 0u8);
+        *holder.borrow_mut() = Some(step);
+        let on_select: Option<EventHandler<()>> = match step() {
+            0 => None,
+            1 => Some(EventHandler::new(move |()| {})),
+            _ => Some(EventHandler::new(move |()| {})),
+        };
+        rsx! {
+            CommandRoot {
+                id: "vdom-fm-api-4-cmd",
+                CommandInput {}
+                CommandList {
+                    CommandViewport {
+                        CommandItem {
+                            value: "One",
+                            on_select: on_select,
+                            "One"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let holder = std::rc::Rc::new(std::cell::RefCell::new(None));
+    let mut dom = VirtualDom::new_with_props(
+        ToggleHost,
+        ToggleHostProps {
+            holder: holder.clone(),
+        },
+    );
+    dom.rebuild_in_place();
+    let mut step = holder.borrow().expect("step signal captured");
+    dom.in_scope(ScopeId::APP, || step.set(1));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    dom.in_scope(ScopeId::APP, || step.set(2));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
 }

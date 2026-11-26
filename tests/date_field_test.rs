@@ -100,6 +100,32 @@ fn date_field_public_contracts_and_vdom_smoke() {
     dt_dom.rebuild_in_place();
 }
 
+#[test]
+fn date_value_fm_dt5_clamp_preserves_date_vs_datetime_variant() {
+    let day = CalendarDate::new(2026, 4, 10).unwrap();
+    let date_only = DateValue::Date(day);
+    let midnight_dt = DateValue::DateTime(CalendarDateTime::new(
+        day,
+        CalendarTime::from_hms(0, 0, 0).unwrap(),
+    ));
+
+    // Equal chronologically -> preserves original Date vs DateTime(00:00:00) variant via compare_chronological.
+    assert_eq!(date_only.clamp(Some(midnight_dt), None), date_only);
+    assert!(matches!(
+        date_only.clamp(Some(midnight_dt), None),
+        DateValue::Date(_)
+    ));
+    assert_eq!(midnight_dt.clamp(None, Some(date_only)), midnight_dt);
+    assert!(matches!(
+        midnight_dt.clamp(None, Some(date_only)),
+        DateValue::DateTime(_)
+    ));
+
+    // Strictly out-of-bounds clamps to min/max.
+    assert_eq!(d(2026, 4, 1).clamp(Some(date_only), None), date_only);
+    assert_eq!(d(2026, 4, 25).clamp(None, Some(date_only)), date_only);
+}
+
 #[cfg(feature = "native")]
 mod native_tests {
     use keyboard_types::{Code, Key, NamedKey};
@@ -468,6 +494,70 @@ mod native_tests {
         assert_eq!(
             harness.attr("input[name='roseg_date']", "value").as_deref(),
             Some("2026-06-16")
+        );
+    }
+
+    #[component]
+    fn NativeDateFieldKeyedLabelSwapScenario() -> Element {
+        let mut swap = use_signal(|| false);
+        let label_key = if *swap.read() { "lbl-b" } else { "lbl-a" };
+        let label_id = if *swap.read() {
+            "df-swap-lbl-b"
+        } else {
+            "df-swap-lbl-a"
+        };
+
+        rsx! {
+            div {
+                style: "padding: 16px;",
+                button {
+                    id: "df-swap-label-btn",
+                    r#type: "button",
+                    style: "width: 80px; height: 28px;",
+                    onclick: move |_| swap.toggle(),
+                    "Swap Label"
+                }
+                DateFieldRoot {
+                    id: "df-swap-root",
+                    locale: CalendarLocale::EnUs,
+                    default_value: d(2026, 6, 15),
+                    for (lkey, lid) in [(label_key, label_id)] {
+                        DateFieldLabel {
+                            key: "{lkey}",
+                            id: lid.to_string(),
+                            "Label"
+                        }
+                    }
+                    DateFieldInput {
+                        id: "df-swap-input",
+                        render_children: move |segments: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segments {
+                                DateFieldSegment {
+                                    key: "{seg.index}",
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_date_field_fm_dt5_keyed_label_swap_preserves_replacement_id() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeDateFieldKeyedLabelSwapScenario);
+
+        assert_eq!(
+            harness.attr("#df-swap-input", "aria-labelledby").as_deref(),
+            Some("df-swap-lbl-a")
+        );
+        click_and_pump(&mut harness, "#df-swap-label-btn");
+        assert_eq!(
+            harness.attr("#df-swap-input", "aria-labelledby").as_deref(),
+            Some("df-swap-lbl-b")
         );
     }
 }

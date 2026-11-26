@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+use crate::foundation::{compose::merge_global_attributes, state::sync_signal};
+
 use super::super::{
     attrs::{CommandListAttrs, merge_flex_column_style},
     runtime::CommandContext,
@@ -50,9 +52,7 @@ pub fn CommandList(props: CommandListProps) -> Element {
         .id
         .clone()
         .unwrap_or_else(|| ctx.relationships.peek().list_id());
-    if *ctx.list_id.peek() != resolved_id {
-        ctx.list_id.set(resolved_id.clone());
-    }
+    sync_signal(&mut ctx.list_id, resolved_id.clone());
 
     let attrs = CommandListAttrs::new(resolved_id, props.aria_label.as_deref());
     let height_px = *ctx.list_height.read();
@@ -84,20 +84,26 @@ pub fn CommandList(props: CommandListProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        (!merged_style.is_empty()).then_some(merged_style.as_str()),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id}",
             role: "{attrs.role}",
             aria_label: "{attrs.aria_label}",
             "data-command-list": attrs.data_command_list,
-            class: props.class,
-            style: if merged_style.is_empty() { None } else { Some(merged_style) },
+            class: merged.class,
+            style: merged.style,
             onmounted: move |evt| {
                 if let Some(handler) = props.on_mounted.as_ref() {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

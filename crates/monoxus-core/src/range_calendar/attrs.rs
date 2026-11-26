@@ -1,5 +1,4 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     date_time::{CalendarDate, CalendarLocale},
     shared::data_disabled_attr,
 };
@@ -142,13 +141,4 @@ impl RangeCalendarDayAttrs {
             data_bits_day: "",
         }
     }
-}
-
-pub fn project_range_calendar_day_as_child<T, C>(
-    attrs: &RangeCalendarDayAttrs,
-    target: T,
-    content: Slottable<C>,
-) -> (T, RangeCalendarDayAttrs, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
 }

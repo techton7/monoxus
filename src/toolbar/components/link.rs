@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{click_element_by_id, is_element_focused_by_id},
+    compose::merge_global_attributes,
     roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::use_stable_id,
 };
@@ -112,11 +113,17 @@ pub fn ToolbarLink(props: ToolbarLinkProps) -> Element {
         }
     };
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         a {
             id: "{attrs.id()}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             href: attrs.href(),
             target: props.target.as_deref(),
             rel: props.rel.as_deref(),
@@ -129,7 +136,7 @@ pub fn ToolbarLink(props: ToolbarLinkProps) -> Element {
             onkeydown: on_key_down,
             onfocus: on_focus,
             onmounted: on_mounted,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

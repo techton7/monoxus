@@ -1,9 +1,7 @@
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use dioxus::prelude::*;
 
 pub use crate::foundation::state::use_controllable_state;
+use crate::foundation::state::ControllableSignal;
 
 use super::types::CheckedState;
 
@@ -79,10 +77,9 @@ pub struct CheckboxGroupContext {
     pub(crate) required: Signal<bool>,
     pub(crate) read_only: Signal<bool>,
     pub(crate) values: Signal<Vec<String>>,
+    pub(crate) values_ctl: ControllableSignal<Vec<String>>,
     pub(crate) label_id: Signal<Option<String>>,
     pub(crate) reset_epoch: Signal<u64>,
-    pub(crate) on_toggle: Rc<RefCell<Rc<dyn Fn(String)>>>,
-    pub(crate) on_set_label_id: Rc<dyn Fn(Option<String>)>,
 }
 
 impl CheckboxGroupContext {
@@ -131,8 +128,19 @@ impl CheckboxGroupContext {
     }
 
     pub fn toggle_item(&self, value: impl Into<String>) {
-        let handler = self.on_toggle.borrow().clone();
-        handler(value.into());
+        if self.is_disabled() || self.is_read_only() {
+            return;
+        }
+        let val = value.into();
+        self.values_ctl.update(|current| {
+            let mut list = current.clone();
+            if let Some(pos) = list.iter().position(|v| v == &val) {
+                list.remove(pos);
+            } else {
+                list.push(val);
+            }
+            list
+        });
     }
 
     pub fn label_id(&self) -> Option<String> {
@@ -140,7 +148,10 @@ impl CheckboxGroupContext {
     }
 
     pub fn set_label_id(&self, id: Option<String>) {
-        (self.on_set_label_id)(id);
+        let mut sig = self.label_id;
+        if let Ok(mut guard) = sig.try_write() {
+            *guard = id;
+        }
     }
 }
 

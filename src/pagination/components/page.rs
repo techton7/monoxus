@@ -1,7 +1,10 @@
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
-use crate::foundation::roving_focus::{RovingItemMeta, use_roving_focus_item};
+use crate::foundation::{
+    compose::merge_global_attributes,
+    keyboard::is_activation_key,
+    roving_focus::{RovingItemMeta, use_roving_focus_item},
+};
 
 use super::super::{
     attrs::PaginationPageAttributes,
@@ -28,7 +31,7 @@ pub struct PaginationPageProps {
     #[props(default)]
     pub aria_label: Option<String>,
     #[props(default)]
-    pub as_child: Option<bool>,
+    pub as_child: bool,
     #[props(default)]
     pub render_child: Option<Callback<PaginationPageRenderChildProps, Element>>,
     #[props(default)]
@@ -69,14 +72,13 @@ pub fn PaginationPage(props: PaginationPageProps) -> Element {
         RovingItemMeta::new(page_attrs.id.clone(), !effective_disabled, is_selected),
     );
 
-    let as_child = props.as_child.unwrap_or(false);
-    if as_child && props.render_child.is_none() {
+    if props.as_child && props.render_child.is_none() {
         #[cfg(debug_assertions)]
         eprintln!(
             "monoxus::PaginationPage: as_child requires render_child; rendering the default button"
         );
     }
-    if let Some(render_child) = props.render_child.as_ref().filter(|_| as_child) {
+    if let Some(render_child) = props.render_child.as_ref().filter(|_| props.as_child) {
         return render_child.call(PaginationPageRenderChildProps {
             attrs: page_attrs,
             page: props.page,
@@ -113,8 +115,7 @@ pub fn PaginationPage(props: PaginationPageProps) -> Element {
         let roving_key = roving_key.clone();
         let consumer_on_keydown = props.on_key_down;
         move |evt: KeyboardEvent| {
-            let key = evt.key();
-            if key == Key::Named(NamedKey::Enter) || key == Key::Character(String::from(" ")) {
+            if is_activation_key(&evt.key()) {
                 if effective_disabled {
                     evt.prevent_default();
                     return;
@@ -150,11 +151,17 @@ pub fn PaginationPage(props: PaginationPageProps) -> Element {
         }
     };
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         button {
             id: "{page_attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             r#type: "{page_attrs.r#type}",
             aria_label: "{page_attrs.aria_label}",
             "aria-current": page_attrs.aria_current,
@@ -172,7 +179,7 @@ pub fn PaginationPage(props: PaginationPageProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             if let Some(children) = props.children {
                 {children}
             } else {

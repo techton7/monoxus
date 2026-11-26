@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::foundation::{
+    compose::merge_global_attributes,
     roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::use_stable_id,
 };
@@ -102,11 +103,17 @@ pub fn ToolbarButton(props: ToolbarButtonProps) -> Element {
         }
     };
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         button {
             id: "{attrs.id()}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             r#type: attrs.button_type(),
             tabindex: attrs.tabindex(),
             disabled: attrs.is_disabled(),
@@ -118,7 +125,7 @@ pub fn ToolbarButton(props: ToolbarButtonProps) -> Element {
             onkeydown: on_key_down,
             onfocus: on_focus,
             onmounted: on_mounted,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

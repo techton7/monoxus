@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
+use dioxus::prelude::keyboard_types::Key;
 use dioxus::prelude::*;
 
 use crate::foundation::{
@@ -10,7 +10,9 @@ use crate::foundation::{
         get_element_client_rect, get_input_selection_range, set_input_selection_range,
         set_input_value_by_id,
     },
+    keyboard::{NavKey, translate_nav_key},
     shared::ScopeHandle,
+    state::{ControllableSignal, sync_signal, use_controllable_signal_with},
 };
 
 use super::{
@@ -35,12 +37,13 @@ use super::{
 #[derive(Clone)]
 pub struct PinInputRuntime {
     pub value: Signal<String>,
+    pub(crate) value_ctl: ControllableSignal<String>,
     pub is_controlled: Signal<bool>,
     pub max_length: Signal<usize>,
     pub pattern: Rc<RefCell<PinInputPattern>>,
-    pub paste_transformer: Rc<RefCell<Option<Callback<String, String>>>>,
-    pub on_value_change: Rc<RefCell<Option<EventHandler<String>>>>,
-    pub on_complete: Rc<RefCell<Option<EventHandler<String>>>>,
+    pub paste_transformer: CopyValue<Option<Callback<String, String>>>,
+    pub on_value_change: CopyValue<Option<EventHandler<String>>>,
+    pub on_complete: CopyValue<Option<EventHandler<String>>>,
     pub last_complete_value: Rc<RefCell<String>>,
     pub selection: Signal<PinInputSelection>,
     pub prev_selection: Rc<RefCell<PinInputSelection>>,
@@ -187,9 +190,7 @@ impl PinInputRuntime {
 
     fn apply_selection_state(&mut self, next: PinInputSelection) {
         *self.prev_selection.borrow_mut() = next;
-        if *self.selection.peek() != next {
-            self.selection.set(next);
-        }
+        sync_signal(&mut self.selection, next);
     }
 
     /// Synchronizes selection state from the host DOM `<input>` element.
@@ -260,9 +261,6 @@ impl PinInputRuntime {
     }
 
     /// Resolves pointer coordinates to a target cell selection on `pointerdown`.
-    ///
-    /// Returns `true` when a non-disabled cell selection was resolved so the caller can
-    /// suppress default browser caret collapse and ensure `<input>` focus.
     pub fn handle_pointer_down(&mut self, client_x: f64, client_y: f64) -> bool {
         if *self.disabled.peek() {
             *self.pointer_target_selection.borrow_mut() = None;
@@ -287,9 +285,6 @@ impl PinInputRuntime {
     }
 
     /// Suppresses host drag-selection while a pointer press started inside a cell.
-    ///
-    /// Returns `true` when pointer-down tracking is active so the caller can prevent
-    /// native host text-selection heuristics from expanding across cells.
     pub fn handle_pointer_move(
         &mut self,
         _client_x: f64,
@@ -312,8 +307,6 @@ impl PinInputRuntime {
             return;
         }
         if !*self.is_focused.peek() {
-            // Focus from `pointerdown` may arrive asynchronously on the next frame;
-            // keep `pointer_target_selection` intact so `handle_focus` applies it.
             return;
         }
         let Some(target) = self.pointer_target_selection.borrow_mut().take() else {
@@ -368,11 +361,12 @@ impl PinInputRuntime {
         if *self.disabled.peek() || *self.read_only.peek() {
             return false;
         }
+        let nav = translate_nav_key(key);
         if ctrl_or_meta && !is_composing {
             if matches!(key, Key::Character(s) if s.eq_ignore_ascii_case("a")) {
                 return true;
             }
-            if matches!(key, Key::Named(NamedKey::Backspace | NamedKey::Delete)) {
+            if matches!(nav, Some(NavKey::Backspace | NavKey::Delete)) {
                 let input_id = self.input_dom_id.peek().clone();
                 let _ = set_input_value_by_id(&input_id, "");
                 let collapsed = PinInputSelection::collapsed(0);
@@ -383,11 +377,11 @@ impl PinInputRuntime {
             }
         }
         if shift && !ctrl_or_meta && !is_composing {
-            let nav_key = match key {
-                Key::Named(NamedKey::ArrowLeft) => Some(PinShiftNavKey::ArrowLeft),
-                Key::Named(NamedKey::ArrowRight) => Some(PinShiftNavKey::ArrowRight),
-                Key::Named(NamedKey::Home) => Some(PinShiftNavKey::Home),
-                Key::Named(NamedKey::End) => Some(PinShiftNavKey::End),
+            let nav_key = match nav {
+                Some(NavKey::ArrowLeft) => Some(PinShiftNavKey::ArrowLeft),
+                Some(NavKey::ArrowRight) => Some(PinShiftNavKey::ArrowRight),
+                Some(NavKey::Home) => Some(PinShiftNavKey::Home),
+                Some(NavKey::End) => Some(PinShiftNavKey::End),
                 _ => None,
             };
             if let Some(nav_key) = nav_key {
@@ -407,14 +401,14 @@ impl PinInputRuntime {
             }
         }
         if matches!(
-            key,
-            Key::Named(
-                NamedKey::ArrowLeft
-                    | NamedKey::ArrowRight
-                    | NamedKey::ArrowUp
-                    | NamedKey::ArrowDown
-                    | NamedKey::Home
-                    | NamedKey::End
+            nav,
+            Some(
+                NavKey::ArrowLeft
+                    | NavKey::ArrowRight
+                    | NavKey::ArrowUp
+                    | NavKey::ArrowDown
+                    | NavKey::Home
+                    | NavKey::End
             )
         ) && dioxus::core::Runtime::try_current().is_some()
         {
@@ -454,7 +448,7 @@ impl PinInputRuntime {
         *self.pointer_down_active.borrow_mut() = false;
         let max_len = *self.max_length.peek();
         let pat = self.pattern.borrow().clone();
-        let transformer = self.paste_transformer.borrow().clone();
+        let transformer = self.paste_transformer.try_read().ok().and_then(|s| *s);
 
         let Some((next_val, next_caret)) = replace_pin_value_from_paste_with_callbacks(
             raw_paste,
@@ -497,7 +491,6 @@ impl PinInputRuntime {
             return;
         }
 
-        // Multi-character insertions (e.g., Blitz Native UiEvent::Paste or autofill) flush from 0.
         let inserted = Self::extract_inserted_segment(&prev_val, &raw, prev_sel);
         if inserted.chars().count() > 1 {
             if !self.apply_paste(&inserted) {
@@ -570,23 +563,14 @@ impl PinInputRuntime {
 
     /// Commits a sanitized value, notifying `on_value_change` and `on_complete` (uncontrolled).
     pub fn commit_value(&mut self, next: String) {
-        let prev = self.value.peek().clone();
         let max_len = *self.max_length.peek();
-        let controlled = *self.is_controlled.peek();
-        if prev == next {
+        let controlled = self.value_ctl.is_controlled();
+        if !self.value_ctl.set(next.clone()) {
             return;
-        }
-
-        if !controlled {
-            self.value.set(next.clone());
-        }
-        if let Some(handler) = self.on_value_change.borrow().as_ref() {
-            handler.call(next.clone());
         }
         if !controlled {
             self.check_and_fire_on_complete(&next, max_len);
         } else if dioxus::core::Runtime::try_current().is_some() {
-            // Ensure controlled DOM value & selection stay aligned if parent rejected or modified `next`.
             let runtime = self.clone();
             spawn(async move {
                 let _ = oxidase::frame::next_frame().await;
@@ -612,7 +596,9 @@ impl PinInputRuntime {
             *last = current.to_string();
             fire
         };
-        if should_fire && let Some(handler) = self.on_complete.borrow().as_ref() {
+        if should_fire
+            && let Some(handler) = self.on_complete.try_read().ok().and_then(|s| *s)
+        {
             handler.call(current.to_string());
         }
     }
@@ -635,24 +621,16 @@ impl PinInputRuntime {
             self.apply_selection_state(PinInputSelection::empty());
         }
 
-        let prev = self.value.peek().clone();
         *self.last_complete_value.borrow_mut() = sanitized.clone();
-        if prev != sanitized {
-            if !*self.is_controlled.peek() {
-                self.value.set(sanitized.clone());
-            }
-            if let Some(handler) = self.on_value_change.borrow().as_ref() {
-                handler.call(sanitized);
-            }
-        }
+        self.value_ctl.set(sanitized);
     }
 }
 
 /// Initializes reactive signals and non-reactive callback slots for `PinInputRoot`.
 #[allow(clippy::too_many_arguments)]
 pub fn use_pin_input_runtime(
-    initial_value: String,
-    is_controlled: bool,
+    value: Option<String>,
+    default_value: String,
     max_length: usize,
     pattern: PinInputPattern,
     paste_transformer: Option<Callback<String, String>>,
@@ -674,20 +652,39 @@ pub fn use_pin_input_runtime(
     root_dom_id: String,
     input_dom_id: String,
 ) -> PinInputRuntime {
-    let pattern_slot = use_hook(|| Rc::new(RefCell::new(pattern)));
-    let paste_slot = use_hook(|| Rc::new(RefCell::new(paste_transformer)));
-    let change_slot = use_hook(|| Rc::new(RefCell::new(on_value_change)));
-    let complete_slot = use_hook(|| Rc::new(RefCell::new(on_complete)));
-    let last_complete_slot = use_hook(|| Rc::new(RefCell::new(initial_value.clone())));
+    let effective_max_length = max_length.max(1);
+    let pat_for_sanitize = pattern.clone();
+    let value_ctl = use_controllable_signal_with(value, default_value, on_value_change, move |v| {
+        sanitize_pin_value(&v, effective_max_length, &pat_for_sanitize)
+    });
+
+    if !value_ctl.is_controlled() {
+        let mut sig = value_ctl.signal();
+        let current = sig.peek().clone();
+        let clamped = sanitize_pin_value(&current, effective_max_length, &pattern);
+        sync_signal(&mut sig, clamped);
+    }
+
+    let pattern_slot = use_hook(|| Rc::new(RefCell::new(pattern.clone())));
+    *pattern_slot.borrow_mut() = pattern;
+    let mut paste_slot = use_hook(|| CopyValue::new(paste_transformer));
+    paste_slot.set(paste_transformer);
+    let mut change_slot = use_hook(|| CopyValue::new(on_value_change));
+    change_slot.set(on_value_change);
+    let mut complete_slot = use_hook(|| CopyValue::new(on_complete));
+    complete_slot.set(on_complete);
+    let last_complete_slot = use_hook(|| Rc::new(RefCell::new(value_ctl.peek())));
     let prev_sel_slot = use_hook(|| Rc::new(RefCell::new(PinInputSelection::empty())));
     let cell_ids_slot = use_hook(|| Rc::new(RefCell::new(BTreeMap::new())));
     let pointer_target_slot = use_hook(|| Rc::new(RefCell::new(None)));
     let pointer_down_slot = use_hook(|| Rc::new(RefCell::new(false)));
 
-    PinInputRuntime {
-        value: use_signal(|| initial_value),
+    let is_controlled = value_ctl.is_controlled();
+    let mut rt = PinInputRuntime {
+        value: value_ctl.signal(),
+        value_ctl,
         is_controlled: use_signal(|| is_controlled),
-        max_length: use_signal(|| max_length.max(1)),
+        max_length: use_signal(|| effective_max_length),
         pattern: pattern_slot,
         paste_transformer: paste_slot,
         on_value_change: change_slot,
@@ -706,16 +703,42 @@ pub fn use_pin_input_runtime(
         read_only: use_signal(|| read_only),
         required: use_signal(|| required),
         auto_focus: use_signal(|| auto_focus),
-        placeholder: use_signal(|| placeholder),
-        name: use_signal(|| name),
-        form: use_signal(|| form),
-        scope_id: use_signal(|| scope_id),
-        root_dom_id: use_signal(|| root_dom_id),
-        input_dom_id: use_signal(|| input_dom_id),
+        placeholder: use_signal(|| placeholder.clone()),
+        name: use_signal(|| name.clone()),
+        form: use_signal(|| form.clone()),
+        scope_id: use_signal(|| scope_id.clone()),
+        root_dom_id: use_signal(|| root_dom_id.clone()),
+        input_dom_id: use_signal(|| input_dom_id.clone()),
         cell_ids: cell_ids_slot,
         pointer_target_selection: pointer_target_slot,
         pointer_down_active: pointer_down_slot,
+    };
+
+    sync_signal(&mut rt.is_controlled, is_controlled);
+    sync_signal(&mut rt.max_length, effective_max_length);
+    sync_signal(&mut rt.text_align, text_align);
+    sync_signal(&mut rt.input_mode, input_mode);
+    sync_signal(&mut rt.autocomplete, autocomplete);
+    sync_signal(&mut rt.mask, mask);
+    sync_signal(&mut rt.mask_char, mask_char);
+    sync_signal(&mut rt.disabled, disabled);
+    sync_signal(&mut rt.read_only, read_only);
+    sync_signal(&mut rt.required, required);
+    sync_signal(&mut rt.auto_focus, auto_focus);
+    sync_signal(&mut rt.placeholder, placeholder);
+    sync_signal(&mut rt.name, name);
+    sync_signal(&mut rt.form, form);
+    sync_signal(&mut rt.scope_id, scope_id);
+    sync_signal(&mut rt.root_dom_id, root_dom_id);
+    sync_signal(&mut rt.input_dom_id, input_dom_id);
+
+    if disabled && *rt.is_focused.peek() {
+        rt.is_focused.set(false);
+        *rt.prev_selection.borrow_mut() = PinInputSelection::empty();
+        rt.selection.set(PinInputSelection::empty());
     }
+
+    rt
 }
 
 /// Context providing [`PinInputRuntime`] to [`crate::pin_input::PinInputCell`] and consumers.

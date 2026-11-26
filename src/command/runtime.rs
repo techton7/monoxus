@@ -1,9 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
+use dioxus::prelude::keyboard_types::Key;
 use dioxus::prelude::*;
 
-use crate::foundation::browser::{click_element_by_id, scroll_element_into_view_nearest};
+use crate::foundation::{
+    browser::{click_element_by_id, scroll_element_into_view_nearest},
+    keyboard::{NavKey, is_enter_key, is_ime_composing_key, translate_nav_key},
+    state::sync_signal,
+};
 
 use super::{
     relationships::CommandRelationships,
@@ -23,10 +27,10 @@ pub struct CommandContext {
     pub registry: Signal<CommandRegistry>,
     pub search: Signal<String>,
     pub value: Signal<String>,
-    pub on_value_change: Signal<Option<EventHandler<String>>>,
-    pub on_state_change: Signal<Option<EventHandler<CommandStateSnapshot>>>,
+    pub on_value_change: CopyValue<Option<EventHandler<String>>>,
+    pub on_state_change: CopyValue<Option<EventHandler<CommandStateSnapshot>>>,
     pub should_filter: Signal<bool>,
-    pub filter: Signal<Option<CommandFilterCallback>>,
+    pub filter: CopyValue<Option<CommandFilterCallback>>,
     pub loop_focus: Signal<bool>,
     pub vim_bindings: Signal<bool>,
     pub disable_pointer_selection: Signal<bool>,
@@ -57,7 +61,7 @@ impl CommandContext {
     pub fn recompute_filtered(&mut self, force_select_first: bool) {
         let search = self.search.peek().clone();
         let should_filter = *self.should_filter.peek();
-        let custom_filter = *self.filter.peek();
+        let custom_filter = self.filter.try_read().ok().and_then(|f| *f);
 
         {
             let mut reg = self.registry.write();
@@ -85,7 +89,7 @@ impl CommandContext {
     }
 
     pub fn emit_state_change(&self) {
-        if let Some(handler) = *self.on_state_change.peek() {
+        if let Some(handler) = self.on_state_change.try_read().ok().and_then(|s| *s) {
             let snapshot = CommandStateSnapshot {
                 search: self.search.peek().clone(),
                 value: self.value.peek().clone(),
@@ -104,9 +108,7 @@ impl CommandContext {
     }
 
     pub fn set_composing(&mut self, composing: bool) {
-        if *self.is_composing.peek() != composing {
-            self.is_composing.set(composing);
-        }
+        sync_signal(&mut self.is_composing, composing);
     }
 
     pub fn set_link_item(&mut self, value: &str, is_link: bool) {
@@ -126,7 +128,7 @@ impl CommandContext {
         let changed = *self.value.peek() != next;
         if changed {
             self.value.set(next.clone());
-            if let Some(handler) = *self.on_value_change.peek() {
+            if let Some(handler) = self.on_value_change.try_read().ok().and_then(|s| *s) {
                 handler.call(next.clone());
             }
             self.emit_state_change();
@@ -244,7 +246,7 @@ impl CommandContext {
                 .map(|s| s.clone())
                 .unwrap_or_default();
             let should_filter = self.should_filter.try_peek().map(|b| *b).unwrap_or(true);
-            let custom_filter = self.filter.try_peek().ok().and_then(|f| *f);
+            let custom_filter = self.filter.try_read().ok().and_then(|f| *f);
             if let Ok(mut reg) = self.registry.try_write() {
                 if let Some(cb) = custom_filter {
                     reg.recompute_filtered(&search, should_filter, |val, q, kws| {
@@ -264,9 +266,7 @@ impl CommandContext {
                         .iter()
                         .any(|it| it.value == current_val);
                 if !still_valid {
-                    Some(
-                        select_first_valid_item(&reg, &search, should_filter).unwrap_or_default(),
-                    )
+                    Some(select_first_valid_item(&reg, &search, should_filter).unwrap_or_default())
                 } else {
                     None
                 }
@@ -277,10 +277,8 @@ impl CommandContext {
                 if let Ok(mut val_sig) = self.value.try_write() {
                     *val_sig = next.clone();
                 }
-                if let Ok(handler_opt) = self.on_value_change.try_peek() {
-                    if let Some(handler) = *handler_opt {
-                        handler.call(next);
-                    }
+                if let Some(handler) = self.on_value_change.try_read().ok().and_then(|s| *s) {
+                    handler.call(next);
                 }
             }
         }
@@ -318,20 +316,16 @@ impl CommandContext {
     }
 
     pub fn set_group_heading(&mut self, group_value: &str, heading_id: Option<String>) {
-        let already_matches = self
-            .registry
-            .try_peek()
-            .ok()
-            .is_some_and(|reg| {
-                reg.groups()
-                    .iter()
-                    .find(|g| g.value == group_value.trim())
-                    .is_some_and(|g| g.heading_id == heading_id)
-            });
-        if !already_matches {
-            if let Ok(mut reg) = self.registry.try_write() {
-                reg.set_group_heading(group_value, heading_id);
-            }
+        let already_matches = self.registry.try_peek().ok().is_some_and(|reg| {
+            reg.groups()
+                .iter()
+                .find(|g| g.value == group_value.trim())
+                .is_some_and(|g| g.heading_id == heading_id)
+        });
+        if !already_matches
+            && let Ok(mut reg) = self.registry.try_write()
+        {
+            reg.set_group_heading(group_value, heading_id);
         }
     }
 
@@ -482,33 +476,33 @@ impl CommandContext {
         let vim_bindings = *self.vim_bindings.peek();
         let columns = *self.columns.peek();
         let is_grid = columns.is_some_and(|c| c > 0);
+        let event_key = evt.key();
 
-        match evt.key() {
-            Key::Named(NamedKey::Enter) => {
-                if !evt.data().is_composing() && !*self.is_composing.peek() {
-                    evt.prevent_default();
-                    self.activate_selected();
-                }
-                return;
+        if is_enter_key(&event_key) {
+            if !is_ime_composing_key(evt) && !*self.is_composing.peek() {
+                evt.prevent_default();
+                self.activate_selected();
             }
-            _ => {}
+            return;
         }
 
-        let nav_key = match evt.key() {
-            Key::Named(NamedKey::ArrowDown) => Some(CommandNavKey::ArrowDown),
-            Key::Named(NamedKey::ArrowUp) => Some(CommandNavKey::ArrowUp),
-            Key::Named(NamedKey::ArrowRight) if is_grid => Some(CommandNavKey::ArrowRight),
-            Key::Named(NamedKey::ArrowLeft) if is_grid => Some(CommandNavKey::ArrowLeft),
-            Key::Named(NamedKey::Home) => Some(CommandNavKey::Home),
-            Key::Named(NamedKey::End) => Some(CommandNavKey::End),
-            Key::Character(ref ch) if vim_bindings && nav_mods.ctrl => match ch.as_str() {
-                "n" | "N" | "j" | "J" => Some(CommandNavKey::VimNext),
-                "p" | "P" | "k" | "K" => Some(CommandNavKey::VimPrev),
-                "l" | "L" if is_grid => Some(CommandNavKey::VimRight),
-                "h" | "H" if is_grid => Some(CommandNavKey::VimLeft),
+        let nav_key = match translate_nav_key(&event_key) {
+            Some(NavKey::ArrowDown) => Some(CommandNavKey::ArrowDown),
+            Some(NavKey::ArrowUp) => Some(CommandNavKey::ArrowUp),
+            Some(NavKey::ArrowRight) if is_grid => Some(CommandNavKey::ArrowRight),
+            Some(NavKey::ArrowLeft) if is_grid => Some(CommandNavKey::ArrowLeft),
+            Some(NavKey::Home) => Some(CommandNavKey::Home),
+            Some(NavKey::End) => Some(CommandNavKey::End),
+            _ => match event_key {
+                Key::Character(ref ch) if vim_bindings && nav_mods.ctrl => match ch.as_str() {
+                    "n" | "N" | "j" | "J" => Some(CommandNavKey::VimNext),
+                    "p" | "P" | "k" | "K" => Some(CommandNavKey::VimPrev),
+                    "l" | "L" if is_grid => Some(CommandNavKey::VimRight),
+                    "h" | "H" if is_grid => Some(CommandNavKey::VimLeft),
+                    _ => None,
+                },
                 _ => None,
             },
-            _ => None,
         };
 
         let Some(key) = nav_key else {

@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+use crate::foundation::compose::merge_global_attributes;
+
 pub use monoxus_core::visually_hidden::*;
 
 /// Props passed to an explicit `render_child` callback for `VisuallyHidden`.
@@ -67,11 +69,17 @@ pub fn VisuallyHidden(props: VisuallyHiddenProps) -> Element {
         );
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        Some(attrs.style.as_str()),
+        props.attributes,
+    );
+
     rsx! {
         span {
             id: props.id,
-            class: props.class,
-            style: attrs.style,
+            class: merged.class,
+            style: merged.style,
             "data-visually-hidden-root": attrs.data_visually_hidden_root,
             onclick: move |event| {
                 if let Some(handler) = props.on_click.as_ref() {
@@ -83,7 +91,7 @@ pub fn VisuallyHidden(props: VisuallyHiddenProps) -> Element {
                     handler.call(event);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

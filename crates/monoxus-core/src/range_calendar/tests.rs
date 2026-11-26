@@ -1,5 +1,5 @@
 use crate::foundation::{
-    compose::Slottable,
+    compose::{Slottable, project_attrs_as_child},
     date_time::{CalendarDate, CalendarLocale, DateRange},
     shared::ScopeHandle,
 };
@@ -196,6 +196,6 @@ fn range_cell_and_day_attributes_publish_exact_data_attrs() {
     assert_eq!(day.data_range_calendar_day, "");
     assert_eq!(day.data_bits_day, "");
 
-    let (_, proj, _) = project_range_calendar_day_as_child(&day, "slot", Slottable::new("7"));
+    let (_, proj, _) = project_attrs_as_child(&day, "slot", Slottable::new("7"));
     assert_eq!(proj, day);
 }

@@ -1,14 +1,11 @@
 use crate::foundation::{
-    compose::Slottable,
+    compose::{Slottable, project_attrs_as_child},
     date_time::{CalendarDate, DateValue, DateValueRange, FieldInvalidReason},
     shared::{Direction, ScopeHandle},
 };
 
 use super::{
-    attrs::{
-        DateRangeFieldLabelAttrs, DateRangeFieldRootAttrs, project_date_range_field_label_as_child,
-        project_date_range_field_root_as_child,
-    },
+    attrs::{DateRangeFieldLabelAttrs, DateRangeFieldRootAttrs},
     relationships::DateRangeFieldRelationships,
     state::{DateRangeFieldDefinition, DateRangeFieldState},
     types::{DATE_RANGE_FIELD_PARTS, DateRangeFieldPart, RangeFieldInputKind},
@@ -91,18 +88,16 @@ fn date_range_field_attrs_and_as_child() {
         false,
     );
     assert_eq!(root_attrs.role, "group");
-    assert_eq!(root_attrs.data_date_range_field_root, "");
+    assert_eq!(root_attrs.data_marker, "");
     assert_eq!(root_attrs.data_invalid, Some(""));
     assert_eq!(root_attrs.data_disabled, None);
 
     let label_attrs = DateRangeFieldLabelAttrs::new(rels.label_id().to_string(), true, false);
-    assert_eq!(label_attrs.data_date_range_field_label, "");
+    assert_eq!(label_attrs.data_marker, "");
     assert_eq!(label_attrs.data_invalid, Some(""));
 
-    let (_, proj_root, _) =
-        project_date_range_field_root_as_child(&root_attrs, "div", Slottable::new("r"));
-    let (_, proj_label, _) =
-        project_date_range_field_label_as_child(&label_attrs, "span", Slottable::new("l"));
+    let (_, proj_root, _) = project_attrs_as_child(&root_attrs, "div", Slottable::new("r"));
+    let (_, proj_label, _) = project_attrs_as_child(&label_attrs, "span", Slottable::new("l"));
     assert_eq!(proj_root, root_attrs);
     assert_eq!(proj_label, label_attrs);
 }

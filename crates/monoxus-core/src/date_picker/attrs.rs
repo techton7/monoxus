@@ -1,8 +1,8 @@
 use crate::foundation::shared::data_disabled_attr;
 
-/// WAI-ARIA and `data-*` attributes for `DatePickerTrigger`.
+/// Shared WAI-ARIA and `data-*` attributes for `DatePickerTrigger` and `DateRangePickerTrigger`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DatePickerTriggerAttrs {
+pub struct PickerTriggerAttrs {
     pub id: String,
     pub aria_haspopup: &'static str,
     pub aria_expanded: &'static str,
@@ -14,13 +14,8 @@ pub struct DatePickerTriggerAttrs {
     pub data_disabled: Option<&'static str>,
 }
 
-impl DatePickerTriggerAttrs {
-    pub fn new(
-        id: String,
-        aria_controls: String,
-        open: bool,
-        disabled: bool,
-    ) -> Self {
+impl PickerTriggerAttrs {
+    pub fn new(id: String, aria_controls: String, open: bool, disabled: bool) -> Self {
         Self {
             id,
             aria_haspopup: "dialog",
@@ -35,19 +30,19 @@ impl DatePickerTriggerAttrs {
     }
 }
 
-/// WAI-ARIA and `data-*` attributes for `DatePickerContent` and `DatePickerContentStatic`.
+/// Shared WAI-ARIA and `data-*` attributes for `DatePickerContent*` and `DateRangePickerContent*` (`D-5`).
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DatePickerContentAttrs {
+pub struct PickerContentAttrs {
     pub id: String,
     pub role: &'static str,
     pub tabindex: &'static str,
     pub data_state: &'static str,
     pub data_side: Option<&'static str>,
     pub data_align: Option<&'static str>,
-    pub data_date_picker_content: &'static str,
+    pub data_marker: &'static str,
 }
 
-impl DatePickerContentAttrs {
+impl PickerContentAttrs {
     pub fn new(
         id: String,
         open: bool,
@@ -61,7 +56,10 @@ impl DatePickerContentAttrs {
             data_state: if open { "open" } else { "closed" },
             data_side,
             data_align,
-            data_date_picker_content: "",
+            data_marker: "",
         }
     }
 }
+
+pub type DatePickerTriggerAttrs = PickerTriggerAttrs;
+pub type DatePickerContentAttrs = PickerContentAttrs;

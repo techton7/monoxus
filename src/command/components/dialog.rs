@@ -76,6 +76,8 @@ pub struct CommandDialogProps {
     pub class: Option<String>,
     #[props(default)]
     pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     #[props(default)]
     pub children: Element,
 }
@@ -164,6 +166,7 @@ pub fn CommandDialog(props: CommandDialogProps) -> Element {
                             columns: props.columns,
                             class: props.class,
                             style: props.style,
+                            attributes: props.attributes,
                             CommandDialogAutoFocus { enabled: props.auto_focus_input }
                             {props.children}
                         }

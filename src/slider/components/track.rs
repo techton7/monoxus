@@ -2,7 +2,8 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{ResizeObserverBox, use_element_size_with_mount},
-    compose::{Slottable, project_as_child},
+    compose::{Slottable, join_styles, merge_global_attributes, project_as_child},
+    state::sync_signal,
 };
 
 use crate::slider::{
@@ -24,8 +25,6 @@ pub fn project_slider_track_as_child<T, C>(
 pub struct SliderTrackProps {
     #[props(default)]
     pub id: Option<String>,
-    #[props(default)]
-    pub as_child: Option<bool>,
     pub children: Element,
     pub class: Option<String>,
     pub style: Option<String>,
@@ -58,29 +57,28 @@ pub fn SliderTrack(props: SliderTrackProps) -> Element {
                     Orientation::Vertical => size.height,
                     _ => size.width,
                 };
-                if runtime.track_size.peek().as_ref() != Some(&s) {
-                    runtime.track_size.set(Some(s));
-                }
+                sync_signal(&mut runtime.track_size, Some(s));
             }
         }
     });
 
-    let combined_style = if let Some(ref s) = props.style {
-        format!("{}; {}", attrs.style(), s)
-    } else {
-        attrs.style().to_string()
-    };
+    let combined_style = join_styles([attrs.style(), props.style.as_deref().unwrap_or("")]);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        combined_style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         div {
             id: "{track_id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: "{combined_style}",
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             "data-orientation": "{attrs.data_orientation()}",
             "data-disabled": attrs.data_disabled(),
             "data-monoxus-slider-track": "",
             onmounted: move |_| mounted_rev += 1,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

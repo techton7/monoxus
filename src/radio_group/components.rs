@@ -1,23 +1,21 @@
 use std::borrow::Cow;
-use std::cell::RefCell;
-use std::rc::Rc;
 
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    browser::{PresenceMonitorEvent, WatcherGuard, start_presence_monitor},
+    compose::{join_styles, merge_global_attributes},
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
-    overlay::PresenceController,
-    roving_focus::{Orientation, RovingFocusConfig, RovingItemMeta, use_roving_focus_item},
+    keyboard::is_enter_key,
+    overlay::use_presence,
+    roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-    state::{ControllableStateProps, use_controllable_state},
+    state::{sync_signal, use_controllable_signal},
 };
 
 use super::{
     relationships::RadioGroupRelationships,
-    runtime::RadioGroupRuntime,
-    types::{RadioGroupOrientation, RadioGroupValueChangeHandler},
+    runtime::{RadioGroupRuntime, use_radio_group_runtime},
+    types::RadioGroupOrientation,
 };
 
 #[derive(Clone)]
@@ -112,79 +110,20 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
         RadioGroupRelationships::new(scope).root_id().to_string()
     });
 
-    let on_value_change_cb = props.on_value_change.as_ref().map(|handler| {
-        let handler = *handler;
-        Rc::new(move |next: String| {
-            handler.call(next);
-        }) as RadioGroupValueChangeHandler
-    });
+    let controlled_val = props.value.clone().map(|v| (!v.is_empty()).then_some(v));
+    let default_val = props.default_value.clone().filter(|v| !v.is_empty());
+    let prev_controlled_val = use_hook(|| CopyValue::new(controlled_val.clone()));
 
-    let val_handle = use_controllable_state(ControllableStateProps {
-        value: props.value.clone(),
-        default_value: props.default_value.clone().unwrap_or_default(),
-        on_change: on_value_change_cb.as_ref().map(|cb| {
-            let cb = cb.clone();
-            move |v: String| {
-                if !v.is_empty() {
-                    cb(v);
-                }
-            }
-        }),
-    });
-
+    let value_ctl = use_controllable_signal(controlled_val.clone(), default_val.clone(), None);
     let initial_val_for_reset = use_hook(|| {
-        if let Some(ref controlled) = props.value {
-            controlled.clone()
-        } else if let Some(ref def) = props.default_value {
-            def.clone()
-        } else {
-            String::new()
-        }
+        controlled_val
+            .clone()
+            .unwrap_or_else(|| default_val.clone())
     });
 
-    let initial_val = if val_handle.value().is_empty() {
-        None
-    } else {
-        Some(val_handle.value().clone())
-    };
-    let is_controlled = val_handle.is_controlled();
-    let reset_initial_str = initial_val_for_reset.clone();
-    let reset_initial = if reset_initial_str.is_empty() {
-        None
-    } else {
-        Some(reset_initial_str.clone())
-    };
-    let handle_for_reset = val_handle.clone();
-    let runtime_slot: Rc<RefCell<Option<RadioGroupRuntime>>> =
-        use_hook(|| Rc::new(RefCell::new(None)));
-    let runtime_for_reset = Rc::clone(&runtime_slot);
-
-    let (should_render_hidden, reset_epoch) = use_form_control_sync_with_epoch(
-        &resolved_id,
-        props.name.as_deref(),
-        props.form.as_deref(),
-        move || {
-            handle_for_reset.set(reset_initial_str.clone());
-            if let Some(ref rt) = *runtime_for_reset.borrow() {
-                if !*(rt.is_controlled).peek() {
-                    let mut val_sig = rt.value;
-                    val_sig.set(reset_initial.clone());
-                    rt.roving.set_current_tab_stop(reset_initial.clone());
-                }
-            }
-        },
-    );
-
-    let on_change_for_runtime: RadioGroupValueChangeHandler = {
-        let handle = val_handle.clone();
-        Rc::new(move |val: String| {
-            handle.set(val);
-        })
-    };
-
-    let mut runtime = RadioGroupRuntime::new(
-        initial_val,
-        is_controlled,
+    let mut runtime = use_radio_group_runtime(
+        value_ctl,
+        initial_val_for_reset.clone(),
         props.orientation,
         resolved_dir,
         props.loop_focus,
@@ -194,95 +133,34 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
         props.name.clone(),
         props.form.clone(),
         props.autocomplete.clone(),
-        scope_id.clone(),
+        scope_id,
         resolved_id.clone(),
-        should_render_hidden,
-        Some(on_change_for_runtime.clone()),
+        false,
+        props.on_value_change,
     );
-    *runtime_slot.borrow_mut() = Some(runtime.clone());
 
-    {
-        runtime.set_on_value_change(Some(on_change_for_runtime));
-        *runtime_slot.borrow_mut() = Some(runtime.clone());
-
-        if *runtime.root_id.peek() != scope_id {
-            runtime.root_id.set(scope_id.clone());
+    if value_ctl.is_controlled() {
+        let mut prev_slot = prev_controlled_val;
+        if prev_slot.try_read().is_ok_and(|p| *p != controlled_val) {
+            prev_slot.set(controlled_val.clone());
+            runtime
+                .roving
+                .set_current_tab_stop(controlled_val.flatten());
         }
-
-        if *runtime.is_controlled.peek() != is_controlled {
-            runtime.is_controlled.set(is_controlled);
-        }
-
-        let resolved_val = if val_handle.value().is_empty() {
-            None
-        } else {
-            Some(val_handle.value().clone())
-        };
-        if *runtime.value.peek() != resolved_val {
-            runtime.value.set(resolved_val.clone());
-            if is_controlled {
-                runtime.roving.set_current_tab_stop(resolved_val);
-            }
-        }
-
-        if *runtime.should_render_hidden_inputs.peek() != should_render_hidden {
-            runtime.should_render_hidden_inputs.set(should_render_hidden);
-        }
-
-        if *runtime.reset_epoch.peek() != reset_epoch {
-            runtime.reset_epoch.set(reset_epoch);
-        }
-
-        if *runtime.orientation.peek() != props.orientation {
-            runtime.orientation.set(props.orientation);
-        }
-
-        if *runtime.dir.peek() != resolved_dir {
-            runtime.dir.set(resolved_dir);
-        }
-
-        if *runtime.loop_focus.peek() != props.loop_focus {
-            runtime.loop_focus.set(props.loop_focus);
-        }
-
-        if *runtime.disabled.peek() != props.disabled {
-            runtime.disabled.set(props.disabled);
-        }
-
-        if *runtime.required.peek() != props.required {
-            runtime.required.set(props.required);
-        }
-
-        if *runtime.read_only.peek() != props.read_only {
-            runtime.read_only.set(props.read_only);
-        }
-
-        if *runtime.name.peek() != props.name {
-            runtime.name.set(props.name.clone());
-        }
-
-        if *runtime.form.peek() != props.form {
-            runtime.form.set(props.form.clone());
-        }
-
-        if *runtime.autocomplete.peek() != props.autocomplete {
-            runtime.autocomplete.set(props.autocomplete.clone());
-        }
-
-        let mapped_orientation = match props.orientation {
-            None => Orientation::Both,
-            Some(RadioGroupOrientation::Horizontal) => Orientation::Horizontal,
-            Some(RadioGroupOrientation::Vertical) => Orientation::Vertical,
-        };
-
-        runtime.roving.set_config(
-            RovingFocusConfig::new()
-                .with_orientation(mapped_orientation)
-                .with_direction(resolved_dir)
-                .with_loop_focus(props.loop_focus)
-                .with_enabled(!props.disabled),
-        );
     }
+
+    let reset_runtime = runtime.clone();
+    let reset_initial = initial_val_for_reset;
+    let (should_render_hidden, reset_epoch) = use_form_control_sync_with_epoch(
+        &resolved_id,
+        props.name.as_deref(),
+        props.form.as_deref(),
+        move || {
+            reset_runtime.reset_to(reset_initial.clone());
+        },
+    );
+    sync_signal(&mut runtime.should_render_hidden_inputs, should_render_hidden);
+    sync_signal(&mut runtime.reset_epoch, reset_epoch);
 
     use_context_provider(|| RadioGroupContext {
         runtime: runtime.clone(),
@@ -290,12 +168,17 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
 
     let root_attrs = runtime.root_attributes(None);
     let resolved_role = props.role.as_deref().unwrap_or(root_attrs.role());
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         div {
             id: "{resolved_id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             role: "{resolved_role}",
             dir: "{root_attrs.dir}",
             "aria-orientation": root_attrs.aria_orientation,
@@ -307,7 +190,7 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
             "data-required": root_attrs.data_required,
             "data-readonly": root_attrs.data_readonly,
             "data-radio-group-root": "{root_attrs.data_radio_group_root}",
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -361,9 +244,7 @@ pub fn RadioGroupItem(props: RadioGroupItemProps) -> Element {
     );
 
     let mut item_disabled_sig = use_signal(|| effective_disabled);
-    if *item_disabled_sig.peek() != effective_disabled {
-        item_disabled_sig.set(effective_disabled);
-    }
+    sync_signal(&mut item_disabled_sig, effective_disabled);
 
     use_context_provider(|| RadioGroupItemContext {
         id: item_id.clone(),
@@ -401,8 +282,7 @@ pub fn RadioGroupItem(props: RadioGroupItemProps) -> Element {
                 return;
             }
 
-            let key = evt.key();
-            if key == Key::Named(NamedKey::Enter) {
+            if is_enter_key(&evt.key()) {
                 // RG-5: Enter suppression on RadioGroupItem
                 evt.prevent_default();
                 return;
@@ -450,12 +330,17 @@ pub fn RadioGroupItem(props: RadioGroupItemProps) -> Element {
     let group_form = (runtime.form)();
     let group_required = (runtime.required)();
     let group_autocomplete = (runtime.autocomplete)();
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         button {
             id: "{item_attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             r#type: "button",
             role: "{item_attrs.role}",
             "aria-checked": "{item_attrs.aria_checked}",
@@ -471,7 +356,7 @@ pub fn RadioGroupItem(props: RadioGroupItemProps) -> Element {
             onkeydown: on_key_down,
             onfocus: on_focus,
             onmounted: on_mounted,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
         if should_render_hidden {
@@ -517,71 +402,14 @@ pub fn RadioGroupIndicator(props: RadioGroupIndicatorProps) -> Element {
     let item_ctx = use_radio_group_item_context();
 
     let is_checked = group_ctx.runtime.is_item_checked(&item_ctx.value);
-    let mut presence =
-        use_signal(|| PresenceController::new(is_checked).with_retained_mount(true));
-    let watcher_slot: Rc<RefCell<Option<WatcherGuard>>> = use_hook(|| Rc::new(RefCell::new(None)));
-
-    let should_render = is_checked || presence.read().should_render() || props.force_mount;
-
     let attrs = group_ctx.runtime.indicator_attributes(
         &item_ctx.value,
         props.id.clone(),
         item_ctx.is_disabled(),
     );
 
-    use_effect(use_reactive((&is_checked,), {
-        let indicator_id = attrs.id.clone();
-        let watcher_slot = Rc::clone(&watcher_slot);
-        move |(checked,)| {
-            let update = presence.write().sync(checked);
-            if let Some(cycle_id) = update.started_close_cycle() {
-                if let Some(prev) = watcher_slot.borrow_mut().take() {
-                    prev.stop();
-                }
-                let watcher = start_presence_monitor(
-                    indicator_id.as_str(),
-                    cycle_id,
-                    move |event| match event {
-                        PresenceMonitorEvent::TransitionEnd {
-                            cycle_id: event_cycle,
-                            ..
-                        }
-                        | PresenceMonitorEvent::TransitionCancel {
-                            cycle_id: event_cycle,
-                            ..
-                        }
-                        | PresenceMonitorEvent::AnimationEnd {
-                            cycle_id: event_cycle,
-                            ..
-                        }
-                        | PresenceMonitorEvent::AnimationCancel {
-                            cycle_id: event_cycle,
-                            ..
-                        }
-                        | PresenceMonitorEvent::Fallback {
-                            cycle_id: event_cycle,
-                            ..
-                        } => {
-                            presence.write().complete_close_cycle(event_cycle);
-                        }
-                        _ => {}
-                    },
-                );
-                *watcher_slot.borrow_mut() = Some(watcher);
-            } else if !update.should_render() || update.invalidated_close_cycle().is_some() {
-                if let Some(prev) = watcher_slot.borrow_mut().take() {
-                    prev.stop();
-                }
-            }
-        }
-    }));
-
-    let drop_watcher = Rc::clone(&watcher_slot);
-    use_drop(move || {
-        if let Some(prev) = drop_watcher.borrow_mut().take() {
-            prev.stop();
-        }
-    });
+    let presence = use_presence(is_checked, &attrs.id, true, None);
+    let should_render = is_checked || presence.should_render() || props.force_mount;
 
     if !should_render {
         return rsx! {};
@@ -596,28 +424,25 @@ pub fn RadioGroupIndicator(props: RadioGroupIndicatorProps) -> Element {
         }
     };
 
-    let effective_style = if let Some(ref custom) = props.style {
-        if custom.is_empty() {
-            attrs.style().to_string()
-        } else {
-            format!("{}; {}", attrs.style(), custom)
-        }
-    } else {
-        attrs.style().to_string()
-    };
+    let combined_style = join_styles([attrs.style(), props.style.as_deref().unwrap_or("")]);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        combined_style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         span {
             id: "{attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: "{effective_style}",
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             "data-state": attrs.data_state.as_str(),
             "data-disabled": attrs.data_disabled,
             "data-readonly": attrs.data_readonly,
             "data-orientation": attrs.data_orientation,
             "data-radio-group-indicator": "{attrs.data_radio_group_indicator}",
             onmounted: on_mounted,
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

@@ -1,22 +1,14 @@
 use std::borrow::Cow;
-use std::cell::RefCell;
-use std::rc::Rc;
 
-use dioxus::html::{AnimationData, TransitionData};
 use dioxus::prelude::*;
 
 use crate::accordion::attrs::format_accordion_css_vars;
 use crate::collapsible::attrs::merge_disclosure_styles;
 use crate::foundation::{
-    browser::{
-        ElementSize, PresenceMonitorEvent, ResizeObserverBox, WatcherGuard,
-        get_element_client_rect, is_element_animating, measure_element_without_animation,
-        start_presence_monitor, start_resize_monitor,
-    },
-    overlay::PresenceController,
+    overlay::use_presence,
+    roving_focus::key_to_roving_str,
     shared::{
-        ScopeHandle, data_disabled_attr, use_direction_context, use_mount_animation_guard,
-        use_stable_id,
+        ScopeHandle, data_disabled_attr, use_direction_context, use_disclosure_size, use_stable_id,
     },
 };
 
@@ -107,6 +99,10 @@ pub fn AccordionItem(
         disabled,
     });
 
+    use_hook(|| {
+        ctx.runtime.register_item(&item_value, disabled);
+    });
+
     use_effect(use_reactive((&item_value, &disabled), {
         let runtime = ctx.runtime.clone();
         move |(val, dis)| {
@@ -150,97 +146,33 @@ pub fn AccordionHeader(
         .runtime
         .header_with_level(&item_ctx.value, item_ctx.disabled, clamped);
 
+    macro_rules! render_heading {
+        ($tag:ident) => {
+            rsx! {
+                $tag {
+                    id: "{attrs.id()}",
+                    class: class.as_deref().unwrap_or_default(),
+                    style: style.as_deref().unwrap_or_default(),
+                    role: "{attrs.role()}",
+                    "aria-level": "{clamped}",
+                    "data-heading-level": "{clamped}",
+                    "data-state": "{attrs.data_state_str()}",
+                    "data-orientation": "{attrs.data_orientation()}",
+                    "data-value": "{attrs.data_value()}",
+                    "data-disabled": data_disabled_attr(attrs.is_disabled()),
+                    {children}
+                }
+            }
+        };
+    }
+
     match clamped {
-        1 => rsx! {
-            h1 {
-                id: "{attrs.id()}",
-                class: class.as_deref().unwrap_or_default(),
-                style: style.as_deref().unwrap_or_default(),
-                role: "{attrs.role()}",
-                "aria-level": "{clamped}",
-                "data-heading-level": "{clamped}",
-                "data-state": "{attrs.data_state_str()}",
-                "data-orientation": "{attrs.data_orientation()}",
-                "data-value": "{attrs.data_value()}",
-                "data-disabled": data_disabled_attr(attrs.is_disabled()),
-                {children}
-            }
-        },
-        2 => rsx! {
-            h2 {
-                id: "{attrs.id()}",
-                class: class.as_deref().unwrap_or_default(),
-                style: style.as_deref().unwrap_or_default(),
-                role: "{attrs.role()}",
-                "aria-level": "{clamped}",
-                "data-heading-level": "{clamped}",
-                "data-state": "{attrs.data_state_str()}",
-                "data-orientation": "{attrs.data_orientation()}",
-                "data-value": "{attrs.data_value()}",
-                "data-disabled": data_disabled_attr(attrs.is_disabled()),
-                {children}
-            }
-        },
-        3 => rsx! {
-            h3 {
-                id: "{attrs.id()}",
-                class: class.as_deref().unwrap_or_default(),
-                style: style.as_deref().unwrap_or_default(),
-                role: "{attrs.role()}",
-                "aria-level": "{clamped}",
-                "data-heading-level": "{clamped}",
-                "data-state": "{attrs.data_state_str()}",
-                "data-orientation": "{attrs.data_orientation()}",
-                "data-value": "{attrs.data_value()}",
-                "data-disabled": data_disabled_attr(attrs.is_disabled()),
-                {children}
-            }
-        },
-        4 => rsx! {
-            h4 {
-                id: "{attrs.id()}",
-                class: class.as_deref().unwrap_or_default(),
-                style: style.as_deref().unwrap_or_default(),
-                role: "{attrs.role()}",
-                "aria-level": "{clamped}",
-                "data-heading-level": "{clamped}",
-                "data-state": "{attrs.data_state_str()}",
-                "data-orientation": "{attrs.data_orientation()}",
-                "data-value": "{attrs.data_value()}",
-                "data-disabled": data_disabled_attr(attrs.is_disabled()),
-                {children}
-            }
-        },
-        5 => rsx! {
-            h5 {
-                id: "{attrs.id()}",
-                class: class.as_deref().unwrap_or_default(),
-                style: style.as_deref().unwrap_or_default(),
-                role: "{attrs.role()}",
-                "aria-level": "{clamped}",
-                "data-heading-level": "{clamped}",
-                "data-state": "{attrs.data_state_str()}",
-                "data-orientation": "{attrs.data_orientation()}",
-                "data-value": "{attrs.data_value()}",
-                "data-disabled": data_disabled_attr(attrs.is_disabled()),
-                {children}
-            }
-        },
-        _ => rsx! {
-            h6 {
-                id: "{attrs.id()}",
-                class: class.as_deref().unwrap_or_default(),
-                style: style.as_deref().unwrap_or_default(),
-                role: "{attrs.role()}",
-                "aria-level": "{clamped}",
-                "data-heading-level": "{clamped}",
-                "data-state": "{attrs.data_state_str()}",
-                "data-orientation": "{attrs.data_orientation()}",
-                "data-value": "{attrs.data_value()}",
-                "data-disabled": data_disabled_attr(attrs.is_disabled()),
-                {children}
-            }
-        },
+        1 => render_heading!(h1),
+        2 => render_heading!(h2),
+        3 => render_heading!(h3),
+        4 => render_heading!(h4),
+        5 => render_heading!(h5),
+        _ => render_heading!(h6),
     }
 }
 
@@ -267,7 +199,9 @@ pub fn AccordionTrigger(
 
     let click_runtime = ctx.runtime.clone();
     let click_val = item_ctx.value.clone();
-
+    let focus_runtime = ctx.runtime.clone();
+    let focus_val = item_ctx.value.clone();
+    let focus_disabled = item_ctx.disabled;
     let key_runtime = ctx.runtime.clone();
 
     rsx! {
@@ -285,16 +219,27 @@ pub fn AccordionTrigger(
             "data-orientation": "{attrs.data_orientation()}",
             "data-value": "{attrs.data_value()}",
             "data-disabled": data_disabled_attr(attrs.is_disabled()),
+            onfocus: move |_| {
+                if !focus_disabled {
+                    focus_runtime
+                        .roving()
+                        .set_current_tab_stop(Some(focus_val.clone()));
+                }
+            },
             onclick: move |_| {
                 click_runtime.toggle_item(&click_val);
             },
             onkeydown: move |evt: KeyboardEvent| {
-                let key = evt.key();
-                let key_str = key.to_string();
-                if Accordion::is_navigation_key_for_orientation(key_runtime.accordion().orientation(), &key_str) {
+                let event_key = evt.key();
+                if let Some(key_str) = key_to_roving_str(&event_key)
+                    && Accordion::is_navigation_key_for_orientation(
+                        key_runtime.accordion().orientation(),
+                        key_str,
+                    )
+                {
                     evt.prevent_default();
                     evt.stop_propagation();
-                    key_runtime.navigate_key(&key_str);
+                    key_runtime.navigate_key(key_str);
                 }
             },
             {children}
@@ -314,15 +259,10 @@ pub fn AccordionContent(
     let attrs = ctx.runtime.content(&item_ctx.value);
 
     let is_open = ctx.runtime.is_open(&item_ctx.value);
-    let guard_style = use_mount_animation_guard(is_open);
+    let presence = use_presence(is_open, attrs.id(), true, None);
+    let disclosure = use_disclosure_size(attrs.id(), is_open, presence);
 
-    let mut presence = use_signal(|| PresenceController::new(is_open).with_retained_mount(true));
-    let monitor = use_hook(|| Rc::new(RefCell::new(None::<WatcherGuard>)));
-    let resize_guard = use_hook(|| Rc::new(RefCell::new(None::<WatcherGuard>)));
-    let mut content_size = use_signal(|| None::<ElementSize>);
-    let mut mounted_rev = use_signal(|| 0u64);
-
-    let should_render = is_open || presence.read().should_render() || force_mount;
+    let should_render = is_open || presence.should_render() || force_mount;
     if should_render {
         ctx.runtime.register_content_mounted(&item_ctx.value);
     } else {
@@ -332,95 +272,18 @@ pub fn AccordionContent(
     use_drop({
         let runtime = ctx.runtime.clone();
         let drop_val = item_ctx.value.clone();
-        let monitor = monitor.clone();
-        let resize_guard = resize_guard.clone();
         move || {
             runtime.unregister_content_mounted(&drop_val);
-            *monitor.borrow_mut() = None;
-            *resize_guard.borrow_mut() = None;
         }
     });
 
-    use_effect(use_reactive((&is_open, &mounted_rev()), {
-        let content_id = attrs.id().to_string();
-        let monitor = monitor.clone();
-        let resize_guard = resize_guard.clone();
-        move |(open, _rev)| {
-            let update = presence.write().sync(open);
-            if open {
-                *monitor.borrow_mut() = None;
-
-                if content_size.peek().is_none() {
-                    if let Some(size) = measure_element_without_animation(content_id.as_str())
-                        && (size.width > 0.0 || size.height > 0.0)
-                    {
-                        content_size.set(Some(size));
-                    }
-                }
-
-                let cid = content_id.clone();
-                let cid_check = content_id.clone();
-                let watcher =
-                    start_resize_monitor(&cid, ResizeObserverBox::BorderBox, move |new_size| {
-                        if is_element_animating(&cid_check) {
-                            return;
-                        }
-                        if new_size.width <= 0.0 && new_size.height <= 0.0 {
-                            return;
-                        }
-                        if content_size.peek().as_ref() != Some(&new_size) {
-                            content_size.set(Some(new_size));
-                        }
-                    });
-                *resize_guard.borrow_mut() = Some(watcher);
-            } else {
-                *resize_guard.borrow_mut() = None;
-
-                if let Some(cycle_id) = update.started_close_cycle() {
-                    let watcher =
-                        start_presence_monitor(content_id.as_str(), cycle_id, move |event| {
-                            match event {
-                                PresenceMonitorEvent::TransitionEnd {
-                                    cycle_id: event_cycle,
-                                    ..
-                                }
-                                | PresenceMonitorEvent::TransitionCancel {
-                                    cycle_id: event_cycle,
-                                    ..
-                                }
-                                | PresenceMonitorEvent::AnimationEnd {
-                                    cycle_id: event_cycle,
-                                    ..
-                                }
-                                | PresenceMonitorEvent::AnimationCancel {
-                                    cycle_id: event_cycle,
-                                    ..
-                                }
-                                | PresenceMonitorEvent::Fallback {
-                                    cycle_id: event_cycle,
-                                    ..
-                                } => {
-                                    presence.write().complete_close_cycle(event_cycle);
-                                }
-                                _ => {}
-                            }
-                        });
-                    *monitor.borrow_mut() = Some(watcher);
-                } else if !update.should_render() || update.invalidated_close_cycle().is_some() {
-                    *monitor.borrow_mut() = None;
-                }
-            }
-        }
-    }));
-
     let hidden = (!should_render).then_some(true);
-    let css_vars = (*content_size.read()).map(format_accordion_css_vars);
-    let effective_style =
-        merge_disclosure_styles(style.as_deref(), guard_style, css_vars.as_deref());
-
-    let cid_mount = attrs.id().to_string();
-    let cid_trans = cid_mount.clone();
-    let cid_anim = cid_trans.clone();
+    let css_vars = disclosure.size().map(format_accordion_css_vars);
+    let effective_style = merge_disclosure_styles(
+        style.as_deref(),
+        disclosure.guard_style(),
+        css_vars.as_deref(),
+    );
 
     rsx! {
         div {
@@ -434,68 +297,9 @@ pub fn AccordionContent(
             "data-orientation": "{attrs.data_orientation()}",
             "data-value": "{attrs.data_value()}",
             "data-disabled": data_disabled_attr(item_ctx.disabled),
-            onmounted: move |_| {
-                mounted_rev += 1;
-                if is_open
-                    && let Some(size) = measure_element_without_animation(&cid_mount)
-                    && (size.width > 0.0 || size.height > 0.0)
-                {
-                    let existing = *content_size.peek();
-                    let animating_zero_height = size.height <= 0.0
-                        && existing.is_some_and(|prev| prev.height > 0.0)
-                        && is_element_animating(&cid_mount);
-                    if !animating_zero_height
-                        && existing != Some(size)
-                        && let Ok(mut cs) = content_size.try_write()
-                    {
-                        *cs = Some(size);
-                    }
-                }
-            },
-            ontransitionend: move |_evt: Event<TransitionData>| {
-                let cycle = presence.read().active_close_cycle();
-                if let Some(cycle) = cycle {
-                    if !is_element_animating(&cid_trans) {
-                        presence.write().complete_close_cycle(cycle);
-                    }
-                } else if is_open
-                    && !is_element_animating(&cid_trans)
-                    && let Some(rect) = get_element_client_rect(&cid_trans)
-                    && (rect.width > 0.0 || rect.height > 0.0)
-                {
-                    let size = ElementSize {
-                        width: rect.width,
-                        height: rect.height,
-                    };
-                    if content_size.peek().as_ref() != Some(&size)
-                        && let Ok(mut cs) = content_size.try_write()
-                    {
-                        *cs = Some(size);
-                    }
-                }
-            },
-            onanimationend: move |_evt: Event<AnimationData>| {
-                let cycle = presence.read().active_close_cycle();
-                if let Some(cycle) = cycle {
-                    if !is_element_animating(&cid_anim) {
-                        presence.write().complete_close_cycle(cycle);
-                    }
-                } else if is_open
-                    && !is_element_animating(&cid_anim)
-                    && let Some(rect) = get_element_client_rect(&cid_anim)
-                    && (rect.width > 0.0 || rect.height > 0.0)
-                {
-                    let size = ElementSize {
-                        width: rect.width,
-                        height: rect.height,
-                    };
-                    if content_size.peek().as_ref() != Some(&size)
-                        && let Ok(mut cs) = content_size.try_write()
-                    {
-                        *cs = Some(size);
-                    }
-                }
-            },
+            onmounted: move |_| disclosure.on_mounted(),
+            ontransitionend: move |_| disclosure.on_motion_end(),
+            onanimationend: move |_| disclosure.on_motion_end(),
             {should_render.then_some(children)}
         }
     }

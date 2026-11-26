@@ -1,58 +1,80 @@
 use std::{cell::RefCell, rc::Rc};
 
 use dioxus::prelude::*;
+use monoxus_core::foundation::date_time::field_policy::{
+    DateFieldPolicy, FieldRangeEndpoint, RangeFieldPolicy, RangeFieldRelationships,
+    RangeFieldSnapshot, RangeFieldState,
+};
 
 use crate::{
-    date_field::DateFieldRuntime,
+    date_field::runtime::{SegmentFieldRuntime, SegmentFieldUiPolicy},
     foundation::{
         browser::focus_element_by_id,
-        date_time::{
-            CalendarDate, DateValue, DateValueRange, FieldInvalidEvent, FieldInvalidReason,
-            validate_date_range_with_unavailable,
-        },
+        date_time::{CalendarDate, ChronoRange, FieldInvalidEvent, FieldInvalidReason},
     },
 };
 
-use super::{
-    attrs::{DateRangeFieldLabelAttrs, DateRangeFieldRootAttrs},
-    relationships::DateRangeFieldRelationships,
-    state::DateRangeFieldState,
-    types::{DateRangeFieldSnapshot, RangeFieldInputKind},
-};
+use super::attrs::{RangeFieldLabelAttrs, RangeFieldRootAttrs};
 
-/// Reactive runtime for `DateRangeField`.
-#[derive(Clone)]
-pub struct DateRangeFieldRuntime {
-    pub state: Signal<DateRangeFieldState>,
-    pub rels: DateRangeFieldRelationships,
-    pub start_value: Signal<Option<DateValue>>,
-    pub end_value: Signal<Option<DateValue>>,
-    pub placeholder: Signal<DateValue>,
+/// Zero-overhead policy-parameterized reactive runtime shared by `DateRangeField` and `TimeRangeField`.
+pub struct RangeFieldRuntime<P: RangeFieldPolicy + SegmentFieldUiPolicy> {
+    pub state: Signal<RangeFieldState<P>>,
+    pub rels: RangeFieldRelationships,
+    pub start_value: Signal<Option<P::Value>>,
+    pub end_value: Signal<Option<P::Value>>,
+    pub placeholder: Signal<P::Value>,
     pub custom_label_id: Signal<Option<String>>,
     pub last_invalid_reason: Signal<Option<FieldInvalidReason>>,
     pub trailing_trigger_id: Signal<Option<String>>,
-    pub start_runtime: Rc<RefCell<Option<DateFieldRuntime>>>,
-    pub end_runtime: Rc<RefCell<Option<DateFieldRuntime>>>,
-    pub default_value: Rc<RefCell<DateValueRange>>,
-    pub controlled_value: Rc<RefCell<Option<Signal<DateValueRange>>>>,
-    pub controlled_placeholder: Rc<RefCell<Option<Signal<DateValue>>>>,
-    pub on_value_change: Rc<RefCell<Option<EventHandler<DateValueRange>>>>,
-    pub on_start_value_change: Rc<RefCell<Option<EventHandler<Option<DateValue>>>>>,
-    pub on_end_value_change: Rc<RefCell<Option<EventHandler<Option<DateValue>>>>>,
-    pub on_placeholder_change: Rc<RefCell<Option<EventHandler<DateValue>>>>,
-    pub is_date_unavailable: Rc<RefCell<Option<Callback<CalendarDate, bool>>>>,
-    pub validate: Rc<RefCell<Option<Callback<DateValueRange, Option<Vec<String>>>>>>,
-    pub on_invalid: Rc<RefCell<Option<EventHandler<FieldInvalidEvent>>>>,
+    pub start_runtime: Rc<RefCell<Option<SegmentFieldRuntime<P>>>>,
+    pub end_runtime: Rc<RefCell<Option<SegmentFieldRuntime<P>>>>,
+    pub default_value: CopyValue<ChronoRange<P::Value>>,
+    pub controlled_value: CopyValue<Option<Signal<ChronoRange<P::Value>>>>,
+    pub controlled_placeholder: CopyValue<Option<Signal<P::Value>>>,
+    pub on_value_change: CopyValue<Option<EventHandler<ChronoRange<P::Value>>>>,
+    pub on_start_value_change: CopyValue<Option<EventHandler<Option<P::Value>>>>,
+    pub on_end_value_change: CopyValue<Option<EventHandler<Option<P::Value>>>>,
+    pub on_placeholder_change: CopyValue<Option<EventHandler<P::Value>>>,
+    pub is_date_unavailable: CopyValue<Option<Callback<CalendarDate, bool>>>,
+    pub validate: CopyValue<Option<Callback<ChronoRange<P::Value>, Option<Vec<String>>>>>,
+    pub on_invalid: CopyValue<Option<EventHandler<FieldInvalidEvent>>>,
 }
 
-impl PartialEq for DateRangeFieldRuntime {
+impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> Clone for RangeFieldRuntime<P> {
+    fn clone(&self) -> Self {
+        Self {
+            state: self.state,
+            rels: self.rels.clone(),
+            start_value: self.start_value,
+            end_value: self.end_value,
+            placeholder: self.placeholder,
+            custom_label_id: self.custom_label_id,
+            last_invalid_reason: self.last_invalid_reason,
+            trailing_trigger_id: self.trailing_trigger_id,
+            start_runtime: Rc::clone(&self.start_runtime),
+            end_runtime: Rc::clone(&self.end_runtime),
+            default_value: self.default_value,
+            controlled_value: self.controlled_value,
+            controlled_placeholder: self.controlled_placeholder,
+            on_value_change: self.on_value_change,
+            on_start_value_change: self.on_start_value_change,
+            on_end_value_change: self.on_end_value_change,
+            on_placeholder_change: self.on_placeholder_change,
+            is_date_unavailable: self.is_date_unavailable,
+            validate: self.validate,
+            on_invalid: self.on_invalid,
+        }
+    }
+}
+
+impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> PartialEq for RangeFieldRuntime<P> {
     fn eq(&self, other: &Self) -> bool {
         self.rels == other.rels && self.state == other.state
     }
 }
 
-impl DateRangeFieldRuntime {
-    pub fn snapshot(&self) -> DateRangeFieldSnapshot {
+impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
+    pub fn snapshot(&self) -> RangeFieldSnapshot<P> {
         self.state.read().snapshot()
     }
 
@@ -64,32 +86,49 @@ impl DateRangeFieldRuntime {
             .unwrap_or_else(|| self.rels.label_id().to_string())
     }
 
-    /// Registers a custom `id` from `DateRangeFieldLabel` so `aria-labelledby` stays synced (`DEF-5C-07`).
+    /// Registers a custom `id` from `*RangeFieldLabel` so `aria-labelledby` stays synced (`DEF-5C-07`).
     pub fn register_custom_label_id(&mut self, id: Option<String>) {
         let normalized = id.filter(|s| !s.is_empty());
-        if *self.custom_label_id.peek() != normalized {
-            self.custom_label_id.set(normalized);
+        if self.custom_label_id.try_peek().is_ok_and(|cur| *cur != normalized)
+            && let Ok(mut guard) = self.custom_label_id.try_write()
+        {
+            *guard = normalized;
         }
     }
 
-    pub fn default_part_value(&self, kind: RangeFieldInputKind) -> Option<DateValue> {
-        let dv = *self.default_value.borrow();
+    /// Clears `custom_label_id` only if it still matches `expected`, preventing keyed label swaps
+    /// from clobbering the replacement label's ID.
+    pub fn unregister_custom_label_id(&mut self, expected: &str) {
+        if self
+            .custom_label_id
+            .try_peek()
+            .ok()
+            .and_then(|cur| cur.as_deref().map(|s| s == expected))
+            .unwrap_or(false)
+            && let Ok(mut guard) = self.custom_label_id.try_write()
+        {
+            *guard = None;
+        }
+    }
+
+    pub fn default_part_value(&self, kind: FieldRangeEndpoint) -> Option<P::Value> {
+        let dv = self.default_value.try_read().map(|v| *v).unwrap_or_default();
         match kind {
-            RangeFieldInputKind::Start => dv.start,
-            RangeFieldInputKind::End => dv.end,
+            FieldRangeEndpoint::Start => dv.start,
+            FieldRangeEndpoint::End => dv.end,
         }
     }
 
-    pub fn is_part_invalid(&self, kind: RangeFieldInputKind) -> bool {
+    pub fn is_part_invalid(&self, kind: FieldRangeEndpoint) -> bool {
         self.state.read().is_part_invalid(kind)
     }
 
-    pub fn root_attrs(&self, id_override: Option<String>) -> DateRangeFieldRootAttrs {
+    pub fn root_attrs(&self, id_override: Option<String>) -> RangeFieldRootAttrs {
         let st = self.state.read();
         let id = id_override
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| self.rels.root_id().to_string());
-        DateRangeFieldRootAttrs::new(
+        RangeFieldRootAttrs::new(
             id,
             self.effective_label_id(),
             st.def().dir,
@@ -98,26 +137,46 @@ impl DateRangeFieldRuntime {
         )
     }
 
-    pub fn label_attrs(&self, id_override: Option<String>) -> DateRangeFieldLabelAttrs {
+    pub fn label_attrs(&self, id_override: Option<String>) -> RangeFieldLabelAttrs {
         let st = self.state.read();
         let id = id_override
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| self.effective_label_id());
-        DateRangeFieldLabelAttrs::new(id, st.is_invalid(), st.def().disabled)
+        RangeFieldLabelAttrs::new(id, st.is_invalid(), st.def().disabled)
     }
 
-    pub fn register_part_runtime(&self, kind: RangeFieldInputKind, rt: DateFieldRuntime) {
+    pub fn register_part_runtime(&self, kind: FieldRangeEndpoint, rt: SegmentFieldRuntime<P>) {
         match kind {
-            RangeFieldInputKind::Start => *self.start_runtime.borrow_mut() = Some(rt),
-            RangeFieldInputKind::End => *self.end_runtime.borrow_mut() = Some(rt),
+            FieldRangeEndpoint::Start => *self.start_runtime.borrow_mut() = Some(rt),
+            FieldRangeEndpoint::End => *self.end_runtime.borrow_mut() = Some(rt),
         }
     }
 
     /// Registers an optional trailing picker trigger ID (`DateRangePickerTrigger`)
-    /// so `ArrowRight` from the last `End` segment focuses the trigger.
+    /// so navigating past the last `End` segment focuses the trigger.
     pub fn register_trigger_id(&mut self, id: Option<String>) {
-        if *self.trailing_trigger_id.peek() != id {
-            self.trailing_trigger_id.set(id);
+        if self
+            .trailing_trigger_id
+            .try_peek()
+            .is_ok_and(|cur| *cur != id)
+            && let Ok(mut guard) = self.trailing_trigger_id.try_write()
+        {
+            *guard = id;
+        }
+    }
+
+    /// Clears `trailing_trigger_id` only if it still matches `expected`, preventing keyed
+    /// trigger swaps from clobbering the replacement trigger's ID.
+    pub fn unregister_trigger_id(&mut self, expected: &str) {
+        if self
+            .trailing_trigger_id
+            .try_peek()
+            .ok()
+            .and_then(|cur| cur.as_deref().map(|s| s == expected))
+            .unwrap_or(false)
+            && let Ok(mut guard) = self.trailing_trigger_id.try_write()
+        {
+            *guard = None;
         }
     }
 
@@ -137,14 +196,14 @@ impl DateRangeFieldRuntime {
         }
     }
 
-    pub fn handle_part_next_boundary(&self, kind: RangeFieldInputKind) {
+    pub fn handle_part_next_boundary(&self, kind: FieldRangeEndpoint) {
         match kind {
-            RangeFieldInputKind::Start => {
+            FieldRangeEndpoint::Start => {
                 if let Some(rt) = self.end_runtime.borrow().as_ref() {
                     rt.focus_first_segment();
                 }
             }
-            RangeFieldInputKind::End => {
+            FieldRangeEndpoint::End => {
                 if let Some(trigger_id) = self.trailing_trigger_id.peek().as_deref() {
                     focus_element_by_id(trigger_id);
                 }
@@ -152,8 +211,8 @@ impl DateRangeFieldRuntime {
         }
     }
 
-    pub fn handle_part_prev_boundary(&self, kind: RangeFieldInputKind) {
-        if kind == RangeFieldInputKind::End
+    pub fn handle_part_prev_boundary(&self, kind: FieldRangeEndpoint) {
+        if kind == FieldRangeEndpoint::End
             && let Some(rt) = self.start_runtime.borrow().as_ref()
         {
             rt.focus_last_segment();
@@ -165,35 +224,42 @@ impl DateRangeFieldRuntime {
             let st = self.state.peek();
             (st.value(), st.def().min_value, st.def().max_value)
         };
-        let (start_unavailable, end_unavailable) = {
-            let cb_ref = self.is_date_unavailable.borrow();
-            if let Some(cb) = cb_ref.as_ref() {
+        let (start_unavailable, end_unavailable) = if P::SUPPORTS_UNAVAILABLE {
+            if let Some(cb) = self
+                .is_date_unavailable
+                .try_read()
+                .ok()
+                .and_then(|slot| *slot)
+            {
                 (
-                    range.start.is_some_and(|v| cb.call(v.date())),
-                    range.end.is_some_and(|v| cb.call(v.date())),
+                    range
+                        .start
+                        .and_then(P::extract_calendar_date)
+                        .is_some_and(|d| cb.call(d)),
+                    range
+                        .end
+                        .and_then(P::extract_calendar_date)
+                        .is_some_and(|d| cb.call(d)),
                 )
             } else {
                 (false, false)
             }
+        } else {
+            (false, false)
         };
         let is_unavailable = start_unavailable || end_unavailable;
         let custom_errors = if !is_unavailable && range.is_complete() {
             self.validate
-                .borrow()
-                .as_ref()
+                .try_read()
+                .ok()
+                .and_then(|slot| *slot)
                 .and_then(|cb| cb.call(range))
         } else {
             None
         };
 
-        let next_reason = validate_date_range_with_unavailable(
-            range,
-            min_val,
-            max_val,
-            is_unavailable,
-            custom_errors,
-        )
-        .err();
+        let next_reason =
+            P::validate_range(range, min_val, max_val, is_unavailable, custom_errors).err();
         let needs_state_update = {
             let st = self.state.peek();
             st.invalid_reason() != next_reason.as_ref()
@@ -212,18 +278,18 @@ impl DateRangeFieldRuntime {
                     FieldInvalidReason::Custom(msgs) => msgs.clone(),
                     _ => Vec::new(),
                 };
-                if let Some(handler) = self.on_invalid.borrow().as_ref() {
+                if let Some(handler) = self.on_invalid.try_read().ok().and_then(|slot| *slot) {
                     handler.call(FieldInvalidEvent { reason, messages });
                 }
             }
         }
     }
 
-    pub fn update_part_value(&mut self, kind: RangeFieldInputKind, next: Option<DateValue>) {
+    pub fn update_part_value(&mut self, kind: FieldRangeEndpoint, next: Option<P::Value>) {
         let prev_range = self.state.peek().value();
         let prev_part = match kind {
-            RangeFieldInputKind::Start => prev_range.start,
-            RangeFieldInputKind::End => prev_range.end,
+            FieldRangeEndpoint::Start => prev_range.start,
+            FieldRangeEndpoint::End => prev_range.end,
         };
         if prev_part == next {
             return;
@@ -233,56 +299,75 @@ impl DateRangeFieldRuntime {
         let next_range = self.state.peek().value();
 
         match kind {
-            RangeFieldInputKind::Start => {
+            FieldRangeEndpoint::Start => {
                 if *self.start_value.peek() != next {
                     self.start_value.set(next);
                 }
-                if let Some(cb) = self.on_start_value_change.borrow().as_ref() {
+                if let Some(cb) = self
+                    .on_start_value_change
+                    .try_read()
+                    .ok()
+                    .and_then(|slot| *slot)
+                {
                     cb.call(next);
                 }
             }
-            RangeFieldInputKind::End => {
+            FieldRangeEndpoint::End => {
                 if *self.end_value.peek() != next {
                     self.end_value.set(next);
                 }
-                if let Some(cb) = self.on_end_value_change.borrow().as_ref() {
+                if let Some(cb) = self
+                    .on_end_value_change
+                    .try_read()
+                    .ok()
+                    .and_then(|slot| *slot)
+                {
                     cb.call(next);
                 }
             }
         }
 
-        if let Some(mut sig) = *self.controlled_value.borrow()
+        if let Some(mut sig) = self.controlled_value.try_read().ok().and_then(|slot| *slot)
             && *sig.peek() != next_range
         {
             sig.set(next_range);
         }
-        if let Some(cb) = self.on_value_change.borrow().as_ref() {
+        if let Some(cb) = self.on_value_change.try_read().ok().and_then(|slot| *slot) {
             cb.call(next_range);
         }
 
         self.sync_validation_and_notify();
     }
 
-    pub fn update_placeholder(&mut self, next: DateValue) {
+    pub fn update_placeholder(&mut self, next: P::Value) {
         if *self.placeholder.peek() == next {
             return;
         }
         self.placeholder.set(next);
         self.state.write().set_placeholder(next);
-        if let Some(mut sig) = *self.controlled_placeholder.borrow()
+        if let Some(mut sig) = self
+            .controlled_placeholder
+            .try_read()
+            .ok()
+            .and_then(|slot| *slot)
             && *sig.peek() != next
         {
             sig.set(next);
         }
-        if let Some(cb) = self.on_placeholder_change.borrow().as_ref() {
+        if let Some(cb) = self
+            .on_placeholder_change
+            .try_read()
+            .ok()
+            .and_then(|slot| *slot)
+        {
             cb.call(next);
         }
     }
 
     pub fn reconcile_external_state(
         &mut self,
-        external_value: Option<DateValueRange>,
-        external_placeholder: Option<DateValue>,
+        external_value: Option<ChronoRange<P::Value>>,
+        external_placeholder: Option<P::Value>,
         is_invalid_override: Option<bool>,
     ) {
         if let Some(val) = external_value
@@ -311,16 +396,47 @@ impl DateRangeFieldRuntime {
     }
 }
 
+/// Dioxus context wrapping [`RangeFieldRuntime`].
+pub struct RangeFieldContext<P: RangeFieldPolicy + SegmentFieldUiPolicy>(
+    pub RangeFieldRuntime<P>,
+);
+
+impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> Clone for RangeFieldContext<P> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> PartialEq for RangeFieldContext<P> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+/// Consumes the nearest ancestor [`RangeFieldRuntime<P>`] context.
+pub fn use_range_field_context<P: RangeFieldPolicy + SegmentFieldUiPolicy>()
+-> RangeFieldRuntime<P> {
+    use_context::<RangeFieldContext<P>>().0
+}
+
+/// Attempts to consume the nearest ancestor [`RangeFieldRuntime<P>`] context.
+pub fn try_use_range_field_context<P: RangeFieldPolicy + SegmentFieldUiPolicy>()
+-> Option<RangeFieldRuntime<P>> {
+    try_consume_context::<RangeFieldContext<P>>().map(|ctx| ctx.0)
+}
+
+/// Reactive runtime for `DateRangeField`.
+pub type DateRangeFieldRuntime = RangeFieldRuntime<DateFieldPolicy>;
+
 /// Dioxus context wrapping [`DateRangeFieldRuntime`].
-#[derive(Clone, PartialEq)]
-pub struct DateRangeFieldContext(pub DateRangeFieldRuntime);
+pub type DateRangeFieldContext = RangeFieldContext<DateFieldPolicy>;
 
 /// Consumes the nearest ancestor [`DateRangeFieldRuntime`] context (panics if outside `DateRangeFieldRoot`).
 pub fn use_date_range_field_context() -> DateRangeFieldRuntime {
-    use_context::<DateRangeFieldContext>().0
+    use_range_field_context::<DateFieldPolicy>()
 }
 
 /// Attempts to consume the nearest ancestor [`DateRangeFieldRuntime`] context.
 pub fn try_use_date_range_field_context() -> Option<DateRangeFieldRuntime> {
-    try_consume_context::<DateRangeFieldContext>().map(|ctx| ctx.0)
+    try_use_range_field_context::<DateFieldPolicy>()
 }

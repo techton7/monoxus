@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use crate::foundation::shared::Direction;
+use crate::foundation::{
+    compose::{join_styles, merge_global_attributes},
+    shared::Direction,
+};
 
 use super::{
     super::{attrs::ScrollAreaCornerAttributes, state::has_corner},
@@ -11,10 +14,13 @@ use super::{
 pub struct ScrollAreaCornerProps {
     #[props(default)]
     pub id: Option<String>,
-    pub as_child: Option<bool>,
+    #[props(default)]
+    pub force_mount: bool,
     pub children: Option<Element>,
     pub class: Option<String>,
     pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
 }
 
 #[component]
@@ -38,44 +44,44 @@ pub fn ScrollAreaCorner(props: ScrollAreaCornerProps) -> Element {
         let mut cw = ctx.runtime.corner_width;
         let mut ch = ctx.runtime.corner_height;
         move || {
-            cw.set(0.0);
-            ch.set(0.0);
+            if let Ok(mut w) = cw.try_write() {
+                *w = 0.0;
+            }
+            if let Ok(mut h) = ch.try_write() {
+                *h = 0.0;
+            }
         }
     });
 
-    if !has_corner_val && !props.as_child.unwrap_or(false) {
+    if !has_corner_val && !props.force_mount {
         return rsx! {};
     }
 
     let cw = ctx.runtime.corner_width();
     let ch = ctx.runtime.corner_height();
 
-    let mut corner_style = format!(
-        "position: absolute; bottom: 0; width: {cw}px; height: {ch}px; right: {}; left: {}; ",
-        if ctx.dir == Direction::Ltr {
-            "0"
-        } else {
-            "auto"
-        },
-        if ctx.dir == Direction::Rtl {
-            "0"
-        } else {
-            "auto"
-        },
+    let base_style = format!(
+        "position: absolute; bottom: 0; width: {cw}px; height: {ch}px; right: {}; left: {};",
+        if ctx.dir == Direction::Ltr { "0" } else { "auto" },
+        if ctx.dir == Direction::Rtl { "0" } else { "auto" },
     );
-    if let Some(user_style) = &props.style {
-        corner_style.push_str(user_style);
-    }
+    let combined_style = join_styles([base_style.as_str(), props.style.as_deref().unwrap_or("")]);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        combined_style.as_deref(),
+        props.attributes,
+    );
 
     let corner_attrs = ScrollAreaCornerAttributes::new(&corner_id);
 
     rsx! {
         div {
             id: "{corner_attrs.id()}",
-            class: props.class.as_deref(),
-            style: "{corner_style}",
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-state": "{corner_attrs.data_state()}",
             "data-monoxus-scroll-area-corner": "",
+            ..merged.rest,
             {props.children}
         }
     }

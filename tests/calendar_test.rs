@@ -81,7 +81,7 @@ fn calendar_public_contracts_and_date_time_types() {
         false,
     );
     let (_, proj_root, _) =
-        monoxus::calendar::project_calendar_root_as_child(&root_attrs, "div", Slottable::new("cal"));
+        monoxus::foundation::compose::project_attrs_as_child(&root_attrs, "div", Slottable::new("cal"));
     assert_eq!(proj_root, root_attrs);
 }
 
@@ -192,6 +192,64 @@ fn calendar_vdom_renders_single_multiple_and_selects() {
 
     let mut multi_dom = VirtualDom::new(MultipleRenderChildrenApp);
     multi_dom.rebuild_in_place();
+}
+
+#[test]
+fn calendar_fm_dt5_single_pass_frame1_ssr_populates_months_and_tabbable_day() {
+    use std::{cell::RefCell, rc::Rc};
+
+    #[derive(Clone, Default, PartialEq)]
+    struct Frame1ProbeResult {
+        months_len: usize,
+        tabbable_tabindex: String,
+        tabbable_focused: Option<&'static str>,
+        non_tabbable_tabindex: String,
+    }
+
+    #[component]
+    fn CalendarFrame1Probe(out: Rc<RefCell<Frame1ProbeResult>>) -> Element {
+        let ctx = use_calendar_context();
+        let snap = ctx.snapshot();
+        let target = d(2024, 1, 15);
+        let other = d(2024, 1, 16);
+        let month_anchor = d(2024, 1, 1);
+        let cell_target = ctx.runtime.cell_attrs(target, month_anchor, None);
+        let day_target = ctx.runtime.day_attrs(target, month_anchor, &cell_target, None);
+        let cell_other = ctx.runtime.cell_attrs(other, month_anchor, None);
+        let day_other = ctx.runtime.day_attrs(other, month_anchor, &cell_other, None);
+        *out.borrow_mut() = Frame1ProbeResult {
+            months_len: snap.months.len(),
+            tabbable_tabindex: day_target.tabindex.map(|v| v.to_string()).unwrap_or_default(),
+            tabbable_focused: day_target.data_focused,
+            non_tabbable_tabindex: day_other.tabindex.map(|v| v.to_string()).unwrap_or_default(),
+        };
+        rsx! {}
+    }
+
+    #[component]
+    fn CalendarFrame1SsrApp(out: Rc<RefCell<Frame1ProbeResult>>) -> Element {
+        rsx! {
+            CalendarRoot {
+                id: "ssr-cal",
+                default_placeholder: d(2024, 1, 15),
+                CalendarFrame1Probe { out }
+            }
+        }
+    }
+
+    let out = Rc::new(RefCell::new(Frame1ProbeResult::default()));
+    let mut dom = VirtualDom::new_with_props(
+        CalendarFrame1SsrApp,
+        CalendarFrame1SsrAppProps { out: out.clone() },
+    );
+    // Single-pass SSR: rebuild_in_place without pumping effects.
+    dom.rebuild_in_place();
+
+    let res = out.borrow().clone();
+    assert_eq!(res.months_len, 1);
+    assert_eq!(res.tabbable_tabindex, "0");
+    assert_eq!(res.tabbable_focused, Some(""));
+    assert_eq!(res.non_tabbable_tabindex, "-1");
 }
 
 #[test]

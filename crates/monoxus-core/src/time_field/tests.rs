@@ -1,5 +1,5 @@
 use crate::foundation::{
-    compose::Slottable,
+    compose::{Slottable, project_attrs_as_child},
     date_time::{
         CalendarLocale, CalendarTime, DayPeriod, FieldInvalidReason, FieldSegmentIntent, HourCycle,
         SegmentKind, TimeGranularity, TimeValue,
@@ -8,11 +8,7 @@ use crate::foundation::{
 };
 
 use super::{
-    attrs::{
-        TimeFieldInputAttrs, TimeFieldLabelAttrs, TimeFieldSegmentAttrs,
-        project_time_field_input_as_child, project_time_field_label_as_child,
-        project_time_field_segment_as_child,
-    },
+    attrs::{TimeFieldInputAttrs, TimeFieldLabelAttrs, TimeFieldSegmentAttrs},
     relationships::TimeFieldRelationships,
     state::{TimeFieldDefinition, TimeFieldState, first_interactive_time_segment},
     types::{TIME_FIELD_PARTS, TimeFieldPart, TimeFieldRangeRole},
@@ -99,7 +95,7 @@ fn time_field_attrs_emit_data_time_field_segment_and_as_child() {
         false,
         false,
     );
-    assert_eq!(seg_attrs.data_time_field_segment, "");
+    assert_eq!(seg_attrs.data_marker, "");
     assert_eq!(seg_attrs.data_segment, "hour");
     assert_eq!(seg_attrs.role, Some("spinbutton"));
     assert_eq!(seg_attrs.aria_valuetext.as_deref(), Some("2 PM"));
@@ -114,13 +110,13 @@ fn time_field_attrs_emit_data_time_field_segment_and_as_child() {
         false,
         false,
     );
-    assert_eq!(input_attrs.data_time_field_input, "");
+    assert_eq!(input_attrs.data_marker, "");
     let label_attrs = TimeFieldLabelAttrs::new(rels.label_id().to_string(), false, false);
-    assert_eq!(label_attrs.data_time_field_label, "");
+    assert_eq!(label_attrs.data_marker, "");
 
-    let (_, p_in, _) = project_time_field_input_as_child(&input_attrs, "div", Slottable::new(1));
-    let (_, p_lbl, _) = project_time_field_label_as_child(&label_attrs, "div", Slottable::new(2));
-    let (_, p_seg, _) = project_time_field_segment_as_child(&seg_attrs, "span", Slottable::new(3));
+    let (_, p_in, _) = project_attrs_as_child(&input_attrs, "div", Slottable::new(1));
+    let (_, p_lbl, _) = project_attrs_as_child(&label_attrs, "div", Slottable::new(2));
+    let (_, p_seg, _) = project_attrs_as_child(&seg_attrs, "span", Slottable::new(3));
     assert_eq!(p_in, input_attrs);
     assert_eq!(p_lbl, label_attrs);
     assert_eq!(p_seg, seg_attrs);

@@ -1,9 +1,40 @@
+use std::fmt::Debug;
+use std::hash::Hash;
+use std::marker::PhantomData;
+
 use crate::foundation::{
     date_time::{CalendarDate, DateValue},
     shared::Direction,
 };
 
-use super::types::DatePickerSnapshot;
+use super::{relationships::DATE_PICKER_OPEN_FOCUS_SELECTOR, types::DatePickerSnapshot};
+
+/// Common definition accessors shared by `DatePickerDefinition` and `DateRangePickerDefinition`.
+pub trait PickerDefinitionLike: Clone + Debug + PartialEq + Eq + 'static {
+    fn is_disabled(&self) -> bool;
+    fn close_on_select(&self) -> bool;
+}
+
+/// Zero-overhead policy trait unifying `DatePicker` and `DateRangePicker` pure state & relationships.
+pub trait PickerPolicy: Copy + Clone + Debug + Default + PartialEq + Eq + Hash + 'static {
+    type Value: Copy + Debug + PartialEq + Eq + 'static;
+    type CalendarValue: Copy + Debug + PartialEq + Eq + 'static;
+    type Definition: PickerDefinitionLike;
+    type Snapshot: Clone + Debug + PartialEq + Eq + 'static;
+
+    const OPEN_FOCUS_SELECTOR: &'static str;
+    const CONTENT_DATA_ATTR: &'static str;
+
+    fn to_calendar_value(value: Self::Value) -> Self::CalendarValue;
+    fn placeholder_from_field_value(value: Self::Value) -> Option<DateValue>;
+    fn build_snapshot(
+        def: &Self::Definition,
+        value: Self::Value,
+        placeholder: DateValue,
+        open: bool,
+        is_invalid: bool,
+    ) -> Self::Snapshot;
+}
 
 /// Immutable configuration for `DatePicker`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -58,13 +89,73 @@ impl DatePickerDefinition {
     }
 }
 
-/// Result of selecting or deselecting a date from `DatePickerCalendar`.
+impl PickerDefinitionLike for DatePickerDefinition {
+    #[inline]
+    fn is_disabled(&self) -> bool {
+        self.disabled
+    }
+
+    #[inline]
+    fn close_on_select(&self) -> bool {
+        self.close_on_date_select
+    }
+}
+
+/// Zero-sized policy marker for single-date `DatePicker`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct DatePickerPolicy;
+
+impl PickerPolicy for DatePickerPolicy {
+    type Value = Option<DateValue>;
+    type CalendarValue = Option<CalendarDate>;
+    type Definition = DatePickerDefinition;
+    type Snapshot = DatePickerSnapshot;
+
+    const OPEN_FOCUS_SELECTOR: &'static str = DATE_PICKER_OPEN_FOCUS_SELECTOR;
+    const CONTENT_DATA_ATTR: &'static str = "data-date-picker-content";
+
+    #[inline]
+    fn to_calendar_value(value: Self::Value) -> Self::CalendarValue {
+        value.map(|v| v.date())
+    }
+
+    #[inline]
+    fn placeholder_from_field_value(value: Self::Value) -> Option<DateValue> {
+        value
+    }
+
+    fn build_snapshot(
+        def: &Self::Definition,
+        value: Self::Value,
+        placeholder: DateValue,
+        open: bool,
+        is_invalid: bool,
+    ) -> Self::Snapshot {
+        DatePickerSnapshot {
+            value,
+            calendar_value: Self::to_calendar_value(value),
+            placeholder,
+            calendar_placeholder: placeholder.date(),
+            open,
+            disabled: def.disabled,
+            read_only: def.read_only,
+            required: def.required,
+            close_on_date_select: def.close_on_date_select,
+            is_invalid,
+        }
+    }
+}
+
+/// Result of selecting or updating a value from a picker calendar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DatePickerSelectOutcome {
-    pub next_value: Option<DateValue>,
+pub struct PickerSelectOutcome<V> {
+    pub next_value: V,
     pub next_placeholder: DateValue,
     pub should_close: bool,
 }
+
+/// Result of selecting or deselecting a date from `DatePickerCalendar`.
+pub type DatePickerSelectOutcome = PickerSelectOutcome<Option<DateValue>>;
 
 /// Merges a selected [`CalendarDate`] into an existing `DateValue` (or `placeholder`),
 /// preserving any wall-clock `CalendarTime` component on `DateValue::DateTime`.
@@ -89,46 +180,48 @@ pub const fn merge_calendar_placeholder(
     current_placeholder.with_date(next_date)
 }
 
-/// Pure headless state machine coordinating `DateField`, `Popover`, and `Calendar` for `DatePicker`.
+/// Policy-parameterized headless state machine shared by `DatePicker` and `DateRangePicker`.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct DatePickerState {
-    def: DatePickerDefinition,
-    value: Option<DateValue>,
-    placeholder: DateValue,
-    open: bool,
-    is_invalid: bool,
+pub struct PickerState<P: PickerPolicy> {
+    pub(crate) def: P::Definition,
+    pub(crate) value: P::Value,
+    pub(crate) placeholder: DateValue,
+    pub(crate) open: bool,
+    pub(crate) is_invalid: bool,
+    _policy: PhantomData<P>,
 }
 
-impl DatePickerState {
+impl<P: PickerPolicy> PickerState<P> {
     pub fn new(
-        def: DatePickerDefinition,
-        value: Option<DateValue>,
+        def: P::Definition,
+        value: P::Value,
         placeholder: DateValue,
         open: bool,
     ) -> Self {
-        let resolved_open = if def.disabled { false } else { open };
+        let resolved_open = if def.is_disabled() { false } else { open };
         Self {
             def,
             value,
             placeholder,
             open: resolved_open,
             is_invalid: false,
+            _policy: PhantomData,
         }
     }
 
     #[inline]
-    pub fn def(&self) -> &DatePickerDefinition {
+    pub fn def(&self) -> &P::Definition {
         &self.def
     }
 
     #[inline]
-    pub fn value(&self) -> Option<DateValue> {
+    pub fn value(&self) -> P::Value {
         self.value
     }
 
     #[inline]
-    pub fn calendar_value(&self) -> Option<CalendarDate> {
-        self.value.map(|v| v.date())
+    pub fn calendar_value(&self) -> P::CalendarValue {
+        P::to_calendar_value(self.value)
     }
 
     #[inline]
@@ -151,8 +244,8 @@ impl DatePickerState {
         self.is_invalid
     }
 
-    pub fn sync_definition(&mut self, def: DatePickerDefinition) {
-        if def.disabled {
+    pub fn sync_definition(&mut self, def: P::Definition) {
+        if def.is_disabled() {
             self.open = false;
         }
         self.def = def;
@@ -164,29 +257,44 @@ impl DatePickerState {
 
     /// Requests an open/close transition. Returns the effective open state.
     pub fn set_open(&mut self, open: bool) -> bool {
-        self.open = if self.def.disabled { false } else { open };
+        self.open = if self.def.is_disabled() { false } else { open };
         self.open
     }
 
-    /// Applies a value update originating from `DateField` or external controlled state.
-    pub fn set_field_value(&mut self, value: Option<DateValue>) {
+    /// Applies a value update originating from the field or external controlled state.
+    pub fn set_field_value(&mut self, value: P::Value) {
         self.value = value;
-        if let Some(v) = value {
-            self.placeholder = v;
+        if let Some(ph) = P::placeholder_from_field_value(value) {
+            self.placeholder = ph;
         }
     }
 
-    /// Applies a placeholder update originating from `DateField` or external controlled state.
+    /// Applies a placeholder update originating from the field or external controlled state.
     pub fn set_placeholder(&mut self, placeholder: DateValue) {
         self.placeholder = placeholder;
     }
 
-    /// Applies a placeholder update originating from `Calendar` while preserving any time component.
+    /// Applies a placeholder update originating from the calendar while preserving any time component.
     pub fn set_calendar_placeholder(&mut self, date: CalendarDate) -> DateValue {
         self.placeholder = merge_calendar_placeholder(self.placeholder, date);
         self.placeholder
     }
 
+    pub fn snapshot(&self) -> P::Snapshot {
+        P::build_snapshot(
+            &self.def,
+            self.value,
+            self.placeholder,
+            self.open,
+            self.is_invalid,
+        )
+    }
+}
+
+/// Pure headless state machine coordinating `DateField`, `Popover`, and `Calendar` for `DatePicker`.
+pub type DatePickerState = PickerState<DatePickerPolicy>;
+
+impl PickerState<DatePickerPolicy> {
     /// Applies a value update originating from `Calendar` (`on_value_change`).
     pub fn apply_calendar_value(&mut self, date: Option<CalendarDate>) -> DatePickerSelectOutcome {
         match date {
@@ -194,7 +302,7 @@ impl DatePickerState {
                 let merged = merge_calendar_date_into_value(self.value, self.placeholder, selected);
                 self.value = Some(merged);
                 self.placeholder = merge_calendar_placeholder(self.placeholder, selected);
-                DatePickerSelectOutcome {
+                PickerSelectOutcome {
                     next_value: self.value,
                     next_placeholder: self.placeholder,
                     should_close: false,
@@ -202,7 +310,7 @@ impl DatePickerState {
             }
             None => {
                 self.value = None;
-                DatePickerSelectOutcome {
+                PickerSelectOutcome {
                     next_value: None,
                     next_placeholder: self.placeholder,
                     should_close: false,
@@ -223,25 +331,10 @@ impl DatePickerState {
         if should_close {
             self.open = false;
         }
-        DatePickerSelectOutcome {
+        PickerSelectOutcome {
             next_value: self.value,
             next_placeholder: self.placeholder,
             should_close,
-        }
-    }
-
-    pub fn snapshot(&self) -> DatePickerSnapshot {
-        DatePickerSnapshot {
-            value: self.value,
-            calendar_value: self.calendar_value(),
-            placeholder: self.placeholder,
-            calendar_placeholder: self.calendar_placeholder(),
-            open: self.open,
-            disabled: self.def.disabled,
-            read_only: self.def.read_only,
-            required: self.def.required,
-            close_on_date_select: self.def.close_on_date_select,
-            is_invalid: self.is_invalid,
         }
     }
 }

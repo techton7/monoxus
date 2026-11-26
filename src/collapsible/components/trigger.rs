@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::collapsible::components::CollapsibleContext;
-use crate::foundation::shared::data_disabled_attr;
+use crate::foundation::{compose::merge_global_attributes, shared::data_disabled_attr};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct CollapsibleTriggerProps {
@@ -17,6 +17,8 @@ pub struct CollapsibleTriggerProps {
     pub aria_controls: Option<String>,
     #[props(default)]
     pub onclick: Option<EventHandler<MouseEvent>>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     pub children: Element,
 }
 
@@ -35,11 +37,7 @@ pub fn CollapsibleTrigger(props: CollapsibleTriggerProps) -> Element {
         .aria_controls
         .or_else(|| ctx.content_id.read().clone())
         .unwrap_or_else(|| trigger.target_content_id().to_string());
-    let aria_controls = if should_emit_controls {
-        Some(target_id)
-    } else {
-        None
-    };
+    let aria_controls = should_emit_controls.then_some(target_id);
 
     let click_runtime = runtime.clone();
     let onclick_handler = props.onclick;
@@ -53,18 +51,25 @@ pub fn CollapsibleTrigger(props: CollapsibleTriggerProps) -> Element {
         }
     };
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         button {
             id: "{trigger_id}",
             r#type: "button",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             disabled: is_disabled,
             aria_expanded: "{aria_expanded}",
             aria_controls: aria_controls.as_deref(),
             "data-state": trigger.data_state_str(),
             "data-disabled": data_disabled_attr(is_disabled),
             onclick: on_click,
+            ..merged.rest,
             {props.children}
         }
     }

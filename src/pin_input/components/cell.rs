@@ -1,12 +1,14 @@
 use dioxus::prelude::*;
 
+use crate::foundation::compose::merge_global_attributes;
+
 use super::super::{
     attrs::PinInputCellAttributes,
     runtime::{PinInputCellContext, use_pin_input_context},
     types::PinInputCellData,
 };
 
-/// Render props passed to `render_child` when [`PinInputCell`] sets `as_child: Some(true)`.
+/// Render props passed to `render_child` when [`PinInputCell`] sets `as_child: true`.
 #[derive(Clone)]
 pub struct PinInputCellRenderChildProps {
     pub attrs: PinInputCellAttributes,
@@ -22,7 +24,7 @@ pub struct PinInputCellProps {
     pub id: Option<String>,
     pub index: usize,
     #[props(default)]
-    pub as_child: Option<bool>,
+    pub as_child: bool,
     #[props(default)]
     pub render_child: Option<Callback<PinInputCellRenderChildProps, Element>>,
     #[props(default)]
@@ -63,14 +65,13 @@ pub fn PinInputCell(props: PinInputCellProps) -> Element {
         disabled,
     });
 
-    let as_child = props.as_child.unwrap_or(false);
-    if as_child && props.render_child.is_none() {
+    if props.as_child && props.render_child.is_none() {
         #[cfg(debug_assertions)]
         eprintln!(
             "monoxus::PinInputCell: as_child requires render_child; rendering the default div"
         );
     }
-    if let Some(render_child) = props.render_child.as_ref().filter(|_| as_child) {
+    if let Some(render_child) = props.render_child.as_ref().filter(|_| props.as_child) {
         return render_child.call(PinInputCellRenderChildProps {
             attrs: cell_attrs,
             cell: cell_data,
@@ -79,11 +80,17 @@ pub fn PinInputCell(props: PinInputCellProps) -> Element {
         });
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{cell_attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             "data-active": cell_attrs.data_active,
             "data-inactive": cell_attrs.data_inactive,
             "data-disabled": cell_attrs.data_disabled,
@@ -93,7 +100,7 @@ pub fn PinInputCell(props: PinInputCellProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             if let Some(children) = props.children {
                 {children}
             } else if let Some(ch) = display_char {

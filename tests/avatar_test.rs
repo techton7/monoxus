@@ -131,3 +131,59 @@ fn controlled_loaded_avatar_mounts_image_and_aliases() {
     let mut dom = VirtualDom::new(ControlledAvatarScenario);
     dom.rebuild_in_place();
 }
+
+#[test]
+fn avatar_root_unchanged_parent_rerender_does_not_rerender_children() {
+    #[component]
+    fn RenderCountingChild(render_count: Rc<RefCell<usize>>) -> Element {
+        let ctx = monoxus::avatar::use_avatar_context();
+        let _status = ctx.status();
+        *render_count.borrow_mut() += 1;
+        rsx! { span { "child" } }
+    }
+
+    #[component]
+    fn ParentHost(
+        tick_holder: Rc<RefCell<Option<Signal<usize>>>>,
+        child_renders: Rc<RefCell<usize>>,
+    ) -> Element {
+        let tick = use_signal(|| 0usize);
+        *tick_holder.borrow_mut() = Some(tick);
+        let _read_tick = tick();
+        rsx! {
+            AvatarRoot {
+                loading_status: AvatarImageLoadingStatus::Loaded,
+                delay_ms: 150,
+                on_loading_status_change: move |_| {},
+                RenderCountingChild {
+                    render_count: child_renders,
+                }
+            }
+        }
+    }
+
+    let tick_holder = Rc::new(RefCell::new(None));
+    let child_renders = Rc::new(RefCell::new(0usize));
+    let mut dom = VirtualDom::new_with_props(
+        ParentHost,
+        ParentHostProps {
+            tick_holder: tick_holder.clone(),
+            child_renders: child_renders.clone(),
+        },
+    );
+    dom.rebuild_in_place();
+    dom.render_immediate(&mut dioxus_core::NoOpMutations);
+    assert_eq!(*child_renders.borrow(), 1);
+
+    let mut tick = tick_holder.borrow().expect("tick signal captured");
+    dom.in_scope(ScopeId::APP, || tick.set(1));
+    dom.render_immediate(&mut dioxus_core::NoOpMutations);
+    dom.in_scope(ScopeId::APP, || tick.set(2));
+    dom.render_immediate(&mut dioxus_core::NoOpMutations);
+
+    assert_eq!(
+        *child_renders.borrow(),
+        1,
+        "FM-COL-1: unchanged AvatarRoot parent re-renders must not invalidate context signals or re-render children"
+    );
+}

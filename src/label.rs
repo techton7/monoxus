@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+use crate::foundation::compose::merge_global_attributes;
+
 pub use monoxus_core::label::*;
 
 /// Properties for the headless `Label` component.
@@ -53,12 +55,18 @@ pub fn Label(props: LabelProps) -> Element {
         }
     };
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         label {
             id: attrs.id,
             r#for: attrs.r#for,
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             "data-label-root": attrs.data_label_root,
             onclick: move |evt| {
                 if let Some(handler) = props.on_click.as_ref() {
@@ -71,7 +79,7 @@ pub fn Label(props: LabelProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

@@ -1,10 +1,9 @@
-use std::{cell::Cell, rc::Rc};
-
 use dioxus::prelude::*;
 
 use crate::foundation::{
     roving_focus::{RovingFocusConfig, RovingFocusRuntime, use_roving_focus_group},
     shared::{Direction, Orientation, ScopeHandle},
+    state::{ControllableSignal, sync_signal, use_controllable_signal_with},
 };
 
 use super::{
@@ -23,6 +22,7 @@ pub struct PaginationRuntime {
     pub per_page: Signal<usize>,
     pub sibling_count: Signal<usize>,
     pub page: Signal<usize>,
+    pub(crate) page_ctl: ControllableSignal<usize>,
     pub is_controlled: Signal<bool>,
     pub loop_focus: Signal<bool>,
     pub orientation: Signal<Orientation>,
@@ -31,50 +31,74 @@ pub struct PaginationRuntime {
     pub scope_id: Signal<String>,
     pub root_dom_id: Signal<String>,
     pub roving: RovingFocusRuntime,
-    pub on_page_change: Rc<Cell<Option<EventHandler<usize>>>>,
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn use_pagination_runtime(
+    count: usize,
+    per_page: usize,
+    sibling_count: usize,
+    page: Option<usize>,
+    default_page: usize,
+    on_page_change: Option<EventHandler<usize>>,
+    loop_focus: bool,
+    orientation: Orientation,
+    dir: Direction,
+    aria_label: String,
+    scope_id: String,
+    root_dom_id: String,
+) -> PaginationRuntime {
+    let effective_per_page = per_page.max(1);
+    let total_pages = compute_total_pages(count, effective_per_page);
+    let page_ctl = use_controllable_signal_with(page, default_page, on_page_change, move |p| {
+        clamp_page(p, total_pages)
+    });
+
+    if !page_ctl.is_controlled() {
+        let mut page_sig = page_ctl.signal();
+        let current = *page_sig.peek();
+        let clamped = clamp_page(current, total_pages);
+        sync_signal(&mut page_sig, clamped);
+    }
+
+    let roving_cfg = RovingFocusConfig::new()
+        .with_orientation(orientation)
+        .with_direction(dir)
+        .with_loop_focus(loop_focus)
+        .with_enabled(true);
+    let roving = use_roving_focus_group(roving_cfg, None, root_dom_id);
+
+    let is_controlled = page_ctl.is_controlled();
+    let mut rt = PaginationRuntime {
+        count: use_signal(|| count),
+        per_page: use_signal(|| effective_per_page),
+        sibling_count: use_signal(|| sibling_count),
+        page: page_ctl.signal(),
+        page_ctl,
+        is_controlled: use_signal(|| is_controlled),
+        loop_focus: use_signal(|| loop_focus),
+        orientation: use_signal(|| orientation),
+        dir: use_signal(|| dir),
+        aria_label: use_signal(|| aria_label.clone()),
+        scope_id: use_signal(|| scope_id.clone()),
+        root_dom_id: roving.root_dom_id,
+        roving,
+    };
+
+    sync_signal(&mut rt.count, count);
+    sync_signal(&mut rt.per_page, effective_per_page);
+    sync_signal(&mut rt.sibling_count, sibling_count);
+    sync_signal(&mut rt.is_controlled, is_controlled);
+    sync_signal(&mut rt.loop_focus, loop_focus);
+    sync_signal(&mut rt.orientation, orientation);
+    sync_signal(&mut rt.dir, dir);
+    sync_signal(&mut rt.aria_label, aria_label);
+    sync_signal(&mut rt.scope_id, scope_id);
+
+    rt
 }
 
 impl PaginationRuntime {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        count: usize,
-        per_page: usize,
-        sibling_count: usize,
-        initial_page: usize,
-        is_controlled: bool,
-        loop_focus: bool,
-        orientation: Orientation,
-        dir: Direction,
-        aria_label: String,
-        scope_id: String,
-        root_dom_id: String,
-        on_page_change: Option<EventHandler<usize>>,
-    ) -> Self {
-        let roving_cfg = RovingFocusConfig::new()
-            .with_orientation(orientation)
-            .with_direction(dir)
-            .with_loop_focus(loop_focus)
-            .with_enabled(true);
-        let roving = use_roving_focus_group(roving_cfg, None, root_dom_id);
-        let on_page_change_cell = use_hook(|| Rc::new(Cell::new(on_page_change)));
-
-        Self {
-            count: use_signal(|| count),
-            per_page: use_signal(|| per_page.max(1)),
-            sibling_count: use_signal(|| sibling_count),
-            page: use_signal(|| initial_page),
-            is_controlled: use_signal(|| is_controlled),
-            loop_focus: use_signal(|| loop_focus),
-            orientation: use_signal(|| orientation),
-            dir: use_signal(|| dir),
-            aria_label: use_signal(|| aria_label),
-            scope_id: use_signal(|| scope_id),
-            root_dom_id: roving.root_dom_id,
-            roving,
-            on_page_change: on_page_change_cell,
-        }
-    }
-
     pub fn roving(&self) -> RovingFocusRuntime {
         self.roving
     }
@@ -103,17 +127,7 @@ impl PaginationRuntime {
     pub fn set_page(&self, next_raw: usize) {
         let total_pages = compute_total_pages(*self.count.peek(), *self.per_page.peek());
         let next = clamp_page(next_raw, total_pages);
-        let current = *self.page.peek();
-        if current == next {
-            return;
-        }
-        if !*self.is_controlled.peek() {
-            let mut page_sig = self.page;
-            page_sig.set(next);
-        }
-        if let Some(handler) = self.on_page_change.get() {
-            handler.call(next);
-        }
+        self.page_ctl.set(next);
     }
 
     pub fn prev_page(&self) {

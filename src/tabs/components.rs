@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use dioxus::prelude::*;
 
 use crate::foundation::{
+    keyboard::is_activation_key,
     roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::{
         ScopeHandle, data_disabled_attr, use_direction_context, use_mount_animation_guard,
@@ -187,8 +188,7 @@ pub fn TabsTrigger(
         if is_disabled {
             return;
         }
-        let key = evt.key().to_string();
-        if matches!(key.as_str(), " " | "Enter") {
+        if is_activation_key(&evt.key()) {
             evt.prevent_default();
             runtime_key.select_tab(&val_key);
             return;
