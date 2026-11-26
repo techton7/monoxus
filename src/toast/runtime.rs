@@ -150,7 +150,10 @@ pub fn start_toast_browser_monitor(
         let on_event_cell = on_event_cell.clone();
         observe_capture_events(move |event: CaptureEvent| {
             let handle = || match event.kind {
-                CaptureEventKind::KeyDown { key } => {
+                CaptureEventKind::KeyDown { key, is_composing } => {
+                    if is_composing {
+                        return;
+                    }
                     if dioxus::core::Runtime::try_current().is_some()
                         && TOAST_STORE.peek().pointer_down_in_viewport
                     {
