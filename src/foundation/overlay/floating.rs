@@ -799,6 +799,11 @@ impl FloatingHandle {
     }
 }
 
+/// Internal context provided by [`use_floating_layer`] so child portal teleportation hooks
+/// can immediately recompute placement after reparenting out of a transformed ancestor wrapper.
+#[derive(Clone, Copy)]
+pub(crate) struct PortalTeleportRecalcContext(pub(crate) FloatingHandle);
+
 /// Shared zero-overhead floating placement runtime hook unifying sync measurement, 1-frame
 /// deferred layout refinement, async `MountedHandle` fallback, z-index hoisting, arrow ID
 /// tracking, and scroll policy handling.
@@ -835,6 +840,8 @@ pub fn use_floating_layer(
         on_scroll_close: on_scroll_close_slot,
         alive,
     };
+
+    use_context_provider(|| PortalTeleportRecalcContext(handle));
 
     use_effect(use_reactive((&active, &spec), move |(is_active, cur_spec)| {
         let _ = handle.arrow_id.read();

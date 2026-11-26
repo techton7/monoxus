@@ -214,6 +214,7 @@ pub(crate) fn use_portal_teleport(
 
     let state: Rc<RefCell<(String, bool)>> =
         use_hook(|| Rc::new(RefCell::new((pid.clone(), false))));
+    let floating_recalc = try_use_context::<floating::PortalTeleportRecalcContext>();
 
     {
         let state_effect = Rc::clone(&state);
@@ -232,6 +233,9 @@ pub(crate) fn use_portal_teleport(
                         PortalHost::Inline => None,
                     };
                     crate::foundation::browser::teleport_element_to_host(&cur_pid, host_id);
+                    if let Some(ctx) = floating_recalc {
+                        let _ = ctx.0.recalculate_sync();
+                    }
                     tracked.0 = cur_pid;
                     tracked.1 = true;
                 } else {
