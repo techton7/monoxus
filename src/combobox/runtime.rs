@@ -28,10 +28,10 @@ use super::{
         ComboboxViewportAttrs,
     },
     monitors::ComboboxInteractOutsideEvent,
+    registry::ComboboxOptionRegistry,
     relationships::ComboboxRelationships,
     state::{
-        ComboboxOptionRegistry, ComboboxState, apply_multiple_toggle, apply_single_toggle,
-        resolve_input_keydown,
+        ComboboxState, apply_multiple_toggle, apply_single_toggle, resolve_input_keydown,
     },
     types::{
         ComboboxContext, ComboboxItemData, ComboboxMode, ComboboxNavKey, ComboboxScrollAlignment,

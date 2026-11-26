@@ -1,5 +1,4 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     shared::data_disabled_attr,
     state::DataState,
 };
@@ -134,17 +133,9 @@ impl ToggleAttributes {
     }
 }
 
-pub fn project_toggle_as_child<T, C>(
-    toggle: &Toggle,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ToggleAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, toggle.attributes(), content)
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::foundation::compose::{Slottable, project_attrs_as_child};
     use super::*;
 
     #[test]
@@ -212,7 +203,7 @@ mod tests {
     fn project_toggle_as_child_attaches_attributes() {
         let toggle = Toggle::new().with_pressed(true);
         let slottable = Slottable::new("Content text");
-        let (target, attrs, content) = project_toggle_as_child(&toggle, 42_u32, slottable);
+        let (target, attrs, content) = project_attrs_as_child(&toggle.attributes(), 42_u32, slottable);
 
         assert_eq!(target, 42);
         assert_eq!(content, "Content text");

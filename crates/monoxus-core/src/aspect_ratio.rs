@@ -1,4 +1,4 @@
-use crate::foundation::compose::{Slottable, project_as_child};
+use crate::foundation::compose::{Slottable, project_attrs_as_child};
 
 pub const ASPECT_RATIO_WRAPPER_STYLE: &str = "position: relative; width: 100%;";
 pub const ASPECT_RATIO_ROOT_STYLE: &str =
@@ -62,16 +62,6 @@ pub struct AspectRatioAttributes {
     pub data_aspect_ratio_root: &'static str,
 }
 
-/// Projects AspectRatio's state onto one custom target and its slotted content.
-pub fn project_aspect_ratio_as_child<T, C>(
-    state: &AspectRatio,
-    target: T,
-    content: Slottable<C>,
-) -> (T, AspectRatioAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, state.attributes(), content)
-}
-
 /// Generic renderer adapter for hosts that supply their own element target.
 pub fn render_aspect_ratio_child<T, C, R>(
     state: &AspectRatio,
@@ -79,7 +69,7 @@ pub fn render_aspect_ratio_child<T, C, R>(
     content: Slottable<C>,
     render_child: impl FnOnce(T, AspectRatioAttributes, C) -> R,
 ) -> R {
-    let (target, attributes, content) = project_aspect_ratio_as_child(state, target, content);
+    let (target, attributes, content) = project_attrs_as_child(&state.attributes(), target, content);
     render_child(target, attributes, content)
 }
 
@@ -129,8 +119,8 @@ mod tests {
     #[test]
     fn projects_and_renders_exactly_one_as_child_target() {
         let state = AspectRatio::new(2.0);
-        let (target, attributes, content) = project_aspect_ratio_as_child(
-            &state,
+        let (target, attributes, content) = project_attrs_as_child(
+            &state.attributes(),
             "picture-target",
             Slottable::new("picture-content"),
         );

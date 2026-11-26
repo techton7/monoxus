@@ -1,5 +1,3 @@
-use crate::foundation::compose::{Slottable, project_as_child};
-
 /// CSS selector matching interactive controls that should not have their text selection
 /// or native activation suppressed when nested inside a `<label>`.
 pub const LABEL_INTERACTIVE_TARGET_SELECTOR: &str = "button, input, select, textarea";
@@ -44,18 +42,9 @@ pub struct LabelAttributes {
     pub data_label_root: &'static str,
 }
 
-/// Projects headless label attributes onto a slottable child without adding wrapper elements.
-pub fn project_label_as_child<T, C>(
-    state: &Label,
-    target: T,
-    content: Slottable<C>,
-) -> (T, LabelAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, state.attributes(), content)
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::foundation::compose::{Slottable, project_attrs_as_child};
     use super::*;
 
     #[test]
@@ -79,7 +68,7 @@ mod tests {
     fn label_as_child_slot_projection() {
         let state = Label::new().with_id("slot-lbl").with_html_for("slot-input");
         let (target, attrs, content) =
-            project_label_as_child(&state, "span-wrapper", Slottable::new("First Name"));
+            project_attrs_as_child(&state.attributes(), "span-wrapper", Slottable::new("First Name"));
         assert_eq!(target, "span-wrapper");
         assert_eq!(attrs.id.as_deref(), Some("slot-lbl"));
         assert_eq!(attrs.r#for.as_deref(), Some("slot-input"));

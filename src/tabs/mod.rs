@@ -1,9 +1,8 @@
-pub mod attrs;
 pub mod components;
-pub mod relationships;
 pub mod runtime;
-pub mod state;
-pub mod types;
 
-pub use self::{attrs::*, components::*, relationships::*, runtime::*, state::*, types::*};
+pub use monoxus_core::tabs::{attrs, relationships, state, types};
+pub use monoxus_core::tabs::{attrs::*, relationships::*, state::*, types::*};
+
+pub use self::{components::*, runtime::*};
 

@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 use futures_timer::Delay;
 
 use crate::foundation::browser::{get_element_scroll_metrics, set_element_scroll_position};
+use crate::foundation::compose::merge_global_attributes;
 
 use crate::combobox::{
     attrs::ComboboxScrollButtonAttrs,
@@ -193,19 +194,25 @@ fn render_scroll_button(
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        Some(combined_style.as_str()),
+        props.attributes,
+    );
+
     if data_attr == "data-combobox-scroll-up-button" {
         rsx! {
             div {
                 "aria-hidden": "{attrs.aria_hidden()}",
                 "data-combobox-scroll-up-button": "",
-                class: props.class.as_deref().unwrap_or_default(),
-                style: "{combined_style}",
+                class: merged.class.as_deref(),
+                style: merged.style.as_deref(),
                 onmousedown: move |evt| on_mouse_down.call(evt),
                 onpointerdown: move |evt| on_pointer_down.call(evt),
                 onpointermove: move |evt| on_pointer_move.call(evt),
                 onpointerleave: move |evt| on_pointer_leave.call(evt),
                 onpointerup: move |evt| on_pointer_up.call(evt),
-                ..props.attributes,
+                ..merged.rest,
                 {props.children}
             }
         }
@@ -214,14 +221,14 @@ fn render_scroll_button(
             div {
                 "aria-hidden": "{attrs.aria_hidden()}",
                 "data-combobox-scroll-down-button": "",
-                class: props.class.as_deref().unwrap_or_default(),
-                style: "{combined_style}",
+                class: merged.class.as_deref(),
+                style: merged.style.as_deref(),
                 onmousedown: move |evt| on_mouse_down.call(evt),
                 onpointerdown: move |evt| on_pointer_down.call(evt),
                 onpointermove: move |evt| on_pointer_move.call(evt),
                 onpointerleave: move |evt| on_pointer_leave.call(evt),
                 onpointerup: move |evt| on_pointer_up.call(evt),
-                ..props.attributes,
+                ..merged.rest,
                 {props.children}
             }
         }

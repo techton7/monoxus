@@ -3,6 +3,7 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 
 use crate::foundation::{
+    compose::merge_global_attributes,
     overlay::{FloatingLayer, PlacementAlign, PlacementSide, PortalHost},
     shared::{ScopeHandle, use_stable_id},
 };
@@ -47,6 +48,8 @@ pub struct HoverCardRootProps {
     pub align: PlacementAlign,
     #[props(default = 0.0)]
     pub align_offset: f32,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     pub children: Element,
 }
 
@@ -110,11 +113,15 @@ pub fn HoverCardRoot(props: HoverCardRootProps) -> Element {
 
     let attrs = runtime.root();
 
+    let merged = merge_global_attributes(None, Some("display: contents;"), props.attributes);
+
     rsx! {
         div {
             id: "{attrs.id()}",
-            style: "display: contents;",
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-state": attrs.data_state().as_str(),
+            ..merged.rest,
             {props.children}
         }
     }

@@ -1,3 +1,4 @@
+use crate::foundation::compose::project_attrs_as_child;
 use crate::foundation::{
     compose::Slottable,
     roving_focus::RovingModifiers,
@@ -227,7 +228,7 @@ fn attributes_publish_aria_current_and_omit_false_data_flags() {
     assert_eq!(next_at_start.data_disabled(), None);
 
     let (target, projected_root, content) =
-        project_pagination_root_as_child(&root, "custom-nav", Slottable::new("children"));
+        project_attrs_as_child(&root, "custom-nav", Slottable::new("children"));
     assert_eq!(target, "custom-nav");
     assert_eq!(projected_root, root);
     assert_eq!(content, "children");

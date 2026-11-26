@@ -1,13 +1,10 @@
-pub mod attrs;
 pub mod components;
-pub mod relationships;
 pub mod runtime;
-pub mod state;
-pub mod types;
 
-pub use self::{
-    attrs::*, components::*, relationships::*, runtime::*, state::*, types::*,
-};
+pub use monoxus_core::range_calendar::{attrs, relationships, state, types};
+pub use monoxus_core::range_calendar::{attrs::*, relationships::*, state::*, types::*};
+
+pub use self::{components::*, runtime::*};
 
 pub use crate::calendar::{
     CalendarGrid as RangeCalendarGrid, CalendarGridBody as RangeCalendarGridBody,

@@ -1,10 +1,11 @@
+use monoxus::foundation::compose::project_attrs_as_child;
 use std::{cell::RefCell, rc::Rc};
 
 use dioxus::prelude::*;
 use monoxus::foundation::{compose::Slottable, shared::ScopeHandle};
 use monoxus::progress::{
     Indicator, PROGRESS_PARTS, Progress, ProgressPart, ProgressRoot, ProgressState,
-    ProgressValidation, project_progress_root_as_child, use_progress_context,
+    ProgressValidation, use_progress_context,
 };
 
 #[test]
@@ -47,7 +48,7 @@ fn public_progress_label_and_projection_contract() {
     assert_eq!(attrs.aria_valuetext.as_deref(), Some("one quarter"));
 
     let (target, projected, content) =
-        project_progress_root_as_child(&attrs, "section", Slottable::new("child"));
+        project_attrs_as_child(&attrs, "section", Slottable::new("child"));
     assert_eq!(target, "section");
     assert_eq!(projected.data_state, "loading");
     assert_eq!(content, "child");

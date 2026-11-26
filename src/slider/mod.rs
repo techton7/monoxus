@@ -1,11 +1,10 @@
-pub mod attrs;
 pub mod components;
-pub mod relationships;
 pub mod runtime;
-pub mod state;
-pub mod types;
+
+pub use monoxus_core::slider::{attrs, relationships, state, types};
+pub use monoxus_core::slider::{attrs::*, relationships::*, state::*, types::*};
 
 #[cfg(test)]
 mod tests;
 
-pub use self::{attrs::*, components::*, relationships::*, runtime::*, state::*, types::*};
+pub use self::{components::*, runtime::*};

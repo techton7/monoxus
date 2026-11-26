@@ -1,20 +1,8 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::{Slottable, join_styles, merge_global_attributes, project_as_child};
+use crate::foundation::compose::{join_styles, merge_global_attributes};
 
-use crate::slider::{
-    attrs::SliderTickLabelAttributes, runtime::use_slider_context, types::SliderLabelPosition,
-};
-
-/// Projects child targets through [`AsChildSlot`] for `SliderTickLabel`.
-pub fn project_slider_tick_label_as_child<T, C>(
-    attrs: &SliderTickLabelAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, SliderTickLabelAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
+use crate::slider::{runtime::use_slider_context, types::SliderLabelPosition};
 
 /// Props for [`SliderTickLabel`].
 #[derive(Clone, PartialEq, Props)]

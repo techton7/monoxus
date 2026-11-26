@@ -1,5 +1,4 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     shared::data_disabled_attr,
 };
 
@@ -221,22 +220,3 @@ impl PinInputCellAttributes {
     }
 }
 
-/// Projects `PinInputRootAttributes` through `AsChildSlot`.
-pub fn project_pin_input_root_as_child<T, C>(
-    attrs: &PinInputRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, PinInputRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-/// Projects `PinInputCellAttributes` through `AsChildSlot`.
-pub fn project_pin_input_cell_as_child<T, C>(
-    attrs: &PinInputCellAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, PinInputCellAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}

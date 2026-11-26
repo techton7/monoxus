@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use dioxus::prelude::*;
 
 use crate::foundation::{
+    compose::merge_global_attributes,
     overlay::{FloatingLayer, PlacementAlign, PlacementSide, PortalHost},
     shared::{ScopeHandle, use_stable_id},
 };
@@ -59,6 +60,8 @@ pub struct PopoverRootProps {
     pub collision_padding: Option<f32>,
     #[props(default)]
     pub sticky: Option<bool>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     pub children: Element,
 }
 
@@ -150,12 +153,19 @@ pub fn PopoverRoot(props: PopoverRootProps) -> Element {
 
     let attrs = runtime.root();
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        Some(props.style.as_deref().unwrap_or("display: contents;")),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id()}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or("display: contents;"),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-state": attrs.data_state().as_str(),
+            ..merged.rest,
             {props.children}
         }
     }

@@ -1,7 +1,10 @@
 use dioxus::prelude::keyboard_types::Key;
 use dioxus::prelude::*;
 
-use crate::foundation::keyboard::{NavKey, is_ime_composing_key, translate_nav_key};
+use crate::foundation::{
+    compose::merge_global_attributes,
+    keyboard::{NavKey, is_ime_composing_key, translate_nav_key},
+};
 
 use super::{runtime::SelectRuntime, types::SelectItemData};
 
@@ -271,13 +274,28 @@ pub(crate) fn scroll_item_within_container(
     });
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectViewportProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn SelectViewport(
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Element,
-) -> Element {
+pub fn SelectViewport(props: SelectViewportProps) -> Element {
+    let SelectViewportProps {
+        id,
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<super::types::SelectContext>();
     let vp_id = id.unwrap_or_else(|| ctx.runtime.relationships().viewport_id());
     let default_style =
@@ -286,43 +304,76 @@ pub fn SelectViewport(
         Some(s) => format!("{default_style} {s}"),
         None => default_style.to_string(),
     };
+    let merged =
+        merge_global_attributes(class.as_deref(), Some(combined_style.as_str()), attributes);
     rsx! {
         div {
             id: "{vp_id}",
-            class: class.as_deref().unwrap_or_default(),
-            style: "{combined_style}",
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectScrollUpButtonProps {
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn SelectScrollUpButton(
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Element,
-) -> Element {
+pub fn SelectScrollUpButton(props: SelectScrollUpButtonProps) -> Element {
+    let SelectScrollUpButtonProps {
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
     rsx! {
         div {
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "aria-hidden": "true",
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectScrollDownButtonProps {
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn SelectScrollDownButton(
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Element,
-) -> Element {
+pub fn SelectScrollDownButton(props: SelectScrollDownButtonProps) -> Element {
+    let SelectScrollDownButtonProps {
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
     rsx! {
         div {
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "aria-hidden": "true",
+            ..merged.rest,
             {children}
         }
     }

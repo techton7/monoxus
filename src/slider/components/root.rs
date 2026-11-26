@@ -5,29 +5,18 @@ use crate::foundation::{
         get_element_client_rect,
         pointer::{try_release_pointer_capture, try_set_pointer_capture},
     },
-    compose::{Slottable, join_styles, merge_global_attributes, project_as_child},
+    compose::{join_styles, merge_global_attributes},
     form::{HiddenFormInputs, use_form_control_sync_with_epoch},
     overlay::Rect2D,
     shared::{ScopeHandle, use_stable_id},
 };
 
 use crate::slider::{
-    attrs::SliderRootAttributes,
     relationships::SliderRelationships,
     runtime::{SliderContext, find_closest_thumb, use_slider_runtime},
     state::{SliderDefinition, percent_to_value},
     types::{Direction, Orientation, SliderThumbAlignment, SliderThumbOrderPolicy, SliderValue},
 };
-
-/// Projects child targets through [`AsChildSlot`] for `SliderRoot`.
-pub fn project_slider_root_as_child<T, C>(
-    attrs: &SliderRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, SliderRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
 
 /// Props for [`SliderRoot`].
 #[derive(Clone, PartialEq, Props)]

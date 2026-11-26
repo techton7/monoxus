@@ -1,32 +1,27 @@
 pub mod arrow;
-pub mod attrs;
 pub mod content;
 pub mod content_static;
 pub mod hidden_input;
 pub mod item;
 pub(crate) mod monitors;
 pub mod portal;
-pub mod registry;
-pub mod relationships;
 pub mod runtime;
 pub mod selection;
-pub mod state;
 pub mod trigger;
 pub mod typeahead;
 pub mod types;
 pub mod viewport;
 
+pub use monoxus_core::select::{attrs, registry, relationships, state};
+pub use monoxus_core::select::{attrs::*, registry::*, relationships::*, state::*};
+
 pub use self::arrow::*;
-pub use self::attrs::*;
 pub use self::content::*;
 pub use self::content_static::*;
 pub use self::hidden_input::*;
 pub use self::item::*;
 pub use self::portal::*;
-pub use self::registry::*;
-pub use self::relationships::*;
 pub use self::runtime::*;
-pub use self::state::*;
 pub use self::trigger::*;
 pub use self::types::*;
 pub use self::viewport::*;

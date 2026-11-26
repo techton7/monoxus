@@ -3,6 +3,7 @@ use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
 use crate::combobox::{attrs::ComboboxTriggerAttrs, runtime::use_combobox_context};
+use crate::foundation::compose::merge_global_attributes;
 
 #[derive(Clone, PartialEq)]
 pub struct ComboboxTriggerRenderProps {
@@ -144,6 +145,12 @@ pub fn ComboboxTrigger(props: ComboboxTriggerProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         button {
             id: "{attrs.id()}",
@@ -155,14 +162,14 @@ pub fn ComboboxTrigger(props: ComboboxTriggerProps) -> Element {
             "data-combobox-trigger": "",
             "data-state": "{attrs.data_state_str()}",
             "data-disabled": attrs.data_disabled(),
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             onmousedown: move |evt| on_mouse_down.call(evt),
             onpointerdown: move |evt| on_pointer_down.call(evt),
             onpointerup: move |evt| on_pointer_up.call(evt),
             onclick: move |evt| on_click.call(evt),
             onkeydown: move |evt| on_key_down.call(evt),
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

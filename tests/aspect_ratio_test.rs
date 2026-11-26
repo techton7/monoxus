@@ -1,8 +1,9 @@
 use dioxus::prelude::*;
 #[allow(unused_imports)]
+use monoxus::foundation::compose::project_attrs_as_child;
 use monoxus::aspect_ratio::{
     ASPECT_RATIO_ROOT_STYLE, AspectRatio, AspectRatioAttributes, AspectRatioProps,
-    AspectRatioRenderProps, AspectRatioRoot, normalize_aspect_ratio, project_aspect_ratio_as_child,
+    AspectRatioRenderProps, AspectRatioRoot, normalize_aspect_ratio,
     render_aspect_ratio_child,
 };
 use monoxus::foundation::compose::Slottable;
@@ -69,7 +70,7 @@ fn test_aspect_ratio_public_state_projection_contract() {
     }
 
     let (target, projected, content) =
-        project_aspect_ratio_as_child(&state, "custom-target", Slottable::new("child"));
+        project_attrs_as_child(&state.attributes(), "custom-target", Slottable::new("child"));
     assert_eq!(target, "custom-target");
     assert_eq!(projected.data_aspect_ratio_root, "");
     assert_eq!(content, "child");

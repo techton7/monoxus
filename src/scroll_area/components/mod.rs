@@ -17,15 +17,10 @@ pub use self::{
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     shared::{Direction, Orientation},
 };
 
 use super::{
-    attrs::{
-        ScrollAreaContentAttributes, ScrollAreaCornerAttributes, ScrollAreaRootAttributes,
-        ScrollAreaScrollbarAttributes, ScrollAreaThumbAttributes, ScrollAreaViewportAttributes,
-    },
     relationships::ScrollAreaRelationships,
     runtime::ScrollAreaRuntime,
     types::{ScrollAreaSizes, ScrollAreaType},
@@ -70,56 +65,3 @@ impl ScrollbarContext {
     }
 }
 
-pub fn project_scroll_area_root_as_child<T, C>(
-    state: &ScrollAreaRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ScrollAreaRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, state.clone(), content)
-}
-
-pub fn project_scroll_area_viewport_as_child<T, C>(
-    state: &ScrollAreaViewportAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ScrollAreaViewportAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, state.clone(), content)
-}
-
-pub fn project_scroll_area_content_as_child<T, C>(
-    state: &ScrollAreaContentAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ScrollAreaContentAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, state.clone(), content)
-}
-
-pub fn project_scroll_area_scrollbar_as_child<T, C>(
-    state: &ScrollAreaScrollbarAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ScrollAreaScrollbarAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, state.clone(), content)
-}
-
-pub fn project_scroll_area_thumb_as_child<T, C>(
-    state: &ScrollAreaThumbAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ScrollAreaThumbAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, state.clone(), content)
-}
-
-pub fn project_scroll_area_corner_as_child<T, C>(
-    state: &ScrollAreaCornerAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ScrollAreaCornerAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, state.clone(), content)
-}

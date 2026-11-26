@@ -1,3 +1,4 @@
+use crate::foundation::compose::project_attrs_as_child;
 use super::*;
 use crate::foundation::{compose::Slottable, shared::ScopeHandle};
 
@@ -71,7 +72,7 @@ fn root_and_indicator_publish_synchronized_data_without_indicator_aria() {
 fn as_child_projection_preserves_target_and_attributes() {
     let root = progress(Some(50.0), 100.0).root(None, false);
     let (target, attrs, content) =
-        project_progress_root_as_child(&root, "article", Slottable::new("content"));
+        project_attrs_as_child(&root, "article", Slottable::new("content"));
     assert_eq!(target, "article");
     assert_eq!(attrs.role, "progressbar");
     assert_eq!(attrs.data_state, "loading");
@@ -79,7 +80,7 @@ fn as_child_projection_preserves_target_and_attributes() {
 
     let indicator = progress(Some(50.0), 100.0).indicator(false);
     let (target, attrs, content) =
-        project_progress_indicator_as_child(&indicator, "span", Slottable::new("fill"));
+        project_attrs_as_child(&indicator, "span", Slottable::new("fill"));
     assert_eq!(target, "span");
     assert_eq!(attrs.data_progress_indicator, "");
     assert_eq!(content, "fill");

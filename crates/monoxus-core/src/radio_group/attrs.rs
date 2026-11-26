@@ -1,5 +1,4 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     state::DataState,
 };
 
@@ -177,33 +176,6 @@ impl RadioGroupIndicatorAttributes {
     pub fn style(&self) -> &'static str {
         self.style
     }
-}
-
-pub fn project_radio_group_root_as_child<T, C>(
-    attrs: &RadioGroupRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, RadioGroupRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_radio_group_item_as_child<T, C>(
-    attrs: &RadioGroupItemAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, RadioGroupItemAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_radio_group_indicator_as_child<T, C>(
-    attrs: &RadioGroupIndicatorAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, RadioGroupIndicatorAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
 }
 
 #[cfg(test)]

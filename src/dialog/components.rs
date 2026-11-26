@@ -29,21 +29,52 @@ pub struct DialogContext {
     pub is_alert_dialog: bool,
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct DialogRootProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub open: Option<Signal<bool>>,
+    #[props(default)]
+    pub default_open: Option<bool>,
+    #[props(default)]
+    pub on_open_change: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub mode: Option<DialogMode>,
+    #[props(default)]
+    pub open_focus: Option<DialogOpenFocusPolicy>,
+    #[props(default)]
+    pub close_focus: Option<DialogCloseFocusPolicy>,
+    #[props(default)]
+    pub scroll_lock: Option<DialogScrollLockPolicy>,
+    #[props(default)]
+    pub outside_interaction: Option<DialogOutsideInteractionPolicy>,
+    #[props(default)]
+    pub portal_host: Option<PortalHost>,
+    #[props(default)]
+    pub prevent_body_pointer_events: Option<bool>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn DialogRoot(
-    #[props(default)] id: Option<String>,
-    #[props(default)] open: Option<Signal<bool>>,
-    #[props(default)] default_open: Option<bool>,
-    #[props(default)] on_open_change: Option<EventHandler<bool>>,
-    #[props(default)] mode: Option<DialogMode>,
-    #[props(default)] open_focus: Option<DialogOpenFocusPolicy>,
-    #[props(default)] close_focus: Option<DialogCloseFocusPolicy>,
-    #[props(default)] scroll_lock: Option<DialogScrollLockPolicy>,
-    #[props(default)] outside_interaction: Option<DialogOutsideInteractionPolicy>,
-    #[props(default)] portal_host: Option<PortalHost>,
-    #[props(default)] prevent_body_pointer_events: Option<bool>,
-    children: Element,
-) -> Element {
+pub fn DialogRoot(props: DialogRootProps) -> Element {
+    let DialogRootProps {
+        id,
+        open,
+        default_open,
+        on_open_change,
+        mode,
+        open_focus,
+        close_focus,
+        scroll_lock,
+        outside_interaction,
+        portal_host,
+        prevent_body_pointer_events,
+        attributes,
+        children,
+    } = props;
     let fallback_open = use_signal(|| default_open.unwrap_or(false));
     let open_signal = open.unwrap_or(fallback_open);
     let scope_id = use_stable_id(id.clone().map(Cow::Owned));
@@ -111,25 +142,45 @@ pub fn DialogRoot(
     });
 
     let attrs = runtime.root();
+    let merged = merge_global_attributes(None, Some("display: contents;"), attributes);
 
     rsx! {
         div {
             id: "{attrs.id()}",
-            style: "display: contents;",
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-state": attrs.data_state().as_str(),
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct DialogTriggerProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(default = false)]
+    pub disabled: bool,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn DialogTrigger(
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    #[props(default = false)] disabled: bool,
-    children: Element,
-) -> Element {
+pub fn DialogTrigger(props: DialogTriggerProps) -> Element {
+    let DialogTriggerProps {
+        id,
+        class,
+        style,
+        disabled,
+        attributes,
+        children,
+    } = props;
     let mut ctx = use_context::<DialogContext>();
     let runtime = ctx.runtime.read();
     let trigger = runtime.trigger();
@@ -156,13 +207,14 @@ pub fn DialogTrigger(
 
     let controls = trigger.aria_controls();
     let data_disabled = crate::foundation::shared::data_disabled_attr(disabled);
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
 
     rsx! {
         button {
             id: "{trig_id}",
             r#type: "button",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             disabled: disabled,
             "data-disabled": data_disabled,
             aria_haspopup: "dialog",
@@ -171,6 +223,7 @@ pub fn DialogTrigger(
             "data-state": trigger.data_state().as_str(),
             onmounted: runtime.mount_trigger(),
             onclick: on_click,
+            ..merged.rest,
             {children}
         }
     }
@@ -199,14 +252,32 @@ pub fn DialogPortal(
     })
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct DialogOverlayProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(default = false)]
+    pub force_mount: bool,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    #[props(default)]
+    pub children: Option<Element>,
+}
+
 #[component]
-pub fn DialogOverlay(
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    #[props(default = false)] force_mount: bool,
-    children: Option<Element>,
-) -> Element {
+pub fn DialogOverlay(props: DialogOverlayProps) -> Element {
+    let DialogOverlayProps {
+        id,
+        class,
+        style,
+        force_mount,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<DialogContext>();
     let runtime = ctx.runtime.read();
     let should_render = force_mount || runtime.should_render_overlay();
@@ -261,17 +332,20 @@ pub fn DialogOverlay(
         resolved_style.push_str(" pointer-events: auto;");
     }
 
+    let merged = merge_global_attributes(class.as_deref(), Some(resolved_style.as_str()), attributes);
+
     rsx! {
         div {
             id: "{overlay_id}",
-            class: class.as_deref().unwrap_or_default(),
-            style: "{resolved_style}",
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-state": overlay.data_state().as_str(),
             "data-overlay": "true",
             aria_hidden: "true",
             onmounted: runtime.mount_overlay(),
             onpointerdown: on_pointer_down,
             onclick: on_click,
+            ..merged.rest,
             {children}
         }
     }
@@ -492,13 +566,28 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct DialogTitleProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn DialogTitle(
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Element,
-) -> Element {
+pub fn DialogTitle(props: DialogTitleProps) -> Element {
+    let DialogTitleProps {
+        id,
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
     let mut ctx = use_context::<DialogContext>();
     let title_id = id.unwrap_or_else(|| ctx.runtime.read().title().id().to_string());
     if ctx.title_id.peek().as_deref() != Some(title_id.as_str()) {
@@ -514,23 +603,41 @@ pub fn DialogTitle(
         }
     });
 
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+
     rsx! {
         h2 {
             id: "{title_id}",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct DialogDescriptionProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn DialogDescription(
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Element,
-) -> Element {
+pub fn DialogDescription(props: DialogDescriptionProps) -> Element {
+    let DialogDescriptionProps {
+        id,
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
     let mut ctx = use_context::<DialogContext>();
     let desc_id = id.unwrap_or_else(|| ctx.runtime.read().description().id().to_string());
     if ctx.description_id.peek().as_deref() != Some(desc_id.as_str()) {
@@ -546,24 +653,44 @@ pub fn DialogDescription(
         }
     });
 
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+
     rsx! {
         p {
             id: "{desc_id}",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct DialogCloseProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(default = false)]
+    pub disabled: bool,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn DialogClose(
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    #[props(default = false)] disabled: bool,
-    children: Element,
-) -> Element {
+pub fn DialogClose(props: DialogCloseProps) -> Element {
+    let DialogCloseProps {
+        id,
+        class,
+        style,
+        disabled,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<DialogContext>();
     let runtime = ctx.runtime.read();
     let close = runtime.close();
@@ -589,13 +716,14 @@ pub fn DialogClose(
     };
 
     let data_disabled = crate::foundation::shared::data_disabled_attr(disabled);
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
 
     rsx! {
         button {
             id: "{close_id}",
             r#type: "button",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             disabled: disabled,
             "data-disabled": data_disabled,
             "data-state": close.data_state().as_str(),
@@ -611,19 +739,37 @@ pub fn DialogClose(
                 }
             },
             onclick: on_click,
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct AlertDialogActionProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(default)]
+    pub on_click: Option<EventHandler<MouseEvent>>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn AlertDialogAction(
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    #[props(default)] on_click: Option<EventHandler<MouseEvent>>,
-    children: Element,
-) -> Element {
+pub fn AlertDialogAction(props: AlertDialogActionProps) -> Element {
+    let AlertDialogActionProps {
+        id,
+        class,
+        style,
+        on_click,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<DialogContext>();
     let runtime = ctx.runtime.read();
     let default_id = runtime.relationships().scope().qualify("action");
@@ -647,12 +793,14 @@ pub fn AlertDialogAction(
         }
     };
 
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+
     rsx! {
         button {
             id: "{action_id}",
             r#type: "button",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-state": runtime.data_state().as_str(),
             onmounted: runtime.mount_focus_target(action_id.clone()),
             onpointerdown: move |_| runtime_for_ptr.mark_pointer_dismiss(),
@@ -662,19 +810,37 @@ pub fn AlertDialogAction(
                 }
             },
             onclick: click_handler,
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct AlertDialogCancelProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(default)]
+    pub on_click: Option<EventHandler<MouseEvent>>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn AlertDialogCancel(
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    #[props(default)] on_click: Option<EventHandler<MouseEvent>>,
-    children: Element,
-) -> Element {
+pub fn AlertDialogCancel(props: AlertDialogCancelProps) -> Element {
+    let AlertDialogCancelProps {
+        id,
+        class,
+        style,
+        on_click,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<DialogContext>();
     let runtime = ctx.runtime.read();
     let default_id = runtime.relationships().scope().qualify("cancel");
@@ -701,12 +867,14 @@ pub fn AlertDialogCancel(
         }
     };
 
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+
     rsx! {
         button {
             id: "{cancel_id}",
             r#type: "button",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-state": runtime.data_state().as_str(),
             onmounted: runtime.mount_focus_target(cancel_id.clone()),
             onpointerdown: move |_| runtime_for_ptr.mark_pointer_dismiss(),
@@ -716,6 +884,7 @@ pub fn AlertDialogCancel(
                 }
             },
             onclick: click_handler,
+            ..merged.rest,
             {children}
         }
     }

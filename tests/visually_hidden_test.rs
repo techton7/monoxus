@@ -1,3 +1,4 @@
+use monoxus::foundation::compose::project_attrs_as_child;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -7,8 +8,7 @@ use monoxus::foundation::compose::Slottable;
 use monoxus::visually_hidden::{
     VISUALLY_HIDDEN_STYLE, VisuallyHidden, VisuallyHiddenAttributes, VisuallyHiddenProps,
     VisuallyHiddenRenderProps, VisuallyHiddenRoot, VisuallyHiddenState,
-    merge_visually_hidden_style, project_visually_hidden_as_child,
-};
+    merge_visually_hidden_style, };
 
 #[cfg(feature = "native")]
 use crate::common;
@@ -81,7 +81,7 @@ fn visually_hidden_public_style_and_projection_contract() {
     assert!(merged.starts_with(VISUALLY_HIDDEN_STYLE));
     assert!(merged.ends_with("outline-color: rgb(1, 2, 3);"));
 
-    let (target, projected, content) = project_visually_hidden_as_child(
+    let (target, projected, content) = project_attrs_as_child(
         &state.attributes_with_style(Some("color: blue;")),
         "article",
         Slottable::new("Screen reader caption"),

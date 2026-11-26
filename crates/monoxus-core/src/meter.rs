@@ -1,5 +1,3 @@
-use crate::foundation::compose::{Slottable, project_as_child};
-
 /// Pure, deliberately non-normalizing state for the Meter primitive.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct MeterState {
@@ -77,20 +75,11 @@ pub struct MeterAttributes {
     pub data_meter_root: &'static str,
 }
 
-/// Projects Meter state onto a slottable child without adding a wrapper element.
-pub fn project_meter_as_child<T, C>(
-    meter: &MeterState,
-    target: T,
-    content: Slottable<C>,
-) -> (T, MeterAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, meter.attributes(), content)
-}
-
 pub type Meter = MeterState;
 
 #[cfg(test)]
 mod tests {
+    use crate::foundation::compose::{Slottable, project_attrs_as_child};
     use super::*;
 
     #[test]
@@ -127,7 +116,7 @@ mod tests {
     fn as_child_projection_preserves_target_and_content() {
         let meter = Meter::new().with_value(7.5);
         let (target, attrs, content) =
-            project_meter_as_child(&meter, "target", Slottable::new("content"));
+            project_attrs_as_child(&meter.attributes(), "target", Slottable::new("content"));
         assert_eq!(target, "target");
         assert_eq!(content, "content");
         assert_eq!(attrs.role, "meter");

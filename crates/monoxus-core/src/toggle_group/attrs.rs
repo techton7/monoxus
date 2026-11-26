@@ -1,5 +1,4 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     state::DataState,
 };
 
@@ -104,20 +103,3 @@ impl ToggleGroupItemAttributes {
     }
 }
 
-pub fn project_toggle_group_root_as_child<T, C>(
-    attrs: &ToggleGroupRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ToggleGroupRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_toggle_group_item_as_child<T, C>(
-    attrs: &ToggleGroupItemAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ToggleGroupItemAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}

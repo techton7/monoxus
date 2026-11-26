@@ -181,16 +181,37 @@ pub use crate::dialog::{
 };
 pub type AlertDialogPreventableEvent = PreventableEvent<()>;
 
+#[derive(Clone, PartialEq, Props)]
+pub struct AlertDialogRootProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub open: Option<Signal<bool>>,
+    #[props(default)]
+    pub default_open: Option<bool>,
+    #[props(default)]
+    pub on_open_change: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub portal_host: Option<PortalHost>,
+    #[props(default)]
+    pub prevent_body_pointer_events: Option<bool>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn AlertDialogRoot(
-    #[props(default)] id: Option<String>,
-    #[props(default)] open: Option<Signal<bool>>,
-    #[props(default)] default_open: Option<bool>,
-    #[props(default)] on_open_change: Option<EventHandler<bool>>,
-    #[props(default)] portal_host: Option<PortalHost>,
-    #[props(default)] prevent_body_pointer_events: Option<bool>,
-    children: Element,
-) -> Element {
+pub fn AlertDialogRoot(props: AlertDialogRootProps) -> Element {
+    let AlertDialogRootProps {
+        id,
+        open,
+        default_open,
+        on_open_change,
+        portal_host,
+        prevent_body_pointer_events,
+        attributes,
+        children,
+    } = props;
     let fallback_open = use_signal(|| default_open.unwrap_or(false));
     let open_signal = open.unwrap_or(fallback_open);
     let scope_id =
@@ -246,12 +267,19 @@ pub fn AlertDialogRoot(
     });
 
     let attrs = alert_runtime.root();
+    let merged = crate::foundation::compose::merge_global_attributes(
+        None,
+        Some("display: contents;"),
+        attributes,
+    );
 
     rsx! {
         div {
             id: "{attrs.id()}",
-            style: "display: contents;",
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-state": attrs.data_state().as_str(),
+            ..merged.rest,
             {children}
         }
     }

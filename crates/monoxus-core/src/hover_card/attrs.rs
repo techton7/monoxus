@@ -1,5 +1,4 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     overlay::PortalHost,
     shared::data_disabled_attr,
     state::DataState,
@@ -208,38 +207,3 @@ impl HoverCardArrowAttributes {
     }
 }
 
-pub fn project_hover_card_trigger_as_child<T, C>(
-    attrs: &HoverCardTriggerAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, HoverCardTriggerAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_hover_card_content_as_child<T, C>(
-    attrs: &HoverCardContentAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, HoverCardContentAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_hover_card_content_static_as_child<T, C>(
-    attrs: &HoverCardContentStaticAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, HoverCardContentStaticAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_hover_card_arrow_as_child<T, C>(
-    attrs: &HoverCardArrowAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, HoverCardArrowAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}

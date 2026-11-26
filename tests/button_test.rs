@@ -5,7 +5,6 @@ use dioxus::prelude::*;
 #[allow(unused_imports)]
 use monoxus::button::{
     Button, ButtonAttributes, ButtonProps, ButtonRoot, ButtonState, ButtonTag, ButtonType,
-    project_button_as_child,
 };
 
 #[cfg(feature = "native")]

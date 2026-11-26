@@ -1,18 +1,8 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::{Slottable, join_styles, merge_global_attributes, project_as_child};
+use crate::foundation::compose::{join_styles, merge_global_attributes};
 
-use crate::slider::{attrs::SliderRangeAttributes, runtime::use_slider_context};
-
-/// Projects child targets through [`AsChildSlot`] for `SliderRange`.
-pub fn project_slider_range_as_child<T, C>(
-    attrs: &SliderRangeAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, SliderRangeAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
+use crate::slider::runtime::use_slider_context;
 
 /// Props for [`SliderRange`].
 #[derive(Clone, PartialEq, Props)]

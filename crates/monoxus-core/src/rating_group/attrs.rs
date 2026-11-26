@@ -1,5 +1,4 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     shared::data_disabled_attr,
 };
 
@@ -121,22 +120,3 @@ impl RatingGroupItemAttributes {
     }
 }
 
-/// Projects `RatingGroupRoot` attributes onto a slottable child target without adding a wrapper.
-pub fn project_rating_group_root_as_child<T, C>(
-    attrs: &RatingGroupRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, RatingGroupRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-/// Projects `RatingGroupItem` attributes onto a slottable child target without adding a wrapper.
-pub fn project_rating_group_item_as_child<T, C>(
-    attrs: &RatingGroupItemAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, RatingGroupItemAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}

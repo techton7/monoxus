@@ -11,8 +11,9 @@ use crate::foundation::{
 
 use super::{
     relationships::CommandRelationships,
+    score::compute_command_score,
     state::{
-        CommandRegistry, compute_command_score, resolve_command_navigation, select_by_group,
+        CommandRegistry, resolve_command_navigation, select_by_group,
         select_by_index, select_by_item, select_first_valid_item, should_render_group,
         should_render_item,
     },

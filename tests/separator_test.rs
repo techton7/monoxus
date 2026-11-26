@@ -2,7 +2,6 @@ use dioxus::prelude::*;
 #[allow(unused_imports)]
 use monoxus::separator::{
     Separator, SeparatorAttributes, SeparatorOrientation, SeparatorProps, SeparatorRoot,
-    project_separator_as_child,
 };
 
 #[cfg(feature = "native")]

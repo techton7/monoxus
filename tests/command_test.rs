@@ -1,3 +1,4 @@
+use monoxus::foundation::compose::project_attrs_as_child;
 use dioxus::prelude::*;
 use monoxus::command::*;
 use monoxus::foundation::{compose::Slottable, shared::ScopeHandle};
@@ -196,7 +197,7 @@ fn test_command_attrs_boolean_omission_and_as_child_projection() {
     assert_eq!(loading.aria_valuemax, "100");
     assert_eq!(loading.aria_label, "Loading...");
 
-    let (_, projected, _) = project_command_part_as_child(&item_idle, "el", Slottable::new("ok"));
+    let (_, projected, _) = project_attrs_as_child(&item_idle, "el", Slottable::new("ok"));
     assert_eq!(projected, item_idle);
 }
 

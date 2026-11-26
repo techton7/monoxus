@@ -1,3 +1,4 @@
+use monoxus::foundation::compose::project_attrs_as_child;
 use dioxus::prelude::*;
 use monoxus::foundation::{
     compose::Slottable,
@@ -438,14 +439,14 @@ fn slider_as_child_projection_contract() {
         false,
     );
     let (target, attrs, content) =
-        project_slider_root_as_child(&root_attrs, "custom-slider", Slottable::new("inner"));
+        project_attrs_as_child(&root_attrs, "custom-slider", Slottable::new("inner"));
     assert_eq!(target, "custom-slider");
     assert_eq!(attrs.id(), "proj-root");
     assert_eq!(content, "inner");
 
     let track_attrs =
         SliderTrackAttributes::new("proj-track".to_string(), Orientation::Horizontal, false);
-    let (target, attrs, content) = project_slider_track_as_child(
+    let (target, attrs, content) = project_attrs_as_child(
         &track_attrs,
         "custom-track",
         Slottable::new("track-content"),
@@ -464,7 +465,7 @@ fn slider_as_child_projection_contract() {
         50.0,
     );
     let (target, attrs, _) =
-        project_slider_range_as_child(&range_attrs, "custom-range", Slottable::new(()));
+        project_attrs_as_child(&range_attrs, "custom-range", Slottable::new(()));
     assert_eq!(target, "custom-range");
     assert_eq!(attrs.id(), "proj-range");
 
@@ -484,7 +485,7 @@ fn slider_as_child_projection_contract() {
         None,
     );
     let (target, attrs, _) =
-        project_slider_thumb_as_child(&thumb_attrs, "custom-thumb", Slottable::new(()));
+        project_attrs_as_child(&thumb_attrs, "custom-thumb", Slottable::new(()));
     assert_eq!(target, "custom-thumb");
     assert_eq!(attrs.id(), "proj-thumb");
 
@@ -500,7 +501,7 @@ fn slider_as_child_projection_contract() {
         50.0,
     );
     let (target, attrs, _) =
-        project_slider_tick_as_child(&tick_attrs, "custom-tick", Slottable::new(()));
+        project_attrs_as_child(&tick_attrs, "custom-tick", Slottable::new(()));
     assert_eq!(target, "custom-tick");
     assert_eq!(attrs.id(), "proj-tick");
 
@@ -516,7 +517,7 @@ fn slider_as_child_projection_contract() {
         false,
         50.0,
     );
-    let (target, attrs, _) = project_slider_tick_label_as_child(
+    let (target, attrs, _) = project_attrs_as_child(
         &tick_label_attrs,
         "custom-tick-label",
         Slottable::new(()),
@@ -535,7 +536,7 @@ fn slider_as_child_projection_contract() {
         false,
         50.0,
     );
-    let (target, attrs, _) = project_slider_thumb_label_as_child(
+    let (target, attrs, _) = project_attrs_as_child(
         &thumb_label_attrs,
         "custom-thumb-label",
         Slottable::new(()),

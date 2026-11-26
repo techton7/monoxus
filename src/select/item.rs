@@ -1,63 +1,119 @@
 use dioxus::prelude::*;
 
+use crate::foundation::compose::merge_global_attributes;
+
 use super::{registry::SelectItemRegistration, types::SelectContext};
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectGroupProps {
+    pub group_key: String,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn SelectGroup(
-    group_key: String,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Element,
-) -> Element {
+pub fn SelectGroup(props: SelectGroupProps) -> Element {
+    let SelectGroupProps {
+        group_key,
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<SelectContext>();
     let rels = ctx.runtime.relationships();
     let group_id = rels.group_id(&group_key);
     let label_id = rels.label_id(&group_key);
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
 
     rsx! {
         div {
             id: "{group_id}",
             role: "group",
             aria_labelledby: "{label_id}",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectLabelProps {
+    pub group_key: String,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn SelectLabel(
-    group_key: String,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Element,
-) -> Element {
+pub fn SelectLabel(props: SelectLabelProps) -> Element {
+    let SelectLabelProps {
+        group_key,
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<SelectContext>();
     let rels = ctx.runtime.relationships();
     let label_id = rels.label_id(&group_key);
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
 
     rsx! {
         div {
             id: "{label_id}",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectItemProps {
+    pub value: String,
+    #[props(default)]
+    pub text: Option<String>,
+    #[props(default = false)]
+    pub disabled: bool,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(default)]
+    pub on_highlight: Option<EventHandler<()>>,
+    #[props(default)]
+    pub on_unhighlight: Option<EventHandler<()>>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn SelectItem(
-    value: String,
-    #[props(default)] text: Option<String>,
-    #[props(default = false)] disabled: bool,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    #[props(default)] on_highlight: Option<EventHandler<()>>,
-    #[props(default)] on_unhighlight: Option<EventHandler<()>>,
-    children: Element,
-) -> Element {
+pub fn SelectItem(props: SelectItemProps) -> Element {
+    let SelectItemProps {
+        value,
+        text,
+        disabled,
+        class,
+        style,
+        on_highlight,
+        on_unhighlight,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<SelectContext>();
     let text_val = text.clone().unwrap_or_else(|| value.clone());
     let item_id = ctx.runtime.relationships().item_id(&value);
@@ -112,6 +168,7 @@ pub fn SelectItem(
     }));
 
     let label_str = text.unwrap_or_else(|| value.clone());
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
 
     rsx! {
         div {
@@ -119,8 +176,8 @@ pub fn SelectItem(
             role: "{attrs.role()}",
             aria_selected: if is_sel { "true" } else { "false" },
             aria_disabled: attrs.aria_disabled(),
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-state": if is_sel { "checked" } else { "unchecked" },
             "data-highlighted": if is_hl { "true" } else { "false" },
             "data-disabled": attrs.data_disabled(),
@@ -187,38 +244,70 @@ pub fn SelectItem(
                     runtime.set_highlighted_with_scroll(Some(v.clone()), false);
                 }
             },
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectItemTextProps {
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn SelectItemText(
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Element,
-) -> Element {
+pub fn SelectItemText(props: SelectItemTextProps) -> Element {
+    let SelectItemTextProps {
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
     rsx! {
         span {
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectItemIndicatorProps {
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    #[props(default)]
+    pub children: Option<Element>,
+}
+
 #[component]
-pub fn SelectItemIndicator(
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Option<Element>,
-) -> Element {
+pub fn SelectItemIndicator(props: SelectItemIndicatorProps) -> Element {
+    let SelectItemIndicatorProps {
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
     if let Some(c) = children {
         return rsx! {
             span {
-                class: class.as_deref().unwrap_or_default(),
-                style: style.as_deref().unwrap_or_default(),
+                class: merged.class.as_deref(),
+                style: merged.style.as_deref(),
                 aria_hidden: "true",
+                ..merged.rest,
                 {c}
             }
         };
@@ -226,25 +315,48 @@ pub fn SelectItemIndicator(
 
     rsx! {
         span {
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             aria_hidden: "true",
+            ..merged.rest,
             "✓"
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectSeparatorProps {
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+}
+
 #[component]
-pub fn SelectSeparator(
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-) -> Element {
+pub fn SelectSeparator(props: SelectSeparatorProps) -> Element {
+    let SelectSeparatorProps {
+        class,
+        style,
+        attributes,
+    } = props;
+    let merged = merge_global_attributes(
+        class.as_deref(),
+        Some(
+            style
+                .as_deref()
+                .unwrap_or("height: 1px; background-color: #e2e8f0; margin: 4px 0;"),
+        ),
+        attributes,
+    );
     rsx! {
         div {
             role: "separator",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or("height: 1px; background-color: #e2e8f0; margin: 4px 0;"),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             aria_hidden: "true",
+            ..merged.rest,
         }
     }
 }

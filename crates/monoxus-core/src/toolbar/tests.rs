@@ -1,3 +1,4 @@
+use crate::foundation::compose::project_attrs_as_child;
 use crate::{
     foundation::{
         compose::Slottable,
@@ -189,29 +190,29 @@ fn toolbar_as_child_projections_preserve_attributes() {
     let toolbar = Toolbar::new(scope.clone());
 
     let root = toolbar.root_attributes();
-    let (_, proj_root, _) = project_toolbar_root_as_child(&root, "div", Slottable::new(()));
+    let (_, proj_root, _) = project_attrs_as_child(&root, "div", Slottable::new(()));
     assert_eq!(proj_root.role(), "toolbar");
 
     let btn = toolbar.button_attributes("b1".into(), false, 0);
-    let (_, proj_btn, _) = project_toolbar_button_as_child(&btn, "button", Slottable::new(()));
+    let (_, proj_btn, _) = project_attrs_as_child(&btn, "button", Slottable::new(()));
     assert_eq!(proj_btn.data_toolbar_button(), "");
 
     let lnk = toolbar.link_attributes("l1".into(), None, -1);
-    let (_, proj_lnk, _) = project_toolbar_link_as_child(&lnk, "a", Slottable::new(()));
+    let (_, proj_lnk, _) = project_attrs_as_child(&lnk, "a", Slottable::new(()));
     assert_eq!(proj_lnk.data_toolbar_link(), "");
 
     let sep = toolbar.separator_attributes(None, false);
-    let (_, proj_sep, _) = project_toolbar_separator_as_child(&sep, "hr", Slottable::new(()));
+    let (_, proj_sep, _) = project_attrs_as_child(&sep, "hr", Slottable::new(()));
     assert_eq!(proj_sep.data_toolbar_separator(), "");
 
     let tg = ToggleGroup::new(scope.child("tg"), ToggleGroupMode::Multiple);
     let tg_attrs = toolbar.toggle_group_attributes(&tg, None);
     let (_, proj_tg, _) =
-        project_toolbar_toggle_group_as_child(&tg_attrs, "div", Slottable::new(()));
+        project_attrs_as_child(&tg_attrs, "div", Slottable::new(()));
     assert_eq!(proj_tg.data_toolbar_group(), "");
 
     let ti_attrs = toolbar.toggle_item_attributes(&tg, "b", None, false, 0);
     let (_, proj_ti, _) =
-        project_toolbar_toggle_item_as_child(&ti_attrs, "button", Slottable::new(()));
+        project_attrs_as_child(&ti_attrs, "button", Slottable::new(()));
     assert_eq!(proj_ti.data_toolbar_item(), "");
 }

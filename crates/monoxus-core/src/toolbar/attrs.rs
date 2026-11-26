@@ -1,6 +1,5 @@
 use crate::{
     foundation::{
-        compose::{Slottable, project_as_child},
         state::DataState,
     },
     separator::SeparatorAttributes,
@@ -264,56 +263,3 @@ impl ToolbarToggleItemAttributes {
     }
 }
 
-pub fn project_toolbar_root_as_child<T, C>(
-    attrs: &ToolbarRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ToolbarRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_toolbar_button_as_child<T, C>(
-    attrs: &ToolbarButtonAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ToolbarButtonAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_toolbar_link_as_child<T, C>(
-    attrs: &ToolbarLinkAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ToolbarLinkAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_toolbar_separator_as_child<T, C>(
-    attrs: &ToolbarSeparatorAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ToolbarSeparatorAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_toolbar_toggle_group_as_child<T, C>(
-    attrs: &ToolbarToggleGroupAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ToolbarToggleGroupAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_toolbar_toggle_item_as_child<T, C>(
-    attrs: &ToolbarToggleItemAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ToolbarToggleItemAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}

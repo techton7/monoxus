@@ -1,3 +1,4 @@
+use monoxus::foundation::compose::project_attrs_as_child;
 use dioxus::prelude::*;
 use monoxus::foundation::{compose::Slottable, shared::ScopeHandle};
 use monoxus::pin_input::*;
@@ -146,10 +147,10 @@ fn test_pin_input_attributes_and_as_child_projection_contract() {
     assert_eq!(disabled_cell.data_disabled(), Some(""));
 
     let (_, proj_root, _) =
-        project_pin_input_root_as_child(&root, "custom-root", Slottable::new("inner"));
+        project_attrs_as_child(&root, "custom-root", Slottable::new("inner"));
     assert_eq!(proj_root, root);
     let (_, proj_cell, _) =
-        project_pin_input_cell_as_child(&active_cell, "custom-cell", Slottable::new("0"));
+        project_attrs_as_child(&active_cell, "custom-cell", Slottable::new("0"));
     assert_eq!(proj_cell, active_cell);
 }
 

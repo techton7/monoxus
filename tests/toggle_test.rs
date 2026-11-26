@@ -3,9 +3,10 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 #[allow(unused_imports)]
+use monoxus::foundation::compose::project_attrs_as_child;
 use monoxus::{
     foundation::{compose::Slottable, state::DataState},
-    toggle::{project_toggle_as_child, ButtonType, Toggle, ToggleAttributes, ToggleRoot},
+    toggle::{ButtonType, Toggle, ToggleRoot},
 };
 
 #[cfg(feature = "native")]
@@ -56,7 +57,7 @@ fn test_toggle_state_pure_matrix() {
 fn test_project_toggle_as_child_projection() {
     let toggle = Toggle::new().with_pressed(true);
     let slottable = Slottable::new("Slotted child content");
-    let (target, attrs, content) = project_toggle_as_child(&toggle, "custom-button", slottable);
+    let (target, attrs, content) = project_attrs_as_child(&toggle.attributes(), "custom-button", slottable);
 
     assert_eq!(target, "custom-button");
     assert_eq!(content, "Slotted child content");

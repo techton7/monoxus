@@ -1,7 +1,6 @@
 use std::fmt;
 
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     shared::data_disabled_attr,
 };
 
@@ -168,18 +167,9 @@ pub struct ButtonAttributes {
     pub data_disabled: Option<&'static str>,
 }
 
-/// Projects headless button attributes onto a slottable child without adding wrapper elements.
-pub fn project_button_as_child<T, C>(
-    state: &ButtonState,
-    target: T,
-    content: Slottable<C>,
-) -> (T, ButtonAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, state.attributes(), content)
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::foundation::compose::{Slottable, project_attrs_as_child};
     use super::*;
 
     #[test]
@@ -268,7 +258,7 @@ mod tests {
     fn button_as_child_slot_projection() {
         let state = ButtonState::new().with_id("slot-btn");
         let (target, attrs, content) =
-            project_button_as_child(&state, "target-wrapper", Slottable::new("inner-content"));
+            project_attrs_as_child(&state.attributes(), "target-wrapper", Slottable::new("inner-content"));
         assert_eq!(target, "target-wrapper");
         assert_eq!(attrs.id.as_deref(), Some("slot-btn"));
         assert_eq!(attrs.data_button_root, "");

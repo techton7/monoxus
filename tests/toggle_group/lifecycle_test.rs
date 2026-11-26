@@ -1,8 +1,8 @@
+use monoxus::foundation::compose::project_attrs_as_child;
 use dioxus::prelude::*;
 use monoxus::{
     foundation::{compose::Slottable, shared::{CollectionRegistry, ScopeHandle}},
     toggle_group::{
-        project_toggle_group_item_as_child, project_toggle_group_root_as_child,
         ToggleGroup, ToggleGroupItem, ToggleGroupItemRegistration, ToggleGroupMode,
         ToggleGroupRoot,
     },
@@ -137,7 +137,7 @@ fn test_as_child_slot_projection_helpers() {
     let root_attrs = group.root_attributes(None);
     let slottable = Slottable::new("Inner group content");
     let (target, projected_root, content) =
-        project_toggle_group_root_as_child(&root_attrs, 100_u32, slottable);
+        project_attrs_as_child(&root_attrs, 100_u32, slottable);
     assert_eq!(target, 100);
     assert_eq!(content, "Inner group content");
     assert_eq!(projected_root.role, "radiogroup");
@@ -145,7 +145,7 @@ fn test_as_child_slot_projection_helpers() {
     let item_attrs = group.item_attributes("item-val", None, false, Some("item-val"));
     let item_slottable = Slottable::new("Item label");
     let (target_item, projected_item, item_content) =
-        project_toggle_group_item_as_child(&item_attrs, 200_u32, item_slottable);
+        project_attrs_as_child(&item_attrs, 200_u32, item_slottable);
     assert_eq!(target_item, 200);
     assert_eq!(item_content, "Item label");
     assert_eq!(projected_item.data_value, "item-val");

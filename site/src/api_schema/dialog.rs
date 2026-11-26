@@ -32,6 +32,7 @@ pub(super) const DIALOG_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "outside_interaction", type_simple: "Option<DialogOutsideInteractionPolicy>", type_full: "Option<DialogOutsideInteractionPolicy>", default: None, required: false, description: "Controls whether outside clicks or focus dismiss the dialog." },
                 PropDoc { name: "portal_host", type_simple: "Option<PortalHost>", type_full: "Option<PortalHost>", default: None, required: false, description: "Default portal host for DialogPortal." },
                 PropDoc { name: "prevent_body_pointer_events", type_simple: "Option<bool>", type_full: "Option<bool>", default: None, required: false, description: "Blocks pointer events on body while modal dialog is open." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Dialog trigger and portal content." },
             ],
             data_attrs: &[DataAttrDoc { name: "data-state", values: "\"open\" | \"closed\"", description: "Current dialog open state." }],
@@ -45,6 +46,7 @@ pub(super) const DIALOG_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
                 PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, description: "Prevents opening the dialog when true." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Trigger label." },
             ],
             data_attrs: &[
@@ -72,6 +74,7 @@ pub(super) const DIALOG_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
                 PropDoc { name: "force_mount", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, description: "Keeps the overlay mounted when closed." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Option<Element>", type_full: "Option<Element>", default: None, required: false, description: "Optional overlay children." },
             ],
             data_attrs: &[
@@ -104,6 +107,7 @@ pub(super) const DIALOG_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "id", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Custom title element ID." },
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Heading text." },
             ],
             data_attrs: &[],
@@ -116,6 +120,7 @@ pub(super) const DIALOG_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "id", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Custom description element ID." },
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Description text." },
             ],
             data_attrs: &[],
@@ -129,6 +134,7 @@ pub(super) const DIALOG_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
                 PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, description: "Disables the close button when true." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Close button label." },
             ],
             data_attrs: &[

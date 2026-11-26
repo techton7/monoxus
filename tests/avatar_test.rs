@@ -1,12 +1,11 @@
+use monoxus::foundation::compose::project_attrs_as_child;
 use std::{cell::RefCell, rc::Rc};
 use std::{future::Future, pin::pin, task::Context, time::Duration};
 
 use dioxus::prelude::*;
 use monoxus::avatar::{
     AVATAR_PARTS, Avatar, AvatarFallback, AvatarImage, AvatarImageLoadingStatus, AvatarPart,
-    AvatarRoot, AvatarStateMachine, Fallback, Image, project_avatar_fallback_as_child,
-    project_avatar_image_as_child, project_avatar_root_as_child,
-};
+    AvatarRoot, AvatarStateMachine, Fallback, Image, };
 use monoxus::foundation::compose::Slottable;
 
 fn poll_once<F: Future>(future: F) {
@@ -49,19 +48,19 @@ fn avatar_as_child_projection_preserves_one_target_and_attributes() {
     let status = AvatarImageLoadingStatus::Error;
     let root = monoxus::avatar::AvatarRootAttributes::new(status);
     let (target, attrs, content) =
-        project_avatar_root_as_child(&root, "section", Slottable::new("fallback"));
+        project_attrs_as_child(&root, "section", Slottable::new("fallback"));
     assert_eq!(target, "section");
     assert_eq!(content, "fallback");
     assert_eq!(attrs.data_status, "error");
 
-    let (_, image, _) = project_avatar_image_as_child(
+    let (_, image, _) = project_attrs_as_child(
         &monoxus::avatar::AvatarImageAttributes::new(AvatarImageLoadingStatus::Loaded),
         "img",
         Slottable::new(()),
     );
     assert_eq!(image.data_status, "loaded");
 
-    let (_, fallback, _) = project_avatar_fallback_as_child(
+    let (_, fallback, _) = project_attrs_as_child(
         &monoxus::avatar::AvatarFallbackAttributes::new(status),
         "span",
         Slottable::new(()),

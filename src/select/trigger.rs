@@ -2,7 +2,10 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::{ScopeHandle, use_stable_id};
+use crate::foundation::{
+    compose::merge_global_attributes,
+    shared::{ScopeHandle, use_stable_id},
+};
 
 use super::{
     hidden_input::SelectHiddenInput,
@@ -11,34 +14,91 @@ use super::{
     types::{SelectContext, SelectItemData, SelectMode},
 };
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectRootProps {
+    #[props(default)]
+    pub runtime: Option<SelectRuntime>,
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(default)]
+    pub mode: Option<SelectMode>,
+    #[props(default = false)]
+    pub multiple: bool,
+    #[props(default)]
+    pub value: Option<String>,
+    #[props(default)]
+    pub default_value: Option<String>,
+    #[props(default)]
+    pub values: Option<Vec<String>>,
+    #[props(default)]
+    pub default_values: Option<Vec<String>>,
+    #[props(default = false)]
+    pub open: bool,
+    #[props(default)]
+    pub on_value_change: Option<EventHandler<Option<String>>>,
+    #[props(default)]
+    pub on_values_change: Option<EventHandler<Vec<String>>>,
+    #[props(default)]
+    pub on_open_change: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub on_open_change_complete: Option<EventHandler<bool>>,
+    #[props(default = false)]
+    pub allow_deselect: bool,
+    #[props(default = false)]
+    pub disabled: bool,
+    #[props(default = false)]
+    pub required: bool,
+    #[props(default)]
+    pub name: Option<String>,
+    #[props(default)]
+    pub form: Option<String>,
+    #[props(default)]
+    pub autocomplete: Option<String>,
+    #[props(default)]
+    pub items: Option<Vec<SelectItemData>>,
+    #[props(default = false)]
+    pub loop_selection: bool,
+    #[props(default)]
+    pub dir: Option<crate::foundation::shared::Direction>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn SelectRoot(
-    #[props(default)] runtime: Option<SelectRuntime>,
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    #[props(default)] mode: Option<SelectMode>,
-    #[props(default = false)] multiple: bool,
-    #[props(default)] value: Option<String>,
-    #[props(default)] default_value: Option<String>,
-    #[props(default)] values: Option<Vec<String>>,
-    #[props(default)] default_values: Option<Vec<String>>,
-    #[props(default = false)] open: bool,
-    #[props(default)] on_value_change: Option<EventHandler<Option<String>>>,
-    #[props(default)] on_values_change: Option<EventHandler<Vec<String>>>,
-    #[props(default)] on_open_change: Option<EventHandler<bool>>,
-    #[props(default)] on_open_change_complete: Option<EventHandler<bool>>,
-    #[props(default = false)] allow_deselect: bool,
-    #[props(default = false)] disabled: bool,
-    #[props(default = false)] required: bool,
-    #[props(default)] name: Option<String>,
-    #[props(default)] form: Option<String>,
-    #[props(default)] autocomplete: Option<String>,
-    #[props(default)] items: Option<Vec<SelectItemData>>,
-    #[props(default = false)] loop_selection: bool,
-    #[props(default)] dir: Option<crate::foundation::shared::Direction>,
-    children: Element,
-) -> Element {
+pub fn SelectRoot(props: SelectRootProps) -> Element {
+    let SelectRootProps {
+        runtime,
+        id,
+        class,
+        style,
+        mode,
+        multiple,
+        value,
+        default_value,
+        values,
+        default_values,
+        open,
+        on_value_change,
+        on_values_change,
+        on_open_change,
+        on_open_change_complete,
+        allow_deselect,
+        disabled,
+        required,
+        name,
+        form,
+        autocomplete,
+        items,
+        loop_selection,
+        dir,
+        attributes,
+        children,
+    } = props;
     let fallback_scope_id = use_stable_id(id.clone().map(Cow::Owned));
     let fallback_val = value.clone().or(default_value.clone());
     let fallback_vals = values
@@ -107,14 +167,17 @@ pub fn SelectRoot(
     let eff_form = form.or_else(|| runtime.select().form().map(str::to_owned));
     let eff_auto = autocomplete.or_else(|| runtime.select().autocomplete().map(str::to_owned));
 
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+
     rsx! {
         div {
             id: "{attrs.id()}",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             dir: "{resolved_dir.as_str()}",
             "data-state": "{attrs.data_state_str()}",
             "data-disabled": attrs.data_disabled(),
+            ..merged.rest,
             {children}
             if let Some(input_name) = name.or_else(|| runtime.select().name().map(str::to_owned)) {
                 SelectHiddenInput {
@@ -133,14 +196,28 @@ pub fn SelectRoot(
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectTriggerProps {
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn SelectTrigger(
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Element,
-) -> Element {
+pub fn SelectTrigger(props: SelectTriggerProps) -> Element {
+    let SelectTriggerProps {
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<SelectContext>();
     let attrs = ctx.runtime.trigger_attributes();
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
 
     rsx! {
         button {
@@ -154,8 +231,8 @@ pub fn SelectTrigger(
             aria_required: attrs.aria_required(),
             tabindex: "{attrs.tabindex()}",
             disabled: attrs.is_disabled(),
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-state": "{attrs.data_state_str()}",
             "data-disabled": attrs.data_disabled(),
             "data-placeholder": attrs.data_placeholder_str(),
@@ -186,6 +263,7 @@ pub fn SelectTrigger(
                     runtime.capture_trigger_mount(evt.data());
                 }
             },
+            ..merged.rest,
             {children}
         }
     }
@@ -215,13 +293,29 @@ pub fn humanize_label(val: &str) -> String {
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectValueProps {
+    #[props(default)]
+    pub placeholder: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    #[props(default)]
+    pub children: Option<Element>,
+}
+
 #[component]
-pub fn SelectValue(
-    #[props(default)] placeholder: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Option<Element>,
-) -> Element {
+pub fn SelectValue(props: SelectValueProps) -> Element {
+    let SelectValueProps {
+        placeholder,
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<SelectContext>();
 
     let text_content = match ctx.runtime.select().mode() {
@@ -264,12 +358,15 @@ pub fn SelectValue(
         text_content
     };
 
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+
     if let Some(c) = children {
         return rsx! {
             span {
-                class: class.as_deref().unwrap_or_default(),
-                style: style.as_deref().unwrap_or_default(),
+                class: merged.class.as_deref(),
+                style: merged.style.as_deref(),
                 "data-placeholder": if is_empty { "true" } else { "false" },
+                ..merged.rest,
                 {c}
             }
         };
@@ -277,26 +374,44 @@ pub fn SelectValue(
 
     rsx! {
         span {
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-placeholder": if is_empty { "true" } else { "false" },
+            ..merged.rest,
             "{display_text}"
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectIconProps {
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    #[props(default)]
+    pub children: Option<Element>,
+}
+
 #[component]
-pub fn SelectIcon(
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Option<Element>,
-) -> Element {
+pub fn SelectIcon(props: SelectIconProps) -> Element {
+    let SelectIconProps {
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+
     if let Some(c) = children {
         return rsx! {
             span {
-                class: class.as_deref().unwrap_or_default(),
-                style: style.as_deref().unwrap_or_default(),
+                class: merged.class.as_deref(),
+                style: merged.style.as_deref(),
                 aria_hidden: "true",
+                ..merged.rest,
                 {c}
             }
         };
@@ -304,9 +419,10 @@ pub fn SelectIcon(
 
     rsx! {
         span {
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             aria_hidden: "true",
+            ..merged.rest,
             "▼"
         }
     }

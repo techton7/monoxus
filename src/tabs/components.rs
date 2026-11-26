@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use dioxus::prelude::*;
 
 use crate::foundation::{
+    compose::merge_global_attributes,
     keyboard::is_activation_key,
     roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::{
@@ -24,19 +25,46 @@ pub struct TabsContext {
     pub on_value_change: Option<EventHandler<String>>,
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct TabsRootProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(default)]
+    pub value: Option<Signal<String>>,
+    #[props(default)]
+    pub default_value: Option<String>,
+    #[props(default)]
+    pub on_value_change: Option<EventHandler<String>>,
+    #[props(default)]
+    pub orientation: Option<TabsOrientation>,
+    #[props(default)]
+    pub dir: Option<TabsDirection>,
+    #[props(default)]
+    pub activation_mode: Option<TabsActivationMode>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn TabsRoot(
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    #[props(default)] value: Option<Signal<String>>,
-    #[props(default)] default_value: Option<String>,
-    #[props(default)] on_value_change: Option<EventHandler<String>>,
-    #[props(default)] orientation: Option<TabsOrientation>,
-    #[props(default)] dir: Option<TabsDirection>,
-    #[props(default)] activation_mode: Option<TabsActivationMode>,
-    children: Element,
-) -> Element {
+pub fn TabsRoot(props: TabsRootProps) -> Element {
+    let TabsRootProps {
+        id,
+        class,
+        style,
+        value,
+        default_value,
+        on_value_change,
+        orientation,
+        dir,
+        activation_mode,
+        attributes,
+        children,
+    } = props;
     let resolved_dir = use_direction_context(dir.map(Into::into));
     let tabs_dir = TabsDirection::from(resolved_dir);
     let initial_val = default_value.unwrap_or_default();
@@ -74,27 +102,46 @@ pub fn TabsRoot(
     });
 
     let root_attrs = runtime.root();
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
 
     rsx! {
         div {
             id: "{root_attrs.id()}",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             dir: "{resolved_dir.as_str()}",
             "data-orientation": "{root_attrs.data_orientation()}",
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct TabsListProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(default = true)]
+    pub loop_focus: bool,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn TabsList(
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    #[props(default = true)] loop_focus: bool,
-    children: Element,
-) -> Element {
+pub fn TabsList(props: TabsListProps) -> Element {
+    let TabsListProps {
+        id,
+        class,
+        style,
+        loop_focus,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<TabsContext>();
     let list_attrs = ctx.runtime.list();
     let list_id = id.unwrap_or_else(|| list_attrs.id().to_string());
@@ -122,31 +169,52 @@ pub fn TabsList(
         );
     };
 
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+
     rsx! {
         div {
             id: "{list_id}",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             role: "{list_attrs.role()}",
             aria_orientation: "{list_attrs.aria_orientation()}",
             "data-orientation": "{list_attrs.data_orientation()}",
             "data-disabled": data_disabled_attr(list_attrs.is_disabled()),
             tabindex: "-1",
             onkeydown: on_keydown,
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct TabsTriggerProps {
+    pub value: String,
+    #[props(default = false)]
+    pub disabled: bool,
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn TabsTrigger(
-    value: String,
-    #[props(default = false)] disabled: bool,
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    children: Element,
-) -> Element {
+pub fn TabsTrigger(props: TabsTriggerProps) -> Element {
+    let TabsTriggerProps {
+        value,
+        disabled,
+        id,
+        class,
+        style,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<TabsContext>();
     let trig_id = id.unwrap_or_else(|| ctx.runtime.tabs().relationships().trigger_id(&value));
     let effective_disabled = ctx.runtime.tabs().is_disabled() || disabled;
@@ -206,12 +274,14 @@ pub fn TabsTrigger(
         );
     };
 
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+
     rsx! {
         button {
             id: "{trig_id}",
             r#type: "button",
-            class: class.as_deref().unwrap_or_default(),
-            style: style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             role: "{trig_attrs.role()}",
             tabindex: "{trig_attrs.tabindex()}",
             aria_selected: "{trig_attrs.aria_selected()}",
@@ -223,21 +293,42 @@ pub fn TabsTrigger(
             onclick: on_click,
             onfocus: on_focus,
             onkeydown: on_keydown,
+            ..merged.rest,
             {children}
         }
     }
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct TabsContentProps {
+    pub value: String,
+    #[props(default = false)]
+    pub force_mount: bool,
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub class: Option<String>,
+    #[props(default)]
+    pub style: Option<String>,
+    #[props(default)]
+    pub tabindex: Option<i32>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
 #[component]
-pub fn TabsContent(
-    value: String,
-    #[props(default = false)] force_mount: bool,
-    #[props(default)] id: Option<String>,
-    #[props(default)] class: Option<String>,
-    #[props(default)] style: Option<String>,
-    #[props(default)] tabindex: Option<i32>,
-    children: Element,
-) -> Element {
+pub fn TabsContent(props: TabsContentProps) -> Element {
+    let TabsContentProps {
+        value,
+        force_mount,
+        id,
+        class,
+        style,
+        tabindex,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<TabsContext>();
     let is_active = ctx.runtime.active_value() == value;
 
@@ -275,18 +366,20 @@ pub fn TabsContent(
     };
 
     let tab_idx = tabindex.unwrap_or(0);
+    let merged = merge_global_attributes(class.as_deref(), effective_style.as_deref(), attributes);
 
     rsx! {
         div {
             id: "{content_id}",
-            class: class.as_deref().unwrap_or_default(),
-            style: effective_style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             role: "{content_attrs.role()}",
             aria_labelledby: "{labelledby}",
             "data-state": if is_active { "active" } else { "inactive" },
             "data-orientation": "{content_attrs.data_orientation()}",
             tabindex: "{tab_idx}",
             hidden: if !is_active && force_mount { true } else { false },
+            ..merged.rest,
             {children}
         }
     }

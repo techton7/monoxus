@@ -1,10 +1,8 @@
-pub mod attrs;
 pub mod components;
-pub mod relationships;
 pub mod runtime;
-pub mod state;
 pub mod types;
 
-pub use self::{
-    attrs::*, components::*, relationships::*, runtime::*, state::*, types::*,
-};
+pub use monoxus_core::hover_card::{attrs, relationships, state};
+pub use monoxus_core::hover_card::{attrs::*, relationships::*, state::*};
+
+pub use self::{components::*, runtime::*, types::*};

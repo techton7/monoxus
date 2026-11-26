@@ -1,5 +1,3 @@
-use crate::foundation::compose::{Slottable, project_as_child};
-
 /// Fallback wrapper inline style used when `AccessibleIcon` wraps `children` directly
 /// without a zero-wrapper `render_child` callback.
 pub const ACCESSIBLE_ICON_FALLBACK_WRAPPER_STYLE: &str = "display: contents;";
@@ -44,18 +42,9 @@ impl AccessibleIconAttributes {
     }
 }
 
-/// Projects `AccessibleIcon` decorative attributes and label onto a slottable target.
-pub fn project_accessible_icon_as_child<T, C>(
-    label: impl Into<String>,
-    target: T,
-    content: Slottable<C>,
-) -> (T, AccessibleIconAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, AccessibleIconAttributes::new(label), content)
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::foundation::compose::{Slottable, project_attrs_as_child};
     use super::*;
 
     #[test]
@@ -68,7 +57,7 @@ mod tests {
     #[test]
     fn as_child_projection_preserves_target_attributes_label_and_content() {
         let (target, attrs, content) =
-            project_accessible_icon_as_child("Favorite", "svg-icon", Slottable::new("<path />"));
+            project_attrs_as_child(&AccessibleIconAttributes::new("Favorite"), "svg-icon", Slottable::new("<path />"));
         assert_eq!(target, "svg-icon");
         assert_eq!(attrs.aria_hidden, "true");
         assert_eq!(attrs.focusable, "false");

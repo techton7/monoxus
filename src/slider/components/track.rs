@@ -2,23 +2,11 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{ResizeObserverBox, use_element_size_with_mount},
-    compose::{Slottable, join_styles, merge_global_attributes, project_as_child},
+    compose::{join_styles, merge_global_attributes},
     state::sync_signal,
 };
 
-use crate::slider::{
-    attrs::SliderTrackAttributes, runtime::use_slider_context, types::Orientation,
-};
-
-/// Projects child targets through [`AsChildSlot`] for `SliderTrack`.
-pub fn project_slider_track_as_child<T, C>(
-    attrs: &SliderTrackAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, SliderTrackAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
+use crate::slider::{runtime::use_slider_context, types::Orientation};
 
 /// Props for [`SliderTrack`].
 #[derive(Clone, PartialEq, Props)]

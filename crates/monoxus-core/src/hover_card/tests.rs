@@ -1,3 +1,4 @@
+use crate::foundation::compose::project_attrs_as_child;
 use crate::foundation::{
     compose::Slottable,
     overlay::{FloatingLayer, GeometryVars, PlacementAlign, PlacementSide, Point2D, Rect2D},
@@ -181,7 +182,7 @@ fn hover_card_as_child_projection_and_content_static_attributes() {
 
     let trigger_attrs = card.trigger(None, None, None, false);
     let (_, proj_trigger, _) =
-        project_hover_card_trigger_as_child(&trigger_attrs, "a", Slottable::new(()));
+        project_attrs_as_child(&trigger_attrs, "a", Slottable::new(()));
     assert_eq!(proj_trigger.data_state(), &DataState::Open);
 
     let content_attrs = card.content();
@@ -189,17 +190,17 @@ fn hover_card_as_child_projection_and_content_static_attributes() {
     assert_eq!(content_attrs.data_side(), "top");
     assert_eq!(content_attrs.data_align(), "start");
     let (_, proj_content, _) =
-        project_hover_card_content_as_child(&content_attrs, "div", Slottable::new(()));
+        project_attrs_as_child(&content_attrs, "div", Slottable::new(()));
     assert_eq!(proj_content.data_monoxus_hover_card_content(), "");
 
     let static_attrs = card.content_static();
     let (_, proj_static, _) =
-        project_hover_card_content_static_as_child(&static_attrs, "div", Slottable::new(()));
+        project_attrs_as_child(&static_attrs, "div", Slottable::new(()));
     assert_eq!(proj_static.tabindex(), -1);
 
     let arrow_attrs = card.arrow();
     let (_, proj_arrow, _) =
-        project_hover_card_arrow_as_child(&arrow_attrs, "svg", Slottable::new(()));
+        project_attrs_as_child(&arrow_attrs, "svg", Slottable::new(()));
     assert_eq!(proj_arrow.data_side(), "top");
     assert_eq!(proj_arrow.data_monoxus_hover_card_arrow(), "");
 }

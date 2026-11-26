@@ -3,10 +3,8 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 #[allow(unused_imports)]
-use monoxus::label::{
-    LABEL_INTERACTIVE_TARGET_SELECTOR, Label, LabelAttributes, LabelProps, LabelRoot,
-    project_label_as_child,
-};
+use monoxus::foundation::compose::project_attrs_as_child;
+use monoxus::label::{LABEL_INTERACTIVE_TARGET_SELECTOR, Label};
 
 #[cfg(feature = "native")]
 use crate::common;
@@ -80,7 +78,7 @@ fn test_label_state_and_projection_contract() {
     assert_eq!(attrs.data_label_root, "");
 
     let (target, projected_attrs, content) =
-        project_label_as_child(&label, "custom-label-wrapper", "Child Label Text".into());
+        project_attrs_as_child(&label.attributes(), "custom-label-wrapper", "Child Label Text".into());
     assert_eq!(target, "custom-label-wrapper");
     assert_eq!(projected_attrs.id.as_deref(), Some("user-label"));
     assert_eq!(projected_attrs.r#for.as_deref(), Some("user-field"));

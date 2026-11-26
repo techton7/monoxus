@@ -1,5 +1,4 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     shared::data_disabled_attr,
 };
 
@@ -214,38 +213,3 @@ impl PaginationNextButtonAttributes {
     }
 }
 
-pub fn project_pagination_root_as_child<T, C>(
-    attrs: &PaginationRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, PaginationRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_pagination_page_as_child<T, C>(
-    attrs: &PaginationPageAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, PaginationPageAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_pagination_prev_button_as_child<T, C>(
-    attrs: &PaginationPrevButtonAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, PaginationPrevButtonAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_pagination_next_button_as_child<T, C>(
-    attrs: &PaginationNextButtonAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, PaginationNextButtonAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}

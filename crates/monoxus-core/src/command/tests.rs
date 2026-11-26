@@ -1,3 +1,4 @@
+use crate::foundation::compose::project_attrs_as_child;
 use super::*;
 use crate::foundation::{compose::Slottable, shared::ScopeHandle};
 
@@ -213,7 +214,7 @@ fn attrs_and_relationships_contract() {
     let group_hidden = CommandGroupAttrs::new("g1", "Settings", false);
     assert!(group_hidden.hidden);
 
-    let (_, proj, _) = project_command_part_as_child(&unselected, "el", Slottable::new("body"));
+    let (_, proj, _) = project_attrs_as_child(&unselected, "el", Slottable::new("body"));
     assert_eq!(proj, unselected);
 }
 

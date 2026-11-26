@@ -2,23 +2,11 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{ResizeObserverBox, use_element_size_with_mount},
-    compose::{Slottable, join_styles, merge_global_attributes, project_as_child},
+    compose::{join_styles, merge_global_attributes},
     roving_focus::key_to_roving_str,
 };
 
-use crate::slider::{
-    attrs::SliderThumbAttributes, runtime::use_slider_context, types::Orientation,
-};
-
-/// Projects child targets through [`AsChildSlot`] for `SliderThumb`.
-pub fn project_slider_thumb_as_child<T, C>(
-    attrs: &SliderThumbAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, SliderThumbAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
+use crate::slider::{runtime::use_slider_context, types::Orientation};
 
 /// Props for [`SliderThumb`].
 #[derive(Clone, PartialEq, Props)]

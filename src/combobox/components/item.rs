@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 use crate::combobox::{
     attrs::ComboboxItemAttrs, runtime::use_combobox_context, types::ComboboxItemRenderState,
 };
+use crate::foundation::compose::merge_global_attributes;
 
 const DRAG_THRESHOLD_PX: f64 = 4.0;
 
@@ -214,6 +215,12 @@ pub fn ComboboxItem(props: ComboboxItemProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id()}",
@@ -226,14 +233,14 @@ pub fn ComboboxItem(props: ComboboxItemProps) -> Element {
             "data-disabled": attrs.data_disabled(),
             "data-highlighted": attrs.data_highlighted(),
             "data-selected": attrs.data_selected(),
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             onmousedown: move |evt| on_mouse_down.call(evt),
             onpointerdown: move |evt| on_pointer_down.call(evt),
             onpointerup: move |evt| on_pointer_up.call(evt),
             onclick: move |evt| on_click.call(evt),
             onpointermove: move |evt| on_pointer_move.call(evt),
-            ..props.attributes,
+            ..merged.rest,
             {body}
         }
     }

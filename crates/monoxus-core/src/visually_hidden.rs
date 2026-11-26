@@ -1,5 +1,3 @@
-use crate::foundation::compose::{Slottable, project_as_child};
-
 /// Canonical screen-reader-only inline CSS clipping style matching Radix UI and Bits UI.
 pub const VISUALLY_HIDDEN_STYLE: &str = "position: absolute; border: 0; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; word-wrap: normal;";
 
@@ -56,18 +54,9 @@ impl VisuallyHiddenAttributes {
     }
 }
 
-/// Projects `VisuallyHidden` attributes onto a slottable child target without adding a wrapper.
-pub fn project_visually_hidden_as_child<T, C>(
-    attrs: &VisuallyHiddenAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, VisuallyHiddenAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::foundation::compose::{Slottable, project_attrs_as_child};
     use super::*;
 
     #[test]
@@ -112,7 +101,7 @@ mod tests {
         assert!(attrs.style.ends_with("color: red;"));
 
         let (target, projected, content) =
-            project_visually_hidden_as_child(&attrs, "article", Slottable::new("Skip link"));
+            project_attrs_as_child(&attrs, "article", Slottable::new("Skip link"));
         assert_eq!(target, "article");
         assert_eq!(projected, attrs);
         assert_eq!(content, "Skip link");

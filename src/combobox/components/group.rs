@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::use_stable_id;
+use crate::foundation::{compose::merge_global_attributes, shared::use_stable_id};
 
 use crate::combobox::{
     attrs::{ComboboxGroupAttrs, ComboboxGroupHeadingAttrs},
@@ -69,15 +69,21 @@ pub fn ComboboxGroup(props: ComboboxGroupProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id()}",
             role: "{attrs.role()}",
             "aria-labelledby": attrs.aria_labelledby(),
             "data-combobox-group": "",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
-            ..props.attributes,
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
+            ..merged.rest,
             {props.children}
         }
     }
@@ -166,14 +172,20 @@ pub fn ComboboxGroupHeading(props: ComboboxGroupHeadingProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id()}",
             "data-combobox-group-label": "",
             "data-combobox-group-heading": "",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
-            ..props.attributes,
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
+            ..merged.rest,
             {props.children}
         }
     }
@@ -212,14 +224,20 @@ pub fn ComboboxSeparator(props: ComboboxSeparatorProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             role: "presentation",
             "aria-hidden": "true",
             "data-combobox-separator": "",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
-            ..props.attributes,
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
+            ..merged.rest,
         }
     }
 }

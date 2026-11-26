@@ -1,10 +1,9 @@
+use crate::foundation::compose::project_attrs_as_child;
 use crate::foundation::{compose::Slottable, shared::ScopeHandle};
 
 use super::{
     attrs::{
-        PinInputCellAttributes, PinInputRootAttributes, project_pin_input_cell_as_child,
-        project_pin_input_root_as_child,
-    },
+        PinInputCellAttributes, PinInputRootAttributes, },
     relationships::PinInputRelationships,
     state::{
         PinEditSegment, PinInputDefinition, PinShiftNavKey, apply_pin_splice, char_index_to_utf16,
@@ -341,10 +340,10 @@ fn attributes_and_as_child_projection_follow_omission_contract() {
     assert_eq!(disabled_cell.data_disabled(), Some(""));
 
     let (_, proj_root, _) =
-        project_pin_input_root_as_child(&root, "slot-root", Slottable::new("body"));
+        project_attrs_as_child(&root, "slot-root", Slottable::new("body"));
     assert_eq!(proj_root, root);
     let (_, proj_cell, _) =
-        project_pin_input_cell_as_child(&active_cell, "slot-cell", Slottable::new("cell"));
+        project_attrs_as_child(&active_cell, "slot-cell", Slottable::new("cell"));
     assert_eq!(proj_cell, active_cell);
     let _: PinInputRootAttributes = proj_root;
     let _: PinInputCellAttributes = proj_cell;

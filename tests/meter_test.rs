@@ -1,10 +1,8 @@
 use dioxus::prelude::*;
 use monoxus::foundation::compose::Slottable;
 #[allow(unused_imports)]
-use monoxus::meter::{
-    Meter, MeterAttributes, MeterProps, MeterRenderProps, MeterRoot, MeterState,
-    project_meter_as_child,
-};
+use monoxus::foundation::compose::project_attrs_as_child;
+use monoxus::meter::{Meter, MeterRoot, MeterState};
 
 #[component]
 fn MeterDefaultsScenario() -> Element {
@@ -68,7 +66,7 @@ fn meter_public_values_react_without_normalization() {
 fn meter_public_projection_supports_as_child() {
     let state = Meter::new().with_value(f64::NAN);
     let (target, attrs, content) =
-        project_meter_as_child(&state, "custom-meter", Slottable::new("reading"));
+        project_attrs_as_child(&state.attributes(), "custom-meter", Slottable::new("reading"));
     assert_eq!(target, "custom-meter");
     assert_eq!(content, "reading");
     assert!(attrs.aria_valuenow.is_nan());

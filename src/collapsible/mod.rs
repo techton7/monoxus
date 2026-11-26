@@ -1,13 +1,10 @@
-pub mod attrs;
 pub mod components;
-pub mod relationships;
 pub mod runtime;
-pub mod state;
-pub mod types;
 
-pub use self::{
-    attrs::*, components::*, relationships::*, runtime::*, state::*, types::*,
-};
+pub use monoxus_core::collapsible::{attrs, relationships, state, types};
+pub use monoxus_core::collapsible::{attrs::*, relationships::*, state::*, types::*};
+
+pub use self::{components::*, runtime::*};
 
 pub use crate::foundation::compose::{
     compose_part_event_handlers, compose_part_refs, project_as_child,

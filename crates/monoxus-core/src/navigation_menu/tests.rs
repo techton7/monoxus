@@ -1,3 +1,4 @@
+use crate::foundation::compose::project_attrs_as_child;
 use crate::foundation::{
     compose::Slottable,
     shared::{Direction, Orientation, ScopeHandle},
@@ -5,11 +6,6 @@ use crate::foundation::{
 };
 
 use super::{
-    attrs::{
-        project_navigation_menu_content_as_child, project_navigation_menu_indicator_as_child,
-        project_navigation_menu_link_as_child, project_navigation_menu_root_as_child,
-        project_navigation_menu_trigger_as_child, project_navigation_menu_viewport_as_child,
-    },
     relationships::NavigationMenuRelationships,
     state::{
         NavigationMenuDef, NavigationMenuFocusProxyDecision, NavigationMenuHoverAction,
@@ -420,13 +416,13 @@ fn attrs_relationships_css_vars_and_as_child_match_contract() {
 
     // AsChild projections
     let (rt, ra, rc) =
-        project_navigation_menu_root_as_child(&root_attrs, "nav", Slottable::new("body"));
+        project_attrs_as_child(&root_attrs, "nav", Slottable::new("body"));
     assert_eq!(rt, "nav");
     assert_eq!(ra, root_attrs);
     assert_eq!(rc, "body");
 
     let (_, ta, _) =
-        project_navigation_menu_trigger_as_child(&open_trigger, "button", Slottable::new("t"));
+        project_attrs_as_child(&open_trigger, "button", Slottable::new("t"));
     assert_eq!(ta, open_trigger);
 
     let content_attrs = def.content_attributes(
@@ -439,17 +435,17 @@ fn attrs_relationships_css_vars_and_as_child_match_contract() {
         None,
     );
     let (_, ca, _) =
-        project_navigation_menu_content_as_child(&content_attrs, "section", Slottable::new("c"));
+        project_attrs_as_child(&content_attrs, "section", Slottable::new("c"));
     assert_eq!(ca.data_motion(), Some("from-end"));
 
     let (_, la, _) =
-        project_navigation_menu_link_as_child(&active_link, "a", Slottable::new("l"));
+        project_attrs_as_child(&active_link, "a", Slottable::new("l"));
     assert_eq!(la, active_link);
     let (_, ia, _) =
-        project_navigation_menu_indicator_as_child(&ind_attrs, "div", Slottable::new("i"));
+        project_attrs_as_child(&ind_attrs, "div", Slottable::new("i"));
     assert_eq!(ia, ind_attrs);
     let (_, va, _) =
-        project_navigation_menu_viewport_as_child(&vp_attrs, "section", Slottable::new("v"));
+        project_attrs_as_child(&vp_attrs, "section", Slottable::new("v"));
     assert_eq!(va, vp_attrs);
 }
 

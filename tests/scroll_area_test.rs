@@ -1,3 +1,4 @@
+use monoxus::foundation::compose::project_attrs_as_child;
 use dioxus::prelude::*;
 use monoxus::foundation::compose::Slottable;
 use monoxus::foundation::shared::{Direction, Orientation};
@@ -132,7 +133,7 @@ fn test_scroll_area_scroll_and_auto_modes_render() {
 #[test]
 fn test_scroll_area_as_child_projections() {
     let root_attrs = ScrollAreaRootAttributes::new("p-root").with_dir(Some(Direction::Ltr));
-    let (target, attrs, content) = project_scroll_area_root_as_child(
+    let (target, attrs, content) = project_attrs_as_child(
         &root_attrs,
         "div-target",
         Slottable::new("inner-content"),
@@ -144,7 +145,7 @@ fn test_scroll_area_as_child_projections() {
 
     let vp_attrs = ScrollAreaViewportAttributes::new("p-viewport");
     let (target, attrs, content) =
-        project_scroll_area_viewport_as_child(&vp_attrs, "main-target", Slottable::new(42_u32));
+        project_attrs_as_child(&vp_attrs, "main-target", Slottable::new(42_u32));
     assert_eq!(target, "main-target");
     assert_eq!(attrs.id(), "p-viewport");
     assert_eq!(attrs.tabindex(), 0);
@@ -152,7 +153,7 @@ fn test_scroll_area_as_child_projections() {
 
     let cnt_attrs = ScrollAreaContentAttributes::new("p-content");
     let (target, attrs, content) =
-        project_scroll_area_content_as_child(&cnt_attrs, "section-target", Slottable::new("body"));
+        project_attrs_as_child(&cnt_attrs, "section-target", Slottable::new("body"));
     assert_eq!(target, "section-target");
     assert_eq!(attrs.id(), "p-content");
     assert_eq!(attrs.role(), "presentation");
@@ -162,7 +163,7 @@ fn test_scroll_area_as_child_projections() {
         ScrollAreaScrollbarAttributes::new("p-scrollbar", Orientation::Vertical, "p-viewport")
             .with_visible(true);
     let (target, attrs, content) =
-        project_scroll_area_scrollbar_as_child(&sb_attrs, "aside-target", Slottable::new("sb"));
+        project_attrs_as_child(&sb_attrs, "aside-target", Slottable::new("sb"));
     assert_eq!(target, "aside-target");
     assert_eq!(attrs.role(), "scrollbar");
     assert_eq!(attrs.data_orientation(), "vertical");
@@ -171,14 +172,14 @@ fn test_scroll_area_as_child_projections() {
 
     let th_attrs = ScrollAreaThumbAttributes::new("p-thumb").with_visible(true);
     let (target, attrs, content) =
-        project_scroll_area_thumb_as_child(&th_attrs, "span-target", Slottable::new("th"));
+        project_attrs_as_child(&th_attrs, "span-target", Slottable::new("th"));
     assert_eq!(target, "span-target");
     assert_eq!(attrs.data_state(), "visible");
     assert_eq!(content, "th");
 
     let cn_attrs = ScrollAreaCornerAttributes::new("p-corner");
     let (target, attrs, content) =
-        project_scroll_area_corner_as_child(&cn_attrs, "div-corner", Slottable::new("cn"));
+        project_attrs_as_child(&cn_attrs, "div-corner", Slottable::new("cn"));
     assert_eq!(target, "div-corner");
     assert_eq!(attrs.data_state(), "visible");
     assert_eq!(content, "cn");

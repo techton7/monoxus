@@ -1,9 +1,9 @@
 use dioxus::prelude::*;
 #[allow(unused_imports)]
+use monoxus::foundation::compose::project_attrs_as_child;
 use monoxus::accessible_icon::{
     ACCESSIBLE_ICON_FALLBACK_WRAPPER_STYLE, AccessibleIcon, AccessibleIconAttributes,
     AccessibleIconChildProps, AccessibleIconProps, AccessibleIconRoot,
-    project_accessible_icon_as_child,
 };
 use monoxus::foundation::compose::Slottable;
 
@@ -86,7 +86,7 @@ fn accessible_icon_public_contract_and_as_child_projection() {
     assert_eq!(ACCESSIBLE_ICON_FALLBACK_WRAPPER_STYLE, "display: contents;");
 
     let (target, attrs, content) =
-        project_accessible_icon_as_child("Star", "svg-target", Slottable::new("icon-path"));
+        project_attrs_as_child(&AccessibleIconAttributes::new("Star"), "svg-target", Slottable::new("icon-path"));
     assert_eq!(target, "svg-target");
     assert_eq!(content, "icon-path");
     assert_eq!(attrs.aria_hidden, "true");

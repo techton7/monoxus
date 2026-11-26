@@ -52,6 +52,7 @@ pub(super) const TOOLTIP_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "side_offset", type_simple: "Option<f32>", type_full: "Option<f32>", default: Some("8.0"), required: false, description: "Distance in pixels from the trigger." },
                 PropDoc { name: "align", type_simple: "Option<PlacementAlign>", type_full: "Option<PlacementAlign>", default: None, required: false, description: "Preferred alignment along the trigger axis." },
                 PropDoc { name: "align_offset", type_simple: "Option<f32>", type_full: "Option<f32>", default: None, required: false, description: "Offset in pixels along the alignment axis." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "TooltipTrigger and TooltipPortal children." },
             ],
             data_attrs: &[DataAttrDoc { name: "data-state", values: "\"open\" | \"closed\"", description: "Current tooltip open state." }],
@@ -65,6 +66,7 @@ pub(super) const TOOLTIP_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
                 PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, description: "Disables the trigger button." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Trigger content." },
             ],
             data_attrs: &[
@@ -95,6 +97,7 @@ pub(super) const TOOLTIP_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "collision_boundary", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Optional boundary element ID for collision detection." },
                 PropDoc { name: "collision_padding", type_simple: "Option<f32>", type_full: "Option<f32>", default: None, required: false, description: "Minimum padding from collision boundary edges." },
                 PropDoc { name: "aria_label", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Alternative accessible tooltip text rendered in a visually hidden span." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Tooltip text and optional TooltipArrow." },
             ],
             data_attrs: &[
@@ -129,6 +132,7 @@ pub(super) const TOOLTIP_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
                 PropDoc { name: "width", type_simple: "f32", type_full: "f32", default: Some("10.0"), required: false, description: "SVG arrow width in pixels." },
                 PropDoc { name: "height", type_simple: "f32", type_full: "f32", default: Some("5.0"), required: false, description: "SVG arrow height in pixels." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Option<Element>", type_full: "Option<Element>", default: None, required: false, description: "Optional custom arrow element." },
             ],
             data_attrs: &[

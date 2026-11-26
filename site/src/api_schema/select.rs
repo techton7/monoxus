@@ -45,6 +45,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "items", type_simple: "Option<Vec<SelectItemData>>", type_full: "Option<Vec<SelectItemData>>", default: None, required: false, description: "Optional pre-registered item metadata for closed-state label lookup." },
                 PropDoc { name: "loop_selection", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, description: "Wraps keyboard highlight navigation from last to first item." },
                 PropDoc { name: "dir", type_simple: "Option<Direction>", type_full: "Option<monoxus::foundation::shared::Direction>", default: None, required: false, description: "Reading direction override (Ltr or Rtl)." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "SelectTrigger and SelectPortal children." },
             ],
             data_attrs: &[
@@ -59,6 +60,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
             props: &[
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Typically SelectValue and SelectIcon." },
             ],
             data_attrs: &[
@@ -75,6 +77,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "placeholder", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Text displayed when no value is selected." },
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Option<Element>", type_full: "Option<Element>", default: None, required: false, description: "Optional custom value display." },
             ],
             data_attrs: &[DataAttrDoc { name: "data-placeholder", values: "\"true\" | \"false\"", description: "True when showing placeholder text." }],
@@ -86,6 +89,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
             props: &[
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Option<Element>", type_full: "Option<Element>", default: None, required: false, description: "Custom icon element; defaults to \"▼\"." },
             ],
             data_attrs: &[],
@@ -129,8 +133,9 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "prevent_overflow_text_selection", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, description: "Disables body text selection while open." },
                 PropDoc { name: "force_mount", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, description: "Keeps content mounted when closed." },
                 PropDoc { name: "on_pointer_down_outside", type_simple: "Option<EventHandler<PointerDownOutsideEvent>>", type_full: "Option<EventHandler<PointerDownOutsideEvent>>", default: None, required: false, description: "Callback fired on outside pointer down." },
-                PropDoc { name: "on_escape_keydown", type_simple: "Option<EventHandler<KeyboardEvent>>", type_full: "Option<EventHandler<KeyboardEvent>>", default: None, required: false, description: "Callback fired when Escape is pressed." },
+                PropDoc { name: "on_escape_key_down", type_simple: "Option<EventHandler<EscapeKeyDownEvent>>", type_full: "Option<EventHandler<EscapeKeyDownEvent>>", default: None, required: false, description: "Callback fired when Escape is pressed." },
                 PropDoc { name: "on_close_auto_focus", type_simple: "Option<EventHandler<()>>", type_full: "Option<EventHandler<()>>", default: None, required: false, description: "Callback fired before restoring focus on close." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "SelectViewport and SelectItem elements." },
             ],
             data_attrs: &[
@@ -161,6 +166,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "id", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Custom viewport element ID." },
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Items and groups." },
             ],
             data_attrs: &[],
@@ -173,6 +179,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "group_key", type_simple: "String", type_full: "String", default: None, required: true, description: "Unique key linking SelectGroup and SelectLabel." },
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "SelectLabel and SelectItem elements." },
             ],
             data_attrs: &[],
@@ -185,6 +192,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "group_key", type_simple: "String", type_full: "String", default: None, required: true, description: "Matching group_key of the parent SelectGroup." },
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Group heading text." },
             ],
             data_attrs: &[],
@@ -201,6 +209,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
                 PropDoc { name: "on_highlight", type_simple: "Option<EventHandler<()>>", type_full: "Option<EventHandler<()>>", default: None, required: false, description: "Called when the item becomes highlighted." },
                 PropDoc { name: "on_unhighlight", type_simple: "Option<EventHandler<()>>", type_full: "Option<EventHandler<()>>", default: None, required: false, description: "Called when the item loses highlight." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "SelectItemText and SelectItemIndicator." },
             ],
             data_attrs: &[
@@ -219,6 +228,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
             props: &[
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Option text." },
             ],
             data_attrs: &[],
@@ -230,6 +240,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
             props: &[
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Option<Element>", type_full: "Option<Element>", default: None, required: false, description: "Custom indicator; defaults to \"✓\"." },
             ],
             data_attrs: &[],
@@ -241,6 +252,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
             props: &[
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
             ],
             data_attrs: &[],
             css_vars: &[],
@@ -249,10 +261,12 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
             name: "SelectArrow",
             description: "Positioned arrow pointing toward SelectTrigger.",
             props: &[
+                PropDoc { name: "id", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Custom arrow element ID." },
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
                 PropDoc { name: "width", type_simple: "f32", type_full: "f32", default: Some("10.0"), required: false, description: "SVG arrow width in pixels." },
                 PropDoc { name: "height", type_simple: "f32", type_full: "f32", default: Some("5.0"), required: false, description: "SVG arrow height in pixels." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Option<Element>", type_full: "Option<Element>", default: None, required: false, description: "Optional custom arrow element." },
             ],
             data_attrs: &[],

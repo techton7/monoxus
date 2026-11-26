@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::combobox::{attrs::ComboboxInputAttrs, runtime::use_combobox_context};
+use crate::foundation::compose::merge_global_attributes;
 
 #[derive(Clone, PartialEq)]
 pub struct ComboboxInputRenderProps {
@@ -127,6 +128,12 @@ pub fn ComboboxInput(props: ComboboxInputProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         input {
             id: "{attrs.id()}",
@@ -143,14 +150,14 @@ pub fn ComboboxInput(props: ComboboxInputProps) -> Element {
             "data-disabled": attrs.data_disabled(),
             value: "{current_value}",
             placeholder: props.placeholder.as_deref(),
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             oninput: move |evt| on_input.call(evt),
             onkeydown: move |evt| on_key_down.call(evt),
             oncompositionstart: move |evt| on_composition_start.call(evt),
             oncompositionend: move |evt| on_composition_end.call(evt),
             onmounted: move |evt| on_mounted.call(evt),
-            ..props.attributes,
+            ..merged.rest,
         }
     }
 }

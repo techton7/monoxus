@@ -6,6 +6,7 @@ use dioxus::prelude::*;
 use crate::foundation::browser::{
     ResizeObserverBox, WatcherGuard, start_element_scroll_monitor, start_resize_monitor,
 };
+use crate::foundation::compose::merge_global_attributes;
 
 use crate::combobox::{attrs::ComboboxViewportAttrs, runtime::use_combobox_context};
 
@@ -139,16 +140,22 @@ pub fn ComboboxViewport(props: ComboboxViewportProps) -> Element {
         }
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        Some(combined_style.as_str()),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id()}",
             role: "{attrs.role()}",
             "data-combobox-viewport": "",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: "{combined_style}",
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             onwheel: move |evt| on_wheel.call(evt),
             ontouchmove: move |evt| on_touch_move.call(evt),
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

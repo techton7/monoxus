@@ -1,5 +1,4 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     shared::data_disabled_attr,
 };
 
@@ -325,14 +324,3 @@ pub fn merge_ranked_item_style(
     }
 }
 
-pub fn project_command_part_as_child<A, T, C>(
-    attrs: &A,
-    target: T,
-    content: Slottable<C>,
-) -> (T, A, C)
-where
-    A: Clone,
-{
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}

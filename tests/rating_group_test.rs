@@ -1,3 +1,4 @@
+use monoxus::foundation::compose::project_attrs_as_child;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -15,8 +16,7 @@ use monoxus::rating_group::{
     RatingGroupPart, RatingGroupRelationships, RatingGroupRoot, RatingGroupRootAttributes,
     RatingGroupRootProps, RatingGroupRootRenderProps, RatingGroupRuntime,
     calculate_rating_from_pointer, clamp_rating_value, derive_item_state, derive_items,
-    format_default_aria_valuetext, format_rating_value, project_rating_group_item_as_child,
-    project_rating_group_root_as_child, reduce_rating_group_key, resolve_item_click_value,
+    format_default_aria_valuetext, format_rating_value, reduce_rating_group_key, resolve_item_click_value,
     use_rating_group_context, use_rating_group_item_context,
 };
 
@@ -179,13 +179,13 @@ fn rating_group_public_contracts_and_math() {
         RatingGroupItemState::Active,
     );
     let (rt, ra, rc) =
-        project_rating_group_root_as_child(&root_attrs, "root-slot", Slottable::new("items"));
+        project_attrs_as_child(&root_attrs, "root-slot", Slottable::new("items"));
     assert_eq!(rt, "root-slot");
     assert_eq!(ra.role, "slider");
     assert_eq!(rc, "items");
 
     let (it, ia, ic) =
-        project_rating_group_item_as_child(&item_attrs, "item-slot", Slottable::new("star"));
+        project_attrs_as_child(&item_attrs, "item-slot", Slottable::new("star"));
     assert_eq!(it, "item-slot");
     assert_eq!(ia.role, "presentation");
     assert_eq!(ic, "star");

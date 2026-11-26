@@ -80,20 +80,17 @@
 //!   - `shadcn-dioxus` Spec `01M7BTR87GMCWVGDH8YQZB1FY3` (Task `01M7BTR8FNX62N461B3Q6837YJ`)
 //!   - `blitz` Spec `01M7BTP4XHWRJMQ78AA9YYB6DF` (Task `01M7BTP5AGTS2ACJHZ7V0VAGA2`)
 
-pub mod attrs;
 pub mod components;
-pub mod gesture;
 pub mod hotkey;
-pub mod layout;
 pub mod runtime;
 pub mod state;
 pub mod types;
 
-pub use self::attrs::*;
+pub use monoxus_core::toast::{attrs, gesture, layout};
+pub use monoxus_core::toast::{attrs::*, gesture::*, layout::*};
+
 pub use self::components::*;
-pub use self::gesture::*;
 pub use self::hotkey::*;
-pub use self::layout::*;
 pub use self::runtime::*;
 pub use self::state::*;
 pub use self::types::*;

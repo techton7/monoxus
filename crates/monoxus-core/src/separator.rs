@@ -1,6 +1,5 @@
 use std::fmt;
 
-use crate::foundation::compose::{Slottable, project_as_child};
 
 /// Orientation of the separator widget.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -107,18 +106,9 @@ pub struct SeparatorAttributes {
     pub data_separator_root: &'static str,
 }
 
-/// Projects headless separator attributes onto a slottable child without adding wrapper elements.
-pub fn project_separator_as_child<T, C>(
-    state: &Separator,
-    target: T,
-    content: Slottable<C>,
-) -> (T, SeparatorAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, state.attributes(), content)
-}
-
 #[cfg(test)]
 mod tests {
+    use crate::foundation::compose::{Slottable, project_attrs_as_child};
     use super::*;
 
     #[test]
@@ -191,7 +181,7 @@ mod tests {
             .with_orientation(SeparatorOrientation::Vertical)
             .with_decorative(false);
         let (target, attrs, content) =
-            project_separator_as_child(&state, "hr-target", Slottable::new(()));
+            project_attrs_as_child(&state.attributes(), "hr-target", Slottable::new(()));
         assert_eq!(target, "hr-target");
         assert_eq!(attrs.role, "separator");
         assert_eq!(attrs.aria_orientation, Some("vertical"));

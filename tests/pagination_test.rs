@@ -1,3 +1,4 @@
+use monoxus::foundation::compose::project_attrs_as_child;
 use dioxus::prelude::*;
 use monoxus::{
     foundation::{
@@ -10,9 +11,7 @@ use monoxus::{
         PaginationDefinition, PaginationItemRegistration, PaginationNextButton, PaginationPage,
         PaginationPart, PaginationPrevButton, PaginationRelationships, PaginationRoot,
         PaginationRootRenderChildProps, PaginationSnapshot, clamp_page, compute_page_items,
-        compute_range, compute_total_pages, page_roving_key, project_pagination_next_button_as_child,
-        project_pagination_page_as_child, project_pagination_prev_button_as_child,
-        project_pagination_root_as_child, use_pagination_context,
+        compute_range, compute_total_pages, page_roving_key, use_pagination_context,
     },
 };
 
@@ -142,16 +141,16 @@ fn test_pagination_attributes_and_roving_contract() {
     assert_eq!(next.data_disabled(), None);
 
     let (_, proj_root, _) =
-        project_pagination_root_as_child(&root, "nav-slot", Slottable::new("body"));
+        project_attrs_as_child(&root, "nav-slot", Slottable::new("body"));
     assert_eq!(proj_root, root);
     let (_, proj_page, _) =
-        project_pagination_page_as_child(&active_page, "btn-slot", Slottable::new("1"));
+        project_attrs_as_child(&active_page, "btn-slot", Slottable::new("1"));
     assert_eq!(proj_page, active_page);
     let (_, proj_prev, _) =
-        project_pagination_prev_button_as_child(&prev, "prev-slot", Slottable::new("Prev"));
+        project_attrs_as_child(&prev, "prev-slot", Slottable::new("Prev"));
     assert_eq!(proj_prev, prev);
     let (_, proj_next, _) =
-        project_pagination_next_button_as_child(&next, "next-slot", Slottable::new("Next"));
+        project_attrs_as_child(&next, "next-slot", Slottable::new("Next"));
     assert_eq!(proj_next, next);
 
     let mut reg = CollectionRegistry::new();

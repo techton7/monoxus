@@ -1,3 +1,4 @@
+use crate::foundation::compose::project_attrs_as_child;
 use crate::foundation::{compose::Slottable, shared::ScopeHandle};
 
 use super::*;
@@ -348,7 +349,7 @@ fn root_and_item_attributes_respect_omission_and_projection() {
     assert_eq!(item.data_state.as_str(), "partial");
 
     let (target, proj_root, content) =
-        project_rating_group_root_as_child(&root_enabled, "custom-rg", Slottable::new("stars"));
+        project_attrs_as_child(&root_enabled, "custom-rg", Slottable::new("stars"));
     assert_eq!(target, "custom-rg");
     assert_eq!(proj_root, root_enabled);
     assert_eq!(content, "stars");

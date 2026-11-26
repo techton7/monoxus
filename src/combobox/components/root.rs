@@ -15,9 +15,9 @@ use crate::foundation::{
 
 use super::hidden_input::ComboboxHiddenInput;
 use crate::combobox::{
+    registry::ComboboxOptionRegistry,
     relationships::ComboboxRelationships,
     runtime::{ComboboxRuntime, ComboboxRuntimeState},
-    state::ComboboxOptionRegistry,
     types::{ComboboxContext, ComboboxItemData, ComboboxMode, ComboboxScrollAlignment},
 };
 

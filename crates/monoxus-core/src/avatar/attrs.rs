@@ -1,5 +1,3 @@
-use crate::foundation::compose::{Slottable, project_as_child};
-
 use super::types::AvatarImageLoadingStatus;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -47,29 +45,3 @@ impl AvatarFallbackAttributes {
     }
 }
 
-pub fn project_avatar_root_as_child<T, C>(
-    attrs: &AvatarRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, AvatarRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_avatar_image_as_child<T, C>(
-    attrs: &AvatarImageAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, AvatarImageAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_avatar_fallback_as_child<T, C>(
-    attrs: &AvatarFallbackAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, AvatarFallbackAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}

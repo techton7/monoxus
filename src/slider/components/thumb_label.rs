@@ -1,20 +1,8 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::{Slottable, join_styles, merge_global_attributes, project_as_child};
+use crate::foundation::compose::{join_styles, merge_global_attributes};
 
-use crate::slider::{
-    attrs::SliderThumbLabelAttributes, runtime::use_slider_context, types::SliderLabelPosition,
-};
-
-/// Projects child targets through [`AsChildSlot`] for `SliderThumbLabel`.
-pub fn project_slider_thumb_label_as_child<T, C>(
-    attrs: &SliderThumbLabelAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, SliderThumbLabelAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
+use crate::slider::{runtime::use_slider_context, types::SliderLabelPosition};
 
 /// Props for [`SliderThumbLabel`].
 #[derive(Clone, PartialEq, Props)]

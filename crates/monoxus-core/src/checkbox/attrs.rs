@@ -1,5 +1,4 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     shared::data_disabled_attr,
     state::DataState,
 };
@@ -197,42 +196,6 @@ impl CheckboxGroupLabelAttributes {
             data_checkbox_group_label: "",
         }
     }
-}
-
-pub fn project_checkbox_root_as_child<T, C>(
-    attrs: &CheckboxRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, CheckboxRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_checkbox_indicator_as_child<T, C>(
-    attrs: &CheckboxIndicatorAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, CheckboxIndicatorAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_checkbox_group_as_child<T, C>(
-    attrs: &CheckboxGroupAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, CheckboxGroupAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_checkbox_group_label_as_child<T, C>(
-    attrs: &CheckboxGroupLabelAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, CheckboxGroupLabelAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
 }
 
 #[cfg(test)]

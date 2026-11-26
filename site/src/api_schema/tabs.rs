@@ -30,6 +30,7 @@ pub(super) const TABS_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "orientation", type_simple: "Option<TabsOrientation>", type_full: "Option<TabsOrientation>", default: Some("Horizontal"), required: false, description: "Layout and keyboard navigation orientation." },
                 PropDoc { name: "dir", type_simple: "Option<TabsDirection>", type_full: "Option<TabsDirection>", default: None, required: false, description: "Reading direction override (Ltr or Rtl)." },
                 PropDoc { name: "activation_mode", type_simple: "Option<TabsActivationMode>", type_full: "Option<TabsActivationMode>", default: Some("Automatic"), required: false, description: "Automatic activates on focus; Manual requires Enter/Space/click." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "TabsList and TabsContent children." },
             ],
             data_attrs: &[DataAttrDoc { name: "data-orientation", values: "\"horizontal\" | \"vertical\"", description: "Current tabs orientation." }],
@@ -43,6 +44,7 @@ pub(super) const TABS_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
                 PropDoc { name: "loop_focus", type_simple: "bool", type_full: "bool", default: Some("true"), required: false, description: "Wraps keyboard focus from last trigger to first." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "TabsTrigger elements." },
             ],
             data_attrs: &[
@@ -60,6 +62,7 @@ pub(super) const TABS_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "id", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Custom trigger element ID." },
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Tab button label." },
             ],
             data_attrs: &[
@@ -79,6 +82,7 @@ pub(super) const TABS_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "class", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "CSS class names." },
                 PropDoc { name: "style", type_simple: "Option<String>", type_full: "Option<String>", default: None, required: false, description: "Inline CSS styles." },
                 PropDoc { name: "tabindex", type_simple: "Option<i32>", type_full: "Option<i32>", default: Some("0"), required: false, description: "Tabindex applied to the tabpanel." },
+                PropDoc { name: "attributes", type_simple: "Vec<Attribute>", type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])", default: None, required: false, description: "Additional global HTML/ARIA attributes forwarded to the element." },
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, description: "Panel content." },
             ],
             data_attrs: &[

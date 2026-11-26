@@ -1,5 +1,4 @@
 use crate::foundation::{
-    compose::{Slottable, project_as_child},
     state::DataState,
 };
 
@@ -336,83 +335,3 @@ impl NavigationMenuViewportAttributes {
     }
 }
 
-pub fn project_navigation_menu_root_as_child<T, C>(
-    attrs: &NavigationMenuRootAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, NavigationMenuRootAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_navigation_menu_sub_as_child<T, C>(
-    attrs: &NavigationMenuSubAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, NavigationMenuSubAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_navigation_menu_list_as_child<T, C>(
-    attrs: &NavigationMenuListAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, NavigationMenuListAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_navigation_menu_item_as_child<T, C>(
-    attrs: &NavigationMenuItemAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, NavigationMenuItemAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_navigation_menu_trigger_as_child<T, C>(
-    attrs: &NavigationMenuTriggerAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, NavigationMenuTriggerAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_navigation_menu_content_as_child<T, C>(
-    attrs: &NavigationMenuContentAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, NavigationMenuContentAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_navigation_menu_link_as_child<T, C>(
-    attrs: &NavigationMenuLinkAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, NavigationMenuLinkAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_navigation_menu_indicator_as_child<T, C>(
-    attrs: &NavigationMenuIndicatorAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, NavigationMenuIndicatorAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
-
-pub fn project_navigation_menu_viewport_as_child<T, C>(
-    attrs: &NavigationMenuViewportAttributes,
-    target: T,
-    content: Slottable<C>,
-) -> (T, NavigationMenuViewportAttributes, C) {
-    let (target, content) = project_as_child(target, content);
-    (target, attrs.clone(), content)
-}
