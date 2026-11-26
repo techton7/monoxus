@@ -79,12 +79,17 @@ pub fn HoverCardTrigger(props: HoverCardTriggerProps) -> Element {
     let consumer_on_mounted = props.on_mounted;
     let consumer_on_click = props.on_click;
     let effective_disabled = trigger.is_disabled();
+    let merged = crate::foundation::compose::merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         a {
             id: "{trigger_id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             href: trigger.href(),
             target: trigger.target(),
             rel: trigger.rel(),
@@ -115,7 +120,7 @@ pub fn HoverCardTrigger(props: HoverCardTriggerProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

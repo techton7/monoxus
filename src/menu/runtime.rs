@@ -1,41 +1,43 @@
-use std::cell::{Cell, RefCell};
+use std::cell::Cell;
 use std::rc::Rc;
-use std::time::Duration;
 
 use dioxus::prelude::*;
-use futures_timer::Delay;
+use monoxus_core::foundation::typeahead::{TypeaheadBuffer, TypeaheadCandidate, TypeaheadConfig};
 
+pub(crate) use crate::foundation::browser::focus_element_reliable;
 use crate::foundation::{
     browser::{
-        DocumentDismissEvent, DocumentPointerStreamGuard, FocusOptions, ModalShieldGuard,
-        PresenceMonitorEvent, WatcherGuard, acquire_scroll_lock_with_options,
-        focus_element_by_id_with_options, focus_element_sync_or_defer, get_element_client_rect,
-        get_element_scroll_metrics, is_element_focused_by_id, is_element_tabbable_by_id,
-        query_descendant_order, release_scroll_lock, restore_focus_element_by_id_with_options,
-        scroll_element_into_view_nearest, spawn_root_task,
-        start_document_dismiss_monitor_with_boundaries, start_document_pointer_stream,
-        start_floating_auto_update_monitor, start_presence_monitor, start_window_blur_monitor,
-        suppress_external_dom, use_is_using_keyboard,
+        FocusOptions, get_element_client_rect, get_element_scroll_metrics,
+        is_element_tabbable_by_id, query_descendant_order,
+        restore_focus_element_by_id_with_options, scroll_element_into_view_nearest,
+        spawn_root_task, start_window_blur_monitor, use_is_using_keyboard,
     },
+    compose::MountedHandle,
+    keyboard::is_ime_composing_key,
     overlay::{
-        FloatingPlacement, FloatingReadiness, OverlayAnchor, PlacementAlign, PlacementSide,
-        Point2D, PresenceCloseCycleId, PresenceController, PresenceState, StickyStrategy,
-        VirtualOverlayPositionConfig, compute_virtual_overlay_position,
+        CancellableDelay, DismissCallbacks, DismissConfig, DismissEvent, DismissLayerHandle,
+        FloatingHandle, FloatingMonitorSpec, FloatingPlacement, FloatingReadiness,
+        FloatingScrollPolicy, FocusScopeConfig, FocusScopeHandle, GraceCorridorHandle,
+        GraceCorridorOutcome, GraceTransit, ModalLayerConfig, ModalLayerHandle, ModalShieldPolicy,
+        PlacementAlign, PlacementSide, Point2D, PresenceHandle, PresenceState, Rect2D,
+        SUBMENU_INTENT_MIN_PROGRESS_PX, StickyStrategy, is_overlay_escape_consumed,
+        is_topmost_overlay_layer, mark_overlay_escape_consumed, use_cancellable_delay,
+        use_dismissable_layer, use_floating_layer, use_focus_scope, use_grace_corridor,
+        use_modal_layer, use_presence, use_watcher_slot,
     },
     shared::Direction,
+    state::sync_signal,
 };
 
 use super::{
     relationships::MenuRelationships,
-    state::{
-        SubmenuIntentMachine, TypeaheadBuffer, first_enabled_item_id, last_enabled_item_id,
-        menu_css_vars, resolve_menu_navigation,
-    },
+    state::{first_enabled_item_id, last_enabled_item_id, menu_css_vars, resolve_menu_navigation},
     types::{
-        CheckedState, MENU_DEFAULT_SUBMENU_OPEN_DELAY_MS, MENU_TYPEAHEAD_TIMEOUT_MS,
+        CheckedState, MENU_DEFAULT_SUBMENU_OPEN_DELAY_MS, MENU_SUBMENU_CORRIDOR_BUFFER_PX,
+        MENU_SUBMENU_CORRIDOR_FALLBACK_MS, MENU_SUBMENU_GRACE_PADDING_PX,
+        MENU_SUBMENU_RETURN_DISENGAGE_MS, MENU_SUBMENU_TRIGGER_INSET_PX, MENU_TYPEAHEAD_TIMEOUT_MS,
         MenuItemEntry, MenuKey, MenuNavigationStep, MenuOpenFocusTarget, MenuOutsideEvent,
-        MenuPreventableEvent, MenuVariant, PressedItemSnapshot, SubmenuPointerEvaluation,
-        translate_menu_key,
+        MenuPreventableEvent, MenuVariant, PressedItemSnapshot, translate_menu_key,
     },
 };
 
@@ -68,8 +70,8 @@ pub struct MenuRootContext {
     pub relationships: MenuRelationships,
     pub open: Signal<bool>,
     pub is_controlled: bool,
-    pub on_open_change: Option<EventHandler<bool>>,
-    pub on_open_change_complete: Option<EventHandler<bool>>,
+    pub on_open_change: CopyValue<Option<EventHandler<bool>>>,
+    pub on_open_change_complete: CopyValue<Option<EventHandler<bool>>>,
     pub modal: Signal<bool>,
     pub dir: Signal<Direction>,
     pub loop_focus: Signal<bool>,
@@ -104,6 +106,14 @@ impl MenuRootContext {
         menubar_bridge: Option<MenubarMenuBridge>,
     ) -> Self {
         let using_keyboard = use_is_using_keyboard();
+        let default_side = match variant {
+            MenuVariant::ContextMenu => PlacementSide::Right,
+            _ => PlacementSide::Bottom,
+        };
+        let default_side_offset = match variant {
+            MenuVariant::ContextMenu => super::types::MENU_CONTEXT_DEFAULT_SIDE_OFFSET,
+            _ => super::types::MENU_DEFAULT_SIDE_OFFSET,
+        };
         let root_surface = MenuSurfaceRuntime::new(
             relationships.root_id().to_owned(),
             false,
@@ -111,20 +121,26 @@ impl MenuRootContext {
             relationships.content_id().to_owned(),
             relationships.wrapper_id().to_owned(),
             relationships.trigger_id().to_owned(),
-            PlacementSide::Bottom,
+            default_side,
             PlacementAlign::Start,
-            4.0,
+            default_side_offset,
             0.0,
             loop_focus,
         );
+
+        let mut on_open_change_slot = use_hook(|| CopyValue::new(on_open_change));
+        on_open_change_slot.set(on_open_change);
+        let mut on_open_change_complete_slot =
+            use_hook(|| CopyValue::new(on_open_change_complete));
+        on_open_change_complete_slot.set(on_open_change_complete);
 
         Self {
             variant,
             relationships: relationships.clone(),
             open,
             is_controlled,
-            on_open_change,
-            on_open_change_complete,
+            on_open_change: on_open_change_slot,
+            on_open_change_complete: on_open_change_complete_slot,
             modal: use_signal(|| modal),
             dir: use_signal(|| dir),
             loop_focus: use_signal(|| loop_focus),
@@ -181,7 +197,7 @@ impl MenuRootContext {
                 *w = next;
             }
         }
-        if let Some(cb) = self.on_open_change.as_ref() {
+        if let Some(cb) = self.on_open_change.try_read().ok().and_then(|s| *s) {
             cb.call(next);
         }
     }
@@ -245,13 +261,13 @@ pub struct MenuSurfaceRuntime {
     pub portal_id: Signal<Option<String>>,
     pub arrow_id: Signal<Option<String>>,
     pub anchor_id: Signal<String>,
+    pub is_static_surface: Signal<bool>,
     pub items: Signal<Vec<MenuItemEntry>>,
     pub highlighted_id: Signal<Option<String>>,
     pub pressed_item: Signal<Option<PressedItemSnapshot>>,
     pub pointer_up_consumed_click: Signal<Option<String>>,
     pub typeahead: Signal<TypeaheadBuffer>,
-    pub typeahead_gen: Rc<Cell<u64>>,
-    pub typeahead_task: Rc<RefCell<Option<dioxus::core::Task>>>,
+    pub typeahead_delay: CancellableDelay,
     pub active_submenu_id: Signal<Option<String>>,
     pub active_submenu_close: Signal<Option<(String, Rc<dyn Fn()>)>>,
     pub active_corridor_sub: Signal<Option<ActiveCorridorSubmenu>>,
@@ -259,21 +275,12 @@ pub struct MenuSurfaceRuntime {
     pub branches: Signal<Vec<String>>,
     pub registered_sub_triggers: Signal<Vec<(String, Rc<dyn Fn()>, Rc<dyn Fn()>)>>,
     pub on_close_submenu: Signal<Option<Rc<dyn Fn()>>>,
-    pub submenu_intent: Signal<SubmenuIntentMachine>,
-    pub corridor_gen: Rc<Cell<u64>>,
-    pub corridor_task: Rc<RefCell<Option<dioxus::core::Task>>>,
-    pub pointer_stream: Signal<Option<DocumentPointerStreamGuard>>,
-    pub presence_lane: Signal<PresenceController>,
-    pub presence_monitor: Signal<Option<WatcherGuard>>,
-    pub active_close_cycle: Signal<Option<PresenceCloseCycleId>>,
-    pub placement: Signal<Option<FloatingPlacement>>,
-    pub readiness: Signal<FloatingReadiness>,
-    pub content_z_index: Signal<Option<String>>,
-    pub position_monitor: Signal<Option<WatcherGuard>>,
-    pub dismiss_monitor: Signal<Option<WatcherGuard>>,
-    pub blur_monitor: Signal<Option<WatcherGuard>>,
-    pub modal_shield: Signal<Option<ModalShieldGuard>>,
-    pub scroll_lock_held: Signal<bool>,
+    pub grace_corridor: GraceCorridorHandle,
+    pub presence: CopyValue<Option<PresenceHandle>>,
+    pub floating: CopyValue<Option<FloatingHandle>>,
+    pub dismiss: CopyValue<Option<DismissLayerHandle>>,
+    pub modal_layer: CopyValue<Option<ModalLayerHandle>>,
+    pub focus_scope: CopyValue<Option<FocusScopeHandle>>,
     pub open_focus_target: Signal<MenuOpenFocusTarget>,
     pub open_focus_gen: Rc<Cell<u64>>,
     pub side: Signal<PlacementSide>,
@@ -289,12 +296,12 @@ pub struct MenuSurfaceRuntime {
     pub prevent_scroll: Signal<bool>,
     pub loop_focus: Signal<bool>,
     pub focus_on_open_armed: Signal<bool>,
-    pub on_escape_keydown: Signal<Option<EventHandler<MenuPreventableEvent>>>,
-    pub on_pointer_down_outside: Signal<Option<EventHandler<MenuOutsideEvent>>>,
-    pub on_focus_outside: Signal<Option<EventHandler<MenuOutsideEvent>>>,
-    pub on_interact_outside: Signal<Option<EventHandler<MenuOutsideEvent>>>,
-    pub on_open_auto_focus: Signal<Option<EventHandler<MenuPreventableEvent>>>,
-    pub on_close_auto_focus: Signal<Option<EventHandler<MenuPreventableEvent>>>,
+    pub on_escape_key_down: CopyValue<Option<EventHandler<MenuPreventableEvent>>>,
+    pub on_pointer_down_outside: CopyValue<Option<EventHandler<MenuOutsideEvent>>>,
+    pub on_focus_outside: CopyValue<Option<EventHandler<MenuOutsideEvent>>>,
+    pub on_interact_outside: CopyValue<Option<EventHandler<MenuOutsideEvent>>>,
+    pub on_open_auto_focus: CopyValue<Option<EventHandler<MenuPreventableEvent>>>,
+    pub on_close_auto_focus: CopyValue<Option<EventHandler<MenuPreventableEvent>>>,
 }
 
 impl MenuSurfaceRuntime {
@@ -312,7 +319,9 @@ impl MenuSurfaceRuntime {
         default_align_offset: f32,
         loop_focus: bool,
     ) -> Self {
-        let initial_open = open.try_read().map(|g| *g).unwrap_or(false);
+        let grace_corridor = use_grace_corridor();
+        let typeahead_delay = use_cancellable_delay();
+
         Self {
             surface_key,
             is_submenu,
@@ -322,13 +331,13 @@ impl MenuSurfaceRuntime {
             portal_id: use_signal(|| None),
             arrow_id: use_signal(|| None),
             anchor_id: use_signal(|| anchor_id),
+            is_static_surface: use_signal(|| false),
             items: use_signal(Vec::new),
             highlighted_id: use_signal(|| None),
             pressed_item: use_signal(|| None),
             pointer_up_consumed_click: use_signal(|| None),
-            typeahead: use_signal(TypeaheadBuffer::default),
-            typeahead_gen: use_hook(|| Rc::new(Cell::new(0))),
-            typeahead_task: use_hook(|| Rc::new(RefCell::new(None))),
+            typeahead: use_signal(|| TypeaheadBuffer::new(TypeaheadConfig::MENU)),
+            typeahead_delay,
             active_submenu_id: use_signal(|| None),
             active_submenu_close: use_signal(|| None),
             active_corridor_sub: use_signal(|| None),
@@ -336,23 +345,12 @@ impl MenuSurfaceRuntime {
             branches: use_signal(Vec::new),
             registered_sub_triggers: use_signal(Vec::new),
             on_close_submenu: use_signal(|| None),
-            submenu_intent: use_signal(SubmenuIntentMachine::default),
-            corridor_gen: use_hook(|| Rc::new(Cell::new(0))),
-            corridor_task: use_hook(|| Rc::new(RefCell::new(None))),
-            pointer_stream: use_signal(|| None),
-            presence_lane: use_signal(|| {
-                PresenceController::new(initial_open).with_retained_mount(true)
-            }),
-            presence_monitor: use_signal(|| None),
-            active_close_cycle: use_signal(|| None),
-            placement: use_signal(|| None),
-            readiness: use_signal(FloatingReadiness::default),
-            content_z_index: use_signal(|| None),
-            position_monitor: use_signal(|| None),
-            dismiss_monitor: use_signal(|| None),
-            blur_monitor: use_signal(|| None),
-            modal_shield: use_signal(|| None),
-            scroll_lock_held: use_signal(|| false),
+            grace_corridor,
+            presence: use_hook(|| CopyValue::new(None)),
+            floating: use_hook(|| CopyValue::new(None)),
+            dismiss: use_hook(|| CopyValue::new(None)),
+            modal_layer: use_hook(|| CopyValue::new(None)),
+            focus_scope: use_hook(|| CopyValue::new(None)),
             open_focus_target: use_signal(|| MenuOpenFocusTarget::ContentContainer),
             open_focus_gen: use_hook(|| Rc::new(Cell::new(0))),
             side: use_signal(|| default_side),
@@ -368,25 +366,91 @@ impl MenuSurfaceRuntime {
             prevent_scroll: use_signal(|| false),
             loop_focus: use_signal(|| loop_focus),
             focus_on_open_armed: use_signal(|| false),
-            on_escape_keydown: use_signal(|| None),
-            on_pointer_down_outside: use_signal(|| None),
-            on_focus_outside: use_signal(|| None),
-            on_interact_outside: use_signal(|| None),
-            on_open_auto_focus: use_signal(|| None),
-            on_close_auto_focus: use_signal(|| None),
+            on_escape_key_down: use_hook(|| CopyValue::new(None)),
+            on_pointer_down_outside: use_hook(|| CopyValue::new(None)),
+            on_focus_outside: use_hook(|| CopyValue::new(None)),
+            on_interact_outside: use_hook(|| CopyValue::new(None)),
+            on_open_auto_focus: use_hook(|| CopyValue::new(None)),
+            on_close_auto_focus: use_hook(|| CopyValue::new(None)),
         }
     }
 
     pub fn should_render_content(&self) -> bool {
         let force = self.force_mount.try_read().map(|g| *g).unwrap_or(false);
         let is_open = self.open.try_read().map(|g| *g).unwrap_or(false);
-        force
-            || is_open
-            || self
-                .presence_lane
-                .try_read()
-                .map(|p| p.should_render())
-                .unwrap_or(false)
+        let present = self
+            .presence
+            .try_read()
+            .ok()
+            .and_then(|h| *h)
+            .is_some_and(|h| h.should_render());
+        force || is_open || present
+    }
+
+    pub fn presence_state(&self) -> PresenceState {
+        self.presence
+            .try_read()
+            .ok()
+            .and_then(|h| *h)
+            .map(|h| h.state())
+            .unwrap_or_else(|| {
+                if self.open.try_read().map(|g| *g).unwrap_or(false) {
+                    PresenceState::Mounted
+                } else {
+                    PresenceState::Unmounted
+                }
+            })
+    }
+
+    pub fn placement(&self) -> Option<FloatingPlacement> {
+        self.floating
+            .try_read()
+            .ok()
+            .and_then(|h| *h)
+            .and_then(|h| h.placement())
+    }
+
+    pub fn readiness(&self) -> FloatingReadiness {
+        self.floating
+            .try_read()
+            .ok()
+            .and_then(|h| *h)
+            .map(|h| h.readiness())
+            .unwrap_or_default()
+    }
+
+    pub fn content_z_index(&self) -> Option<String> {
+        self.floating
+            .try_read()
+            .ok()
+            .and_then(|h| *h)
+            .and_then(|h| h.content_z_index())
+    }
+
+    pub fn register_arrow_id(&self, arrow_id: &str) {
+        let mut aid = self.arrow_id;
+        sync_signal(&mut aid, Some(arrow_id.to_owned()));
+        if let Some(f) = self.floating.try_read().ok().and_then(|h| *h) {
+            f.register_arrow_id(arrow_id);
+        }
+    }
+
+    pub fn unregister_arrow_id(&self, arrow_id: &str) {
+        let mut aid = self.arrow_id;
+        if aid.try_peek().is_ok_and(|g| g.as_deref() == Some(arrow_id))
+            && let Ok(mut w) = aid.try_write()
+        {
+            *w = None;
+        }
+        if let Some(f) = self.floating.try_read().ok().and_then(|h| *h) {
+            f.unregister_arrow_id(arrow_id);
+        }
+    }
+
+    pub fn capture_content_mount(&self, handle: MountedHandle) {
+        if let Some(f) = self.floating.try_read().ok().and_then(|h| *h) {
+            f.capture_content(handle);
+        }
     }
 
     pub fn current_content_id(&self) -> String {
@@ -405,6 +469,10 @@ impl MenuSurfaceRuntime {
 
     pub fn current_highlighted_id(&self) -> Option<String> {
         self.highlighted_id.try_read().ok().and_then(|g| g.clone())
+    }
+
+    pub fn record_pointer(&self, x: f64, y: f64) {
+        self.grace_corridor.record_pointer(x, y);
     }
 
     pub fn register_item(&self, entry: MenuItemEntry) {
@@ -491,10 +559,10 @@ impl MenuSurfaceRuntime {
 
     pub fn register_child_subcontent(&self, id: String) {
         let mut sig = self.child_subcontents;
-        if let Ok(mut list) = sig.try_write() {
-            if !list.contains(&id) {
-                list.push(id);
-            }
+        if let Ok(mut list) = sig.try_write()
+            && !list.contains(&id)
+        {
+            list.push(id);
         }
     }
 
@@ -509,12 +577,14 @@ impl MenuSurfaceRuntime {
         let id = id.into();
         let mut sig = self.branches;
         let already = sig.try_peek().is_ok_and(|list| list.contains(&id));
-        if !already {
-            if let Ok(mut list) = sig.try_write() {
-                if !list.contains(&id) {
-                    list.push(id);
-                }
-            }
+        if !already
+            && let Ok(mut list) = sig.try_write()
+            && !list.contains(&id)
+        {
+            list.push(id.clone());
+        }
+        if let Some(d) = self.dismiss.try_read().ok().and_then(|h| *h) {
+            d.register_branch(id);
         }
     }
 
@@ -523,10 +593,13 @@ impl MenuSurfaceRuntime {
         let present = sig
             .try_peek()
             .is_ok_and(|list| list.iter().any(|entry| entry == id));
-        if present {
-            if let Ok(mut list) = sig.try_write() {
-                list.retain(|entry| entry != id);
-            }
+        if present
+            && let Ok(mut list) = sig.try_write()
+        {
+            list.retain(|entry| entry != id);
+        }
+        if let Some(d) = self.dismiss.try_read().ok().and_then(|h| *h) {
+            d.unregister_branch(id);
         }
     }
 
@@ -571,21 +644,15 @@ impl MenuSurfaceRuntime {
     }
 
     pub fn is_submenu_grace_blocking(&self, target_item_id: Option<&str>) -> bool {
-        let active_corridor = self
-            .submenu_intent
-            .try_read()
-            .map(|m| m.is_active())
-            .unwrap_or(false);
-        if !active_corridor {
+        if !self.grace_corridor.is_active() {
             return false;
         }
         if let (Some(target), Some(sub)) = (
             target_item_id,
             self.active_corridor_sub.try_read().ok().and_then(|g| g.clone()),
-        ) {
-            if target == sub.trigger_id {
-                return false;
-            }
+        ) && target == sub.trigger_id
+        {
+            return false;
         }
         true
     }
@@ -593,10 +660,10 @@ impl MenuSurfaceRuntime {
     pub fn highlight_item(&self, id: Option<String>, focus_dom: bool, using_keyboard: bool) {
         let mut hl = self.highlighted_id;
         let changed = hl.try_peek().map(|g| *g != id).unwrap_or(true);
-        if changed {
-            if let Ok(mut w) = hl.try_write() {
-                *w = id.clone();
-            }
+        if changed
+            && let Ok(mut w) = hl.try_write()
+        {
+            *w = id.clone();
         }
         if focus_dom {
             if let Some(target_id) = id {
@@ -631,13 +698,8 @@ impl MenuSurfaceRuntime {
             return;
         }
 
-        let evt = MenuPreventableEvent::new();
-        if let Some(cb) = self
-            .on_open_auto_focus
-            .try_peek()
-            .ok()
-            .and_then(|g| g.clone())
-        {
+        let evt = MenuPreventableEvent::empty();
+        if let Some(cb) = self.on_open_auto_focus.try_read().ok().and_then(|s| *s) {
             cb.call(evt.clone());
         }
         if evt.is_default_prevented() {
@@ -651,9 +713,7 @@ impl MenuSurfaceRuntime {
         spawn_root_task(async move {
             for attempt in 0..5 {
                 let _ = oxidase::frame::next_frame().await;
-                if gen_ref.get() != expected_gen
-                    || !surface.open.try_peek().is_ok_and(|o| *o)
-                {
+                if gen_ref.get() != expected_gen || !surface.open.try_peek().is_ok_and(|o| *o) {
                     return;
                 }
                 let content_id = surface
@@ -720,6 +780,10 @@ impl MenuSurfaceRuntime {
             .try_read()
             .map(|g| g.clone())
             .unwrap_or_default();
+        let candidates: Vec<TypeaheadCandidate<'_>> = items
+            .iter()
+            .map(|item| TypeaheadCandidate::label_only(&item.id, &item.text_value, item.disabled))
+            .collect();
         let current = self.current_highlighted_id();
 
         let matched = {
@@ -727,7 +791,7 @@ impl MenuSurfaceRuntime {
             let Ok(mut buf) = ta.try_write() else {
                 return false;
             };
-            buf.push_char(ch, now_ms, &items, current.as_deref())
+            buf.push_char(ch, now_ms, &candidates, current.as_deref())
         };
 
         if let Some(target_id) = matched {
@@ -736,23 +800,35 @@ impl MenuSurfaceRuntime {
 
         let is_active = self.is_typeahead_active();
         if is_active {
-            let next_gen = self.typeahead_gen.get().wrapping_add(1);
-            self.typeahead_gen.set(next_gen);
-            if let Some(prev) = self.typeahead_task.borrow_mut().take() {
-                prev.cancel();
-            }
-            let gen_ref = self.typeahead_gen.clone();
             let surface = self.clone();
-            let task = spawn_root_task(async move {
-                Delay::new(Duration::from_millis(MENU_TYPEAHEAD_TIMEOUT_MS)).await;
-                if gen_ref.get() == next_gen {
-                    surface.reset_typeahead();
-                }
+            self.typeahead_delay.schedule(MENU_TYPEAHEAD_TIMEOUT_MS, move || {
+                surface.reset_typeahead();
             });
-            *self.typeahead_task.borrow_mut() = Some(task);
             true
         } else {
             false
+        }
+    }
+
+    /// Recomputes whether a coalesced `pointerleave` horizontal delta (`clientX - last_pointer_x`)
+    /// is moving strictly away from the target submenu surface (`radix menu.tsx:488`).
+    pub fn is_pointer_leaving_away_from_submenu(
+        side: PlacementSide,
+        delta_x: f64,
+        from_content_to_trigger: bool,
+    ) -> bool {
+        if from_content_to_trigger {
+            match side {
+                PlacementSide::Right => delta_x > SUBMENU_INTENT_MIN_PROGRESS_PX,
+                PlacementSide::Left => delta_x < -SUBMENU_INTENT_MIN_PROGRESS_PX,
+                _ => false,
+            }
+        } else {
+            match side {
+                PlacementSide::Right => delta_x < -SUBMENU_INTENT_MIN_PROGRESS_PX,
+                PlacementSide::Left => delta_x > SUBMENU_INTENT_MIN_PROGRESS_PX,
+                _ => false,
+            }
         }
     }
 
@@ -762,153 +838,78 @@ impl MenuSurfaceRuntime {
         exit_point: Point2D,
         from_content_to_trigger: bool,
     ) {
+        let side = sub.side.try_read().map(|g| *g).unwrap_or(PlacementSide::Right);
+
+        // Recompute horizontal leave direction from `clientX - last_pointer_x` (`radix menu.tsx:488`).
+        if let Some(delta_x) = self.grace_corridor.horizontal_leave_delta(exit_point.x)
+            && Self::is_pointer_leaving_away_from_submenu(side, delta_x, from_content_to_trigger)
+        {
+            self.grace_corridor.record_pointer(exit_point.x, exit_point.y);
+            if !from_content_to_trigger {
+                let mut active_sig = self.active_corridor_sub;
+                if let Ok(mut w) = active_sig.try_write() {
+                    *w = Some(sub);
+                }
+                self.disengage_corridor_and_close(Some(exit_point));
+            }
+            return;
+        }
+        self.grace_corridor.record_pointer(exit_point.x, exit_point.y);
+
         let Some(trigger_rect) = get_element_client_rect(&sub.trigger_id) else {
             return;
         };
         let Some(content_rect) = get_element_client_rect(&sub.content_id) else {
             return;
         };
-        let side = sub.side.try_read().map(|g| *g).unwrap_or(PlacementSide::Right);
-        let now_ms = monotonic_ms();
 
-        {
-            let mut intent_sig = self.submenu_intent;
-            if let Ok(mut intent) = intent_sig.try_write() {
-                if from_content_to_trigger {
-                    intent.begin_content_to_trigger(
-                        exit_point,
-                        content_rect,
-                        trigger_rect,
-                        side,
-                        now_ms,
-                    );
-                } else {
-                    intent.begin_trigger_to_sub(
-                        exit_point,
-                        trigger_rect,
-                        content_rect,
-                        side,
-                        now_ms,
-                    );
-                }
-            }
-        }
-
-        let mut active_sig = self.active_corridor_sub;
-        if let Ok(mut w) = active_sig.try_write() {
-            *w = Some(sub.clone());
-        }
-
-        let next_gen = self.corridor_gen.get().wrapping_add(1);
-        self.corridor_gen.set(next_gen);
-        if let Some(prev) = self.corridor_task.borrow_mut().take() {
-            prev.cancel();
-        }
-
-        let surface_stream = self.clone();
-        let guard = start_document_pointer_stream(move |point| {
-            surface_stream.evaluate_corridor_pointer(point);
-        });
-        let mut ps = self.pointer_stream;
-        if let Ok(mut w) = ps.try_write() {
-            *w = Some(guard);
-        }
-
-        let surface_timer = self.clone();
-        let gen_ref = self.corridor_gen.clone();
-        let timeout_ms = self
-            .submenu_intent
-            .try_read()
-            .map(|m| m.config().fallback_timeout_ms)
-            .unwrap_or(100);
-        let task = spawn_root_task(async move {
-            Delay::new(Duration::from_millis(timeout_ms + 5)).await;
-            if gen_ref.get() != next_gen {
-                return;
-            }
-            let status = {
-                let mut intent_sig = surface_timer.submenu_intent;
-                intent_sig
-                    .try_write()
-                    .map(|mut m| m.check_timeout(monotonic_ms()))
-                    .unwrap_or(SubmenuPointerEvaluation::Idle)
-            };
-            if matches!(
-                status,
-                SubmenuPointerEvaluation::Stalled | SubmenuPointerEvaluation::ExitedCorridor
-            ) {
-                surface_timer.disengage_corridor_and_close(None);
-            }
-        });
-        *self.corridor_task.borrow_mut() = Some(task);
-    }
-
-    pub fn clear_corridor(&self) {
-        self.corridor_gen.set(self.corridor_gen.get().wrapping_add(1));
-        if let Some(task) = self.corridor_task.borrow_mut().take() {
-            task.cancel();
-        }
-        let mut ps = self.pointer_stream;
-        if let Ok(mut w) = ps.try_write() {
-            *w = None;
-        }
-        let mut intent_sig = self.submenu_intent;
-        if let Ok(mut m) = intent_sig.try_write() {
-            m.clear();
-        }
-        let mut active_sig = self.active_corridor_sub;
-        if let Ok(mut w) = active_sig.try_write() {
-            *w = None;
-        }
-    }
-
-    fn evaluate_corridor_pointer(&self, point: Point2D) {
-        let Some(sub) = self
-            .active_corridor_sub
-            .try_read()
-            .ok()
-            .and_then(|g| g.clone())
-        else {
-            self.clear_corridor();
-            return;
-        };
-
-        let in_own_trigger = get_element_client_rect(&sub.trigger_id)
-            .is_some_and(|r| r.contains_point(point));
-        let in_sub_content = get_element_client_rect(&sub.content_id)
-            .is_some_and(|r| r.contains_point(point));
-        let in_descendant = self
-            .child_subcontents
-            .try_read()
-            .map(|ids| {
-                ids.iter().any(|cid| {
-                    get_element_client_rect(cid).is_some_and(|r| r.contains_point(point))
-                })
-            })
-            .unwrap_or(false);
-
-        let eval = {
-            let mut intent_sig = self.submenu_intent;
-            let Ok(mut intent) = intent_sig.try_write() else {
-                return;
-            };
-            intent.evaluate_pointer_move(
-                point,
-                monotonic_ms(),
-                in_sub_content || in_descendant,
-                in_own_trigger,
-                false,
+        let (from_rect, to_rect, timeout_ms) = if from_content_to_trigger {
+            (
+                content_rect,
+                expand_rect2d(&trigger_rect, MENU_SUBMENU_CORRIDOR_BUFFER_PX),
+                MENU_SUBMENU_RETURN_DISENGAGE_MS,
+            )
+        } else {
+            (
+                inset_rect2d(&trigger_rect, MENU_SUBMENU_TRIGGER_INSET_PX),
+                expand_rect2d(&content_rect, MENU_SUBMENU_CORRIDOR_BUFFER_PX),
+                MENU_SUBMENU_CORRIDOR_FALLBACK_MS,
             )
         };
 
-        match eval {
-            SubmenuPointerEvaluation::ReachedTarget => {
-                self.clear_corridor();
+        let transit = GraceTransit::new(
+            exit_point,
+            from_rect,
+            to_rect,
+            Some(MENU_SUBMENU_GRACE_PADDING_PX),
+            false,
+        );
+
+        let mut active_sig = self.active_corridor_sub;
+        if let Ok(mut w) = active_sig.try_write() {
+            *w = Some(sub);
+        }
+
+        let surface_cb = self.clone();
+        self.grace_corridor.start(transit, Some(timeout_ms), move |outcome| match outcome {
+            GraceCorridorOutcome::InTransit(_) => {}
+            GraceCorridorOutcome::ReachedTarget(_) => {
+                surface_cb.clear_corridor();
             }
-            SubmenuPointerEvaluation::ExitedCorridor | SubmenuPointerEvaluation::Stalled => {
-                self.disengage_corridor_and_close(Some(point));
+            GraceCorridorOutcome::ExitedCorridor(pt) => {
+                surface_cb.disengage_corridor_and_close(Some(pt));
             }
-            SubmenuPointerEvaluation::Idle | SubmenuPointerEvaluation::InCorridor => {}
+            GraceCorridorOutcome::Stalled => {
+                surface_cb.disengage_corridor_and_close(None);
+            }
+        });
+    }
+
+    pub fn clear_corridor(&self) {
+        self.grace_corridor.clear();
+        let mut active_sig = self.active_corridor_sub;
+        if let Ok(mut w) = active_sig.try_write() {
+            *w = None;
         }
     }
 
@@ -946,6 +947,10 @@ impl MenuSurfaceRuntime {
     }
 
     pub fn handle_keydown(&self, evt: &KeyboardEvent, root: &MenuRootContext) {
+        // Gate Escape/Tab and menu navigation during IME composition (`radix#4153`).
+        if is_ime_composing_key(evt) {
+            return;
+        }
         if evt.modifiers().ctrl() || evt.modifiers().alt() || evt.modifiers().meta() {
             return;
         }
@@ -965,8 +970,9 @@ impl MenuSurfaceRuntime {
         let highlighted_entry = highlighted_id
             .as_deref()
             .and_then(|hid| items.iter().find(|i| i.id == hid));
-        let on_sub_trigger = highlighted_entry
-            .is_some_and(|entry| !entry.disabled && entry.kind == super::types::MenuItemKind::SubTrigger);
+        let on_sub_trigger = highlighted_entry.is_some_and(|entry| {
+            !entry.disabled && entry.kind == super::types::MenuItemKind::SubTrigger
+        });
 
         // Menubar cross-menu ArrowLeft / ArrowRight hook (`MB-6`)
         if let Some(bridge) = root.menubar_bridge.as_ref()
@@ -980,23 +986,25 @@ impl MenuSurfaceRuntime {
         // Escape dismisses full menu tree back to root trigger (`3B D-2`)
         if matches!(key, MenuKey::Escape) {
             let root_cid = root.root_surface.current_content_id();
-            if crate::foundation::overlay::is_overlay_escape_consumed()
-                || !crate::foundation::overlay::is_topmost_overlay_layer(&root_cid)
-            {
+            if is_overlay_escape_consumed() || !is_topmost_overlay_layer(&root_cid) {
                 return;
             }
             evt.prevent_default();
             evt.stop_propagation();
-            let esc_evt = MenuPreventableEvent::new();
-            if let Some(cb) = self
-                .on_escape_keydown
-                .try_read()
-                .ok()
-                .and_then(|g| g.clone())
+            let esc_evt = MenuPreventableEvent::empty();
+            if let Some(cb) = self.on_escape_key_down.try_read().ok().and_then(|s| *s) {
+                cb.call(esc_evt.clone());
+            } else if self.is_submenu
+                && let Some(cb) = root
+                    .root_surface
+                    .on_escape_key_down
+                    .try_read()
+                    .ok()
+                    .and_then(|s| *s)
             {
                 cb.call(esc_evt.clone());
             }
-            crate::foundation::overlay::mark_overlay_escape_consumed();
+            mark_overlay_escape_consumed();
             if !esc_evt.is_default_prevented() {
                 root.close_menu_tree(true);
             }
@@ -1090,680 +1098,346 @@ impl MenuSurfaceRuntime {
         }
     }
 
-    pub fn sync_content_z_index(&self) {
-        let content_id = self.current_content_id();
-        let next = crate::foundation::overlay::normalize_hoisted_z_index(
-            crate::foundation::browser::get_element_computed_z_index(&content_id).as_deref(),
-        );
-        let mut sig = self.content_z_index;
-        if sig.try_peek().is_ok_and(|cur| *cur != next) {
-            if let Ok(mut w) = sig.try_write() {
-                *w = next;
-            }
-        }
-    }
-
-    pub fn clear_content_z_index(&self) {
-        let mut sig = self.content_z_index;
-        if sig.try_peek().is_ok_and(|cur| cur.is_some()) {
-            if let Ok(mut w) = sig.try_write() {
-                *w = None;
-            }
-        }
-    }
-
-    pub fn update_placement(&self, root: &MenuRootContext) {
-        if !self.should_render_content() {
-            return;
-        }
-
-        self.sync_content_z_index();
-
-        let content_id = self.current_content_id();
-        let wrapper_id = self.current_wrapper_id();
-        let arrow_id = self.arrow_id.try_peek().ok().and_then(|g| g.clone());
-        let anchor_id = self
-            .anchor_id
-            .try_peek()
-            .map(|g| g.clone())
-            .unwrap_or_default();
-
-        let virtual_point = if !self.is_submenu && root.variant == MenuVariant::ContextMenu {
-            root.virtual_anchor.try_peek().ok().and_then(|g| *g)
-        } else {
-            None
-        };
-
-        let anchor = if let Some((x, y)) = virtual_point {
-            OverlayAnchor::VirtualPoint {
-                x: x as f32,
-                y: y as f32,
-                width: 0.0,
-                height: 0.0,
-                context_element_id: (!anchor_id.is_empty()).then_some(anchor_id.as_str()),
-            }
-        } else {
-            if anchor_id.is_empty() {
-                return;
-            }
-            OverlayAnchor::Element(anchor_id.as_str())
-        };
-
-        let sticky = matches!(
-            self.sticky
-                .try_peek()
-                .map(|g| *g)
-                .unwrap_or(StickyStrategy::Partial),
-            StickyStrategy::Always
-        );
-
-        let computed = compute_virtual_overlay_position(&VirtualOverlayPositionConfig {
-            anchor,
-            content_id: content_id.as_str(),
-            arrow_id: arrow_id.as_deref(),
-            boundary_id: None,
-            side: self
-                .side
-                .try_peek()
-                .map(|g| *g)
-                .unwrap_or(PlacementSide::Bottom),
-            align: self
-                .align
-                .try_peek()
-                .map(|g| *g)
-                .unwrap_or(PlacementAlign::Start),
-            side_offset: self.side_offset.try_peek().map(|g| *g).unwrap_or(4.0),
-            align_offset: self.align_offset.try_peek().map(|g| *g).unwrap_or(0.0),
-            avoid_collisions: self.avoid_collisions.try_peek().map(|g| *g).unwrap_or(true),
-            collision_padding: self.collision_padding.try_peek().map(|g| *g).unwrap_or(0.0),
-            arrow_padding: self.arrow_padding.try_peek().map(|g| *g).unwrap_or(0.0),
-            hide_when_detached: self
-                .hide_when_detached
-                .try_peek()
-                .map(|g| *g)
-                .unwrap_or(false),
-            sticky,
-            namespace: Some(root.variant.geometry_namespace()),
-        });
-
-        let _ = wrapper_id;
-        let mut placement_sig = self.placement;
-        let mut readiness_sig = self.readiness;
-        if let Some(p) = computed {
-            let geom = p.geometry();
-            let has_dims = geom.content_width() > 0.0 && geom.content_height() > 0.0;
-            let next_readiness = if has_dims {
-                FloatingReadiness::Ready
-            } else {
-                FloatingReadiness::Measuring
-            };
-            if readiness_sig.try_peek().is_ok_and(|r| *r != next_readiness) {
-                let _ = readiness_sig.try_write().map(|mut w| *w = next_readiness);
-            }
-            if placement_sig
-                .try_peek()
-                .is_ok_and(|cur| cur.as_ref() != Some(&p))
-            {
-                let _ = placement_sig.try_write().map(|mut w| *w = Some(p));
-            }
-        }
-    }
-
-    /// Start auto-update position monitor on the mounted `content_id` and compute initial placement.
-    pub fn ensure_position_tracking(&self, root: &MenuRootContext) {
-        if !self.should_render_content() {
-            let mut mon = self.position_monitor;
-            if mon.try_peek().is_ok_and(|g| g.is_some()) {
-                let _ = mon.try_write().map(|mut w| *w = None);
-            }
-            let mut pl = self.placement;
-            if pl.try_peek().is_ok_and(|g| g.is_some()) {
-                let _ = pl.try_write().map(|mut w| *w = None);
-            }
-            let mut rd = self.readiness;
-            if rd
-                .try_peek()
-                .is_ok_and(|g| *g != FloatingReadiness::Measuring)
-            {
-                let _ = rd.try_write().map(|mut w| *w = FloatingReadiness::Measuring);
-            }
-            self.clear_content_z_index();
-            return;
-        }
-
-        self.sync_content_z_index();
-        self.update_placement(root);
-
-        let anchor_id = self
-            .anchor_id
-            .try_peek()
-            .map(|g| g.clone())
-            .unwrap_or_default();
-        let content_id = self.current_content_id();
-        let auto_surface = self.clone();
-        let auto_root = root.clone();
-        let anchors: Vec<&str> = if anchor_id.is_empty() {
-            vec![]
-        } else {
-            vec![anchor_id.as_str()]
-        };
-        let guard = start_floating_auto_update_monitor(&anchors, &content_id, move |_| {
-            auto_surface.update_placement(&auto_root);
-        });
-        let mut mon = self.position_monitor;
-        let _ = mon.try_write().map(|mut w| *w = Some(guard));
-
-        let frame_surface = self.clone();
-        let frame_root = root.clone();
-        spawn_root_task(async move {
-            let _ = oxidase::frame::next_frame().await;
-            frame_surface.update_placement(&frame_root);
-        });
-    }
-
     pub fn stop_monitors(&self) {
-        let mut presence_monitor = self.presence_monitor;
-        if let Ok(mut w) = presence_monitor.try_write() {
-            *w = None;
+        if let Some(p) = self.presence.try_read().ok().and_then(|h| *h) {
+            p.stop();
         }
-        let mut position_monitor = self.position_monitor;
-        if let Ok(mut w) = position_monitor.try_write() {
-            *w = None;
+        if let Some(f) = self.floating.try_read().ok().and_then(|h| *h) {
+            f.clear();
         }
-        let mut dismiss_monitor = self.dismiss_monitor;
-        if let Ok(mut w) = dismiss_monitor.try_write() {
-            *w = None;
+        if let Some(d) = self.dismiss.try_read().ok().and_then(|h| *h) {
+            d.stop();
         }
-        let mut blur_monitor = self.blur_monitor;
-        if let Ok(mut w) = blur_monitor.try_write() {
-            *w = None;
-        }
-        let mut modal_shield = self.modal_shield;
-        if let Ok(mut w) = modal_shield.try_write() {
-            *w = None;
-        }
-        if self.scroll_lock_held.try_read().map(|g| *g).unwrap_or(false) {
-            release_scroll_lock(&self.surface_key, None);
-            let mut scroll_lock_held = self.scroll_lock_held;
-            if let Ok(mut w) = scroll_lock_held.try_write() {
-                *w = false;
-            }
+        if let Some(m) = self.modal_layer.try_read().ok().and_then(|h| *h) {
+            m.release();
         }
         self.clear_corridor();
+        self.typeahead_delay.cancel();
     }
 }
 
-/// Provide lifecycle hooks (`presence`, positioning, modal shield, scroll lock, dismiss, window blur)
-/// for a root or submenu `MenuSurfaceRuntime`.
+/// Provide lifecycle hooks (`use_presence`, `use_floating_layer`, `use_modal_layer`,
+/// `use_dismissable_layer`, `use_focus_scope`, window blur) for a root or submenu `MenuSurfaceRuntime`.
 pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootContext) {
-    let cleanup_surface = surface.clone();
-    dioxus::core::use_drop(move || {
-        cleanup_surface.stop_monitors();
-        if let Some(task) = cleanup_surface.typeahead_task.borrow_mut().take() {
-            task.cancel();
-        }
+    let is_open = (surface.open)();
+    let content_id = surface.current_content_id();
+    let wrapper_id = surface.current_wrapper_id();
+    let portal_id_opt = surface.portal_id.read().clone();
+    let is_static = *surface.is_static_surface.read();
+
+    // 1. Presence (`use_presence` + Menubar fast-switch skip `MB-5`)
+    let on_complete = (!surface.is_submenu).then(|| {
+        let complete_slot = root.on_open_change_complete;
+        EventHandler::new(move |open: bool| {
+            if let Some(cb) = complete_slot.try_read().ok().and_then(|s| *s) {
+                cb.call(open);
+            }
+        })
     });
+    let presence = use_presence(is_open, &content_id, true, on_complete);
+    if !is_open && root.skip_exit_animation.try_peek().is_ok_and(|s| *s) {
+        if let Some(cycle) = presence.active_close_cycle() {
+            presence.complete_close_cycle(cycle);
+        }
+        let mut skip_sig = root.skip_exit_animation;
+        let _ = skip_sig.try_write().map(|mut w| *w = false);
+    }
+    let mut presence_slot = surface.presence;
+    presence_slot.set(Some(presence));
 
-    // Presence synchronization (`PresenceController` + `start_presence_monitor` + `MB-5` fast skip)
-    let presence_surface = surface.clone();
-    let presence_root = root.clone();
-    use_effect(move || {
-        let is_open = (presence_surface.open)();
-        let skip_exit = presence_root
-            .skip_exit_animation
-            .try_read()
-            .map(|g| *g)
-            .unwrap_or(false);
-        let update = {
-            let mut lane = presence_surface.presence_lane;
-            lane.write().sync(is_open)
-        };
+    // 2. Floating layer (`use_floating_layer` + z-index hoisting + VirtualPoint + Hide)
+    let should_render = surface.should_render_content();
+    let anchor_id = surface.anchor_id.read().clone();
+    let virtual_anchor = if !surface.is_submenu && root.variant == MenuVariant::ContextMenu {
+        (*root.virtual_anchor.read()).map(|(x, y)| {
+            (
+                x as f32,
+                y as f32,
+                0.0,
+                0.0,
+                (!anchor_id.is_empty()).then(|| anchor_id.clone()),
+            )
+        })
+    } else {
+        None
+    };
+    let mut floating_spec = FloatingMonitorSpec::new(anchor_id, content_id.clone());
+    floating_spec.virtual_anchor = virtual_anchor;
+    floating_spec.arrow_id = surface.arrow_id.read().clone();
+    floating_spec.side = *surface.side.read();
+    floating_spec.align = *surface.align.read();
+    floating_spec.direction = root.direction();
+    floating_spec.side_offset = *surface.side_offset.read();
+    floating_spec.align_offset = *surface.align_offset.read();
+    floating_spec.avoid_collisions = *surface.avoid_collisions.read();
+    floating_spec.collision_padding = *surface.collision_padding.read();
+    floating_spec.arrow_padding = *surface.arrow_padding.read();
+    floating_spec.hide_when_detached = *surface.hide_when_detached.read();
+    floating_spec.sticky = matches!(*surface.sticky.read(), StickyStrategy::Always);
+    floating_spec.namespace = Some(root.variant.geometry_namespace().to_owned());
+    floating_spec.scroll_policy = FloatingScrollPolicy::Reposition;
 
-        if let Some(cycle) = update.started_close_cycle() {
-            if skip_exit {
-                {
-                    let mut lane = presence_surface.presence_lane;
-                    lane.write().complete_close_cycle(cycle);
-                }
-                let mut skip_sig = presence_root.skip_exit_animation;
-                let _ = skip_sig.try_write().map(|mut w| *w = false);
-                if let Some(cb) = presence_root.on_open_change_complete.as_ref()
-                    && !presence_surface.is_submenu
-                {
-                    cb.call(false);
-                }
-            } else {
-                let mut active_cycle = presence_surface.active_close_cycle;
-                active_cycle.set(Some(cycle));
-                let content_id = presence_surface.current_content_id();
-                let mut mon_surface = presence_surface.clone();
-                let mon_root = presence_root.clone();
-                let guard = start_presence_monitor(&content_id, cycle, move |evt| {
-                    if matches!(
-                        evt,
-                        PresenceMonitorEvent::AnimationEnd { .. }
-                            | PresenceMonitorEvent::AnimationCancel { .. }
-                            | PresenceMonitorEvent::TransitionEnd { .. }
-                            | PresenceMonitorEvent::TransitionCancel { .. }
-                            | PresenceMonitorEvent::Fallback { .. }
-                            | PresenceMonitorEvent::Stopped { .. }
-                    ) {
-                        let done = {
-                            let mut lane = mon_surface.presence_lane;
-                            lane.write().complete_close_cycle(cycle)
-                        };
-                        if done {
-                            if let Ok(mut w) = mon_surface.presence_monitor.try_write() {
-                                *w = None;
-                            }
-                            if let Some(cb) = mon_root.on_open_change_complete.as_ref()
-                                && !mon_surface.is_submenu
-                            {
-                                cb.call(false);
-                            }
-                        }
+    let floating = use_floating_layer(should_render && !is_static, floating_spec, None);
+    let mut floating_slot = surface.floating;
+    floating_slot.set(Some(floating));
+
+    use_effect(use_reactive((&should_render,), move |(render,)| {
+        if !render {
+            floating.clear();
+        }
+    }));
+
+    // 3. Modal shielding + scroll lock (`ModalShieldPolicy::AriaHiddenOnly` for ContextMenu)
+    let is_modal = (root.modal)();
+    let prevent_scroll = *surface.prevent_scroll.read();
+    let subcontents = surface.child_subcontents.read().clone();
+    let branches = surface.branches.read().clone();
+
+    let mut keep_ids = vec![content_id.clone(), wrapper_id.clone()];
+    if let Some(ref pid) = portal_id_opt {
+        keep_ids.push(pid.clone());
+    }
+    for cid in &subcontents {
+        if !keep_ids.contains(cid) {
+            keep_ids.push(cid.clone());
+        }
+    }
+    for bid in &branches {
+        if !keep_ids.contains(bid) {
+            keep_ids.push(bid.clone());
+        }
+    }
+
+    let modal_active = !surface.is_submenu && is_open && (is_modal || prevent_scroll);
+    let shield_policy = if !is_modal {
+        ModalShieldPolicy::None
+    } else if root.variant == MenuVariant::ContextMenu {
+        ModalShieldPolicy::AriaHiddenOnly
+    } else {
+        ModalShieldPolicy::InertAndAriaHidden
+    };
+    let modal_cfg = ModalLayerConfig {
+        lock_id: surface.surface_key.clone(),
+        keep_ids: keep_ids.clone(),
+        shield_policy,
+        prevent_scroll: is_modal || prevent_scroll,
+        prevent_body_pointer_events: is_modal && root.variant != MenuVariant::ContextMenu,
+    };
+    let modal_handle = use_modal_layer(modal_active, modal_cfg);
+    let mut modal_slot = surface.modal_layer;
+    modal_slot.set(Some(modal_handle));
+
+    // 4. Dismissable layer (`enabled: false` on submenus so MenuSubContent stays grouped with root tree)
+    let mut boundaries = keep_ids;
+    let trigger_id = root.trigger_id.read().clone();
+    match root.variant {
+        MenuVariant::DropdownMenu => {
+            if !trigger_id.is_empty() && !boundaries.contains(&trigger_id) {
+                boundaries.push(trigger_id.clone());
+            }
+        }
+        MenuVariant::Menubar => {
+            if let Some(bridge) = root.menubar_bridge.as_ref() {
+                for tid in (bridge.all_trigger_ids)() {
+                    if !boundaries.contains(&tid) {
+                        boundaries.push(tid);
                     }
+                }
+            }
+        }
+        MenuVariant::ContextMenu | MenuVariant::Menu => {}
+    }
+
+    let dismiss_cfg = DismissConfig::new(content_id.clone())
+        .with_boundaries(boundaries)
+        .with_modal(is_modal)
+        .with_disable_outside_pointer_events(false);
+
+    let esc_slot = surface.on_escape_key_down;
+    let pd_slot = surface.on_pointer_down_outside;
+    let fo_slot = surface.on_focus_outside;
+    let io_slot = surface.on_interact_outside;
+    let dismiss_root = root.clone();
+    let dismiss_callbacks = DismissCallbacks {
+        on_escape_key_down: Some(EventHandler::new(move |evt| {
+            if let Some(cb) = esc_slot.try_read().ok().and_then(|s| *s) {
+                cb.call(evt);
+            }
+        })),
+        on_pointer_down_outside: Some(EventHandler::new(move |evt| {
+            if let Some(cb) = pd_slot.try_read().ok().and_then(|s| *s) {
+                cb.call(evt);
+            }
+        })),
+        on_focus_outside: Some(EventHandler::new(move |evt| {
+            if let Some(cb) = fo_slot.try_read().ok().and_then(|s| *s) {
+                cb.call(evt);
+            }
+        })),
+        on_interact_outside: Some(EventHandler::new(move |evt| {
+            if let Some(cb) = io_slot.try_read().ok().and_then(|s| *s) {
+                cb.call(evt);
+            }
+        })),
+        on_dismiss: Some(EventHandler::new(move |evt: DismissEvent| match evt {
+            DismissEvent::Escape => dismiss_root.close_menu_tree(true),
+            DismissEvent::PointerDownOutside | DismissEvent::FocusOutside => {
+                if let Some(bridge) = dismiss_root.menubar_bridge.as_ref() {
+                    (bridge.close_menubar)();
+                } else {
+                    dismiss_root.close_menu_tree(false);
+                }
+            }
+        })),
+    };
+    let dismiss_handle = use_dismissable_layer(
+        !surface.is_submenu && is_open,
+        dismiss_cfg,
+        dismiss_callbacks,
+    );
+    let mut dismiss_slot = surface.dismiss;
+    dismiss_slot.set(Some(dismiss_handle));
+
+    // 5. Focus scope (`use_focus_scope` for close focus restoration + custom open-item focus)
+    let oa_slot = surface.on_open_auto_focus;
+    let ca_slot = surface.on_close_auto_focus;
+    let mut focus_cfg = FocusScopeConfig::new(content_id);
+    focus_cfg.auto_focus_on_open = false;
+    focus_cfg.restore_focus_on_close = !surface.is_submenu;
+    let focus_scope = use_focus_scope(
+        is_open,
+        focus_cfg,
+        Some(EventHandler::new(move |evt| {
+            if let Some(cb) = oa_slot.try_read().ok().and_then(|s| *s) {
+                cb.call(evt);
+            }
+        })),
+        Some(EventHandler::new(move |evt| {
+            if let Some(cb) = ca_slot.try_read().ok().and_then(|s| *s) {
+                cb.call(evt);
+            }
+        })),
+    );
+    let mut focus_slot = surface.focus_scope;
+    focus_slot.set(Some(focus_scope));
+
+    // 6. Window blur dismiss (`M-15`) via `WatcherSlot`
+    let blur_watcher = use_watcher_slot();
+    {
+        let blur_root = root.clone();
+        let is_root_menu = !surface.is_submenu;
+        use_effect(use_reactive((&is_open,), move |(open_now,)| {
+            if is_root_menu && open_now {
+                let br = blur_root.clone();
+                blur_watcher.arm_with(move |_| {
+                    start_window_blur_monitor(move || {
+                        if let Some(bridge) = br.menubar_bridge.as_ref() {
+                            (bridge.close_menubar)();
+                        } else {
+                            br.close_menu_tree(false);
+                        }
+                    })
                 });
-                let mut mon = presence_surface.presence_monitor;
-                mon.set(Some(guard));
+            } else {
+                blur_watcher.clear();
             }
-        } else if update.invalidated_close_cycle().is_some()
-            || matches!(update.state(), PresenceState::Mounted | PresenceState::Unmounted)
-        {
-            let mut mon = presence_surface.presence_monitor;
-            if mon.peek().is_some() {
-                mon.set(None);
-            }
-            if matches!(update.state(), PresenceState::Mounted)
-                && !presence_surface.is_submenu
-                && let Some(cb) = presence_root.on_open_change_complete.as_ref()
-            {
-                cb.call(true);
-            }
-        }
-    });
+        }));
+    }
 
-    // Floating position cleanup / virtual-anchor re-tracking
-    let pos_surface = surface.clone();
-    let pos_root = root.clone();
-    use_effect(move || {
-        let should_render = pos_surface.should_render_content();
-        let _vanchor = if !pos_surface.is_submenu && pos_root.variant == MenuVariant::ContextMenu {
-            (pos_root.virtual_anchor)()
-        } else {
-            None
-        };
-        let _open = (pos_surface.open)();
-
-        if !should_render {
-            let mut mon = pos_surface.position_monitor;
-            if mon.try_peek().is_ok_and(|g| g.is_some()) {
-                let _ = mon.try_write().map(|mut w| *w = None);
-            }
-            let mut pl = pos_surface.placement;
-            if pl.try_peek().is_ok_and(|g| g.is_some()) {
-                let _ = pl.try_write().map(|mut w| *w = None);
-            }
-            let mut rd = pos_surface.readiness;
-            if rd
-                .try_peek()
-                .is_ok_and(|g| *g != FloatingReadiness::Measuring)
-            {
-                let _ = rd.try_write().map(|mut w| *w = FloatingReadiness::Measuring);
-            }
-            pos_surface.clear_content_z_index();
-            return;
-        }
-
-        pos_surface.ensure_position_tracking(&pos_root);
-    });
-
-    // Root-level modal shield, scroll lock, outside dismiss, window blur, and open/close autofocus
-    if !surface.is_submenu {
-        let modal_surface = surface.clone();
-        let modal_root = root.clone();
+    // 7. Open/close focus transitions
+    {
+        let focus_surface = surface.clone();
+        let focus_root = root.clone();
         use_effect(move || {
-            let is_open = (modal_surface.open)();
-            let is_modal = (modal_root.modal)();
-            let prevent_scroll = (modal_surface.prevent_scroll)();
-            let subcontents = (modal_surface.child_subcontents)();
-            let branches = (modal_surface.branches)();
+            let open_now = (focus_surface.open)();
+            if !open_now {
+                let next_gen = focus_surface.open_focus_gen.get().wrapping_add(1);
+                focus_surface.open_focus_gen.set(next_gen);
 
-            if !is_open {
-                let next_gen = modal_surface.open_focus_gen.get().wrapping_add(1);
-                modal_surface.open_focus_gen.set(next_gen);
-                let mut shield = modal_surface.modal_shield;
-                if shield.peek().is_some() {
-                    shield.set(None);
-                }
-                if modal_surface
-                    .scroll_lock_held
-                    .try_read()
-                    .map(|g| *g)
-                    .unwrap_or(false)
-                {
-                    release_scroll_lock(&modal_surface.surface_key, None);
-                    let mut sl = modal_surface.scroll_lock_held;
-                    sl.set(false);
-                }
-                let mut dm = modal_surface.dismiss_monitor;
-                if dm.peek().is_some() {
-                    dm.set(None);
-                }
-                let mut bm = modal_surface.blur_monitor;
-                if bm.peek().is_some() {
-                    bm.set(None);
-                }
-
-                // Close autofocus back to root trigger unless suppressed
-                let armed = modal_surface
+                let armed = focus_surface
                     .focus_on_open_armed
                     .try_read()
                     .map(|g| *g)
                     .unwrap_or(false);
                 if armed {
-                    let mut arm_sig = modal_surface.focus_on_open_armed;
+                    let mut arm_sig = focus_surface.focus_on_open_armed;
                     let _ = arm_sig.try_write().map(|mut w| *w = false);
-                    let mut prev_sig = modal_root.previously_focused_id;
-                    let prev_focus_id = prev_sig
-                        .try_write()
-                        .ok()
-                        .and_then(|mut w| w.take());
 
-                    let close_evt = MenuPreventableEvent::new();
-                    if let Some(cb) = modal_surface
-                        .on_close_auto_focus
-                        .try_read()
-                        .ok()
-                        .and_then(|g| g.clone())
-                    {
-                        cb.call(close_evt.clone());
-                    }
-                    let ignore = modal_root
-                        .ignore_close_auto_focus
-                        .try_read()
-                        .map(|g| *g)
-                        .unwrap_or(false);
-                    if !ignore && !close_evt.is_default_prevented() {
-                        if modal_root.variant == MenuVariant::ContextMenu {
-                            let trigger_id = modal_root
-                                .trigger_id
-                                .try_read()
-                                .map(|g| g.clone())
-                                .unwrap_or_else(|_| {
-                                    modal_root.relationships.trigger_id().to_owned()
-                                });
-                            if let Some(prev_id) = prev_focus_id
-                                && (prev_id != trigger_id || is_element_tabbable_by_id(&trigger_id))
-                            {
-                                let focus_visible = modal_root
-                                    .using_keyboard
+                    if !focus_surface.is_submenu {
+                        let mut prev_sig = focus_root.previously_focused_id;
+                        let prev_focus_id =
+                            prev_sig.try_write().ok().and_then(|mut w| w.take());
+
+                        let ignore = focus_root
+                            .ignore_close_auto_focus
+                            .try_read()
+                            .map(|g| *g)
+                            .unwrap_or(false);
+
+                        if !ignore {
+                            let restore_target = if focus_root.variant == MenuVariant::ContextMenu {
+                                let trig = focus_root
+                                    .trigger_id
                                     .try_read()
-                                    .map(|g| *g)
-                                    .unwrap_or(false);
-                                let opts =
-                                    FocusOptions::with_focus_visible(false, Some(focus_visible));
-                                restore_focus_element_by_id_with_options(&prev_id, opts);
-                            }
-                        } else {
-                            modal_root.focus_root_trigger();
+                                    .map(|g| g.clone())
+                                    .unwrap_or_else(|_| {
+                                        focus_root.relationships.trigger_id().to_owned()
+                                    });
+                                prev_focus_id
+                                    .filter(|pid| pid != &trig || is_element_tabbable_by_id(&trig))
+                            } else {
+                                Some(
+                                    focus_root
+                                        .trigger_id
+                                        .try_read()
+                                        .map(|g| g.clone())
+                                        .unwrap_or_else(|_| {
+                                            focus_root.relationships.trigger_id().to_owned()
+                                        }),
+                                )
+                            };
+
+                            focus_scope.set_restore_target(restore_target);
+                            let using_kb = focus_root
+                                .using_keyboard
+                                .try_read()
+                                .map(|g| *g)
+                                .unwrap_or(false);
+                            focus_scope.apply_close_focus(!using_kb);
                         }
+
+                        let mut ig = focus_root.ignore_close_auto_focus;
+                        let _ = ig.try_write().map(|mut w| *w = false);
                     }
-                    let mut ig = modal_root.ignore_close_auto_focus;
-                    let _ = ig.try_write().map(|mut w| *w = false);
                 }
                 return;
             }
 
-            // Arm close-focus restoration for when this open cycle ends
-            {
-                let mut arm_sig = modal_surface.focus_on_open_armed;
-                let was_armed = arm_sig.peek().to_owned();
-                if !was_armed {
-                    arm_sig.set(true);
+            let mut arm_sig = focus_surface.focus_on_open_armed;
+            let was_armed = arm_sig.try_peek().map(|g| *g).unwrap_or(false);
+            if !was_armed {
+                let _ = arm_sig.try_write().map(|mut w| *w = true);
+                if !focus_surface.is_submenu {
                     let prev_focus = oxidase::dom::Document::current()
                         .and_then(|d| d.active_element())
                         .filter(|e| !matches!(e.tag_name().as_deref(), Some("body" | "html")))
                         .and_then(|e| e.id())
                         .filter(|id| !id.is_empty());
-                    let mut prev_sig = modal_root.previously_focused_id;
+                    let mut prev_sig = focus_root.previously_focused_id;
                     let _ = prev_sig.try_write().map(|mut w| *w = prev_focus);
-                    let mut ig = modal_root.ignore_close_auto_focus;
+                    let mut ig = focus_root.ignore_close_auto_focus;
                     let _ = ig.try_write().map(|mut w| *w = false);
-                    modal_surface.apply_open_focus(&modal_root);
                 }
-            }
-
-            // Build boundary IDs & modal keep IDs
-            let content_id = modal_surface.current_content_id();
-            let wrapper_id = modal_surface.current_wrapper_id();
-            let portal_id_opt = modal_surface.portal_id.try_read().ok().and_then(|g| g.clone());
-            let trigger_id = modal_root
-                .trigger_id
-                .try_read()
-                .map(|g| g.clone())
-                .unwrap_or_default();
-
-            let mut keep_ids = vec![content_id.clone(), wrapper_id.clone()];
-            if let Some(ref pid) = portal_id_opt {
-                keep_ids.push(pid.clone());
-            }
-            for cid in &subcontents {
-                if !keep_ids.contains(cid) {
-                    keep_ids.push(cid.clone());
-                }
-            }
-            for bid in &branches {
-                if !keep_ids.contains(bid) {
-                    keep_ids.push(bid.clone());
-                }
-            }
-            let keep_refs: Vec<&str> = keep_ids.iter().map(String::as_str).collect();
-
-            if is_modal {
-                if modal_root.variant == MenuVariant::ContextMenu {
-                    // Use aria-hidden shielding without `inert` on ContextMenu so right-clicking
-                    // a sibling ContextMenuTrigger (`CM-6`) cleanly switches menus.
-                    let guard = oxidase::dom::hide_others(&keep_refs);
-                    let mut shield = modal_surface.modal_shield;
-                    shield.set(Some(guard));
-                    acquire_scroll_lock_with_options(&modal_surface.surface_key, false);
-                } else {
-                    let guard = suppress_external_dom(&keep_refs);
-                    let mut shield = modal_surface.modal_shield;
-                    shield.set(Some(guard));
-                    acquire_scroll_lock_with_options(&modal_surface.surface_key, true);
-                }
-                let mut sl = modal_surface.scroll_lock_held;
-                sl.set(true);
-            } else {
-                let mut shield = modal_surface.modal_shield;
-                if shield.peek().is_some() {
-                    shield.set(None);
-                }
-                if prevent_scroll {
-                    acquire_scroll_lock_with_options(&modal_surface.surface_key, false);
-                    let mut sl = modal_surface.scroll_lock_held;
-                    sl.set(true);
-                }
-            }
-
-            let mut boundaries = vec![content_id, wrapper_id];
-            if let Some(pid) = portal_id_opt {
-                boundaries.push(pid);
-            }
-            for cid in &subcontents {
-                if !boundaries.contains(cid) {
-                    boundaries.push(cid.clone());
-                }
-            }
-            for bid in &branches {
-                if !boundaries.contains(bid) {
-                    boundaries.push(bid.clone());
-                }
-            }
-            match modal_root.variant {
-                MenuVariant::DropdownMenu => {
-                    if !trigger_id.is_empty() && !boundaries.contains(&trigger_id) {
-                        boundaries.push(trigger_id);
-                    }
-                }
-                MenuVariant::Menubar => {
-                    if let Some(bridge) = modal_root.menubar_bridge.as_ref() {
-                        for tid in (bridge.all_trigger_ids)() {
-                            if !boundaries.contains(&tid) {
-                                boundaries.push(tid);
-                            }
-                        }
-                    }
-                }
-                MenuVariant::ContextMenu | MenuVariant::Menu => {}
-            }
-
-            let boundary_refs: Vec<&str> = boundaries.iter().map(String::as_str).collect();
-            let dm_surface = modal_surface.clone();
-            let dm_root = modal_root.clone();
-            let dm_guard = start_document_dismiss_monitor_with_boundaries(&boundary_refs, move |evt| {
-                match evt {
-                    DocumentDismissEvent::Escape => {
-                        let root_cid = dm_surface.current_content_id();
-                        if crate::foundation::overlay::is_overlay_escape_consumed()
-                            || !crate::foundation::overlay::is_topmost_overlay_layer(&root_cid)
-                        {
-                            return;
-                        }
-                        let esc_evt = MenuPreventableEvent::new();
-                        if let Some(cb) = dm_surface
-                            .on_escape_keydown
-                            .try_read()
-                            .ok()
-                            .and_then(|g| g.clone())
-                        {
-                            cb.call(esc_evt.clone());
-                        }
-                        crate::foundation::overlay::mark_overlay_escape_consumed();
-                        if !esc_evt.is_default_prevented() {
-                            dm_root.close_menu_tree(true);
-                        }
-                    }
-                    DocumentDismissEvent::PointerDown { path_ids } => {
-                        let inside_live_surface = path_ids.iter().any(|pid| {
-                            dm_surface.content_id.try_peek().is_ok_and(|c| c.as_str() == pid)
-                                || dm_surface.wrapper_id.try_peek().is_ok_and(|w| w.as_str() == pid)
-                                || dm_surface.portal_id.try_peek().is_ok_and(|p| p.as_deref() == Some(pid.as_str()))
-                                || dm_surface.child_subcontents.try_peek().is_ok_and(|subs| subs.contains(pid))
-                                || dm_surface.branches.try_peek().is_ok_and(|brs| brs.contains(pid))
-                        });
-                        if inside_live_surface {
-                            return;
-                        }
-                        let target_id = path_ids.first().cloned();
-                        let out_evt = MenuOutsideEvent::new(target_id);
-                        if let Some(cb) = dm_surface
-                            .on_pointer_down_outside
-                            .try_read()
-                            .ok()
-                            .and_then(|g| g.clone())
-                        {
-                            cb.call(out_evt.clone());
-                        }
-                        if let Some(cb) = dm_surface
-                            .on_interact_outside
-                            .try_read()
-                            .ok()
-                            .and_then(|g| g.clone())
-                        {
-                            cb.call(out_evt.clone());
-                        }
-                        if !out_evt.is_default_prevented() {
-                            if let Some(bridge) = dm_root.menubar_bridge.as_ref() {
-                                (bridge.close_menubar)();
-                            } else {
-                                dm_root.close_menu_tree(false);
-                            }
-                        }
-                    }
-                    DocumentDismissEvent::FocusIn { path_ids } => {
-                        let inside_live_surface = path_ids.iter().any(|pid| {
-                            dm_surface.content_id.try_peek().is_ok_and(|c| c.as_str() == pid)
-                                || dm_surface.wrapper_id.try_peek().is_ok_and(|w| w.as_str() == pid)
-                                || dm_surface.portal_id.try_peek().is_ok_and(|p| p.as_deref() == Some(pid.as_str()))
-                                || dm_surface.child_subcontents.try_peek().is_ok_and(|subs| subs.contains(pid))
-                                || dm_surface.branches.try_peek().is_ok_and(|brs| brs.contains(pid))
-                        });
-                        if inside_live_surface {
-                            return;
-                        }
-                        if let Some(bridge) = dm_root.menubar_bridge.as_ref() {
-                            let tids = (bridge.all_trigger_ids)();
-                            if path_ids.iter().any(|pid| tids.contains(pid)) {
-                                return;
-                            }
-                        }
-                        let target_id = path_ids.first().cloned();
-                        let out_evt = MenuOutsideEvent::new(target_id);
-                        if let Some(cb) = dm_surface
-                            .on_focus_outside
-                            .try_read()
-                            .ok()
-                            .and_then(|g| g.clone())
-                        {
-                            cb.call(out_evt.clone());
-                        }
-                        if let Some(cb) = dm_surface
-                            .on_interact_outside
-                            .try_read()
-                            .ok()
-                            .and_then(|g| g.clone())
-                        {
-                            cb.call(out_evt.clone());
-                        }
-                        if !out_evt.is_default_prevented() {
-                            if let Some(bridge) = dm_root.menubar_bridge.as_ref() {
-                                (bridge.close_menubar)();
-                            } else {
-                                dm_root.close_menu_tree(false);
-                            }
-                        }
-                    }
-                    DocumentDismissEvent::Click { .. } => {}
-                }
-            });
-            let mut dm = modal_surface.dismiss_monitor;
-            dm.set(Some(dm_guard));
-
-            // Window blur dismiss (`M-15`)
-            let blur_root = modal_root.clone();
-            let blur_guard = start_window_blur_monitor(move || {
-                if let Some(bridge) = blur_root.menubar_bridge.as_ref() {
-                    (bridge.close_menubar)();
-                } else {
-                    blur_root.close_menu_tree(false);
-                }
-            });
-            let mut bm = modal_surface.blur_monitor;
-            bm.set(Some(blur_guard));
-        });
-    } else {
-        // Submenu open autofocus once mounted
-        let sub_surface = surface.clone();
-        let sub_root = root.clone();
-        use_effect(move || {
-            let is_open = (sub_surface.open)();
-            if !is_open {
-                let next_gen = sub_surface.open_focus_gen.get().wrapping_add(1);
-                sub_surface.open_focus_gen.set(next_gen);
-                let mut arm = sub_surface.focus_on_open_armed;
-                let _ = arm.try_write().map(|mut w| *w = false);
-                return;
-            }
-            let mut arm = sub_surface.focus_on_open_armed;
-            if !arm.peek().to_owned() {
-                arm.set(true);
-                sub_surface.apply_open_focus(&sub_root);
+                focus_surface.apply_open_focus(&focus_root);
             }
         });
     }
+
+    let cleanup_surface = surface;
+    use_drop(move || {
+        cleanup_surface.clear_corridor();
+        cleanup_surface.typeahead_delay.cancel();
+    });
 }
 
 /// Shared context for descendant items/groups/indicators inside either `Content` or `SubContent`.
@@ -1813,12 +1487,11 @@ pub struct MenuSubContext {
     pub wrapper_id: String,
     pub open: Signal<bool>,
     pub is_controlled: bool,
-    pub on_open_change: Option<EventHandler<bool>>,
+    pub on_open_change: CopyValue<Option<EventHandler<bool>>>,
     pub open_delay_ms: u64,
     pub parent_surface: MenuSurfaceRuntime,
     pub surface: MenuSurfaceRuntime,
-    pub hover_task: Rc<RefCell<Option<dioxus::core::Task>>>,
-    pub hover_gen: Rc<Cell<u64>>,
+    pub hover_delay: CancellableDelay,
     pub opened_by_pointer_move: Signal<bool>,
 }
 
@@ -1828,10 +1501,7 @@ impl MenuSubContext {
     }
 
     pub fn cancel_hover_timer(&self) {
-        self.hover_gen.set(self.hover_gen.get().wrapping_add(1));
-        if let Some(t) = self.hover_task.borrow_mut().take() {
-            t.cancel();
-        }
+        self.hover_delay.cancel();
     }
 
     pub fn request_open(&self, next: bool, focus_target: MenuOpenFocusTarget) {
@@ -1855,20 +1525,22 @@ impl MenuSubContext {
                     }),
                 ))
             });
-            self.parent_surface
-                .register_child_subcontent(
-                    self.surface
-                        .content_id
-                        .try_peek()
-                        .ok()
-                        .map(|g| g.clone())
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or_else(|| self.content_id.clone()),
-                );
+            self.parent_surface.register_child_subcontent(
+                self.surface
+                    .content_id
+                    .try_peek()
+                    .ok()
+                    .map(|g| g.clone())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| self.content_id.clone()),
+            );
         } else {
             self.surface.close_other_child_submenus(None);
             let mut active = self.parent_surface.active_submenu_id;
-            if active.try_peek().is_ok_and(|g| g.as_deref() == Some(&self.sub_id)) {
+            if active
+                .try_peek()
+                .is_ok_and(|g| g.as_deref() == Some(&self.sub_id))
+            {
                 let _ = active.try_write().map(|mut w| *w = None);
             }
             let mut close_sig = self.parent_surface.active_submenu_close;
@@ -1893,7 +1565,7 @@ impl MenuSubContext {
             let mut o = self.open;
             let _ = o.try_write().map(|mut w| *w = next);
         }
-        if let Some(cb) = self.on_open_change.as_ref() {
+        if let Some(cb) = self.on_open_change.try_read().ok().and_then(|s| *s) {
             cb.call(next);
         }
     }
@@ -1909,20 +1581,31 @@ impl MenuSubContext {
                 .map(|g| g.clone())
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| self.trigger_id.clone());
-            self.parent_surface.highlight_item(
-                Some(trigger_id),
-                true,
-                using_keyboard,
-            );
+            self.parent_surface
+                .highlight_item(Some(trigger_id), true, using_keyboard);
         }
     }
 }
 
-pub fn focus_element_reliable(target_id: &str, options: FocusOptions) {
-    focus_element_sync_or_defer(target_id, options);
-    if !is_element_focused_by_id(target_id) {
-        focus_element_by_id_with_options(target_id, options);
-    }
+fn inset_rect2d(rect: &Rect2D, inset: f64) -> Rect2D {
+    let clamped_x = inset.max(0.0).min(rect.width * 0.45);
+    let clamped_y = inset.max(0.0).min(rect.height * 0.45);
+    Rect2D::new(
+        rect.x + clamped_x,
+        rect.y + clamped_y,
+        (rect.width - clamped_x * 2.0).max(0.0),
+        (rect.height - clamped_y * 2.0).max(0.0),
+    )
+}
+
+fn expand_rect2d(rect: &Rect2D, padding: f64) -> Rect2D {
+    let p = padding.max(0.0);
+    Rect2D::new(
+        rect.x - p,
+        rect.y - p,
+        rect.width + p * 2.0,
+        rect.height + p * 2.0,
+    )
 }
 
 async fn try_scroll_menu_item_within_container(content_id: &str, item_id: &str) -> bool {
@@ -2045,7 +1728,9 @@ fn focus_adjacent_tabbable(trigger_id: &str, open_menu_ids: &[String], forward: 
                     .iter()
                     .any(|menu| menu.id() == el.id() || menu.contains(el));
                 el.id().as_deref() == Some(trigger_id)
-                    || (!inside_menu && !el.has_attribute("inert") && !el.has_attribute("aria-hidden"))
+                    || (!inside_menu
+                        && !el.has_attribute("inert")
+                        && !el.has_attribute("aria-hidden"))
             })
             .collect();
         if let Some(anchor_pos) = all_with_trigger
@@ -2065,4 +1750,3 @@ fn focus_adjacent_tabbable(trigger_id: &str, open_menu_ids: &[String], forward: 
         }
     }
 }
-

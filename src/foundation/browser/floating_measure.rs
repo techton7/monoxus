@@ -174,12 +174,6 @@ pub(crate) fn start_document_dismiss_monitor_with_options(
     .unwrap_or_else(|_| WatcherGuard::noop())
 }
 
-pub(crate) async fn is_reference_hidden(anchor_ids: &[&str]) -> Result<bool, String> {
-    oxidase::runtime::is_reference_hidden(anchor_ids)
-        .await
-        .map_err(|e| e.to_string())
-}
-
 pub fn get_element_client_rect(id: &str) -> Option<Rect2D> {
     let doc = oxidase::dom::document();
     doc.measure_rect(id)

@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+use crate::foundation::form::{HiddenFormInput, HiddenFormInputs, HiddenInputKind};
+
 #[component]
 pub fn SelectHiddenInput(
     name: String,
@@ -9,41 +11,36 @@ pub fn SelectHiddenInput(
     #[props(default = false)] required: bool,
     #[props(default)] form: Option<String>,
     #[props(default)] autocomplete: Option<String>,
+    #[props(default)] focus_target_id: Option<String>,
+    #[props(default = 0)] reset_epoch: u64,
 ) -> Element {
-    let form_attr = form.as_deref();
-    let auto_attr = autocomplete.as_deref();
-
     if let Some(list) = values {
-        if !list.is_empty() {
-            return rsx! {
-                for v in list {
-                    input {
-                        key: "{v}",
-                        r#type: "hidden",
-                        name: "{name}",
-                        value: "{v}",
-                        disabled: disabled,
-                        required: required,
-                        form: form_attr,
-                        autocomplete: auto_attr,
-                        aria_hidden: "true",
-                    }
-                }
-            };
-        }
+        return rsx! {
+            HiddenFormInputs {
+                name: Some(name),
+                values: list,
+                emit_empty_placeholder: true,
+                disabled: disabled,
+                required: required,
+                form: form,
+                autocomplete: autocomplete,
+                focus_target_id: focus_target_id,
+                reset_epoch: reset_epoch,
+            }
+        };
     }
 
-    let val_str = value.unwrap_or_default();
     rsx! {
-        input {
-            r#type: "hidden",
-            name: "{name}",
-            value: "{val_str}",
+        HiddenFormInput {
+            kind: HiddenInputKind::Hidden,
+            name: Some(name),
+            value: value.unwrap_or_default(),
             disabled: disabled,
             required: required,
-            form: form_attr,
-            autocomplete: auto_attr,
-            aria_hidden: "true",
+            form: form,
+            autocomplete: autocomplete,
+            focus_target_id: focus_target_id,
+            reset_epoch: reset_epoch,
         }
     }
 }

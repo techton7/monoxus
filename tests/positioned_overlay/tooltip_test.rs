@@ -168,3 +168,142 @@ fn tooltip_reuses_the_shared_state_composition_and_overlay_backbone() {
         ],
     );
 }
+
+
+#[cfg(feature = "native")]
+mod native_stage2a_tests {
+    use dioxus::prelude::*;
+    use dioxus_core::{Attribute, AttributeValue};
+    use monoxus::tooltip::{
+        TooltipArrow, TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger,
+    };
+
+    use crate::common::native_fixture::{
+        NATIVE_TEST_LOCK, advance_frame_and_pump, drain_polls_and_resolve, focus_node,
+        mount_native_scenario, wheel_at_and_pump,
+    };
+
+    #[component]
+    fn TooltipScrollGuardAndAttrMergeScenario() -> Element {
+        let extra_attrs = vec![
+            Attribute::new("class", "tip-extra", None, false),
+            Attribute::new("style", "color: red", None, false),
+            Attribute {
+                name: "style",
+                value: AttributeValue::None,
+                namespace: None,
+                volatile: false,
+            },
+            Attribute::new("data-tip-custom", "ok", None, false),
+        ];
+
+        rsx! {
+            div {
+                id: "fm-ovl-7-scroll-box",
+                style: "width: 320px; height: 140px; overflow-y: auto;",
+                div {
+                    style: "height: 600px; padding-top: 80px;",
+                    TooltipProvider {
+                        delay_duration: 0,
+                        ignore_non_keyboard_focus: false,
+                        TooltipRoot {
+                            id: "fm-ovl-7-tooltip",
+                            TooltipTrigger { id: "fm-ovl-7-trigger", "Focus Tip" }
+                            TooltipPortal {
+                                TooltipContent {
+                                    id: "fm-ovl-7-content",
+                                    class: Some("tip-base".to_string()),
+                                    style: Some("margin: 0".to_string()),
+                                    attributes: extra_attrs,
+                                    TooltipArrow { id: "fm-ovl-7-arrow" }
+                                    "Scroll guarded tooltip"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_ovl_7_and_fm_api_3_tooltip_scroll_guard_arrow_and_merge_global_attributes() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(TooltipScrollGuardAndAttrMergeScenario);
+
+        // Focus trigger -> opens tooltip and arms 1-frame focus scroll guard
+        focus_node(&mut harness, "#fm-ovl-7-trigger");
+        drain_polls_and_resolve(&mut harness);
+        assert!(
+            harness.query("#fm-ovl-7-content").is_some(),
+            "TooltipContent must open on trigger focus"
+        );
+
+        // Verify FM-API-3 attribute merging + arrow data attributes
+        {
+            let cid = harness.node("#fm-ovl-7-content");
+            let aid = harness.node("#fm-ovl-7-arrow");
+            let base = harness.base();
+            let cnode = base.get_node(cid).unwrap();
+            let cls = cnode.attr("class".into()).unwrap_or_default();
+            assert!(
+                cls.contains("tip-base") && cls.contains("tip-extra"),
+                "Expected merged classes on TooltipContent, got: {cls}"
+            );
+            let style = cnode.attr("style".into()).unwrap_or_default();
+            assert!(
+                style.contains("margin: 0") && style.contains("color: red"),
+                "Expected merged styles on TooltipContent, got: {style}"
+            );
+            assert!(
+                style.contains("--monoxus-tooltip-") || style.contains("--radix-tooltip-"),
+                "Expected internal tooltip CSS custom properties preserved, got: {style}"
+            );
+            assert!(
+                !style.contains(";;"),
+                "Merged TooltipContent style must not contain duplicate semicolons: {style}"
+            );
+            assert_eq!(cnode.attr("data-tip-custom".into()), Some("ok"));
+
+            let anode = base.get_node(aid).unwrap();
+            assert_eq!(anode.attr("id".into()), Some("fm-ovl-7-arrow"));
+            assert!(anode.attr("data-side".into()).is_some());
+            assert!(anode.attr("data-align".into()).is_some());
+            assert_eq!(anode.attr("data-state".into()), Some("open"));
+        }
+
+        // Scroll within the 1-frame focus guard window (before frame tick clears guard):
+        // dispatch wheel without advancing a frame first -> tooltip stays open.
+        let rect = harness.layout_rect("#fm-ovl-7-scroll-box");
+        harness.wheel_at(
+            rect.x + rect.width - 20.0,
+            rect.y + rect.height - 20.0,
+            0.0,
+            -20.0,
+        );
+        harness.pump();
+        drain_polls_and_resolve(&mut harness);
+        assert_eq!(
+            harness.attr("#fm-ovl-7-trigger", "data-state").as_deref(),
+            Some("open"),
+            "Scroll within 1-frame focus guard must keep Tooltip open"
+        );
+
+        // Advance past the 1-frame guard, then scroll -> Tooltip must close
+        advance_frame_and_pump(&mut harness, 0.05);
+        advance_frame_and_pump(&mut harness, 0.05);
+        wheel_at_and_pump(
+            &mut harness,
+            rect.x + rect.width - 20.0,
+            rect.y + rect.height - 20.0,
+            0.0,
+            -50.0,
+        );
+        advance_frame_and_pump(&mut harness, 0.25);
+        assert_eq!(
+            harness.attr("#fm-ovl-7-trigger", "data-state").as_deref(),
+            Some("closed"),
+            "Scroll after 1-frame focus guard must close Tooltip"
+        );
+    }
+}

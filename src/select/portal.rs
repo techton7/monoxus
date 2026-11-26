@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::foundation::overlay::PortalHost;
+use crate::foundation::overlay::{OverlayPortalSpec, PortalHost, render_overlay_portal};
 
 use super::types::SelectContext;
 
@@ -32,39 +32,16 @@ pub fn SelectPortal(
         force_mount,
     });
 
-    let host_attr = if resolved_host.is_inline() {
-        "inline"
-    } else {
-        resolved_host.id().unwrap_or("default")
-    };
-
     let portal_id = format!("{}-portal-root", ctx.runtime.relationships().content_id());
-    let should_render_portal = ctx.runtime.should_render_portal();
     let is_force_mounted = force_mount || ctx.runtime.force_mount();
-    let should_render = should_render_portal || is_force_mounted;
-    let is_teleported = !disabled && !resolved_host.is_inline();
 
-    crate::foundation::overlay::use_portal_teleport(
-        portal_id.clone(),
-        should_render,
+    render_overlay_portal(OverlayPortalSpec {
+        portal_id,
+        should_render: ctx.runtime.should_render_portal(),
         disabled,
-        &resolved_host,
-    );
-
-    rsx! {
-        div {
-            style: "display: contents;",
-            "data-portal-anchor": "",
-            if should_render {
-                div {
-                    id: "{portal_id}",
-                    style: "display: contents;",
-                    "data-portal-host": "{host_attr}",
-                    "data-portal-disabled": if disabled { "true" } else { "false" },
-                    "data-portal-teleported": if is_teleported { "true" } else { "false" },
-                    {children}
-                }
-            }
-        }
-    }
+        force_mount: is_force_mounted,
+        host: resolved_host,
+        emit_status_attrs: true,
+        children,
+    })
 }

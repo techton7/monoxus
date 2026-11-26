@@ -2,7 +2,10 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::{Orientation, use_stable_id};
+use crate::foundation::{
+    compose::merge_global_attributes,
+    shared::{Orientation, use_stable_id},
+};
 
 use super::super::{
     relationships::NavigationMenuRelationships,
@@ -106,11 +109,17 @@ pub fn NavigationMenuSub(props: NavigationMenuSubProps) -> Element {
         );
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{sub_attrs.id()}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             "data-orientation": "{sub_attrs.data_orientation()}",
             "data-monoxus-navigation-menu-sub": "{sub_attrs.data_monoxus_navigation_menu_sub()}",
             onmounted: move |evt| {
@@ -118,7 +127,7 @@ pub fn NavigationMenuSub(props: NavigationMenuSubProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

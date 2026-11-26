@@ -1,6 +1,11 @@
+use std::{cell::RefCell, rc::Rc};
+
 use dioxus::prelude::*;
 
-use crate::foundation::overlay::OverlayBranchContext;
+use crate::foundation::{
+    compose::{join_styles, merge_global_attributes},
+    overlay::{OverlayBranchContext, use_register_parent_overlay_branches},
+};
 use crate::tooltip::components::TooltipRootContext;
 
 #[derive(Props, Clone, PartialEq)]
@@ -19,53 +24,35 @@ pub struct TooltipContentProps {
     pub collision_padding: Option<f32>,
     #[props(default)]
     pub aria_label: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     pub children: Element,
 }
 
 #[component]
 pub fn TooltipContent(props: TooltipContentProps) -> Element {
     let ctx = use_context::<TooltipRootContext>();
-    let runtime = ctx.runtime.read();
+    let runtime = ctx.runtime.read().clone();
     let should_render = props.force_mount || runtime.should_render_content();
 
     let content = runtime.content();
     let content_id = props.id.clone().unwrap_or_else(|| content.id().to_string());
     let wrapper_id = content.wrapper_id().to_string();
     let portal_id = runtime.relationships().scope().qualify("portal");
-    let is_open = runtime.is_open();
 
     let branch_context = try_consume_context::<OverlayBranchContext>();
-    crate::foundation::overlay::use_register_parent_overlay_branches(
+    use_register_parent_overlay_branches(
         branch_context,
         should_render,
         vec![content_id.clone(), wrapper_id.clone(), portal_id],
     );
 
-    let latest_cid = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(content_id.clone())));
+    let latest_cid = use_hook(|| Rc::new(RefCell::new(content_id.clone())));
     {
         let mut prev = latest_cid.borrow_mut();
         if *prev != content_id {
             runtime.unregister_content_id(&prev);
-            crate::foundation::overlay::unregister_active_overlay_layer(&prev);
             *prev = content_id.clone();
-        }
-    }
-
-    let mut registered_layer_id = use_signal(|| Option::<String>::None);
-    if is_open {
-        let prev = registered_layer_id.peek().clone();
-        if prev.as_deref() != Some(content_id.as_str()) {
-            if let Some(prev_id) = prev.as_deref() {
-                crate::foundation::overlay::unregister_active_overlay_layer(prev_id);
-            }
-            crate::foundation::overlay::register_active_overlay_layer(&content_id);
-            registered_layer_id.set(Some(content_id.clone()));
-        }
-    } else {
-        let prev = registered_layer_id.peek().clone();
-        if let Some(prev_id) = prev {
-            crate::foundation::overlay::unregister_active_overlay_layer(&prev_id);
-            registered_layer_id.set(None);
         }
     }
 
@@ -74,13 +61,12 @@ pub fn TooltipContent(props: TooltipContentProps) -> Element {
     } else {
         runtime.unregister_content_id(&content_id);
     }
-    let cleanup_cid = latest_cid.clone();
+    let cleanup_cid = Rc::clone(&latest_cid);
     let cleanup_runtime = runtime.clone();
     use_drop(move || {
         let current_cid = cleanup_cid.borrow().clone();
         cleanup_runtime.unregister_content_id(&current_cid);
         cleanup_runtime.clear_content_z_index();
-        crate::foundation::overlay::unregister_active_overlay_layer(&current_cid);
     });
 
     runtime.set_collision_boundary(props.collision_boundary.clone());
@@ -102,8 +88,15 @@ pub fn TooltipContent(props: TooltipContentProps) -> Element {
 
     let wrapper_style = runtime.wrapper_style();
     let css_vars = runtime.content_css_custom_properties();
-
-    let inner_style = format!("{css_vars} {}", props.style.as_deref().unwrap_or_default());
+    let base_style = join_styles([
+        css_vars.as_str(),
+        props.style.as_deref().unwrap_or_default(),
+    ]);
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        base_style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         div {
@@ -114,8 +107,8 @@ pub fn TooltipContent(props: TooltipContentProps) -> Element {
                 id: if props.aria_label.is_some() { None } else { Some(content_id.clone()) },
                 role: if props.aria_label.is_some() { None } else { Some(content.role()) },
                 "aria-hidden": if props.aria_label.is_some() { Some("true") } else { None },
-                class: props.class.as_deref().unwrap_or_default(),
-                style: "{inner_style}",
+                class: merged.class.as_deref(),
+                style: merged.style.as_deref(),
                 "data-state": content.data_state().as_str(),
                 "data-side": content.data_side(),
                 "data-align": content.data_align(),
@@ -124,6 +117,7 @@ pub fn TooltipContent(props: TooltipContentProps) -> Element {
                 onmouseenter: runtime.content_pointer_enter(),
                 onmouseleave: runtime.content_pointer_leave(),
                 onkeydown: runtime.escape_keydown(),
+                ..merged.rest,
                 if let Some(ref label) = props.aria_label {
                     span {
                         id: "{content_id}",

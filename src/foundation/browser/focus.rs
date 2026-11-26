@@ -113,44 +113,6 @@ pub(crate) fn blur_active_element() -> bool {
     oxidase::dom::Document::current().is_some_and(|doc| doc.blur_active().is_ok())
 }
 
-pub(crate) fn focus_first_focusable(content_id: &str, focusable_selector: Option<&str>) {
-    let options = FocusOptions::new(true);
-    let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::dom::document);
-    let selector = focusable_selector.unwrap_or(DEFAULT_FOCUSABLE_SELECTOR);
-
-    if let Some(root) = doc.element_by_id(content_id) {
-        let target = if root.matches(selector) {
-            root.clone()
-        } else {
-            root.query_selector(selector)
-                .unwrap_or_else(|| root.clone())
-        };
-        if target.id() == root.id() && !root.has_attribute("tabindex") {
-            root.set_attribute("tabindex", "-1");
-        }
-        let _ = target.focus_sync_with_options(options);
-        return;
-    }
-
-    let selector = selector.to_string();
-    let cid = content_id.to_string();
-    spawn_root_task(async move {
-        let doc = oxidase::dom::Document::current().unwrap_or_else(oxidase::dom::document);
-        if let Some(root) = doc.element_by_id(&cid) {
-            let target = if root.matches(&selector) {
-                root.clone()
-            } else {
-                root.query_selector(&selector)
-                    .unwrap_or_else(|| root.clone())
-            };
-            if target.id() == root.id() && !root.has_attribute("tabindex") {
-                root.set_attribute("tabindex", "-1");
-            }
-            let _ = target.focus_with_options(options).await;
-        }
-    });
-}
-
 fn is_tabbable_element(el: &oxidase::dom::Element) -> bool {
     if el.has_attribute("disabled")
         || el.has_attribute("hidden")

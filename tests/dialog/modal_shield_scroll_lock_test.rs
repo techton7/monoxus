@@ -387,4 +387,195 @@ mod native_tests {
             );
         }
     }
+
+    fn dispatch_ime_key_and_pump(
+        harness: &mut blitz_test_harness::Harness<dioxus_native_dom::DioxusDocument>,
+        key: keyboard_types::Key,
+        code: keyboard_types::Code,
+        is_composing: bool,
+    ) {
+        use blitz_traits::events::{BlitzKeyEvent, KeyState, UiEvent};
+        use keyboard_types::{Location, Modifiers};
+
+        let down = BlitzKeyEvent {
+            key: key.clone(),
+            code,
+            modifiers: Modifiers::default(),
+            location: Location::Standard,
+            is_auto_repeating: false,
+            is_composing,
+            state: KeyState::Pressed,
+            text: None,
+        };
+        let up = BlitzKeyEvent {
+            key,
+            code,
+            modifiers: Modifiers::default(),
+            location: Location::Standard,
+            is_auto_repeating: false,
+            is_composing,
+            state: KeyState::Released,
+            text: None,
+        };
+        harness.dispatch(UiEvent::KeyDown(down));
+        harness.dispatch(UiEvent::KeyUp(up));
+        drain_polls_and_resolve(harness);
+        oxidase::frame::tick(std::time::Duration::from_millis(16));
+        drain_polls_and_resolve(harness);
+        harness.tick(0.01);
+    }
+
+    #[component]
+    fn NestedDialogPopoverLifoScenario() -> Element {
+        let dialog_open = use_signal(|| false);
+        let popover_open = use_signal(|| false);
+        let mut parent_tick = use_signal(|| 0_u32);
+        let tick_val = parent_tick();
+
+        rsx! {
+            div {
+                id: "lifo-host",
+                "data-tick": "{tick_val}",
+                button {
+                    id: "bump-parent-tick",
+                    onclick: move |_| parent_tick += 1,
+                    "Bump {tick_val}"
+                }
+                DialogRoot {
+                    id: "lifo-dialog",
+                    open: dialog_open,
+                    DialogTrigger { id: "lifo-dialog-trigger", "Open Dialog" }
+                    DialogPortal {
+                        DialogOverlay { id: "lifo-dialog-overlay" }
+                        DialogContent {
+                            id: "lifo-dialog-content",
+                            class: Some(format!("tick-{tick_val}")),
+                            DialogTitle { "Nested LIFO Dialog" }
+                            button {
+                                id: "bump-inside-dialog",
+                                onclick: move |_| parent_tick += 1,
+                                "Re-render Parent ({tick_val})"
+                            }
+                            PopoverRoot {
+                                id: "lifo-popover",
+                                open: popover_open,
+                                PopoverTrigger { id: "lifo-popover-trigger", "Open Popover" }
+                                PopoverPortal {
+                                    PopoverContent {
+                                        id: "lifo-popover-content",
+                                        button {
+                                            id: "lifo-popover-btn",
+                                            onclick: move |_| parent_tick += 1,
+                                            "Popover Action ({tick_val})"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_ovl_1_and_fm_ovl_2_dialog_popover_ime_escape_lifo_stability_and_frame0_pointer_events() {
+        use keyboard_types::{Code, Key, NamedKey};
+
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NestedDialogPopoverLifoScenario);
+
+        // 1. Open Dialog -> frame-0 render immediately carries pointer-events: auto (`radix#4105`)
+        click_and_pump(&mut harness, "#lifo-dialog-trigger");
+        {
+            let content_style = harness
+                .base()
+                .get_node(harness.node("#lifo-dialog-content"))
+                .unwrap()
+                .attr("style".into())
+                .unwrap_or_default()
+                .to_string();
+            let overlay_style = harness
+                .base()
+                .get_node(harness.node("#lifo-dialog-overlay"))
+                .unwrap()
+                .attr("style".into())
+                .unwrap_or_default()
+                .to_string();
+            assert!(
+                content_style.contains("pointer-events: auto"),
+                "DialogContent must emit pointer-events: auto on frame 0, got: {content_style}"
+            );
+            assert!(
+                overlay_style.contains("pointer-events: auto"),
+                "DialogOverlay must emit pointer-events: auto on frame 0, got: {overlay_style}"
+            );
+        }
+
+        // 2. Open nested Popover inside Dialog
+        click_and_pump(&mut harness, "#lifo-popover-trigger");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#lifo-popover-content").is_some());
+
+        // 3. Re-render parent Dialog with non-open prop change (triggered from inside Popover so
+        //    outside-pointer dismiss is not fired) -> must NOT reorder LIFO stack
+        click_and_pump(&mut harness, "#lifo-popover-btn");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#lifo-dialog-content").is_some());
+        assert!(harness.query("#lifo-popover-content").is_some());
+
+        // 4. FM-OVL-1: IME Escape (is_composing=true) & Process key must NOT dismiss Popover or Dialog
+        dispatch_ime_key_and_pump(
+            &mut harness,
+            Key::Named(NamedKey::Escape),
+            Code::Escape,
+            true,
+        );
+        dispatch_ime_key_and_pump(
+            &mut harness,
+            Key::Named(NamedKey::Process),
+            Code::Escape,
+            false,
+        );
+        assert!(
+            harness.query("#lifo-popover-content").is_some(),
+            "IME Escape/Process must not dismiss nested Popover"
+        );
+        assert!(
+            harness.query("#lifo-dialog-content").is_some(),
+            "IME Escape/Process must not dismiss parent Dialog"
+        );
+
+        // 5. Normal Escape closes ONLY inner Popover; parent Dialog stays open
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#lifo-popover-content").is_none(),
+            "First Escape must close nested Popover"
+        );
+        assert!(
+            harness.query("#lifo-dialog-content").is_some(),
+            "Parent Dialog must remain open after nested Popover closes"
+        );
+
+        // 6. IME Escape on Dialog itself still must not dismiss
+        dispatch_ime_key_and_pump(
+            &mut harness,
+            Key::Named(NamedKey::Escape),
+            Code::Escape,
+            true,
+        );
+        assert!(
+            harness.query("#lifo-dialog-content").is_some(),
+            "IME Escape must not dismiss Dialog"
+        );
+
+        // 7. Second normal Escape closes parent Dialog
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.05);
+        assert!(
+            harness.query("#lifo-dialog-content").is_none(),
+            "Second Escape must close parent Dialog"
+        );
+    }
 }

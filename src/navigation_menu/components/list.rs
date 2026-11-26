@@ -1,5 +1,7 @@
 use dioxus::prelude::*;
 
+use crate::foundation::compose::merge_global_attributes;
+
 use super::{
     super::runtime::{NavigationMenuContext, NavigationMenuInContent, NavigationMenuListRenderProps},
     indicator::NavigationMenuIndicatorSlot,
@@ -70,6 +72,12 @@ pub fn NavigationMenuList(props: NavigationMenuListProps) -> Element {
         );
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{track_attrs.id()}",
@@ -77,8 +85,8 @@ pub fn NavigationMenuList(props: NavigationMenuListProps) -> Element {
             "data-monoxus-navigation-menu-track": "{track_attrs.data_monoxus_navigation_menu_track()}",
             ul {
                 id: "{list_attrs.id()}",
-                class: props.class.as_deref().unwrap_or_default(),
-                style: props.style.as_deref().unwrap_or_default(),
+                class: merged.class.as_deref().unwrap_or_default(),
+                style: merged.style.as_deref().unwrap_or_default(),
                 "data-orientation": "{list_attrs.data_orientation()}",
                 "data-monoxus-navigation-menu-list": "{list_attrs.data_monoxus_navigation_menu_list()}",
                 onmounted: move |evt| {
@@ -86,7 +94,7 @@ pub fn NavigationMenuList(props: NavigationMenuListProps) -> Element {
                         handler.call(evt);
                     }
                 },
-                ..props.attributes,
+                ..merged.rest,
                 {props.children}
             }
             NavigationMenuIndicatorSlot {}

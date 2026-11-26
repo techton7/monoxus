@@ -1,12 +1,8 @@
-pub mod content;
-pub mod content_static;
 pub mod menu;
 pub mod root;
 pub mod trigger;
 
 pub use self::{
-    content::{MenubarContent, MenubarContentProps},
-    content_static::{MenubarContentStatic, MenubarContentStaticProps},
     menu::{MenubarMenu, MenubarMenuProps, MenubarSingleMenuContext},
     root::{Menubar, MenubarRoot, MenubarRootProps, MenubarRootRenderProps},
     trigger::{MenubarTrigger, MenubarTriggerProps, MenubarTriggerRenderProps},
@@ -16,13 +12,15 @@ pub use crate::menu::components::{
     MenuArrow as MenubarArrow, MenuArrowProps as MenubarArrowProps,
     MenuCheckboxGroup as MenubarCheckboxGroup,
     MenuCheckboxGroupProps as MenubarCheckboxGroupProps,
-    MenuCheckboxItem as MenubarCheckboxItem,
-    MenuCheckboxItemProps as MenubarCheckboxItemProps,
+    MenuCheckboxItem as MenubarCheckboxItem, MenuCheckboxItemProps as MenubarCheckboxItemProps,
     MenuCheckboxItemRenderProps as MenubarCheckboxItemRenderProps,
+    MenuContent as MenubarContent, MenuContentProps as MenubarContentProps,
     MenuContentRenderProps as MenubarContentRenderProps,
-    MenuGroup as MenubarGroup, MenuGroupHeading as MenubarGroupHeading,
-    MenuGroupHeadingProps as MenubarGroupHeadingProps, MenuGroupProps as MenubarGroupProps,
-    MenuItem as MenubarItem, MenuItemIndicator as MenubarItemIndicator,
+    MenuContentStatic as MenubarContentStatic,
+    MenuContentStaticProps as MenubarContentStaticProps, MenuGroup as MenubarGroup,
+    MenuGroupHeading as MenubarGroupHeading, MenuGroupHeadingProps as MenubarGroupHeadingProps,
+    MenuGroupProps as MenubarGroupProps, MenuItem as MenubarItem,
+    MenuItemIndicator as MenubarItemIndicator,
     MenuItemIndicatorProps as MenubarItemIndicatorProps,
     MenuItemIndicatorRenderProps as MenubarItemIndicatorRenderProps,
     MenuItemProps as MenubarItemProps, MenuItemRenderProps as MenubarItemRenderProps,

@@ -48,6 +48,8 @@ pub struct TooltipRootProps {
     pub align: Option<PlacementAlign>,
     #[props(default)]
     pub align_offset: Option<f32>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     pub children: Element,
 }
 
@@ -162,13 +164,19 @@ pub fn TooltipRoot(props: TooltipRootProps) -> Element {
     });
 
     let attrs = runtime.root();
+    let merged = crate::foundation::compose::merge_global_attributes(
+        props.class.as_deref(),
+        Some(props.style.as_deref().unwrap_or("display: contents;")),
+        props.attributes,
+    );
 
     rsx! {
         div {
             id: "{attrs.id()}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or("display: contents;"),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             "data-state": attrs.data_state().as_str(),
+            ..merged.rest,
             {props.children}
         }
     }

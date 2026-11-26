@@ -1,10 +1,11 @@
 use std::borrow::Cow;
 
 use dioxus::prelude::*;
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
 
 use crate::foundation::{
-    overlay::PortalHost,
+    compose::merge_global_attributes,
+    keyboard::{is_activation_key, is_ime_composing_key},
+    overlay::{OverlayPortalSpec, PortalHost, render_overlay_portal},
     shared::{ScopeHandle, use_stable_id},
 };
 
@@ -184,36 +185,18 @@ pub fn DialogPortal(
     let ctx = use_context::<DialogContext>();
     let runtime = ctx.runtime.read();
     let should_render = force_mount || runtime.should_render_portal();
-
     let resolved_host = host.unwrap_or_else(|| runtime.portal().host().clone());
-    let host_attr = if resolved_host.is_inline() {
-        "inline"
-    } else {
-        resolved_host.id().unwrap_or("default")
-    };
-
     let pid = runtime.relationships().scope().qualify("portal");
-    crate::foundation::overlay::use_portal_teleport(
-        pid.clone(),
-        should_render,
-        false,
-        &resolved_host,
-    );
 
-    rsx! {
-        div {
-            style: "display: contents;",
-            "data-portal-anchor": "",
-            if should_render {
-                div {
-                    id: "{pid}",
-                    style: "display: contents;",
-                    "data-portal-host": "{host_attr}",
-                    {children}
-                }
-            }
-        }
-    }
+    render_overlay_portal(OverlayPortalSpec {
+        portal_id: pid,
+        host: resolved_host,
+        should_render,
+        force_mount,
+        disabled: false,
+        emit_status_attrs: false,
+        children,
+    })
 }
 
 #[component]
@@ -346,7 +329,6 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
         let mut prev = latest_cid.borrow_mut();
         if *prev != content_id {
             runtime.unregister_content_id(&prev);
-            crate::foundation::overlay::unregister_active_overlay_layer(&prev);
             *prev = content_id.clone();
         }
     }
@@ -367,97 +349,66 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
         vec![content_id.clone(), overlay_id, portal_id],
     );
 
+    let dismiss_handler = use_hook(move || {
+        let mut open_for_dismiss = ctx.open;
+        let on_change_for_dismiss = ctx.on_open_change;
+        let trigger_sig_for_dismiss = ctx.trigger_id;
+        let runtime_sig = ctx.runtime;
+        EventHandler::new(move |was_pointer: bool| {
+            let is_currently_open = open_for_dismiss.try_peek().map(|o| *o).unwrap_or(false);
+            if !is_currently_open {
+                return;
+            }
+            let rt_close = runtime_sig.peek().clone();
+            if was_pointer {
+                rt_close.mark_pointer_dismiss();
+            } else {
+                rt_close.clear_pointer_dismiss();
+            }
+            if let Ok(mut o) = open_for_dismiss.try_write() {
+                *o = false;
+            }
+            if let Some(h) = on_change_for_dismiss {
+                h.call(false);
+            }
+            let fallback_tid = trigger_sig_for_dismiss
+                .try_peek()
+                .ok()
+                .and_then(|t| t.clone());
+            rt_close.restore_close_focus_with_fallback(fallback_tid.as_deref());
+        })
+    });
+    runtime.set_dismiss_callback(ctx.is_alert_dialog, Some(dismiss_handler));
+
     let cid_for_drop = latest_cid.clone();
     let runtime_for_drop = runtime.clone();
     let had_pbpe_override = prevent_body_pointer_events.is_some();
     use_drop(move || {
         let current_cid = cid_for_drop.borrow().clone();
-        runtime_for_drop.stop_content_dismiss_monitor();
+        runtime_for_drop.set_dismiss_callback(false, None);
         runtime_for_drop.unregister_content_id(&current_cid);
-        crate::foundation::overlay::unregister_active_overlay_layer(&current_cid);
         if had_pbpe_override {
             runtime_for_drop.set_prevent_body_pointer_events_override(None);
         }
     });
 
     let is_open = (ctx.open)();
-    let mut registered_layer_id = use_signal(|| Option::<String>::None);
-    if is_open {
-        let prev = registered_layer_id.peek().clone();
-        if prev.as_deref() != Some(content_id.as_str()) {
-            if let Some(prev_id) = prev.as_deref() {
-                crate::foundation::overlay::unregister_active_overlay_layer(prev_id);
-            }
-            crate::foundation::overlay::register_active_overlay_layer(&content_id);
-            registered_layer_id.set(Some(content_id.clone()));
-        }
-    } else {
-        let prev = registered_layer_id.peek().clone();
-        if let Some(prev_id) = prev {
-            crate::foundation::overlay::unregister_active_overlay_layer(&prev_id);
-            registered_layer_id.set(None);
-        }
-    }
     let effect_content_id = content_id.clone();
     let runtime_for_effect = runtime.clone();
-    let branches_sig = runtime.branches_signal();
-    let is_alert = ctx.is_alert_dialog;
-    let mut open_for_dismiss = ctx.open;
-    let on_change_for_dismiss = ctx.on_open_change;
-    let trigger_sig_for_dismiss = ctx.trigger_id;
     let last_focused_open_cid =
         use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(Option::<String>::None)));
     let focused_cid_effect = last_focused_open_cid.clone();
     use_effect(use_reactive(
-        (&should_render, &is_open, &effect_content_id, &prevent_body_pointer_events),
-        move |(render_val, open_val, cid, pbpe)| {
-            let _ = branches_sig.read();
-            if !render_val {
+        (&should_render, &is_open, &effect_content_id),
+        move |(render_val, open_val, cid)| {
+            if !render_val || !open_val {
                 *focused_cid_effect.borrow_mut() = None;
-                runtime_for_effect.stop_content_dismiss_monitor();
                 return;
             }
-            if pbpe.is_some() {
-                runtime_for_effect.set_prevent_body_pointer_events_override(pbpe);
-            }
-            runtime_for_effect.sync_scroll_lock();
-            runtime_for_effect.sync_modal_shield();
-            if open_val {
-                let needs_open_focus =
-                    focused_cid_effect.borrow().as_deref() != Some(cid.as_str());
-                if needs_open_focus {
-                    *focused_cid_effect.borrow_mut() = Some(cid.clone());
-                    runtime_for_effect.apply_open_focus_for_content(&cid);
-                }
-                let rt_close = runtime_for_effect.clone();
-                runtime_for_effect.start_content_dismiss_monitor(is_alert, move |was_pointer| {
-                    let is_currently_open = open_for_dismiss
-                        .try_peek()
-                        .map(|o| *o)
-                        .unwrap_or(false);
-                    if !is_currently_open {
-                        return;
-                    }
-                    if was_pointer {
-                        rt_close.mark_pointer_dismiss();
-                    } else {
-                        rt_close.clear_pointer_dismiss();
-                    }
-                    if let Ok(mut o) = open_for_dismiss.try_write() {
-                        *o = false;
-                    }
-                    if let Some(h) = on_change_for_dismiss {
-                        h.call(false);
-                    }
-                    let fallback_tid = trigger_sig_for_dismiss
-                        .try_peek()
-                        .ok()
-                        .and_then(|t| t.clone());
-                    rt_close.restore_close_focus_with_fallback(fallback_tid.as_deref());
-                });
-            } else {
-                *focused_cid_effect.borrow_mut() = None;
-                runtime_for_effect.stop_content_dismiss_monitor();
+            let needs_open_focus = focused_cid_effect.borrow().as_deref() != Some(cid.as_str());
+            if needs_open_focus {
+                *focused_cid_effect.borrow_mut() = Some(cid.clone());
+                runtime_for_effect.apply_open_focus_for_content(&cid);
             }
         },
     ));
@@ -491,36 +442,20 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
     let labelledby = aria_labelledby.or_else(|| ctx.title_id.read().clone());
     let describedby = aria_describedby.or_else(|| ctx.description_id.read().clone());
 
-    let mut open = ctx.open;
-    let on_change = ctx.on_open_change;
-
-    let trigger_sig = ctx.trigger_id;
     let runtime_for_key = runtime.clone();
-    let keydown_cid = content_id.clone();
-
     let on_keydown = move |evt: KeyboardEvent| {
-        if evt.key() == Key::Named(NamedKey::Escape) {
-            if !*open.peek() {
-                return;
-            }
-            if crate::foundation::overlay::is_overlay_escape_consumed()
-                || !crate::foundation::overlay::is_topmost_overlay_layer(&keydown_cid)
-            {
-                return;
-            }
-            crate::foundation::overlay::mark_overlay_escape_consumed();
+        if is_ime_composing_key(&evt) {
+            return;
+        }
+        if runtime_for_key.handle_tab_keydown(&evt) {
+            return;
+        }
+        if runtime_for_key.handle_escape_keydown(&evt) {
             evt.prevent_default();
-            evt.stop_propagation();
-            runtime_for_key.clear_pointer_dismiss();
-            open.set(false);
-            if let Some(h) = on_change {
-                h.call(false);
-            }
-            runtime_for_key.restore_close_focus_with_fallback(trigger_sig.peek().as_deref());
         }
     };
 
-    let mut resolved_style = style.clone().unwrap_or_default();
+    let mut resolved_style = style.unwrap_or_default();
     if !is_open || *content.data_state() == crate::foundation::state::DataState::Closed {
         if !resolved_style.is_empty() && !resolved_style.ends_with(';') {
             resolved_style.push(';');
@@ -535,11 +470,13 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
         resolved_style.push_str(" pointer-events: auto;");
     }
 
+    let merged = merge_global_attributes(class.as_deref(), Some(resolved_style.as_str()), attributes);
+
     rsx! {
         div {
             id: "{content_id}",
-            class: class.as_deref().unwrap_or_default(),
-            style: "{resolved_style}",
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             role: content.role(),
             aria_modal: content.aria_modal(),
             aria_labelledby: labelledby.as_deref(),
@@ -549,7 +486,7 @@ pub fn DialogContent(props: DialogContentProps) -> Element {
             onmounted: runtime.mount_content(),
             onkeydown: on_keydown,
             onclick: move |evt: MouseEvent| evt.stop_propagation(),
-            ..attributes,
+            ..merged.rest,
             {children}
         }
     }
@@ -570,10 +507,10 @@ pub fn DialogTitle(
     let tid_drop = title_id.clone();
     let mut title_sig = ctx.title_id;
     use_drop(move || {
-        if let Ok(mut sig) = title_sig.try_write() {
-            if sig.as_deref() == Some(tid_drop.as_str()) {
-                *sig = None;
-            }
+        if let Ok(mut sig) = title_sig.try_write()
+            && sig.as_deref() == Some(tid_drop.as_str())
+        {
+            *sig = None;
         }
     });
 
@@ -602,10 +539,10 @@ pub fn DialogDescription(
     let did_drop = desc_id.clone();
     let mut desc_sig = ctx.description_id;
     use_drop(move || {
-        if let Ok(mut sig) = desc_sig.try_write() {
-            if sig.as_deref() == Some(did_drop.as_str()) {
-                *sig = None;
-            }
+        if let Ok(mut sig) = desc_sig.try_write()
+            && sig.as_deref() == Some(did_drop.as_str())
+        {
+            *sig = None;
         }
     });
 
@@ -669,10 +606,7 @@ pub fn DialogClose(
                 }
             },
             onkeydown: move |evt: KeyboardEvent| {
-                if !disabled
-                    && (matches!(evt.key(), Key::Named(NamedKey::Enter))
-                        || evt.key() == Key::Character(" ".into()))
-                {
+                if !disabled && !is_ime_composing_key(&evt) && is_activation_key(&evt.key()) {
                     runtime_for_key.clear_pointer_dismiss();
                 }
             },
@@ -723,9 +657,7 @@ pub fn AlertDialogAction(
             onmounted: runtime.mount_focus_target(action_id.clone()),
             onpointerdown: move |_| runtime_for_ptr.mark_pointer_dismiss(),
             onkeydown: move |evt: KeyboardEvent| {
-                if matches!(evt.key(), Key::Named(NamedKey::Enter))
-                    || evt.key() == Key::Character(" ".into())
-                {
+                if !is_ime_composing_key(&evt) && is_activation_key(&evt.key()) {
                     runtime_for_key.clear_pointer_dismiss();
                 }
             },
@@ -779,9 +711,7 @@ pub fn AlertDialogCancel(
             onmounted: runtime.mount_focus_target(cancel_id.clone()),
             onpointerdown: move |_| runtime_for_ptr.mark_pointer_dismiss(),
             onkeydown: move |evt: KeyboardEvent| {
-                if matches!(evt.key(), Key::Named(NamedKey::Enter))
-                    || evt.key() == Key::Character(" ".into())
-                {
+                if !is_ime_composing_key(&evt) && is_activation_key(&evt.key()) {
                     runtime_for_key.clear_pointer_dismiss();
                 }
             },

@@ -1,24 +1,23 @@
-use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::time::Duration;
 
 use dioxus::prelude::*;
-use futures_timer::Delay;
 
 use crate::foundation::{
-    browser::spawn_root_task,
-    overlay::{FloatingPlacement, PlacementAlign, PlacementSide, Point2D, StickyStrategy},
+    compose::{merge_attributes_with_part, merge_global_attributes},
+    keyboard::is_ime_composing_key,
+    overlay::{PlacementAlign, PlacementSide, Point2D, StickyStrategy, use_cancellable_delay},
     shared::{Direction, use_stable_id},
+    state::sync_signal,
 };
 use crate::menu::{
-    ActiveCorridorSubmenu, MenuContentAttributes, MenuItemKind, MenuKey, MenuOpenFocusTarget,
-    MenuPart, MenuRootContext, MenuSelectEvent, MenuSubContext, MenuSubRelationships,
-    MenuSubTriggerAttributes, MenuSurfaceContext, MenuSurfaceRuntime,
-    merge_attributes_with_part, translate_menu_key, use_menu_surface_lifecycle,
+    ActiveCorridorSubmenu, MenuItemKind, MenuKey, MenuOpenFocusTarget, MenuPart,
+    MenuPreventableEvent, MenuRootContext, MenuSelectEvent, MenuSubContext, MenuSubRelationships,
+    MenuSubTriggerAttributes, MenuSurfaceContext, MenuSurfaceRuntime, translate_menu_key,
+    use_menu_surface_lifecycle,
 };
 
 use super::{
-    content::{MenuContentRenderProps, build_menu_wrapper_style},
+    content::{MenuContentRenderProps, MenuSurfaceViewSpec, render_menu_surface},
     item::{is_descendant_owning_focus, use_menu_item_registration},
     portal::MenuActivePortalSurface,
 };
@@ -46,12 +45,9 @@ pub fn MenuSub(props: MenuSubProps) -> Element {
     let rels = use_hook(|| MenuSubRelationships::new(root.relationships.scope().child(sub_token)));
 
     let is_controlled = props.open.is_some();
-    let open_sig = use_signal(|| props.open.unwrap_or(props.default_open));
+    let mut open_sig = use_signal(|| props.open.unwrap_or(props.default_open));
     if let Some(controlled) = props.open {
-        let mut s = open_sig;
-        if s.try_peek().is_ok_and(|cur| *cur != controlled) {
-            let _ = s.try_write().map(|mut w| *w = controlled);
-        }
+        sync_signal(&mut open_sig, controlled);
     }
 
     let default_side = match root.direction() {
@@ -77,9 +73,10 @@ pub fn MenuSub(props: MenuSubProps) -> Element {
         loop_focus,
     );
 
-    let hover_task = use_hook(|| Rc::new(RefCell::new(None)));
-    let hover_gen = use_hook(|| Rc::new(Cell::new(0)));
+    let hover_delay = use_cancellable_delay();
     let opened_by_pointer_move = use_signal(|| false);
+    let mut on_open_change_slot = use_hook(|| CopyValue::new(props.on_open_change));
+    on_open_change_slot.set(props.on_open_change);
 
     let sub_ctx = MenuSubContext {
         sub_id: rels.root_id().to_owned(),
@@ -88,12 +85,11 @@ pub fn MenuSub(props: MenuSubProps) -> Element {
         wrapper_id: rels.wrapper_id().to_owned(),
         open: open_sig,
         is_controlled,
-        on_open_change: props.on_open_change,
+        on_open_change: on_open_change_slot,
         open_delay_ms,
         parent_surface: parent_surface.clone(),
         surface: surface.clone(),
-        hover_task,
-        hover_gen,
+        hover_delay,
         opened_by_pointer_move,
     };
 
@@ -203,9 +199,7 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
 
     {
         let mut aid = sub.surface.anchor_id;
-        if aid.try_peek().is_ok_and(|g| *g != id) {
-            let _ = aid.try_write().map(|mut w| *w = id.clone());
-        }
+        sync_signal(&mut aid, id.clone());
     }
 
     use_menu_item_registration(
@@ -244,8 +238,8 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
 
     let is_open = sub.is_open();
     let content_id = sub.surface.current_content_id();
-    let highlighted =
-        !props.disabled && sub.parent_surface.current_highlighted_id().as_deref() == Some(id.as_str());
+    let highlighted = !props.disabled
+        && sub.parent_surface.current_highlighted_id().as_deref() == Some(id.as_str());
     let attrs = MenuSubTriggerAttributes::from_parts(
         id.clone(),
         &content_id,
@@ -254,9 +248,14 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
         highlighted,
         root.variant,
     );
-    let merged_attrs = merge_attributes_with_part(
+    let merged_part_attrs = merge_attributes_with_part(
         props.attributes,
         MenuPart::SubTrigger.static_data_attr_name(root.variant),
+    );
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        merged_part_attrs,
     );
 
     let open_delay_ms = props.open_delay_ms.unwrap_or(sub.open_delay_ms);
@@ -267,6 +266,8 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
         if props.disabled || evt.pointer_type() == "touch" {
             return;
         }
+        let coords = evt.data().client_coordinates();
+        pm_sub.parent_surface.record_pointer(coords.x, coords.y);
         if pm_sub.parent_surface.is_submenu_grace_blocking(Some(&pm_id)) {
             return;
         }
@@ -289,23 +290,17 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
             return;
         }
 
-        if pm_sub.hover_task.borrow().is_some() {
+        if pm_sub.hover_delay.is_pending() {
             return;
         }
 
-        let next_gen = pm_sub.hover_gen.get().wrapping_add(1);
-        pm_sub.hover_gen.set(next_gen);
-        let gen_ref = pm_sub.hover_gen.clone();
         let timer_sub = pm_sub.clone();
-        let task = spawn_root_task(async move {
-            Delay::new(Duration::from_millis(open_delay_ms)).await;
+        pm_sub.hover_delay.schedule(open_delay_ms, move || {
             let still_open_parent = (timer_sub.parent_surface.open)();
-            if gen_ref.get() == next_gen && still_open_parent {
-                *timer_sub.hover_task.borrow_mut() = None;
+            if still_open_parent {
                 timer_sub.request_open(true, MenuOpenFocusTarget::ContentContainer);
             }
         });
-        *pm_sub.hover_task.borrow_mut() = Some(task);
     });
 
     let pl_id = id.clone();
@@ -343,7 +338,7 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
         if props.disabled {
             return;
         }
-        let select_evt = MenuSelectEvent::new();
+        let select_evt = MenuSelectEvent::empty();
         if let Some(cb) = clk_on_select.as_ref() {
             cb.call(select_evt.clone());
         }
@@ -357,7 +352,7 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
     let kd_root = root.clone();
     let kd_on_select = props.on_select;
     let on_key_down = EventHandler::new(move |evt: KeyboardEvent| {
-        if props.disabled || is_descendant_owning_focus(&kd_id) {
+        if props.disabled || is_ime_composing_key(&evt) || is_descendant_owning_focus(&kd_id) {
             return;
         }
         let Some(key) = translate_menu_key(&evt.key()) else {
@@ -371,7 +366,7 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
             evt.prevent_default();
             evt.stop_propagation();
             if select_key {
-                let select_evt = MenuSelectEvent::new();
+                let select_evt = MenuSelectEvent::empty();
                 if let Some(cb) = kd_on_select.as_ref() {
                     cb.call(select_evt.clone());
                 }
@@ -388,13 +383,13 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
     {
         return render_child.call(MenuSubTriggerRenderProps {
             attrs,
-            class: props.class,
-            style: props.style,
+            class: merged.class,
+            style: merged.style,
             on_click,
             on_pointer_move,
             on_pointer_leave,
             on_key_down,
-            attributes: merged_attrs,
+            attributes: merged.rest,
             children: props.children,
         });
     }
@@ -402,8 +397,8 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
     rsx! {
         div {
             id: "{attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             role: "{attrs.role}",
             tabindex: "{attrs.tabindex}",
             "aria-haspopup": "{attrs.aria_haspopup}",
@@ -418,7 +413,7 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
             onpointermove: move |evt| on_pointer_move.call(evt),
             onpointerleave: move |evt| on_pointer_leave.call(evt),
             onkeydown: move |evt| on_key_down.call(evt),
-            ..merged_attrs,
+            ..merged.rest,
             {props.children}
         }
     }
@@ -455,7 +450,7 @@ pub struct MenuSubContentProps {
     #[props(default)]
     pub loop_focus: Option<bool>,
     #[props(default)]
-    pub on_escape_keydown: Option<EventHandler<crate::menu::MenuPreventableEvent>>,
+    pub on_escape_key_down: Option<EventHandler<MenuPreventableEvent>>,
     #[props(default)]
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default = false)]
@@ -477,9 +472,8 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
     {
         let resolved_id = props.id.clone().unwrap_or_else(|| sub.content_id.clone());
         let mut cid = surface.content_id;
-        if cid.try_peek().is_ok_and(|g| *g != resolved_id) {
-            let _ = cid.try_write().map(|mut w| *w = resolved_id.clone());
-        }
+        sync_signal(&mut cid, resolved_id.clone());
+
         if sub.is_open()
             && !sub
                 .parent_surface
@@ -499,163 +493,49 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
         let next_side_offset = props.side_offset.unwrap_or(0.0);
         let next_align_offset = props.align_offset.unwrap_or(0.0);
 
-        macro_rules! sync_sub_sig {
-            ($sig:expr, $val:expr) => {{
-                let mut s = $sig;
-                if s.try_peek().is_ok_and(|g| *g != $val) {
-                    let _ = s.try_write().map(|mut w| *w = $val);
-                }
-            }};
-        }
-
-        sync_sub_sig!(surface.side, next_side);
-        sync_sub_sig!(surface.align, next_align);
-        sync_sub_sig!(surface.side_offset, next_side_offset);
-        sync_sub_sig!(surface.align_offset, next_align_offset);
-        sync_sub_sig!(surface.avoid_collisions, props.avoid_collisions);
-        sync_sub_sig!(surface.collision_padding, props.collision_padding);
-        sync_sub_sig!(surface.arrow_padding, props.arrow_padding);
-        sync_sub_sig!(surface.sticky, props.sticky);
-        sync_sub_sig!(surface.hide_when_detached, props.hide_when_detached);
+        let mut side_sig = surface.side;
+        sync_signal(&mut side_sig, next_side);
+        let mut align_sig = surface.align;
+        sync_signal(&mut align_sig, next_align);
+        let mut so_sig = surface.side_offset;
+        sync_signal(&mut so_sig, next_side_offset);
+        let mut ao_sig = surface.align_offset;
+        sync_signal(&mut ao_sig, next_align_offset);
+        let mut ac_sig = surface.avoid_collisions;
+        sync_signal(&mut ac_sig, props.avoid_collisions);
+        let mut cp_sig = surface.collision_padding;
+        sync_signal(&mut cp_sig, props.collision_padding);
+        let mut ap_sig = surface.arrow_padding;
+        sync_signal(&mut ap_sig, props.arrow_padding);
+        let mut st_sig = surface.sticky;
+        sync_signal(&mut st_sig, props.sticky);
+        let mut hwd_sig = surface.hide_when_detached;
+        sync_signal(&mut hwd_sig, props.hide_when_detached);
         let effective_loop = props.loop_focus.unwrap_or_else(|| *root.loop_focus.read());
-        sync_sub_sig!(surface.force_mount, props.force_mount);
-        sync_sub_sig!(surface.loop_focus, effective_loop);
-        let mut esc = surface.on_escape_keydown;
-        let _ = esc.try_write().map(|mut w| *w = props.on_escape_keydown.clone());
+        let mut fm_sig = surface.force_mount;
+        sync_signal(&mut fm_sig, props.force_mount);
+        let mut lf_sig = surface.loop_focus;
+        sync_signal(&mut lf_sig, effective_loop);
+
+        let mut esc = surface.on_escape_key_down;
+        esc.set(props.on_escape_key_down);
     }
 
-    let parent_branch = try_consume_context::<crate::foundation::overlay::OverlayBranchContext>();
-    let should_render = surface.should_render_content();
     let is_open = sub.is_open();
     let content_id = surface.current_content_id();
-    let wrapper_id = surface.current_wrapper_id();
-    let portal_id = surface
-        .portal_id
-        .read()
-        .clone()
-        .unwrap_or_else(|| format!("{}-portal", surface.surface_key));
-
-    crate::foundation::overlay::use_register_parent_overlay_branches(
-        parent_branch.clone(),
-        should_render,
-        vec![content_id.clone(), wrapper_id.clone(), portal_id],
-    );
-
-    {
-        let surf_reg = surface.clone();
-        let surf_unreg = surface.clone();
-        let parent_for_reg = parent_branch.clone();
-        let parent_for_unreg = parent_branch;
-        use_context_provider(|| {
-            crate::foundation::overlay::OverlayBranchContext::new(
-                move |branch: String| {
-                    surf_reg.register_branch(branch.clone());
-                    if let Some(ref pb) = parent_for_reg {
-                        pb.register_branch(branch);
-                    }
-                },
-                move |branch: String| {
-                    surf_unreg.unregister_branch(&branch);
-                    if let Some(ref pb) = parent_for_unreg {
-                        pb.unregister_branch(branch);
-                    }
-                },
-            )
-        });
-    }
+    let labelledby = Some(surface.anchor_id.read().clone());
 
     let close_fn_sub = sub.clone();
     let root_kb = root.using_keyboard;
-    use_context_provider(|| MenuSurfaceContext {
-        surface: surface.clone(),
-        parent_surface: Some(sub.parent_surface.clone()),
-        close_this_submenu: Some(Rc::new(move |focus_trigger| {
-            let kb = root_kb.try_read().map(|g| *g).unwrap_or(true);
-            close_fn_sub.close_and_focus_trigger(focus_trigger, kb);
-        })),
+    let close_this_submenu: Rc<dyn Fn(bool)> = Rc::new(move |focus_trigger| {
+        let kb = root_kb.try_read().map(|g| *g).unwrap_or(true);
+        close_fn_sub.close_and_focus_trigger(focus_trigger, kb);
     });
-
-    if !should_render {
-        return rsx! {};
-    }
-
-    let placement = surface.placement.read().clone();
-    let readiness = *surface.readiness.read();
-    let hidden_detached = props.hide_when_detached
-        && placement.as_ref().is_some_and(FloatingPlacement::reference_hidden);
-
-    let data_side = placement
-        .as_ref()
-        .map(|p| p.side().as_str())
-        .unwrap_or_else(|| surface.side.read().as_str());
-    let data_align = placement
-        .as_ref()
-        .map(|p| p.align().as_str())
-        .unwrap_or_else(|| surface.align.read().as_str());
-
-    let attrs = MenuContentAttributes::new(
-        content_id.clone(),
-        wrapper_id.clone(),
-        Some(surface.anchor_id.read().clone()),
-        root.direction(),
-        is_open,
-        data_side,
-        data_align,
-        root.variant,
-        MenuPart::SubContent,
-    );
-
-    let content_z_index = surface.content_z_index.read();
-    let wrapper_style = build_menu_wrapper_style(
-        &root,
-        placement.as_ref(),
-        readiness,
-        content_z_index.as_deref(),
-    );
-    let hidden_style = if hidden_detached {
-        " visibility: hidden;"
-    } else {
-        ""
-    };
-    let mut vars_inline = String::new();
-    if let Some(pl) = placement.as_ref() {
-        for (k, v) in root.css_vars(pl) {
-            vars_inline.push_str(&k);
-            vars_inline.push_str(": ");
-            vars_inline.push_str(&v);
-            vars_inline.push_str("; ");
-        }
-    }
-    let content_style = match props.style.as_deref() {
-        Some(custom) if !custom.is_empty() => {
-            format!("{vars_inline}pointer-events: auto; outline: none;{hidden_style} {custom}")
-        }
-        _ => format!("{vars_inline}pointer-events: auto; outline: none;{hidden_style}"),
-    };
-
-    let merged_attrs = merge_attributes_with_part(
-        props.attributes.clone(),
-        MenuPart::SubContent.static_data_attr_name(root.variant),
-    );
-
-    let kd_surface = surface.clone();
-    let kd_root = root.clone();
-    let user_kd = props.on_key_down.clone();
-    let on_key_down = EventHandler::new(move |evt: KeyboardEvent| {
-        if let Some(cb) = user_kd.as_ref() {
-            cb.call(evt.clone());
-        }
-        kd_surface.handle_keydown(&evt, &kd_root);
-    });
-
-    let mount_surface = surface.clone();
-    let mount_root = root.clone();
-    let on_mounted = move |_evt: MountedEvent| {
-        mount_surface.ensure_position_tracking(&mount_root);
-    };
 
     let pm_parent = sub.parent_surface.clone();
-    let on_pointer_move = EventHandler::new(move |_evt: PointerEvent| {
+    let on_pointer_move = EventHandler::new(move |evt: PointerEvent| {
+        let coords = evt.data().client_coordinates();
+        pm_parent.record_pointer(coords.x, coords.y);
         pm_parent.clear_corridor();
     });
 
@@ -682,55 +562,27 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
         );
     });
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        let rendered = render_child.call(MenuContentRenderProps {
-            attrs,
-            style: content_style,
-            class: props.class,
-            on_key_down,
-            attributes: merged_attrs,
-            children: props.children,
-        });
-        return rsx! {
-            div {
-                id: "{wrapper_id}",
-                "data-monoxus-floating-content-wrapper": "",
-                style: "{wrapper_style}",
-                "data-positioning": readiness.positioning_state(),
-                {rendered}
-            }
-        };
-    }
-
-    rsx! {
-        div {
-            id: "{wrapper_id}",
-            "data-monoxus-floating-content-wrapper": "",
-            style: "{wrapper_style}",
-            "data-positioning": readiness.positioning_state(),
-            div {
-                id: "{attrs.id}",
-                class: props.class.as_deref().unwrap_or_default(),
-                style: "{content_style}",
-                role: "{attrs.role}",
-                tabindex: "{attrs.tabindex}",
-                dir: "{attrs.dir}",
-                "aria-orientation": "{attrs.aria_orientation}",
-                "aria-labelledby": attrs.aria_labelledby.as_deref(),
-                "data-state": "{attrs.data_state.as_str()}",
-                "data-side": "{attrs.data_side}",
-                "data-align": "{attrs.data_align}",
-                onmounted: on_mounted,
-                onkeydown: move |evt| on_key_down.call(evt),
-                onpointermove: move |evt| on_pointer_move.call(evt),
-                onpointerleave: move |evt| on_pointer_leave.call(evt),
-                ..merged_attrs,
-                {props.children}
-            }
-        }
-    }
+    render_menu_surface(MenuSurfaceViewSpec {
+        root,
+        surface,
+        parent_surface: Some(sub.parent_surface),
+        close_this_submenu: Some(close_this_submenu),
+        is_floating: true,
+        is_open,
+        part: MenuPart::SubContent,
+        labelledby,
+        default_static_side: PlacementSide::Right,
+        hide_when_detached: props.hide_when_detached,
+        class: props.class,
+        style: props.style,
+        on_key_down: props.on_key_down,
+        on_pointer_move: Some(on_pointer_move),
+        on_pointer_leave: Some(on_pointer_leave),
+        as_child: props.as_child,
+        render_child: props.render_child,
+        attributes: props.attributes,
+        children: props.children,
+    })
 }
 
 #[derive(Props, Clone, PartialEq)]
@@ -746,7 +598,7 @@ pub struct MenuSubContentStaticProps {
     #[props(default)]
     pub loop_focus: Option<bool>,
     #[props(default)]
-    pub on_escape_keydown: Option<EventHandler<crate::menu::MenuPreventableEvent>>,
+    pub on_escape_key_down: Option<EventHandler<MenuPreventableEvent>>,
     #[props(default)]
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default = false)]
@@ -768,9 +620,8 @@ pub fn MenuSubContentStatic(props: MenuSubContentStaticProps) -> Element {
     {
         let resolved_id = props.id.clone().unwrap_or_else(|| sub.content_id.clone());
         let mut cid = surface.content_id;
-        if cid.try_peek().is_ok_and(|g| *g != resolved_id) {
-            let _ = cid.try_write().map(|mut w| *w = resolved_id.clone());
-        }
+        sync_signal(&mut cid, resolved_id.clone());
+
         if sub.is_open()
             && !sub
                 .parent_surface
@@ -781,128 +632,43 @@ pub fn MenuSubContentStatic(props: MenuSubContentStaticProps) -> Element {
             sub.parent_surface.register_child_subcontent(resolved_id);
         }
         let mut fm = surface.force_mount;
-        if fm.try_peek().is_ok_and(|g| *g != props.force_mount) {
-            let _ = fm.try_write().map(|mut w| *w = props.force_mount);
-        }
+        sync_signal(&mut fm, props.force_mount);
         let effective_loop = props.loop_focus.unwrap_or_else(|| *root.loop_focus.read());
         let mut lf = surface.loop_focus;
-        if lf.try_peek().is_ok_and(|g| *g != effective_loop) {
-            let _ = lf.try_write().map(|mut w| *w = effective_loop);
-        }
-        let mut esc = surface.on_escape_keydown;
-        let _ = esc.try_write().map(|mut w| *w = props.on_escape_keydown.clone());
+        sync_signal(&mut lf, effective_loop);
+        let mut esc = surface.on_escape_key_down;
+        esc.set(props.on_escape_key_down);
     }
 
-    let parent_branch = try_consume_context::<crate::foundation::overlay::OverlayBranchContext>();
-    let should_render = surface.should_render_content();
-    let content_id = surface.current_content_id();
-    let portal_id = surface
-        .portal_id
-        .read()
-        .clone()
-        .unwrap_or_else(|| format!("{}-portal", surface.surface_key));
-
-    crate::foundation::overlay::use_register_parent_overlay_branches(
-        parent_branch.clone(),
-        should_render,
-        vec![content_id.clone(), portal_id],
-    );
-
-    {
-        let surf_reg = surface.clone();
-        let surf_unreg = surface.clone();
-        let parent_for_reg = parent_branch.clone();
-        let parent_for_unreg = parent_branch;
-        use_context_provider(|| {
-            crate::foundation::overlay::OverlayBranchContext::new(
-                move |branch: String| {
-                    surf_reg.register_branch(branch.clone());
-                    if let Some(ref pb) = parent_for_reg {
-                        pb.register_branch(branch);
-                    }
-                },
-                move |branch: String| {
-                    surf_unreg.unregister_branch(&branch);
-                    if let Some(ref pb) = parent_for_unreg {
-                        pb.unregister_branch(branch);
-                    }
-                },
-            )
-        });
-    }
+    let is_open = sub.is_open();
+    let labelledby = Some(surface.anchor_id.read().clone());
 
     let close_fn_sub = sub.clone();
     let root_kb = root.using_keyboard;
-    use_context_provider(|| MenuSurfaceContext {
-        surface: surface.clone(),
-        parent_surface: Some(sub.parent_surface.clone()),
-        close_this_submenu: Some(Rc::new(move |focus_trigger| {
-            let kb = root_kb.try_read().map(|g| *g).unwrap_or(true);
-            close_fn_sub.close_and_focus_trigger(focus_trigger, kb);
-        })),
+    let close_this_submenu: Rc<dyn Fn(bool)> = Rc::new(move |focus_trigger| {
+        let kb = root_kb.try_read().map(|g| *g).unwrap_or(true);
+        close_fn_sub.close_and_focus_trigger(focus_trigger, kb);
     });
 
-    if !should_render {
-        return rsx! {};
-    }
-
-    let attrs = MenuContentAttributes::new(
-        content_id,
-        surface.current_wrapper_id(),
-        Some(surface.anchor_id.read().clone()),
-        root.direction(),
-        sub.is_open(),
-        PlacementSide::Right.as_str(),
-        PlacementAlign::Start.as_str(),
-        root.variant,
-        MenuPart::SubContentStatic,
-    );
-
-    let merged_attrs = merge_attributes_with_part(
-        props.attributes,
-        MenuPart::SubContentStatic.static_data_attr_name(root.variant),
-    );
-    let content_style = props.style.unwrap_or_default();
-
-    let kd_surface = surface.clone();
-    let kd_root = root.clone();
-    let user_kd = props.on_key_down.clone();
-    let on_key_down = EventHandler::new(move |evt: KeyboardEvent| {
-        if let Some(cb) = user_kd.as_ref() {
-            cb.call(evt.clone());
-        }
-        kd_surface.handle_keydown(&evt, &kd_root);
-    });
-
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(MenuContentRenderProps {
-            attrs,
-            style: content_style,
-            class: props.class,
-            on_key_down,
-            attributes: merged_attrs,
-            children: props.children,
-        });
-    }
-
-    rsx! {
-        div {
-            id: "{attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: "{content_style}",
-            role: "{attrs.role}",
-            tabindex: "{attrs.tabindex}",
-            dir: "{attrs.dir}",
-            "aria-orientation": "{attrs.aria_orientation}",
-            "aria-labelledby": attrs.aria_labelledby.as_deref(),
-            "data-state": "{attrs.data_state.as_str()}",
-            "data-side": "{attrs.data_side}",
-            "data-align": "{attrs.data_align}",
-            onkeydown: move |evt| on_key_down.call(evt),
-            ..merged_attrs,
-            {props.children}
-        }
-    }
+    render_menu_surface(MenuSurfaceViewSpec {
+        root,
+        surface,
+        parent_surface: Some(sub.parent_surface),
+        close_this_submenu: Some(close_this_submenu),
+        is_floating: false,
+        is_open,
+        part: MenuPart::SubContentStatic,
+        labelledby,
+        default_static_side: PlacementSide::Right,
+        hide_when_detached: false,
+        class: props.class,
+        style: props.style,
+        on_key_down: props.on_key_down,
+        on_pointer_move: None,
+        on_pointer_leave: None,
+        as_child: props.as_child,
+        render_child: props.render_child,
+        attributes: props.attributes,
+        children: props.children,
+    })
 }

@@ -2,6 +2,7 @@ use dioxus::prelude::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 
 use crate::foundation::{
+    compose::merge_global_attributes,
     roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::use_stable_id,
 };
@@ -11,7 +12,7 @@ use super::super::{
         NavigationMenuContext, NavigationMenuInContent, NavigationMenuItemContext,
         NavigationMenuLinkRenderProps,
     },
-    types::NavigationMenuLinkSelectEvent,
+    types::{NavigationMenuLinkSelectDetail, NavigationMenuLinkSelectEvent},
 };
 
 #[derive(Clone, PartialEq, Props)]
@@ -86,14 +87,14 @@ pub fn NavigationMenuLink(props: NavigationMenuLinkProps) -> Element {
             if let Some(ref handler) = consumer_on_click {
                 handler.call(evt.clone());
             }
-            let select_event = NavigationMenuLinkSelectEvent::new(
-                href.clone(),
-                evt.modifiers().contains(Modifiers::META),
-            );
+            let select_event = NavigationMenuLinkSelectEvent::new(NavigationMenuLinkSelectDetail {
+                href: href.clone(),
+                meta_key: evt.modifiers().contains(Modifiers::META),
+            });
             if let Some(ref handler) = on_select {
                 handler.call(select_event.clone());
             }
-            if select_event.should_dismiss_root() {
+            if !select_event.is_default_prevented() && !select_event.detail().meta_key {
                 if let Some(ref item) = item_ctx {
                     item.on_root_content_close(&ctx.relationships);
                 }
@@ -186,11 +187,17 @@ pub fn NavigationMenuLink(props: NavigationMenuLinkProps) -> Element {
         );
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         a {
             id: "{link_attrs.id()}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             href: link_attrs.href(),
             target: link_attrs.target(),
             rel: link_attrs.rel(),
@@ -210,7 +217,7 @@ pub fn NavigationMenuLink(props: NavigationMenuLinkProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

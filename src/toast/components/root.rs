@@ -1,4 +1,8 @@
-use crate::foundation::overlay::Point2D;
+use crate::foundation::{
+    browser::{try_release_pointer_capture, try_set_pointer_capture},
+    compose::merge_global_attributes,
+    overlay::Point2D,
+};
 use crate::toast::attrs::ToastRootAttrs;
 use crate::toast::gesture::{SwipeAction, SwipeAxis, SwipeGestureReducer, SwipeReducerConfig};
 use crate::toast::layout::ToastComputedStyle;
@@ -7,43 +11,6 @@ use crate::toast::types::{ToastId, ToastPhase, ToastPosition, ToastType};
 use dioxus::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
-
-fn try_set_pointer_capture(
-    evt: &PointerData,
-    mounted_root: Option<&oxidase::Element>,
-) -> Option<i32> {
-    let pointer_id = oxidase::dom::extract_pointer_id(evt);
-    if let Some(root) = mounted_root
-        && root.set_pointer_capture(pointer_id).is_ok()
-    {
-        return Some(pointer_id);
-    }
-    if let Some(target) = oxidase::dom::pointer_event_target(evt)
-        && target.set_pointer_capture(pointer_id).is_ok()
-    {
-        return Some(pointer_id);
-    }
-    None
-}
-
-fn try_release_pointer_capture(
-    evt_opt: Option<&PointerEvent>,
-    mounted_root: Option<&oxidase::Element>,
-    captured_pid: Option<i32>,
-) {
-    let pointer_id = captured_pid.or_else(|| evt_opt.map(|evt| oxidase::dom::extract_pointer_id(&evt.data())));
-    let Some(pointer_id) = pointer_id else {
-        return;
-    };
-    if let Some(root) = mounted_root {
-        let _ = root.release_pointer_capture(pointer_id);
-    }
-    if let Some(evt) = evt_opt
-        && let Some(target) = oxidase::dom::pointer_event_target(&evt.data())
-    {
-        let _ = target.release_pointer_capture(pointer_id);
-    }
-}
 
 fn is_button_target(evt: &PointerData) -> bool {
     oxidase::dom::is_interactive_button_target(evt)
@@ -123,6 +90,8 @@ pub struct ToastRootProps {
     pub computed_style: Option<ToastComputedStyle>,
     #[props(default)]
     pub content_generation: u64,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     #[props(default)]
     pub children: Element,
 }
@@ -403,6 +372,12 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
         Some(inline_style)
     };
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        combined_style.as_deref(),
+        props.attributes,
+    );
+
     let dom_id_for_mount = dom_id.clone();
 
     rsx! {
@@ -430,8 +405,8 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
             "data-swiped": if is_swiping_val { Some("true") } else { None },
             "data-index": "{attrs.data_index}",
             "data-testid": attrs.data_testid.as_deref().unwrap_or_default(),
-            class: props.class.as_deref().unwrap_or_default(),
-            style: combined_style.as_deref(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref(),
             // NOTE(ah:01M7BTR8FNX62N461B3Q6837YJ): See ui/shadcn-dioxus/docs/shadcn_toast_styling_capability_ledger.md
             // (Section 4 Note 6). When wiring downstream <Toaster /> CSS entrance transitions ([data-mounted="false" -> "true"]),
             // reorder this block to: (1) measure_toast_auto_height while data-mounted="false", (2) await next_frame().await,
@@ -506,6 +481,7 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
                     }
                 }
             },
+            ..merged.rest,
             {props.children}
         }
     }

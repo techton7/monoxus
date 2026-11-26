@@ -1,16 +1,15 @@
-use std::{cell::RefCell, rc::Rc};
-
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    browser::{WatcherGuard, spawn_root_task},
-    overlay::PresenceController,
+    browser::spawn_root_task,
+    compose::merge_global_attributes,
+    overlay::{use_presence, use_watcher_slot},
 };
 
 use super::super::{
     runtime::{
         IndicatorMountData, NavigationMenuContext, NavigationMenuIndicatorRenderProps,
-        measure_indicator_offset_position, start_offset_resize_observer, sync_presence_lifecycle,
+        measure_indicator_offset_position, start_offset_resize_observer,
     },
     types::NavigationMenuIndicatorPosition,
 };
@@ -72,11 +71,8 @@ pub fn NavigationMenuIndicatorSlot() -> Element {
         .as_ref()
         .is_some_and(|data| data.force_mount || is_visible);
 
-    let presence =
-        use_signal(|| PresenceController::new(desired_present).with_retained_mount(true));
-    let presence_guard = use_hook(|| Rc::new(RefCell::new(None::<WatcherGuard>)));
-    let trigger_resize_guard = use_hook(|| Rc::new(RefCell::new(None::<WatcherGuard>)));
-    let track_resize_guard = use_hook(|| Rc::new(RefCell::new(None::<WatcherGuard>)));
+    let trigger_resize_guard = use_watcher_slot();
+    let track_resize_guard = use_watcher_slot();
 
     let mut position = use_signal(|| None::<NavigationMenuIndicatorPosition>);
     let mut last_trigger_id = use_signal(|| None::<String>);
@@ -99,29 +95,32 @@ pub fn NavigationMenuIndicatorSlot() -> Element {
         .and_then(|d| d.id.clone())
         .unwrap_or_else(|| ctx.relationships.indicator_id().to_owned());
 
-    let presence_id = indicator_id.clone();
-    let pg_for_effect = Rc::clone(&presence_guard);
-    use_effect(use_reactive((&desired_present,), move |(present,)| {
-        sync_presence_lifecycle(&presence_id, present, presence, &pg_for_effect, || {
-            if position.try_peek().is_ok_and(|p| p.is_some())
+    let on_presence_complete = use_hook(move || {
+        EventHandler::new(move |open: bool| {
+            if !open
+                && position.try_peek().is_ok_and(|p| p.is_some())
                 && let Ok(mut w) = position.try_write()
             {
                 *w = None;
             }
-        });
-    }));
+        })
+    });
+    let presence = use_presence(
+        desired_present,
+        &indicator_id,
+        true,
+        Some(on_presence_complete),
+    );
 
-    let should_render = data_opt.is_some() && (desired_present || presence.read().should_render());
+    let should_render = data_opt.is_some() && (desired_present || presence.should_render());
     let tracked_tid = active_trigger_id.or_else(|| last_trigger_id.read().clone());
 
-    let trg_cell = Rc::clone(&trigger_resize_guard);
-    let trk_cell = Rc::clone(&track_resize_guard);
     let ctx_alive = ctx.clone();
     use_effect(use_reactive(
         (&should_render, &tracked_tid, &track_id, &orientation),
         move |(render, tid_opt, track_opt, ori)| {
-            *trg_cell.borrow_mut() = None;
-            *trk_cell.borrow_mut() = None;
+            trigger_resize_guard.clear();
+            track_resize_guard.clear();
             if !render {
                 return;
             }
@@ -152,23 +151,12 @@ pub fn NavigationMenuIndicatorSlot() -> Element {
             });
 
             let m1 = measure_now.clone();
-            *trg_cell.borrow_mut() = Some(start_offset_resize_observer(&tid, m1));
+            trigger_resize_guard.replace(start_offset_resize_observer(&tid, m1));
             if let Some(tr_id) = track_opt {
-                *trk_cell.borrow_mut() = Some(start_offset_resize_observer(&tr_id, measure_now));
+                track_resize_guard.replace(start_offset_resize_observer(&tr_id, measure_now));
             }
         },
     ));
-
-    use_drop({
-        let pg = Rc::clone(&presence_guard);
-        let trg = Rc::clone(&trigger_resize_guard);
-        let trk = Rc::clone(&track_resize_guard);
-        move || {
-            *pg.borrow_mut() = None;
-            *trg.borrow_mut() = None;
-            *trk.borrow_mut() = None;
-        }
-    });
 
     let Some(data) = data_opt else {
         return rsx! {};
@@ -202,11 +190,17 @@ pub fn NavigationMenuIndicatorSlot() -> Element {
         );
     }
 
+    let merged = merge_global_attributes(
+        data.class.as_deref(),
+        Some(attrs.style()),
+        data.attributes,
+    );
+
     rsx! {
         div {
             id: "{attrs.id()}",
-            class: data.class.as_deref().unwrap_or_default(),
-            style: "{attrs.style()}",
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             aria_hidden: "{attrs.aria_hidden()}",
             "data-state": "{attrs.data_state()}",
             "data-orientation": "{attrs.data_orientation()}",
@@ -216,7 +210,7 @@ pub fn NavigationMenuIndicatorSlot() -> Element {
                     handler.call(evt);
                 }
             },
-            ..data.attributes,
+            ..merged.rest,
             {data.children}
         }
     }

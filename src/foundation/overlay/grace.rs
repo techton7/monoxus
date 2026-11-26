@@ -120,9 +120,10 @@ pub fn use_cancellable_delay() -> CancellableDelay {
     handle
 }
 
-/// Outcome emitted when an active [`GraceCorridorHandle`] completes or terminates.
+/// Outcome emitted when an active [`GraceCorridorHandle`] completes, progresses, or terminates.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum GraceCorridorOutcome {
+    InTransit(Point2D),
     ReachedTarget(Point2D),
     ExitedCorridor(Point2D),
     Stalled,
@@ -277,6 +278,9 @@ impl GraceCorridorHandle {
                         }
                     }
                     GraceTransitStatus::InTransit => {
+                        if let Ok(mut cb) = stream_cb.try_borrow_mut() {
+                            cb(GraceCorridorOutcome::InTransit(point));
+                        }
                         if let Some(ms) = stall_timeout_ms {
                             let dist = point_to_rect_distance(point, &active_transit.to_rect);
                             let prev_best = handle

@@ -1,8 +1,6 @@
-use std::{cell::Cell, rc::Rc, time::Duration};
+use std::rc::Rc;
 
-use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
-use futures_timer::Delay;
 
 pub use crate::foundation::compose::{
     compose_part_event_handlers, compose_part_refs, project_as_child,
@@ -10,21 +8,27 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::{
-        DEFAULT_FOCUSABLE_SELECTOR, DocumentDismissEvent, DocumentPointerStreamGuard,
-        FloatingAutoUpdateEvent, PresenceMonitorEvent, WatcherGuard, document_has_text_selection,
-        get_element_client_rect, get_element_computed_z_index, is_element_focus_visible_by_id,
-        is_element_focused_by_id, query_selector_all_by_id, restore_body_user_select,
-        set_body_user_select_none, spawn_root_task, start_document_dismiss_monitor_with_boundaries,
-        start_document_pointer_stream, start_document_pointer_up_observer,
-        start_floating_auto_update_monitor, start_presence_monitor,
+        document_has_text_selection, get_element_client_rect, is_element_focus_visible_by_id,
+        is_element_focused_by_id, remove_from_tab_order, restore_body_user_select,
+        restore_tab_order, set_body_user_select_none, spawn_root_task,
+        start_document_pointer_up_observer,
     },
+    keyboard::{is_escape_key, is_ime_composing_key},
     overlay::{
-        FloatingLayer, FloatingPlacement, FloatingReadiness, GeometryVars, OverlayPositionConfig,
-        PlacementAlign, PlacementSide, Point2D, Presence, PresenceCloseCycleId, PresenceController,
-        PresenceControllerUpdate, Rect, Size, compute_overlay_position, normalize_hoisted_z_index,
+        CancellableDelay, DismissCallbacks, DismissConfig, DismissEvent, DismissLayerHandle,
+        FloatingHandle, FloatingLayer, FloatingMonitorSpec, FloatingPlacement, FloatingReadiness,
+        FocusScopeConfig, FocusScopeHandle, GeometryVars, GraceCorridorHandle, GraceCorridorOutcome,
+        GraceTransit, GraceTransitStatus, PlacementAlign, PlacementSide, Point2D, PresenceHandle,
+        Rect, Size, WatcherSlot, active_overlay_layers_snapshot, is_overlay_escape_consumed,
+        is_topmost_overlay_layer, mark_overlay_escape_consumed, use_cancellable_delay,
+        use_dismissable_layer, use_floating_layer, use_focus_scope, use_grace_corridor,
+        use_presence, use_watcher_slot,
     },
-    shared::Direction,
-    state::DataState,
+    shared::{
+        Direction, EscapeKeyDownEvent, InteractOutsideEvent, PointerDownOutsideEvent,
+        PreventableEvent,
+    },
+    state::{DataState, sync_signal},
 };
 
 use super::{
@@ -33,8 +37,11 @@ use super::{
         HoverCardPortalAttributes, HoverCardRootAttributes, HoverCardTriggerAttributes,
     },
     relationships::HoverCardRelationships,
-    state::{HoverCard, HoverCardGraceStatus, HoverCardGraceTransit, HoverCardLifecycle},
-    types::{HOVER_CARD_GEOMETRY_NAMESPACE, HoverCardOutsideBehavior},
+    state::{HoverCard, HoverCardLifecycle},
+    types::{
+        HOVER_CARD_GEOMETRY_NAMESPACE, HOVER_CARD_RADIX_ANCHOR_LABEL,
+        HOVER_CARD_RADIX_COMPATIBILITY_PREFIX, HoverCardOutsideBehavior,
+    },
 };
 
 type HoverCardOpenChangeHandler = Rc<dyn Fn(bool)>;
@@ -53,111 +60,49 @@ pub struct HoverCardFloatingOverrides {
     pub dir: Option<Direction>,
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 pub struct HoverCardOutsideConfig {
     pub escape_keydown_behavior: HoverCardOutsideBehavior,
     pub interact_outside_behavior: HoverCardOutsideBehavior,
-    pub on_escape_key_down: Option<EventHandler<()>>,
-    pub on_pointer_down_outside: Option<EventHandler<()>>,
-    pub on_interact_outside: Option<EventHandler<()>>,
-}
-
-impl PartialEq for HoverCardOutsideConfig {
-    fn eq(&self, other: &Self) -> bool {
-        self.escape_keydown_behavior == other.escape_keydown_behavior
-            && self.interact_outside_behavior == other.interact_outside_behavior
-            && self.on_escape_key_down == other.on_escape_key_down
-            && self.on_pointer_down_outside == other.on_pointer_down_outside
-            && self.on_interact_outside == other.on_interact_outside
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct HoverCardContentPresenceLane {
-    content: PresenceController,
-}
-
-impl HoverCardContentPresenceLane {
-    fn new(presence: &Presence) -> Self {
-        Self {
-            content: PresenceController::new(presence.desired_present())
-                .with_retained_mount(presence.retain_mount()),
-        }
-    }
-
-    fn sync(&mut self, desired_present: bool) -> PresenceControllerUpdate {
-        self.content.sync(desired_present)
-    }
-
-    const fn should_render_portal(&self) -> bool {
-        self.should_render_content()
-    }
-
-    const fn should_render_content(&self) -> bool {
-        self.content.should_render()
-    }
-
-    const fn should_track_live_placement(&self, desired_present: bool) -> bool {
-        desired_present && self.should_render_content()
-    }
-
-    const fn should_clear_positioning(&self, desired_present: bool) -> bool {
-        !desired_present && !self.should_render_content()
-    }
-
-    fn complete_close_cycle(&mut self, cycle_id: PresenceCloseCycleId) -> bool {
-        self.content.complete_close_cycle(cycle_id)
-    }
-}
-
-#[derive(Clone, Copy)]
-struct RetainedRootPresenceMonitorState {
-    monitor: Signal<Option<WatcherGuard>>,
-    cycle_id: Signal<Option<PresenceCloseCycleId>>,
+    pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
+    pub on_pointer_down_outside: Option<EventHandler<PointerDownOutsideEvent>>,
+    pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
 }
 
 #[derive(Clone, Copy)]
 struct HoverCardRuntimeState {
     live_hover_card: Signal<HoverCard>,
     desired_open: Signal<bool>,
-    last_open: Signal<bool>,
     trigger_handle: Signal<Option<Rc<MountedData>>>,
     content_handle: Signal<Option<Rc<MountedData>>>,
-    placement: Signal<Option<FloatingPlacement>>,
-    content_readiness: Signal<FloatingReadiness>,
-    content_z_index: Signal<Option<String>>,
-    presence_lane: Signal<HoverCardContentPresenceLane>,
-    presence_monitor: RetainedRootPresenceMonitorState,
-    pointer_down_inside_trigger: Signal<bool>,
-    trigger_hovered: Signal<bool>,
-    content_hovered: Signal<bool>,
-    opened_via_focus: Signal<bool>,
-    last_pointer_type: Signal<Option<String>>,
-    is_pointer_down_on_content: Signal<bool>,
-    has_selection: Signal<bool>,
+    presence: PresenceHandle,
+    floating: FloatingHandle,
+    dismiss: DismissLayerHandle,
+    focus_scope: FocusScopeHandle,
+    grace: GraceCorridorHandle,
+    open_delay: CancellableDelay,
+    close_delay: CancellableDelay,
+    pointer_up_watcher: WatcherSlot,
+    pointer_down_inside_trigger: CopyValue<bool>,
+    trigger_hovered: CopyValue<bool>,
+    content_hovered: CopyValue<bool>,
+    opened_via_focus: CopyValue<bool>,
+    last_pointer_type: CopyValue<Option<String>>,
+    is_pointer_down_on_content: CopyValue<bool>,
+    has_selection: CopyValue<bool>,
     contain_selection: Signal<bool>,
-    open_delay_token: Signal<u64>,
-    close_delay_token: Signal<u64>,
-    pending_open: Signal<bool>,
-    position_loop_token: Signal<u64>,
-    position_monitor: Signal<Option<WatcherGuard>>,
-    dismiss_monitor: Signal<Option<WatcherGuard>>,
-    pointer_up_monitor: Signal<Option<WatcherGuard>>,
-    grace_monitor: Signal<Option<DocumentPointerStreamGuard>>,
     registered_trigger_id: Signal<Option<String>>,
     content_id: Signal<Option<String>>,
-    branches: Signal<Vec<String>>,
     floating_overrides: Signal<HoverCardFloatingOverrides>,
-    outside_config: Signal<HoverCardOutsideConfig>,
+    outside_config: CopyValue<HoverCardOutsideConfig>,
+    alive: CopyValue<bool>,
 }
 
 #[derive(Clone)]
 pub struct HoverCardRuntime {
     hover_card: HoverCard,
-    on_open_change: HoverCardOpenChangeHandler,
-    on_open_change_complete: Option<HoverCardOpenChangeHandler>,
+    on_open_change: CopyValue<HoverCardOpenChangeHandler>,
     state: HoverCardRuntimeState,
-    alive: Rc<Cell<bool>>,
 }
 
 pub fn use_hover_card_runtime<F>(
@@ -168,141 +113,263 @@ pub fn use_hover_card_runtime<F>(
 where
     F: Fn(bool) + 'static,
 {
+    let synced_open_change: HoverCardOpenChangeHandler = Rc::new(on_open_change);
+    let mut on_open_change_slot = use_hook(|| CopyValue::new(Rc::clone(&synced_open_change)));
+    on_open_change_slot.set(synced_open_change);
+
+    let mut on_open_change_complete_slot = use_hook(|| CopyValue::new(on_open_change_complete.clone()));
+    on_open_change_complete_slot.set(on_open_change_complete);
+
     let mut live_hover_card = use_signal(|| hover_card.clone());
     let mut desired_open = use_signal(|| hover_card.is_open());
-    if live_hover_card.with_peek(|current| current != &hover_card) {
-        live_hover_card.set(hover_card.clone());
-        desired_open.set(hover_card.is_open());
+    if sync_signal(&mut live_hover_card, hover_card.clone()) {
+        sync_signal(&mut desired_open, hover_card.is_open());
     }
+
+    let trigger_handle = use_signal(|| None::<Rc<MountedData>>);
+    let content_handle = use_signal(|| None::<Rc<MountedData>>);
+    let pointer_down_inside_trigger = use_hook(|| CopyValue::new(false));
+    let trigger_hovered = use_hook(|| CopyValue::new(false));
+    let content_hovered = use_hook(|| CopyValue::new(false));
+    let opened_via_focus = use_hook(|| CopyValue::new(false));
+    let last_pointer_type = use_hook(|| CopyValue::new(Option::<String>::None));
+    let is_pointer_down_on_content = use_hook(|| CopyValue::new(false));
+    let has_selection = use_hook(|| CopyValue::new(false));
+    let contain_selection = use_signal(|| false);
+    let registered_trigger_id = use_signal(|| None::<String>);
+    let content_id = use_signal(|| None::<String>);
+    let floating_overrides = use_signal(HoverCardFloatingOverrides::default);
+    let outside_config = use_hook(|| CopyValue::new(HoverCardOutsideConfig::default()));
+    let mut alive = use_hook(|| CopyValue::new(true));
+
+    let effective_trigger_id = registered_trigger_id
+        .read()
+        .clone()
+        .unwrap_or_else(|| hover_card.relationships().trigger_id().to_owned());
+    let effective_content_id = content_id
+        .read()
+        .clone()
+        .unwrap_or_else(|| hover_card.relationships().content_id().to_owned());
+
+    let on_presence_complete = use_hook(move || {
+        EventHandler::new(move |open: bool| {
+            if let Ok(Some(cb)) = on_open_change_complete_slot
+                .try_read()
+                .map(|g| g.as_ref().map(Rc::clone))
+            {
+                cb(open);
+            }
+        })
+    });
+
+    let presence = use_presence(
+        hover_card.is_open(),
+        &effective_content_id,
+        hover_card.lifecycle().presence().retain_mount(),
+        Some(on_presence_complete),
+    );
+
+    let effective_floating =
+        compute_effective_floating_layer(&hover_card, &floating_overrides.read());
+    let mut floating_spec =
+        FloatingMonitorSpec::new(effective_trigger_id.clone(), effective_content_id.clone());
+    floating_spec.arrow_id = Some(hover_card.relationships().arrow_id().to_owned());
+    floating_spec.boundary_id = floating_overrides.read().collision_boundary.clone();
+    floating_spec.side = effective_floating.side();
+    floating_spec.align = effective_floating.align();
+    floating_spec.direction = effective_floating.direction();
+    floating_spec.side_offset = effective_floating.side_offset();
+    floating_spec.align_offset = effective_floating.align_offset();
+    floating_spec.avoid_collisions = effective_floating.avoid_collisions();
+    floating_spec.collision_padding = effective_floating.collision_padding();
+    floating_spec.arrow_padding = effective_floating.arrow_padding();
+    floating_spec.hide_when_detached = effective_floating.hide_when_detached();
+    floating_spec.sticky = true;
+    floating_spec.namespace = Some(HOVER_CARD_GEOMETRY_NAMESPACE.to_owned());
+
+    let floating = use_floating_layer(
+        hover_card.is_open() && presence.should_render(),
+        floating_spec,
+        None,
+    );
+
+    let grace = use_grace_corridor();
+    let open_delay = use_cancellable_delay();
+    let close_delay = use_cancellable_delay();
+    let pointer_up_watcher = use_watcher_slot();
+
+    let mut focus_cfg = FocusScopeConfig::new(effective_content_id.clone());
+    focus_cfg.auto_focus_on_open = false;
+    focus_cfg.restore_focus_on_close = false;
+    focus_cfg.suppress_tab_order = true;
+    let focus_scope = use_focus_scope(hover_card.is_open(), focus_cfg, None, None);
+
+    let mut dismiss_boundaries = vec![effective_trigger_id, effective_content_id.clone()];
+    for branch in hover_card.lifecycle().dismiss_layer().branches() {
+        if !dismiss_boundaries.contains(branch) {
+            dismiss_boundaries.push(branch.clone());
+        }
+    }
+    let dismiss_config = DismissConfig::new(effective_content_id)
+        .with_boundaries(dismiss_boundaries)
+        .with_modal(false)
+        .with_listen_escape(true)
+        .with_listen_pointer_down_outside(true)
+        .with_listen_focus_outside(false);
+
+    let on_escape_bridge = use_hook(move || {
+        EventHandler::new(move |evt: EscapeKeyDownEvent| {
+            let cfg = outside_config.try_read().map(|g| *g).unwrap_or_default();
+            if let Some(handler) = cfg.on_escape_key_down {
+                handler.call(evt.clone());
+            }
+            if !cfg.escape_keydown_behavior.should_close() {
+                evt.prevent_default();
+            }
+        })
+    });
+    let on_ptr_down_bridge = use_hook(move || {
+        EventHandler::new(move |evt: PointerDownOutsideEvent| {
+            let cfg = outside_config.try_read().map(|g| *g).unwrap_or_default();
+            if let Some(handler) = cfg.on_pointer_down_outside {
+                handler.call(evt.clone());
+            }
+            if !cfg.interact_outside_behavior.should_close() {
+                evt.prevent_default();
+            }
+        })
+    });
+    let on_interact_bridge = use_hook(move || {
+        EventHandler::new(move |evt: InteractOutsideEvent| {
+            let cfg = outside_config.try_read().map(|g| *g).unwrap_or_default();
+            if let Some(handler) = cfg.on_interact_outside {
+                handler.call(evt.clone());
+            }
+            if !cfg.interact_outside_behavior.should_close() {
+                evt.prevent_default();
+            }
+        })
+    });
+
+    let force_close_from_dismiss = use_hook(move || {
+        EventHandler::new(move |_event: DismissEvent| {
+            if !alive.try_read().is_ok_and(|a| *a) {
+                return;
+            }
+            reset_hover_and_selection_slots(
+                content_hovered,
+                is_pointer_down_on_content,
+                has_selection,
+                contain_selection,
+            );
+            open_delay.cancel();
+            close_delay.cancel();
+            grace.clear();
+            let mut desired = desired_open;
+            if desired.try_peek().is_ok_and(|d| *d) {
+                let _ = desired.try_write().map(|mut w| *w = false);
+                if let Ok(cb) = on_open_change_slot.try_read().map(|g| Rc::clone(&*g)) {
+                    cb(false);
+                }
+            }
+        })
+    });
+
+    let dismiss = use_dismissable_layer(
+        hover_card.is_open(),
+        dismiss_config,
+        DismissCallbacks {
+            on_escape_key_down: Some(on_escape_bridge),
+            on_pointer_down_outside: Some(on_ptr_down_bridge),
+            on_focus_outside: None,
+            on_interact_outside: Some(on_interact_bridge),
+            on_dismiss: Some(force_close_from_dismiss),
+        },
+    );
 
     let state = HoverCardRuntimeState {
         live_hover_card,
         desired_open,
-        last_open: use_signal(|| hover_card.is_open()),
-        trigger_handle: use_signal(|| None),
-        content_handle: use_signal(|| None),
-        placement: use_signal(|| None),
-        content_readiness: use_signal(FloatingReadiness::default),
-        content_z_index: use_signal(|| None),
-        presence_lane: use_signal(|| {
-            HoverCardContentPresenceLane::new(hover_card.lifecycle().presence())
-        }),
-        presence_monitor: RetainedRootPresenceMonitorState {
-            monitor: use_signal(|| None),
-            cycle_id: use_signal(|| None),
-        },
-        pointer_down_inside_trigger: use_signal(|| false),
-        trigger_hovered: use_signal(|| false),
-        content_hovered: use_signal(|| false),
-        opened_via_focus: use_signal(|| false),
-        last_pointer_type: use_signal(|| None),
-        is_pointer_down_on_content: use_signal(|| false),
-        has_selection: use_signal(|| false),
-        contain_selection: use_signal(|| false),
-        open_delay_token: use_signal(|| 0),
-        close_delay_token: use_signal(|| 0),
-        pending_open: use_signal(|| false),
-        position_loop_token: use_signal(|| 0),
-        position_monitor: use_signal(|| None),
-        dismiss_monitor: use_signal(|| None),
-        pointer_up_monitor: use_signal(|| None),
-        grace_monitor: use_signal(|| None),
-        registered_trigger_id: use_signal(|| None),
-        content_id: use_signal(|| None),
-        branches: use_signal(Vec::new),
-        floating_overrides: use_signal(HoverCardFloatingOverrides::default),
-        outside_config: use_signal(HoverCardOutsideConfig::default),
+        trigger_handle,
+        content_handle,
+        presence,
+        floating,
+        dismiss,
+        focus_scope,
+        grace,
+        open_delay,
+        close_delay,
+        pointer_up_watcher,
+        pointer_down_inside_trigger,
+        trigger_hovered,
+        content_hovered,
+        opened_via_focus,
+        last_pointer_type,
+        is_pointer_down_on_content,
+        has_selection,
+        contain_selection,
+        registered_trigger_id,
+        content_id,
+        floating_overrides,
+        outside_config,
+        alive,
     };
 
-    let cleanup_state = state;
-    let synced_open_change: HoverCardOpenChangeHandler = Rc::new(on_open_change);
-    let effect_open_change = Rc::clone(&synced_open_change);
-    let effect_open_complete = on_open_change_complete.clone();
-    let effect_state = state;
-    let cleanup_card = hover_card.clone();
-    let alive = Rc::new(Cell::new(true));
-    let cleanup_alive = alive.clone();
-
-    let runtime_for_effects = HoverCardRuntime {
+    let runtime = HoverCardRuntime {
         hover_card: hover_card.clone(),
-        on_open_change: Rc::clone(&synced_open_change),
-        on_open_change_complete: on_open_change_complete.clone(),
+        on_open_change: on_open_change_slot,
         state,
-        alive: Rc::clone(&alive),
     };
 
-    use_effect(use_reactive((&hover_card,), move |(card,)| {
-        let was_open = *effect_state.last_open.peek();
-        let is_open = card.is_open();
-
-        if !is_open {
-            reset_hover_and_selection_state(effect_state);
-            stop_hover_card_grace_monitor(effect_state);
-            stop_hover_card_pointer_up_monitor(effect_state);
-            stop_hover_card_dismiss_monitor(effect_state);
-        } else {
-            if !was_open {
-                if let Some(ref on_complete) = effect_open_complete {
-                    on_complete(true);
+    let is_open_now = hover_card.is_open();
+    let should_render_now = presence.should_render();
+    let rt_for_effect = runtime.clone();
+    use_effect(use_reactive(
+        (&is_open_now, &should_render_now),
+        move |(open_now, render_now)| {
+            if !open_now {
+                reset_hover_and_selection_slots(
+                    state.content_hovered,
+                    state.is_pointer_down_on_content,
+                    state.has_selection,
+                    state.contain_selection,
+                );
+                state.grace.clear();
+                state.pointer_up_watcher.clear();
+                if !render_now {
+                    let mut ch = state.content_handle;
+                    if ch.try_peek().is_ok_and(|h| h.is_some())
+                        && let Ok(mut w) = ch.try_write()
+                    {
+                        *w = None;
+                    }
+                    state.floating.clear();
                 }
-                let content_id = effective_content_id_from_state(&card, effect_state);
-                suppress_tabbable_descendants(&content_id);
-                let cid_next = content_id.clone();
-                spawn_root_task(async move {
-                    let _ = oxidase::frame::next_frame().await;
-                    suppress_tabbable_descendants(&cid_next);
-                });
+            } else {
+                arm_hover_card_pointer_up_observer(&rt_for_effect);
             }
-            sync_hover_card_document_dismissal(&runtime_for_effects, &card);
-            sync_hover_card_pointer_up_observer(&runtime_for_effects);
+        },
+    ));
+
+    use_drop(move || {
+        if let Ok(mut flag) = alive.try_write() {
+            *flag = false;
         }
-
-        if was_open != is_open {
-            let mut last_open = effect_state.last_open;
-            if let Ok(mut w) = last_open.try_write() {
-                *w = is_open;
-            }
-        }
-
-        sync_hover_card_positioning(
-            &card,
-            effect_state,
-            Rc::clone(&effect_open_change),
-            effect_open_complete.clone(),
-        );
-    }));
-
-    dioxus::core::use_drop(move || {
-        cleanup_alive.set(false);
-        if cleanup_state
-            .contain_selection
-            .try_peek()
-            .is_ok_and(|c| *c)
-        {
+        if contain_selection.try_peek().is_ok_and(|c| *c) {
             restore_body_user_select();
         }
-        stop_hover_card_presence_monitor(cleanup_state, cleanup_card.relationships().content_id());
-        advance_token(cleanup_state.open_delay_token);
-        advance_token(cleanup_state.close_delay_token);
-        advance_token(cleanup_state.position_loop_token);
-        stop_hover_card_position_monitor(cleanup_state);
-        stop_hover_card_dismiss_monitor(cleanup_state);
-        stop_hover_card_pointer_up_monitor(cleanup_state);
-        stop_hover_card_grace_monitor(cleanup_state);
+        pointer_up_watcher.clear();
+        grace.clear();
+        open_delay.cancel();
+        close_delay.cancel();
     });
 
-    HoverCardRuntime {
-        hover_card,
-        on_open_change: synced_open_change,
-        on_open_change_complete,
-        state,
-        alive,
-    }
+    runtime
 }
 
 impl HoverCardRuntime {
     pub fn is_alive(&self) -> bool {
-        self.alive.get() && self.state.open_delay_token.try_peek().is_ok()
+        self.state.alive.try_read().is_ok_and(|a| *a)
     }
 
     pub fn hover_card(&self) -> &HoverCard {
@@ -360,11 +427,11 @@ impl HoverCardRuntime {
     }
 
     pub fn should_render_portal(&self) -> bool {
-        self.state.presence_lane.read().should_render_portal()
+        self.state.presence.should_render()
     }
 
     pub fn should_render_content(&self) -> bool {
-        self.state.presence_lane.read().should_render_content()
+        self.state.presence.should_render()
     }
 
     pub fn content(&self) -> HoverCardContentAttributes {
@@ -373,7 +440,7 @@ impl HoverCardRuntime {
             content.data_side = placement.side().as_str();
             content.data_align = placement.align().as_str();
         } else {
-            let effective = effective_floating_layer(&self.hover_card, self.state);
+            let effective = self.effective_floating_layer();
             content.data_side = effective.data_side();
             content.data_align = effective.data_align();
         }
@@ -390,7 +457,7 @@ impl HoverCardRuntime {
             arrow.data_side = placement.side().as_str();
             arrow.data_align = placement.align().as_str();
         } else {
-            let effective = effective_floating_layer(&self.hover_card, self.state);
+            let effective = self.effective_floating_layer();
             arrow.data_side = effective.data_side();
             arrow.data_align = effective.data_align();
         }
@@ -398,11 +465,11 @@ impl HoverCardRuntime {
     }
 
     pub fn geometry_vars(&self, anchor: Rect, content: Size) -> GeometryVars {
-        effective_floating_layer(&self.hover_card, self.state).geometry_vars(anchor, content)
+        self.effective_floating_layer().geometry_vars(anchor, content)
     }
 
     pub fn content_readiness(&self) -> FloatingReadiness {
-        *self.state.content_readiness.read()
+        self.state.floating.readiness()
     }
 
     pub fn content_positioning_state(&self) -> &'static str {
@@ -416,25 +483,22 @@ impl HoverCardRuntime {
     }
 
     pub fn content_css_custom_properties(&self) -> String {
-        serialize_css_custom_properties(&self.content_css_variables())
+        self.state.floating.css_custom_properties(Some((
+            HOVER_CARD_RADIX_COMPATIBILITY_PREFIX,
+            HOVER_CARD_RADIX_ANCHOR_LABEL,
+        )))
     }
 
     pub fn wrapper_style(&self) -> String {
-        let z_index = self.state.content_z_index.read();
-        match self.placement() {
-            Some(ref placement) => {
-                placement.wrapper_style(self.content_readiness(), z_index.as_deref())
-            }
-            None => FloatingReadiness::wrapper_measuring_style(z_index.as_deref()),
-        }
+        self.state.floating.wrapper_style()
     }
 
     pub fn clear_content_z_index(&self) {
-        clear_hover_card_content_z_index(self.state);
+        self.state.floating.clear_z_index();
     }
 
     pub fn placement(&self) -> Option<FloatingPlacement> {
-        self.state.placement.cloned()
+        self.state.floating.placement()
     }
 
     pub fn is_contain_selection(&self) -> bool {
@@ -442,102 +506,99 @@ impl HoverCardRuntime {
     }
 
     pub fn has_selection(&self) -> bool {
-        self.state
-            .has_selection
-            .try_peek()
-            .map(|s| *s)
-            .unwrap_or(false)
+        self.state.has_selection.try_read().map(|s| *s).unwrap_or(false)
     }
 
     pub fn is_pointer_down_on_content(&self) -> bool {
         self.state
             .is_pointer_down_on_content
-            .try_peek()
+            .try_read()
             .map(|p| *p)
             .unwrap_or(false)
     }
 
     pub fn register_content_id(&self, id: impl Into<String>) {
-        register_id_signal(self.state.content_id, id.into());
+        let id = id.into();
+        let mut sig = self.state.content_id;
+        sync_signal(&mut sig, Some(id.clone()));
+        self.state.dismiss.rename_layer_id(&id);
+        self.state.focus_scope.rename_container_id(&id);
     }
 
     pub fn unregister_content_id(&self, id: &str) {
-        unregister_id_signal(self.state.content_id, id);
+        let mut sig = self.state.content_id;
+        if sig.try_peek().is_ok_and(|c| c.as_deref() == Some(id))
+            && let Ok(mut w) = sig.try_write()
+        {
+            *w = None;
+        }
     }
 
     pub fn register_trigger_id(&self, id: impl Into<String>) {
-        register_id_signal(self.state.registered_trigger_id, id.into());
+        let mut sig = self.state.registered_trigger_id;
+        sync_signal(&mut sig, Some(id.into()));
     }
 
     pub fn unregister_trigger_id(&self, id: &str) {
-        unregister_id_signal(self.state.registered_trigger_id, id);
+        let mut sig = self.state.registered_trigger_id;
+        if sig.try_peek().is_ok_and(|c| c.as_deref() == Some(id))
+            && let Ok(mut w) = sig.try_write()
+        {
+            *w = None;
+        }
+    }
+
+    pub fn register_arrow_id(&self, id: impl Into<String>) {
+        self.state.floating.register_arrow_id(id);
+    }
+
+    pub fn unregister_arrow_id(&self, id: &str) {
+        self.state.floating.unregister_arrow_id(id);
     }
 
     pub fn register_branch(&self, branch: String) {
-        let mut branches = self.state.branches;
-        let already = branches
-            .try_peek()
-            .is_ok_and(|list| list.iter().any(|b| b == &branch));
-        if !already {
-            if let Ok(mut w) = branches.try_write() {
-                w.push(branch);
-            }
-        }
+        self.state.dismiss.register_branch(branch);
     }
 
     pub fn unregister_branch(&self, branch: &str) {
-        let mut branches = self.state.branches;
-        if let Ok(mut w) = branches.try_write() {
-            if let Some(pos) = w.iter().position(|b| b == branch) {
-                w.remove(pos);
-            }
-        }
+        self.state.dismiss.unregister_branch(branch);
     }
 
     pub fn branches_signal(&self) -> Signal<Vec<String>> {
-        self.state.branches
+        self.state.dismiss.branches_signal()
     }
 
     pub fn effective_trigger_id(&self) -> String {
-        effective_trigger_id_from_state(&self.hover_card, self.state)
+        self.state
+            .registered_trigger_id
+            .try_peek()
+            .ok()
+            .and_then(|id| id.clone())
+            .unwrap_or_else(|| self.hover_card.relationships().trigger_id().to_owned())
     }
 
     pub fn effective_content_id(&self) -> String {
-        effective_content_id_from_state(&self.hover_card, self.state)
+        self.state
+            .content_id
+            .try_peek()
+            .ok()
+            .and_then(|id| id.clone())
+            .unwrap_or_else(|| self.hover_card.relationships().content_id().to_owned())
     }
 
     pub fn set_floating_overrides(&self, overrides: HoverCardFloatingOverrides) {
         let mut sig = self.state.floating_overrides;
-        if sig.try_peek().is_ok_and(|current| *current != overrides) {
-            if let Ok(mut w) = sig.try_write() {
-                *w = overrides;
-            }
-        }
+        sync_signal(&mut sig, overrides);
     }
 
     pub fn set_outside_config(&self, config: HoverCardOutsideConfig) {
-        let mut sig = self.state.outside_config;
-        if sig.try_peek().is_ok_and(|current| *current != config) {
-            if let Ok(mut w) = sig.try_write() {
-                *w = config;
-            }
-        }
+        let mut slot = self.state.outside_config;
+        let _ = slot.try_write().map(|mut w| *w = config);
     }
 
     pub fn resync_positioning_if_open(&self) {
         if self.is_live_open() {
-            let live_card = self
-                .state
-                .live_hover_card
-                .try_peek()
-                .map(|c| c.clone())
-                .unwrap_or_else(|_| self.hover_card.clone());
-            sync_hover_card_positioning(
-                &live_card,
-                self.state,
-                Rc::clone(&self.on_open_change),
-                self.on_open_change_complete.clone(),
-            );
+            self.state.floating.refresh();
         }
     }
 
@@ -561,13 +622,11 @@ impl HoverCardRuntime {
     }
 
     pub fn has_active_grace_monitor(&self) -> bool {
-        self.state
-            .grace_monitor
-            .with_peek(|monitor| monitor.is_some())
+        self.state.grace.is_active()
     }
 
     pub fn stop_grace_monitor(&self) {
-        stop_hover_card_grace_monitor(self.state);
+        self.state.grace.clear();
     }
 
     pub fn start_hover_grace_corridor(&self, exit_point: Point2D, from_trigger: bool) -> bool {
@@ -591,35 +650,25 @@ impl HoverCardRuntime {
             (content_rect, trigger_rect)
         };
 
-        let transit = HoverCardGraceTransit::new(exit_point, from_rect, to_rect, Some(5.0));
+        let transit = GraceTransit::new(exit_point, from_rect, to_rect, Some(5.0), true);
         match transit.inspect_point(exit_point) {
-            HoverCardGraceStatus::ExitedCorridor => return false,
-            HoverCardGraceStatus::ReachedTarget if to_rect.contains_point(exit_point) => {
+            GraceTransitStatus::ExitedCorridor => return false,
+            GraceTransitStatus::ReachedTarget if to_rect.contains_point(exit_point) => {
                 return true;
             }
-            HoverCardGraceStatus::InTransit | HoverCardGraceStatus::ReachedTarget => {}
+            GraceTransitStatus::InTransit | GraceTransitStatus::ReachedTarget => {}
         }
-        let state = self.state;
-        let runtime = self.clone();
 
-        let guard = start_document_pointer_stream(move |point| {
-            match transit.inspect_point(point) {
-                HoverCardGraceStatus::InTransit => {}
-                HoverCardGraceStatus::ReachedTarget => {
-                    stop_hover_card_grace_monitor(state);
-                    advance_token(state.close_delay_token);
-                }
-                HoverCardGraceStatus::ExitedCorridor => {
-                    stop_hover_card_grace_monitor(state);
-                    runtime.schedule_close();
-                }
+        let runtime = self.clone();
+        self.state.grace.start(transit, None, move |outcome| match outcome {
+            GraceCorridorOutcome::InTransit(_) => {}
+            GraceCorridorOutcome::ReachedTarget(_) => {
+                runtime.cancel_close();
+            }
+            GraceCorridorOutcome::ExitedCorridor(_) | GraceCorridorOutcome::Stalled => {
+                runtime.schedule_close();
             }
         });
-
-        let mut grace_monitor = self.state.grace_monitor;
-        if let Ok(mut w) = grace_monitor.try_write() {
-            *w = Some(guard);
-        }
         true
     }
 
@@ -627,9 +676,8 @@ impl HoverCardRuntime {
         let runtime = self.clone();
         move |event| {
             let mut trigger_handle = runtime.state.trigger_handle;
-            if let Ok(mut w) = trigger_handle.try_write() {
-                *w = Some(event.data());
-            }
+            let _ = trigger_handle.try_write().map(|mut w| *w = Some(event.data()));
+            runtime.state.floating.capture_anchor(event.data());
         }
     }
 
@@ -637,58 +685,16 @@ impl HoverCardRuntime {
         let runtime = self.clone();
         move |event| {
             let mut content_handle = runtime.state.content_handle;
-            if let Ok(mut w) = content_handle.try_write() {
-                *w = Some(event.data());
-            }
+            let _ = content_handle.try_write().map(|mut w| *w = Some(event.data()));
             let content_id = runtime.effective_content_id();
-            suppress_tabbable_descendants(&content_id);
+            remove_from_tab_order(&content_id);
+            runtime.state.floating.capture_content(event.data());
 
-            let live_card = runtime
-                .state
-                .live_hover_card
-                .try_peek()
-                .map(|c| c.clone())
-                .unwrap_or_else(|_| runtime.hover_card.clone());
-            sync_hover_card_content_z_index(&live_card, runtime.state);
-            sync_hover_card_positioning(
-                &live_card,
-                runtime.state,
-                Rc::clone(&runtime.on_open_change),
-                runtime.on_open_change_complete.clone(),
-            );
-            if let Some(placement) = compute_hover_card_position_with_state(&live_card, runtime.state)
-            {
-                if placement.geometry().content_height() > 0.0 {
-                    sync_hover_card_content_z_index(&live_card, runtime.state);
-                    update_placement_if_changed(runtime.state, placement);
-                    set_hover_card_content_readiness(runtime.state, FloatingReadiness::Ready);
-                    return;
-                }
-            }
-
-            let runtime_clone = runtime.clone();
+            let rt_next = runtime.clone();
             spawn_root_task(async move {
                 let _ = oxidase::frame::next_frame().await;
-                if !runtime_clone.is_alive() {
-                    return;
-                }
-                let cid = runtime_clone.effective_content_id();
-                suppress_tabbable_descendants(&cid);
-                let live_card = runtime_clone
-                    .state
-                    .live_hover_card
-                    .try_peek()
-                    .map(|c| c.clone())
-                    .unwrap_or_else(|_| runtime_clone.hover_card.clone());
-                sync_hover_card_content_z_index(&live_card, runtime_clone.state);
-                if let Some(placement) =
-                    compute_hover_card_position_with_state(&live_card, runtime_clone.state)
-                {
-                    update_placement_if_changed(runtime_clone.state, placement);
-                    set_hover_card_content_readiness(
-                        runtime_clone.state,
-                        FloatingReadiness::Ready,
-                    );
+                if rt_next.is_alive() && rt_next.is_live_open() {
+                    remove_from_tab_order(&rt_next.effective_content_id());
                 }
             });
         }
@@ -698,16 +704,14 @@ impl HoverCardRuntime {
         let runtime = self.clone();
         move |event| {
             let mut content_handle = runtime.state.content_handle;
-            if let Ok(mut w) = content_handle.try_write() {
-                *w = Some(event.data());
-            }
+            let _ = content_handle.try_write().map(|mut w| *w = Some(event.data()));
             let content_id = runtime.effective_content_id();
-            suppress_tabbable_descendants(&content_id);
-            let runtime_clone = runtime.clone();
+            remove_from_tab_order(&content_id);
+            let rt_next = runtime.clone();
             spawn_root_task(async move {
                 let _ = oxidase::frame::next_frame().await;
-                if runtime_clone.is_alive() {
-                    suppress_tabbable_descendants(&runtime_clone.effective_content_id());
+                if rt_next.is_alive() && rt_next.is_live_open() {
+                    remove_from_tab_order(&rt_next.effective_content_id());
                 }
             });
         }
@@ -725,38 +729,27 @@ impl HoverCardRuntime {
             if runtime.is_disabled() {
                 return;
             }
-            let mut pointer_down_inside = runtime.state.pointer_down_inside_trigger;
-            if let Ok(mut w) = pointer_down_inside.try_write() {
-                *w = true;
-            }
-            let mut last_pointer_type = runtime.state.last_pointer_type;
-            if let Ok(mut w) = last_pointer_type.try_write() {
-                *w = Some(event.pointer_type());
-            }
+            let mut pdi = runtime.state.pointer_down_inside_trigger;
+            let _ = pdi.try_write().map(|mut w| *w = true);
+            let mut lpt = runtime.state.last_pointer_type;
+            let _ = lpt.try_write().map(|mut w| *w = Some(event.pointer_type()));
         }
     }
 
-    pub fn trigger_pointer_enter(&self, item_disabled: bool) -> impl FnMut(Event<PointerData>) + 'static {
+    pub fn trigger_pointer_enter(
+        &self,
+        item_disabled: bool,
+    ) -> impl FnMut(Event<PointerData>) + 'static {
         let runtime = self.clone();
         move |event| {
             if item_disabled || runtime.is_disabled() || event.pointer_type() == "touch" {
                 return;
             }
-            let mut trigger_hovered = runtime.state.trigger_hovered;
-            if let Ok(mut w) = trigger_hovered.try_write() {
-                *w = true;
-            }
-            let mut last_pointer_type = runtime.state.last_pointer_type;
-            if last_pointer_type
-                .try_peek()
-                .ok()
-                .and_then(|p| p.clone())
-                .as_deref()
-                != Some("touch")
-            {
-                if let Ok(mut w) = last_pointer_type.try_write() {
-                    *w = None;
-                }
+            let mut th = runtime.state.trigger_hovered;
+            let _ = th.try_write().map(|mut w| *w = true);
+            let mut lpt = runtime.state.last_pointer_type;
+            if lpt.try_read().ok().and_then(|p| p.clone()).as_deref() != Some("touch") {
+                let _ = lpt.try_write().map(|mut w| *w = None);
             }
             runtime.cancel_close();
             runtime.stop_grace_monitor();
@@ -764,29 +757,25 @@ impl HoverCardRuntime {
         }
     }
 
-    pub fn trigger_pointer_leave(&self, item_disabled: bool) -> impl FnMut(Event<PointerData>) + 'static {
+    pub fn trigger_pointer_leave(
+        &self,
+        item_disabled: bool,
+    ) -> impl FnMut(Event<PointerData>) + 'static {
         let runtime = self.clone();
         move |event| {
             if item_disabled || event.pointer_type() == "touch" {
                 return;
             }
-            let mut trigger_hovered = runtime.state.trigger_hovered;
-            if let Ok(mut w) = trigger_hovered.try_write() {
-                *w = false;
-            }
+            let mut th = runtime.state.trigger_hovered;
+            let _ = th.try_write().map(|mut w| *w = false);
 
-            // Cancel any pending delayed open if pointer leaves before open_delay elapses.
             runtime.cancel_pending_open();
 
             if !runtime.is_live_open() {
                 return;
             }
 
-            if runtime
-                .state
-                .opened_via_focus
-                .try_peek()
-                .is_ok_and(|f| *f)
+            if runtime.state.opened_via_focus.try_read().is_ok_and(|f| *f)
                 || runtime.trigger_has_focus()
                 || runtime.has_selection()
                 || runtime.is_pointer_down_on_content()
@@ -813,17 +802,15 @@ impl HoverCardRuntime {
             let opened_from_pointer = runtime
                 .state
                 .pointer_down_inside_trigger
-                .try_peek()
+                .try_read()
                 .is_ok_and(|p| *p);
-            let mut pointer_down_inside = runtime.state.pointer_down_inside_trigger;
-            if let Ok(mut w) = pointer_down_inside.try_write() {
-                *w = false;
-            }
+            let mut pdi = runtime.state.pointer_down_inside_trigger;
+            let _ = pdi.try_write().map(|mut w| *w = false);
 
             let is_touch = runtime
                 .state
                 .last_pointer_type
-                .try_peek()
+                .try_read()
                 .ok()
                 .and_then(|p| p.clone())
                 .as_deref()
@@ -854,10 +841,8 @@ impl HoverCardRuntime {
                 }
             }
 
-            let mut opened_via_focus = runtime.state.opened_via_focus;
-            if let Ok(mut w) = opened_via_focus.try_write() {
-                *w = true;
-            }
+            let mut ovf = runtime.state.opened_via_focus;
+            let _ = ovf.try_write().map(|mut w| *w = true);
             runtime.cancel_close();
             runtime.stop_grace_monitor();
             runtime.schedule_open(true);
@@ -867,29 +852,15 @@ impl HoverCardRuntime {
     pub fn trigger_blur(&self) -> impl FnMut(Event<FocusData>) + 'static {
         let runtime = self.clone();
         move |_| {
-            let mut pointer_down_inside = runtime.state.pointer_down_inside_trigger;
-            if let Ok(mut w) = pointer_down_inside.try_write() {
-                *w = false;
-            }
-            let mut last_pointer_type = runtime.state.last_pointer_type;
-            if let Ok(mut w) = last_pointer_type.try_write() {
-                *w = None;
-            }
-            let mut opened_via_focus = runtime.state.opened_via_focus;
-            if let Ok(mut w) = opened_via_focus.try_write() {
-                *w = false;
-            }
+            let mut pdi = runtime.state.pointer_down_inside_trigger;
+            let _ = pdi.try_write().map(|mut w| *w = false);
+            let mut lpt = runtime.state.last_pointer_type;
+            let _ = lpt.try_write().map(|mut w| *w = None);
+            let mut ovf = runtime.state.opened_via_focus;
+            let _ = ovf.try_write().map(|mut w| *w = false);
 
-            let trigger_hovered = runtime
-                .state
-                .trigger_hovered
-                .try_peek()
-                .is_ok_and(|h| *h);
-            let content_hovered = runtime
-                .state
-                .content_hovered
-                .try_peek()
-                .is_ok_and(|h| *h);
+            let trigger_hovered = runtime.state.trigger_hovered.try_read().is_ok_and(|h| *h);
+            let content_hovered = runtime.state.content_hovered.try_read().is_ok_and(|h| *h);
             if !trigger_hovered
                 && !content_hovered
                 && !runtime.has_selection()
@@ -905,17 +876,11 @@ impl HoverCardRuntime {
         move |event| {
             event.stop_propagation();
             let mut contain = runtime.state.contain_selection;
-            if let Ok(mut w) = contain.try_write() {
-                *w = true;
-            }
-            let mut has_sel = runtime.state.has_selection;
-            if let Ok(mut w) = has_sel.try_write() {
-                *w = false;
-            }
+            sync_signal(&mut contain, true);
+            let mut hs = runtime.state.has_selection;
+            let _ = hs.try_write().map(|mut w| *w = false);
             let mut down = runtime.state.is_pointer_down_on_content;
-            if let Ok(mut w) = down.try_write() {
-                *w = true;
-            }
+            let _ = down.try_write().map(|mut w| *w = true);
             set_body_user_select_none();
         }
     }
@@ -926,10 +891,8 @@ impl HoverCardRuntime {
             if runtime.is_disabled() || event.pointer_type() == "touch" {
                 return;
             }
-            let mut content_hovered = runtime.state.content_hovered;
-            if let Ok(mut w) = content_hovered.try_write() {
-                *w = true;
-            }
+            let mut ch = runtime.state.content_hovered;
+            let _ = ch.try_write().map(|mut w| *w = true);
             runtime.cancel_close();
             runtime.stop_grace_monitor();
         }
@@ -941,16 +904,10 @@ impl HoverCardRuntime {
             if event.pointer_type() == "touch" {
                 return;
             }
-            let mut content_hovered = runtime.state.content_hovered;
-            if let Ok(mut w) = content_hovered.try_write() {
-                *w = false;
-            }
+            let mut ch = runtime.state.content_hovered;
+            let _ = ch.try_write().map(|mut w| *w = false);
 
-            if runtime
-                .state
-                .opened_via_focus
-                .try_peek()
-                .is_ok_and(|f| *f)
+            if runtime.state.opened_via_focus.try_read().is_ok_and(|f| *f)
                 || runtime.trigger_has_focus()
                 || runtime.has_selection()
                 || runtime.is_pointer_down_on_content()
@@ -962,11 +919,7 @@ impl HoverCardRuntime {
             let exit_point = Point2D::new(coords.x, coords.y);
             if !runtime.start_hover_grace_corridor(exit_point, false)
                 && !runtime.has_active_grace_monitor()
-                && !runtime
-                    .state
-                    .trigger_hovered
-                    .try_peek()
-                    .is_ok_and(|h| *h)
+                && !runtime.state.trigger_hovered.try_read().is_ok_and(|h| *h)
             {
                 runtime.schedule_close();
             }
@@ -976,7 +929,10 @@ impl HoverCardRuntime {
     pub fn escape_keydown(&self) -> impl FnMut(Event<KeyboardData>) + 'static {
         let runtime = self.clone();
         move |event| {
-            if event.key() == Key::Named(NamedKey::Escape) && runtime.dismiss_escape() {
+            if is_ime_composing_key(&event) {
+                return;
+            }
+            if is_escape_key(&event.key()) && runtime.dismiss_escape() {
                 event.prevent_default();
                 event.stop_propagation();
             }
@@ -984,11 +940,11 @@ impl HoverCardRuntime {
     }
 
     pub fn dismiss_escape(&self) -> bool {
-        if !self.is_live_open() || crate::foundation::overlay::is_overlay_escape_consumed() {
+        if !self.is_live_open() || is_overlay_escape_consumed() {
             return false;
         }
         let effective_content_id = self.effective_content_id();
-        if !crate::foundation::overlay::is_topmost_overlay_layer(&effective_content_id) {
+        if !is_topmost_overlay_layer(&effective_content_id) {
             return false;
         }
         let stack = self.dismiss_stack();
@@ -1004,14 +960,15 @@ impl HoverCardRuntime {
         let cfg = self
             .state
             .outside_config
-            .try_peek()
-            .map(|c| c.clone())
+            .try_read()
+            .map(|c| *c)
             .unwrap_or_default();
-        if let Some(ref handler) = cfg.on_escape_key_down {
-            handler.call(());
+        let evt: EscapeKeyDownEvent = PreventableEvent::empty();
+        if let Some(handler) = cfg.on_escape_key_down {
+            handler.call(evt.clone());
         }
-        if cfg.escape_keydown_behavior.should_close() {
-            crate::foundation::overlay::mark_overlay_escape_consumed();
+        if cfg.escape_keydown_behavior.should_close() && !evt.is_default_prevented() {
+            mark_overlay_escape_consumed();
             self.force_close();
             return true;
         }
@@ -1022,18 +979,19 @@ impl HoverCardRuntime {
         if !self.is_live_open() {
             return false;
         }
-        let target = target.map(|t| t.to_owned());
+        let target_owned = target.map(str::to_owned);
         let stack = self.dismiss_stack();
         let effective_content_id = self.effective_content_id();
+        let branches_sig = self.state.dismiss.branches_signal();
         let should_dismiss_layer = self.state.live_hover_card.with_peek(|c| {
             let mut layer = c.lifecycle().dismiss_layer().clone();
             layer.set_id(effective_content_id.clone());
-            if let Ok(branches) = self.state.branches.try_peek() {
+            if let Ok(branches) = branches_sig.try_peek() {
                 for branch in branches.iter() {
                     layer.register_branch(branch.clone());
                 }
             }
-            layer.should_dismiss_outside_pointer(target.as_ref(), &stack)
+            layer.should_dismiss_outside_pointer(target_owned.as_ref(), &stack)
         });
         if !should_dismiss_layer {
             return false;
@@ -1042,16 +1000,17 @@ impl HoverCardRuntime {
         let cfg = self
             .state
             .outside_config
-            .try_peek()
-            .map(|c| c.clone())
+            .try_read()
+            .map(|c| *c)
             .unwrap_or_default();
-        if let Some(ref handler) = cfg.on_pointer_down_outside {
-            handler.call(());
+        let out_evt: PointerDownOutsideEvent = PreventableEvent::new(target_owned);
+        if let Some(handler) = cfg.on_pointer_down_outside {
+            handler.call(out_evt.clone());
         }
-        if let Some(ref handler) = cfg.on_interact_outside {
-            handler.call(());
+        if let Some(handler) = cfg.on_interact_outside {
+            handler.call(out_evt.clone());
         }
-        if cfg.interact_outside_behavior.should_close() {
+        if cfg.interact_outside_behavior.should_close() && !out_evt.is_default_prevented() {
             self.force_close();
             return true;
         }
@@ -1062,65 +1021,32 @@ impl HoverCardRuntime {
         if !self.is_alive() || self.is_disabled() {
             return;
         }
-
         self.cancel_close();
         if self.is_live_open() {
             return;
         }
 
-        let open_delay = self.open_delay_ms();
-        if immediate || open_delay == 0 {
-            let mut pending = self.state.pending_open;
-            if let Ok(mut w) = pending.try_write() {
-                *w = false;
-            }
-            advance_token(self.state.open_delay_token);
+        let open_delay_ms = self.open_delay_ms();
+        if immediate || open_delay_ms == 0 {
+            self.state.open_delay.cancel();
             self.commit_open(true);
             return;
         }
 
-        let request_token = advance_token(self.state.open_delay_token);
-        let mut pending = self.state.pending_open;
-        if let Ok(mut w) = pending.try_write() {
-            *w = true;
-        }
         let runtime = self.clone();
-
-        spawn_root_task(async move {
-            Delay::new(Duration::from_millis(open_delay)).await;
-            if !runtime.is_alive() || runtime.is_disabled() {
-                return;
-            }
-            let token_matches = runtime
-                .state
-                .open_delay_token
-                .try_peek()
-                .is_ok_and(|t| *t == request_token);
-            let still_pending = runtime
-                .state
-                .pending_open
-                .try_peek()
-                .is_ok_and(|p| *p);
-            if token_matches && still_pending {
-                let mut pending = runtime.state.pending_open;
-                if let Ok(mut w) = pending.try_write() {
-                    *w = false;
-                }
+        self.state.open_delay.schedule(open_delay_ms, move || {
+            if runtime.is_alive() && !runtime.is_disabled() {
                 runtime.commit_open(true);
             }
         });
     }
 
     pub fn cancel_pending_open(&self) {
-        advance_token(self.state.open_delay_token);
-        let mut pending = self.state.pending_open;
-        if let Ok(mut w) = pending.try_write() {
-            *w = false;
-        }
+        self.state.open_delay.cancel();
     }
 
     pub fn cancel_close(&self) {
-        advance_token(self.state.close_delay_token);
+        self.state.close_delay.cancel();
     }
 
     pub fn schedule_close(&self) {
@@ -1133,26 +1059,16 @@ impl HoverCardRuntime {
             return;
         }
 
-        let close_delay = self.close_delay_ms();
-        if close_delay == 0 {
+        let close_delay_ms = self.close_delay_ms();
+        if close_delay_ms == 0 {
+            self.state.close_delay.cancel();
             self.try_commit_close();
             return;
         }
 
-        let request_token = advance_token(self.state.close_delay_token);
         let runtime = self.clone();
-
-        spawn_root_task(async move {
-            Delay::new(Duration::from_millis(close_delay)).await;
-            if !runtime.is_alive() {
-                return;
-            }
-            let token_matches = runtime
-                .state
-                .close_delay_token
-                .try_peek()
-                .is_ok_and(|t| *t == request_token);
-            if token_matches {
+        self.state.close_delay.schedule(close_delay_ms, move || {
+            if runtime.is_alive() {
                 runtime.try_commit_close();
             }
         });
@@ -1162,39 +1078,26 @@ impl HoverCardRuntime {
         if !self.is_alive() {
             return;
         }
-        if self
-            .state
-            .contain_selection
-            .try_peek()
-            .is_ok_and(|c| *c)
-        {
-            restore_body_user_select();
-        }
-        reset_hover_and_selection_state(self.state);
+        reset_hover_and_selection_slots(
+            self.state.content_hovered,
+            self.state.is_pointer_down_on_content,
+            self.state.has_selection,
+            self.state.contain_selection,
+        );
         self.cancel_pending_open();
         self.cancel_close();
         self.stop_grace_monitor();
+        let cid = self.effective_content_id();
+        restore_tab_order(&cid);
         if self.is_live_open() {
             self.commit_open(false);
         }
     }
 
     fn try_commit_close(&self) {
-        let trigger_hovered = self
-            .state
-            .trigger_hovered
-            .try_peek()
-            .is_ok_and(|h| *h);
-        let content_hovered = self
-            .state
-            .content_hovered
-            .try_peek()
-            .is_ok_and(|h| *h);
-        let opened_via_focus = self
-            .state
-            .opened_via_focus
-            .try_peek()
-            .is_ok_and(|f| *f);
+        let trigger_hovered = self.state.trigger_hovered.try_read().is_ok_and(|h| *h);
+        let content_hovered = self.state.content_hovered.try_read().is_ok_and(|h| *h);
+        let opened_via_focus = self.state.opened_via_focus.try_read().is_ok_and(|f| *f);
 
         if !trigger_hovered
             && !content_hovered
@@ -1213,10 +1116,10 @@ impl HoverCardRuntime {
         if desired.try_peek().is_ok_and(|d| *d == next_open) {
             return;
         }
-        if let Ok(mut w) = desired.try_write() {
-            *w = next_open;
+        let _ = desired.try_write().map(|mut w| *w = next_open);
+        if let Ok(cb) = self.on_open_change.try_read().map(|g| Rc::clone(&*g)) {
+            cb(next_open);
         }
-        (self.on_open_change)(next_open);
     }
 
     fn open_delay_ms(&self) -> u64 {
@@ -1243,175 +1146,94 @@ impl HoverCardRuntime {
             .unwrap_or_else(|_| self.hover_card.ignore_non_keyboard_focus())
     }
 
+    fn effective_floating_layer(&self) -> FloatingLayer {
+        let overrides = self
+            .state
+            .floating_overrides
+            .try_peek()
+            .map(|o| o.clone())
+            .unwrap_or_default();
+        compute_effective_floating_layer(&self.hover_card, &overrides)
+    }
+
     fn dismiss_stack(&self) -> Vec<String> {
-        vec![self.effective_content_id()]
-    }
-}
-
-pub(crate) fn suppress_tabbable_descendants(content_id: &str) {
-    let candidates = query_selector_all_by_id(content_id, DEFAULT_FOCUSABLE_SELECTOR);
-    for el in candidates {
-        el.set_attribute("tabindex", "-1");
-    }
-}
-
-fn sync_hover_card_document_dismissal(runtime: &HoverCardRuntime, card: &HoverCard) {
-    stop_hover_card_dismiss_monitor(runtime.state);
-
-    if !card.is_open() {
-        return;
-    }
-
-    let trigger_id = effective_trigger_id_from_state(card, runtime.state);
-    let content_id = effective_content_id_from_state(card, runtime.state);
-    let mut boundary_ids = vec![trigger_id, content_id];
-    if let Ok(branches) = runtime.state.branches.try_peek() {
-        for b in branches.iter() {
-            if !boundary_ids.contains(b) {
-                boundary_ids.push(b.clone());
-            }
+        let active = active_overlay_layers_snapshot();
+        if active.is_empty() {
+            vec![self.effective_content_id()]
+        } else {
+            active
         }
     }
-    let boundary_refs: Vec<&str> = boundary_ids.iter().map(String::as_str).collect();
+
+    #[allow(dead_code)]
+    pub(crate) fn focus_scope(&self) -> FocusScopeHandle {
+        self.state.focus_scope
+    }
+}
+
+fn arm_hover_card_pointer_up_observer(runtime: &HoverCardRuntime) {
     let rt = runtime.clone();
-    let card_clone = card.clone();
-
-    let watcher = start_document_dismiss_monitor_with_boundaries(&boundary_refs, move |event| {
-        if !rt.is_alive() || !rt.is_live_open() {
-            return;
-        }
-        match event {
-            DocumentDismissEvent::Escape => {
-                rt.dismiss_escape();
+    runtime.state.pointer_up_watcher.arm_with(move |expected_gen| {
+        let rt_cb = rt.clone();
+        start_document_pointer_up_observer(move || {
+            if !rt_cb.is_alive()
+                || rt_cb.state.pointer_up_watcher.generation() != expected_gen
+            {
+                return;
             }
-            DocumentDismissEvent::PointerDown { path_ids }
-            | DocumentDismissEvent::Click { path_ids } => {
-                if hover_card_document_path_is_outside(&card_clone, rt.state, &path_ids) {
-                    rt.dismiss_outside_pointer(None);
-                }
+            let was_containing = rt_cb.state.contain_selection.try_peek().is_ok_and(|c| *c);
+            let was_pointer_down = rt_cb
+                .state
+                .is_pointer_down_on_content
+                .try_read()
+                .is_ok_and(|p| *p);
+
+            if was_containing {
+                restore_body_user_select();
+                let mut contain = rt_cb.state.contain_selection;
+                sync_signal(&mut contain, false);
             }
-            DocumentDismissEvent::FocusIn { .. } => {}
-        }
-    });
-
-    let mut dismiss_monitor = runtime.state.dismiss_monitor;
-    if let Ok(mut w) = dismiss_monitor.try_write() {
-        *w = Some(watcher);
-    }
-}
-
-fn hover_card_document_path_is_outside(
-    card: &HoverCard,
-    state: HoverCardRuntimeState,
-    path_ids: &[String],
-) -> bool {
-    let trigger_id = effective_trigger_id_from_state(card, state);
-    let content_id = effective_content_id_from_state(card, state);
-    let branches = state
-        .branches
-        .try_peek()
-        .map(|b| b.clone())
-        .unwrap_or_default();
-
-    !path_ids.iter().any(|id| {
-        id == &trigger_id
-            || id == &content_id
-            || card.lifecycle().dismiss_layer().branches().contains(id)
-            || branches.contains(id)
-    })
-}
-
-fn sync_hover_card_pointer_up_observer(runtime: &HoverCardRuntime) {
-    if runtime
-        .state
-        .pointer_up_monitor
-        .try_peek()
-        .is_ok_and(|m| m.is_some())
-    {
-        return;
-    }
-
-    let rt = runtime.clone();
-    let watcher = start_document_pointer_up_observer(move || {
-        if !rt.is_alive() {
-            return;
-        }
-        let was_containing = rt
-            .state
-            .contain_selection
-            .try_peek()
-            .is_ok_and(|c| *c);
-        let was_pointer_down = rt
-            .state
-            .is_pointer_down_on_content
-            .try_peek()
-            .is_ok_and(|p| *p);
-
-        if was_containing {
-            restore_body_user_select();
-            let mut contain = rt.state.contain_selection;
-            if let Ok(mut w) = contain.try_write() {
-                *w = false;
+            if was_pointer_down {
+                let mut down = rt_cb.state.is_pointer_down_on_content;
+                let _ = down.try_write().map(|mut w| *w = false);
             }
-        }
-        if was_pointer_down {
-            let mut down = rt.state.is_pointer_down_on_content;
-            if let Ok(mut w) = down.try_write() {
-                *w = false;
-            }
-        }
 
-        if was_containing || was_pointer_down {
-            let rt_frame = rt.clone();
-            spawn_root_task(async move {
-                let _ = oxidase::frame::next_frame().await;
-                if !rt_frame.is_alive() {
-                    return;
-                }
-                let has_sel = document_has_text_selection();
-                let mut has_sel_sig = rt_frame.state.has_selection;
-                if let Ok(mut w) = has_sel_sig.try_write() {
-                    *w = has_sel;
-                }
-                if !has_sel {
-                    let trigger_hovered = rt_frame
-                        .state
-                        .trigger_hovered
-                        .try_peek()
-                        .is_ok_and(|h| *h);
-                    let content_hovered = rt_frame
-                        .state
-                        .content_hovered
-                        .try_peek()
-                        .is_ok_and(|h| *h);
-                    let opened_via_focus = rt_frame
-                        .state
-                        .opened_via_focus
-                        .try_peek()
-                        .is_ok_and(|f| *f);
-                    if !trigger_hovered
-                        && !content_hovered
-                        && !opened_via_focus
-                        && !rt_frame.trigger_has_focus()
-                    {
-                        rt_frame.schedule_close();
+            if was_containing || was_pointer_down {
+                let rt_frame = rt_cb.clone();
+                spawn_root_task(async move {
+                    let _ = oxidase::frame::next_frame().await;
+                    if !rt_frame.is_alive() {
+                        return;
                     }
-                }
-            });
-        }
+                    let has_sel = document_has_text_selection();
+                    let mut hs = rt_frame.state.has_selection;
+                    let _ = hs.try_write().map(|mut w| *w = has_sel);
+                    if !has_sel {
+                        let trigger_hovered =
+                            rt_frame.state.trigger_hovered.try_read().is_ok_and(|h| *h);
+                        let content_hovered =
+                            rt_frame.state.content_hovered.try_read().is_ok_and(|h| *h);
+                        let opened_via_focus =
+                            rt_frame.state.opened_via_focus.try_read().is_ok_and(|f| *f);
+                        if !trigger_hovered
+                            && !content_hovered
+                            && !opened_via_focus
+                            && !rt_frame.trigger_has_focus()
+                        {
+                            rt_frame.schedule_close();
+                        }
+                    }
+                });
+            }
+        })
     });
-
-    let mut pointer_up_monitor = runtime.state.pointer_up_monitor;
-    if let Ok(mut w) = pointer_up_monitor.try_write() {
-        *w = Some(watcher);
-    }
 }
 
-fn effective_floating_layer(card: &HoverCard, state: HoverCardRuntimeState) -> FloatingLayer {
+fn compute_effective_floating_layer(
+    card: &HoverCard,
+    overrides: &HoverCardFloatingOverrides,
+) -> FloatingLayer {
     let base = card.lifecycle().floating().clone();
-    let Ok(overrides) = state.floating_overrides.try_peek() else {
-        return base;
-    };
     let mut layer = if let Some(side) = overrides.side {
         FloatingLayer::new(side)
             .with_align(base.align())
@@ -1455,421 +1277,42 @@ fn effective_floating_layer(card: &HoverCard, state: HoverCardRuntimeState) -> F
     layer
 }
 
-fn compute_hover_card_position_with_state(
-    card: &HoverCard,
-    state: HoverCardRuntimeState,
-) -> Option<FloatingPlacement> {
-    let trigger_id = effective_trigger_id_from_state(card, state);
-    let content_id = effective_content_id_from_state(card, state);
-    let boundary_id = state
-        .floating_overrides
-        .try_peek()
-        .ok()
-        .and_then(|o| o.collision_boundary.clone());
-    let floating_layer = effective_floating_layer(card, state);
-    let config = OverlayPositionConfig {
-        anchor_id: &trigger_id,
-        content_id: &content_id,
-        arrow_id: Some(card.relationships().arrow_id()),
-        boundary_id: boundary_id.as_deref(),
-        side: floating_layer.side(),
-        align: floating_layer.align(),
-        side_offset: floating_layer.side_offset(),
-        align_offset: floating_layer.align_offset(),
-        avoid_collisions: floating_layer.avoid_collisions(),
-        collision_padding: floating_layer.collision_padding(),
-        arrow_padding: floating_layer.arrow_padding(),
-        hide_when_detached: floating_layer.hide_when_detached(),
-        sticky: true,
-        namespace: Some(HOVER_CARD_GEOMETRY_NAMESPACE),
-    };
-    compute_overlay_position(&config)
-}
-
-fn update_placement_if_changed(state: HoverCardRuntimeState, placement: FloatingPlacement) {
-    let should_update = state
-        .placement
-        .try_peek()
-        .is_ok_and(|current| current.as_ref() != Some(&placement));
-    if should_update {
-        let mut current = state.placement;
-        if let Ok(mut w) = current.try_write() {
-            *w = Some(placement);
-        }
-    }
-}
-
-fn sync_hover_card_positioning(
-    card: &HoverCard,
-    state: HoverCardRuntimeState,
-    _on_open_change: HoverCardOpenChangeHandler,
-    on_open_change_complete: Option<HoverCardOpenChangeHandler>,
+fn reset_hover_and_selection_slots(
+    mut content_hovered: CopyValue<bool>,
+    mut is_pointer_down_on_content: CopyValue<bool>,
+    mut has_selection: CopyValue<bool>,
+    mut contain_selection: Signal<bool>,
 ) {
-    sync_hover_card_presence(card, state, on_open_change_complete);
-    stop_hover_card_position_monitor(state);
-
-    let should_track_live_placement = state
-        .presence_lane
-        .with_peek(|lane| lane.should_track_live_placement(card.is_open()));
-    let should_clear_positioning = state
-        .presence_lane
-        .with_peek(|lane| lane.should_clear_positioning(card.is_open()));
-
-    if should_clear_positioning {
-        advance_token(state.position_loop_token);
-        clear_hover_card_retained_content_state(state);
-        return;
-    }
-
-    if !should_track_live_placement {
-        advance_token(state.position_loop_token);
-        return;
-    }
-
-    let _position_loop_token = advance_token(state.position_loop_token);
-
-    sync_hover_card_content_z_index(card, state);
-    if let Some(placement) = compute_hover_card_position_with_state(card, state) {
-        update_placement_if_changed(state, placement);
-        set_hover_card_content_readiness(state, FloatingReadiness::Ready);
-    }
-
-    let card_for_frame = card.clone();
-    spawn_root_task(async move {
-        let _ = oxidase::frame::next_frame().await;
-        sync_hover_card_content_z_index(&card_for_frame, state);
-        if let Some(placement) = compute_hover_card_position_with_state(&card_for_frame, state) {
-            update_placement_if_changed(state, placement);
-            set_hover_card_content_readiness(state, FloatingReadiness::Ready);
-        }
-    });
-
-    let trigger_id = effective_trigger_id_from_state(card, state);
-    let content_id = effective_content_id_from_state(card, state);
-    let card_clone = card.clone();
-
-    let watcher =
-        start_floating_auto_update_monitor(&[trigger_id.as_str()], &content_id, move |event| {
-            match event {
-                FloatingAutoUpdateEvent::Scroll | FloatingAutoUpdateEvent::Update => {
-                    sync_hover_card_content_z_index(&card_clone, state);
-                    if let Some(placement) = compute_hover_card_position_with_state(&card_clone, state)
-                    {
-                        update_placement_if_changed(state, placement);
-                        set_hover_card_content_readiness(state, FloatingReadiness::Ready);
-                    }
-                }
-            }
-        });
-
-    let mut position_monitor = state.position_monitor;
-    if let Ok(mut pm) = position_monitor.try_write() {
-        *pm = Some(watcher);
-    }
-}
-
-fn sync_hover_card_presence(
-    card: &HoverCard,
-    mut state: HoverCardRuntimeState,
-    on_open_change_complete: Option<HoverCardOpenChangeHandler>,
-) {
-    let update = state
-        .presence_lane
-        .with_mut(|lane| lane.sync(card.is_open()));
-
-    if update.invalidated_close_cycle().is_some() || !update.should_render() {
-        stop_hover_card_presence_monitor(state, &effective_content_id_from_state(card, state));
-    }
-
-    if let Some(cycle_id) = update.started_close_cycle() {
-        start_hover_card_presence_monitor(card, state, cycle_id, on_open_change_complete);
-    }
-}
-
-fn start_hover_card_presence_monitor(
-    card: &HoverCard,
-    state: HoverCardRuntimeState,
-    cycle_id: PresenceCloseCycleId,
-    on_open_change_complete: Option<HoverCardOpenChangeHandler>,
-) {
-    let content_id = effective_content_id_from_state(card, state);
-    stop_hover_card_presence_monitor(state, &content_id);
-
-    let watcher = start_presence_monitor(content_id.as_str(), cycle_id, move |event| {
-        match event {
-            PresenceMonitorEvent::Fallback {
-                cycle_id: event_cycle,
-                ..
-            }
-            | PresenceMonitorEvent::AnimationEnd {
-                cycle_id: event_cycle,
-                ..
-            }
-            | PresenceMonitorEvent::AnimationCancel {
-                cycle_id: event_cycle,
-                ..
-            }
-            | PresenceMonitorEvent::TransitionEnd {
-                cycle_id: event_cycle,
-                ..
-            }
-            | PresenceMonitorEvent::TransitionCancel {
-                cycle_id: event_cycle,
-                ..
-            } => {
-                complete_hover_card_presence_close_cycle(
-                    state,
-                    event_cycle,
-                    on_open_change_complete.as_ref(),
-                );
-            }
-            PresenceMonitorEvent::Stopped {
-                cycle_id: event_cycle,
-            } => {
-                if state
-                    .presence_monitor
-                    .cycle_id
-                    .with_peek(|current| *current == Some(event_cycle))
-                {
-                    clear_hover_card_presence_monitor_state(state);
-                }
-            }
-        }
-    });
-
-    let mut active_monitor = state.presence_monitor.monitor;
-    if let Ok(mut w) = active_monitor.try_write() {
-        *w = Some(watcher);
-    }
-    let mut active_cycle_id = state.presence_monitor.cycle_id;
-    if let Ok(mut w) = active_cycle_id.try_write() {
-        *w = Some(cycle_id);
-    }
-}
-
-fn complete_hover_card_presence_close_cycle(
-    mut state: HoverCardRuntimeState,
-    cycle_id: PresenceCloseCycleId,
-    on_open_change_complete: Option<&HoverCardOpenChangeHandler>,
-) {
-    clear_hover_card_presence_monitor_state(state);
-    let completed = state
-        .presence_lane
-        .with_mut(|lane| lane.complete_close_cycle(cycle_id));
-    if completed {
-        clear_hover_card_retained_content_state(state);
-        if let Some(cb) = on_open_change_complete {
-            cb(false);
-        }
-    }
-}
-
-fn stop_hover_card_presence_monitor(state: HoverCardRuntimeState, _content_id: &str) {
-    clear_hover_card_presence_monitor_state(state);
-}
-
-fn clear_hover_card_presence_monitor_state(state: HoverCardRuntimeState) {
-    let mut active_monitor = state.presence_monitor.monitor;
-    if let Ok(mut m) = active_monitor.try_write() {
-        *m = None;
-    }
-    let mut active_cycle_id = state.presence_monitor.cycle_id;
-    if let Ok(mut c) = active_cycle_id.try_write() {
-        *c = None;
-    }
-}
-
-fn stop_hover_card_position_monitor(state: HoverCardRuntimeState) {
-    let mut position_monitor = state.position_monitor;
-    if let Ok(mut pm) = position_monitor.try_write() {
-        *pm = None;
-    }
-}
-
-fn stop_hover_card_dismiss_monitor(state: HoverCardRuntimeState) {
-    let mut dismiss_monitor = state.dismiss_monitor;
-    if let Ok(mut dm) = dismiss_monitor.try_write() {
-        *dm = None;
-    }
-}
-
-fn stop_hover_card_pointer_up_monitor(state: HoverCardRuntimeState) {
-    let mut pointer_up_monitor = state.pointer_up_monitor;
-    if let Ok(mut pu) = pointer_up_monitor.try_write() {
-        *pu = None;
-    }
-}
-
-fn stop_hover_card_grace_monitor(mut state: HoverCardRuntimeState) {
-    if let Ok(mut gm) = state.grace_monitor.try_write() {
-        *gm = None;
-    }
-}
-
-fn sync_hover_card_content_z_index(card: &HoverCard, state: HoverCardRuntimeState) {
-    let content_id = effective_content_id_from_state(card, state);
-    let next = normalize_hoisted_z_index(get_element_computed_z_index(&content_id).as_deref());
-    let mut sig = state.content_z_index;
-    if sig.try_peek().is_ok_and(|cur| *cur != next) {
-        if let Ok(mut w) = sig.try_write() {
-            *w = next;
-        }
-    }
-}
-
-fn clear_hover_card_content_z_index(state: HoverCardRuntimeState) {
-    let mut sig = state.content_z_index;
-    if sig.try_peek().is_ok_and(|cur| cur.is_some()) {
-        if let Ok(mut w) = sig.try_write() {
-            *w = None;
-        }
-    }
-}
-
-fn clear_hover_card_retained_content_state(state: HoverCardRuntimeState) {
-    stop_hover_card_grace_monitor(state);
-    let mut content_handle = state.content_handle;
-    if content_handle
-        .try_peek()
-        .is_ok_and(|h| h.is_some())
-    {
-        if let Ok(mut ch) = content_handle.try_write() {
-            *ch = None;
-        }
-    }
-    let mut placement = state.placement;
-    if placement.try_peek().is_ok_and(|p| p.is_some()) {
-        if let Ok(mut pl) = placement.try_write() {
-            *pl = None;
-        }
-    }
-    clear_hover_card_content_z_index(state);
-    set_hover_card_content_readiness(state, FloatingReadiness::Measuring);
-}
-
-fn reset_hover_and_selection_state(state: HoverCardRuntimeState) {
-    let mut ch = state.content_hovered;
-    if let Ok(mut w) = ch.try_write() {
-        *w = false;
-    }
-    let mut pdi = state.is_pointer_down_on_content;
-    if let Ok(mut w) = pdi.try_write() {
-        *w = false;
-    }
-    let mut hs = state.has_selection;
-    if let Ok(mut w) = hs.try_write() {
-        *w = false;
-    }
-    let mut cs = state.contain_selection;
-    if cs.try_peek().is_ok_and(|c| *c) {
+    let _ = content_hovered.try_write().map(|mut w| *w = false);
+    let _ = is_pointer_down_on_content.try_write().map(|mut w| *w = false);
+    let _ = has_selection.try_write().map(|mut w| *w = false);
+    if contain_selection.try_peek().is_ok_and(|c| *c) {
         restore_body_user_select();
-        if let Ok(mut w) = cs.try_write() {
-            *w = false;
-        }
+        sync_signal(&mut contain_selection, false);
     }
-}
-
-fn set_hover_card_content_readiness(state: HoverCardRuntimeState, readiness: FloatingReadiness) {
-    if state
-        .content_readiness
-        .try_peek()
-        .is_ok_and(|current| *current != readiness)
-    {
-        let mut cr = state.content_readiness;
-        if let Ok(mut w) = cr.try_write() {
-            *w = readiness;
-        }
-    }
-}
-
-fn effective_trigger_id_from_state(card: &HoverCard, state: HoverCardRuntimeState) -> String {
-    state
-        .registered_trigger_id
-        .try_peek()
-        .ok()
-        .and_then(|id| id.clone())
-        .unwrap_or_else(|| card.relationships().trigger_id().to_owned())
-}
-
-fn effective_content_id_from_state(card: &HoverCard, state: HoverCardRuntimeState) -> String {
-    state
-        .content_id
-        .try_peek()
-        .ok()
-        .and_then(|id| id.clone())
-        .unwrap_or_else(|| card.relationships().content_id().to_owned())
-}
-
-fn register_id_signal(mut slot: Signal<Option<String>>, id: String) {
-    let same = slot
-        .try_peek()
-        .is_ok_and(|current| current.as_deref() == Some(id.as_str()));
-    if !same {
-        if let Ok(mut current) = slot.try_write() {
-            *current = Some(id);
-        }
-    }
-}
-
-fn unregister_id_signal(mut slot: Signal<Option<String>>, id: &str) {
-    let matches = slot
-        .try_peek()
-        .is_ok_and(|current| current.as_deref() == Some(id));
-    if matches {
-        if let Ok(mut current) = slot.try_write() {
-            *current = None;
-        }
-    }
-}
-
-fn advance_token(mut signal: Signal<u64>) -> u64 {
-    let Ok(value) = signal.try_peek() else {
-        return 0;
-    };
-    let next = value.saturating_add(1);
-    drop(value);
-    if let Ok(mut write) = signal.try_write() {
-        *write = next;
-    }
-    next
-}
-
-fn serialize_css_custom_properties(entries: &[(String, String)]) -> String {
-    let mut style = String::new();
-    for (name, value) in entries {
-        style.push(' ');
-        style.push_str(name);
-        style.push_str(": ");
-        style.push_str(value);
-        style.push(';');
-    }
-    style
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{HoverCardContentPresenceLane, serialize_css_custom_properties};
-    use crate::foundation::overlay::{GeometryVars, Presence, PresenceState};
-    use crate::hover_card::{HoverCard, HOVER_CARD_GEOMETRY_NAMESPACE};
+    use crate::foundation::overlay::{
+        GeometryVars, Presence, PresenceController, PresenceState, serialize_css_custom_properties,
+    };
+    use crate::hover_card::{HOVER_CARD_GEOMETRY_NAMESPACE, HoverCard};
 
     #[test]
     fn hover_card_presence_lane_retains_content_until_close_completion() {
         let presence = Presence::new(true).with_retained_mount(true);
-        let mut lane = HoverCardContentPresenceLane::new(&presence);
+        let mut controller = PresenceController::new(presence.desired_present())
+            .with_retained_mount(presence.retain_mount());
 
-        let close = lane.sync(false);
+        let close = controller.sync(false);
         let cycle_id = close.started_close_cycle().unwrap();
 
         assert_eq!(close.state(), PresenceState::Suspended);
-        assert!(lane.should_render_portal());
-        assert!(lane.should_render_content());
-        assert!(!lane.should_track_live_placement(false));
-        assert!(!lane.should_clear_positioning(false));
+        assert!(controller.should_render());
 
-        assert!(lane.complete_close_cycle(cycle_id));
-        assert!(!lane.should_render_portal());
-        assert!(!lane.should_render_content());
-        assert!(lane.should_clear_positioning(false));
+        assert!(controller.complete_close_cycle(cycle_id));
+        assert!(!controller.should_render());
     }
 
     #[test]

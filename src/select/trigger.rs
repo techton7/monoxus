@@ -125,6 +125,8 @@ pub fn SelectRoot(
                     required: eff_req,
                     form: eff_form,
                     autocomplete: eff_auto,
+                    focus_target_id: Some(runtime.relationships().trigger_id().to_owned()),
+                    reset_epoch: runtime.reset_epoch(),
                 }
             }
         }
@@ -181,8 +183,7 @@ pub fn SelectTrigger(
             onmounted: {
                 let runtime = ctx.runtime.clone();
                 move |evt: Event<MountedData>| {
-                    let mut th = runtime.state.trigger_handle;
-                    th.set(Some(evt.data()));
+                    runtime.capture_trigger_mount(evt.data());
                 }
             },
             {children}

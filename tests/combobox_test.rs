@@ -867,7 +867,7 @@ fn fm_cbx_3_on_escape_key_down_default_closes_and_prevent_default_blocks() {
                     }
                     ComboboxContentStatic {
                         id: Some("fm3-content".to_string()),
-                        on_escape_key_down: move |evt: KeyboardEvent| {
+                        on_escape_key_down: move |evt: monoxus::combobox::EscapeKeyDownEvent| {
                             esc_count.set(esc_count() + 1);
                             if prevent() {
                                 evt.prevent_default();
@@ -1125,4 +1125,364 @@ fn fm_cbx_6_and_7_drag_threshold_and_closed_backspace_open() {
     drain_polls_and_resolve(&mut harness);
     assert_eq!(harness.text_content("#fm6-val"), "none");
     assert_eq!(harness.attr("#fm6-input", "aria-expanded").as_deref(), Some("true"));
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn fm_ovl_1_combobox_ime_composition_gates_escape_and_process_key() {
+    use std::{cell::RefCell, rc::Rc};
+
+    use common::native_fixture::*;
+    use keyboard_types::{Code, Key, NamedKey};
+    use monoxus::combobox::{ComboboxContext, ComboboxRuntime, EscapeKeyDownEvent};
+
+    let _guard = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    #[derive(Clone, PartialEq)]
+    struct CbxRtSlot(Rc<RefCell<Option<ComboboxRuntime>>>);
+
+    #[component]
+    fn CbxRtProbe(slot: CbxRtSlot) -> Element {
+        let ctx = use_context::<ComboboxContext>();
+        *slot.0.borrow_mut() = Some(ctx.runtime.clone());
+        rsx! {}
+    }
+
+    let rt_slot = CbxRtSlot(Rc::new(RefCell::new(None)));
+
+    #[component]
+    fn ComboboxImeScenario(slot: CbxRtSlot) -> Element {
+        let mut esc_count = use_signal(|| 0_u32);
+
+        rsx! {
+            div { style: "padding: 24px;",
+                span { id: "fm-ovl1-esc", "{esc_count()}" }
+                ComboboxRoot {
+                    id: Some("fm-ovl1-cbx".to_string()),
+                    ComboboxInput {
+                        id: Some("fm-ovl1-input".to_string()),
+                        style: Some("width: 200px; height: 32px;".to_string()),
+                    }
+                    ComboboxTrigger {
+                        id: Some("fm-ovl1-trig".to_string()),
+                        style: Some("width: 32px; height: 32px;".to_string()),
+                        "v"
+                    }
+                    ComboboxContentStatic {
+                        id: Some("fm-ovl1-content".to_string()),
+                        on_escape_key_down: move |_evt: EscapeKeyDownEvent| {
+                            esc_count.set(esc_count() + 1);
+                        },
+                        ComboboxViewport {
+                            ComboboxItem {
+                                id: Some("fm-ovl1-opt-a".to_string()),
+                                value: "a".to_string(),
+                                "Alpha"
+                            }
+                        }
+                    }
+                    CbxRtProbe { slot }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario_with_props(
+        ComboboxImeScenario,
+        ComboboxImeScenarioProps {
+            slot: rt_slot.clone(),
+        },
+    );
+
+    click_and_pump(&mut harness, "#fm-ovl1-trig");
+    assert_eq!(harness.attr("#fm-ovl1-input", "aria-expanded").as_deref(), Some("true"));
+
+    // IME Process key must NOT dismiss open Combobox (`FM-OVL-1`, `radix#4153`).
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Process), Code::Unidentified);
+    assert_eq!(harness.attr("#fm-ovl1-input", "aria-expanded").as_deref(), Some("true"));
+    assert_eq!(harness.text_content("#fm-ovl1-esc"), "0");
+
+    // Active IME composition (`set_composing(true)`) must gate Escape above `ComboboxNavKey::Escape`.
+    if let Some(rt) = rt_slot.0.borrow().clone() {
+        rt.set_composing(true);
+    }
+    drain_polls_and_resolve(&mut harness);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+    assert_eq!(harness.attr("#fm-ovl1-input", "aria-expanded").as_deref(), Some("true"));
+    assert_eq!(harness.text_content("#fm-ovl1-esc"), "0");
+
+    // Ending IME composition allows Escape to dismiss once and keep input focus.
+    if let Some(rt) = rt_slot.0.borrow().clone() {
+        rt.set_composing(false);
+    }
+    drain_polls_and_resolve(&mut harness);
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+    assert_eq!(harness.attr("#fm-ovl1-input", "aria-expanded").as_deref(), Some("false"));
+    assert_eq!(harness.text_content("#fm-ovl1-esc"), "1");
+    assert_native_focus_id(&harness, "#fm-ovl1-input");
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn fm_ovl_3_combobox_content_inside_dialog_preserves_dialog_open() {
+    use common::native_fixture::*;
+    use monoxus::dialog::{DialogContent, DialogPortal, DialogRoot};
+
+    let _guard = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    #[component]
+    fn ComboboxInDialogScenario() -> Element {
+        let mut dlg_open = use_signal(|| true);
+        let mut selected = use_signal(|| None::<String>);
+
+        rsx! {
+            div { style: "padding: 24px;",
+                span { id: "fm3-cbx-val", "{selected().unwrap_or_else(|| \"none\".to_string())}" }
+                DialogRoot {
+                    id: Some("fm3-cbx-dlg".to_string()),
+                    open: Some(dlg_open),
+                    on_open_change: move |next| dlg_open.set(next),
+                    DialogPortal {
+                        DialogContent {
+                            id: Some("fm3-cbx-dlg-content".to_string()),
+                            style: Some("width: 400px; height: 280px; padding: 16px; background: white;".to_string()),
+                            ComboboxRoot {
+                                id: Some("fm3-cbx-in-dlg".to_string()),
+                                value: Some(selected),
+                                on_value_change: move |v| selected.set(v),
+                                ComboboxInput {
+                                    id: Some("fm3-cbx-input".to_string()),
+                                    style: Some("width: 180px; height: 32px;".to_string()),
+                                }
+                                ComboboxTrigger {
+                                    id: Some("fm3-cbx-trig".to_string()),
+                                    style: Some("width: 32px; height: 32px;".to_string()),
+                                    "v"
+                                }
+                                ComboboxPortal {
+                                    ComboboxContent {
+                                        id: Some("fm3-cbx-content".to_string()),
+                                        style: Some("width: 180px; background: white;".to_string()),
+                                        ComboboxViewport {
+                                            ComboboxItem {
+                                                id: Some("fm3-cbx-opt-a".to_string()),
+                                                value: "alpha".to_string(),
+                                                style: Some("height: 28px;".to_string()),
+                                                "Alpha"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(ComboboxInDialogScenario);
+    assert!(harness.query("#fm3-cbx-dlg-content").is_some());
+
+    click_and_pump(&mut harness, "#fm3-cbx-trig");
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#fm3-cbx-content").is_some());
+
+    click_and_pump(&mut harness, "#fm3-cbx-opt-a");
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#fm3-cbx-dlg-content").is_some());
+    assert_eq!(harness.text_content("#fm3-cbx-val"), "alpha");
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn fm_ovl_6_combobox_presence_retains_dom_during_exit_and_defers_complete() {
+    use std::{cell::RefCell, rc::Rc};
+
+    use common::native_fixture::*;
+    use monoxus::combobox::{ComboboxContext, ComboboxRuntime};
+    use monoxus::foundation::overlay::PresenceState;
+
+    let _guard = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    #[derive(Clone, PartialEq)]
+    struct CbxExitSlot(Rc<RefCell<Option<ComboboxRuntime>>>);
+
+    #[component]
+    fn CbxExitProbe(slot: CbxExitSlot) -> Element {
+        let ctx = use_context::<ComboboxContext>();
+        *slot.0.borrow_mut() = Some(ctx.runtime.clone());
+        rsx! {}
+    }
+
+    let rt_slot = CbxExitSlot(Rc::new(RefCell::new(None)));
+
+    #[component]
+    fn ComboboxPresenceExitScenario(slot: CbxExitSlot) -> Element {
+        let mut open_events = use_signal(Vec::<bool>::new);
+        let mut complete_events = use_signal(Vec::<bool>::new);
+
+        let open_log = format!("{:?}", open_events.read());
+        let complete_log = format!("{:?}", complete_events.read());
+
+        rsx! {
+            div { style: "padding: 24px;",
+                span { id: "fm6p-open-log", "{open_log}" }
+                span { id: "fm6p-complete-log", "{complete_log}" }
+                ComboboxRoot {
+                    id: Some("fm6p-cbx".to_string()),
+                    default_open: true,
+                    on_open_change: move |open| open_events.write().push(open),
+                    on_open_change_complete: move |open| complete_events.write().push(open),
+                    ComboboxInput {
+                        id: Some("fm6p-input".to_string()),
+                        style: Some("width: 200px; height: 32px;".to_string()),
+                    }
+                    ComboboxContentStatic {
+                        id: Some("fm6p-content".to_string()),
+                        ComboboxViewport {
+                            ComboboxItem {
+                                id: Some("fm6p-opt-a".to_string()),
+                                value: "a".to_string(),
+                                "Alpha"
+                            }
+                        }
+                    }
+                    CbxExitProbe { slot }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario_with_props(
+        ComboboxPresenceExitScenario,
+        ComboboxPresenceExitScenarioProps {
+            slot: rt_slot.clone(),
+        },
+    );
+
+    assert!(harness.query("#fm6p-content").is_some());
+    assert_eq!(
+        harness.attr("#fm6p-content", "data-state").as_deref(),
+        Some("open")
+    );
+
+    // Focus input, then close menu synchronously via runtime:
+    // DOM stays retained in `PresenceState::Suspended` with `data-state="closed"` & `pointer-events: none`
+    // while `on_open_change(false)` fires immediately and `on_open_change_complete(false)` defers (`B10`, `FM-OVL-6`).
+    click_and_pump(&mut harness, "#fm6p-input");
+    let rt = rt_slot.0.borrow().clone().expect("combobox runtime");
+    rt.close_menu();
+    assert!(!rt.is_open());
+    assert_eq!(rt.presence_state(), PresenceState::Suspended);
+    assert!(rt.should_render_content());
+    assert_native_focus_id(&harness, "#fm6p-input");
+
+    // Re-render while still Suspended (without advancing fallback animation completion).
+    {
+        use blitz_dom::Document as _;
+        harness.doc.poll(None);
+        let t = harness.time();
+        harness.doc.inner_mut().resolve(t);
+    }
+    assert!(harness.query("#fm6p-content").is_some());
+    assert_eq!(
+        harness.attr("#fm6p-content", "data-state").as_deref(),
+        Some("closed")
+    );
+    let closed_style = harness.attr("#fm6p-content", "style").unwrap_or_default();
+    assert!(
+        closed_style.contains("pointer-events: none;"),
+        "expected pointer-events: none during Suspended exit, got {closed_style}"
+    );
+    assert_eq!(harness.text_content("#fm6p-open-log"), "[false]");
+    assert_eq!(harness.text_content("#fm6p-complete-log"), "[]");
+
+    // Completing exit unmounts DOM and fires `on_open_change_complete(false)`.
+    assert!(rt.finish_active_exit());
+    drain_polls_and_resolve(&mut harness);
+    assert_eq!(rt.presence_state(), PresenceState::Unmounted);
+    assert!(harness.query("#fm6p-content").is_none());
+    assert_eq!(harness.text_content("#fm6p-complete-log"), "[false]");
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn fm_ovl_7_combobox_arrow_emits_attrs_and_registers_arrow_id() {
+    use std::{cell::RefCell, rc::Rc};
+
+    use common::native_fixture::*;
+    use monoxus::combobox::ComboboxContext;
+
+    let _guard = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    #[derive(Clone, PartialEq)]
+    struct ArrowIdSlot(Rc<RefCell<Option<String>>>);
+
+    #[component]
+    fn CbxArrowProbe(slot: ArrowIdSlot) -> Element {
+        let ctx = use_context::<ComboboxContext>();
+        *slot.0.borrow_mut() = ctx.runtime.arrow_id();
+        rsx! {}
+    }
+
+    let arrow_slot = ArrowIdSlot(Rc::new(RefCell::new(None)));
+
+    #[component]
+    fn ComboboxArrowScenario(slot: ArrowIdSlot) -> Element {
+        rsx! {
+            div { style: "padding: 40px;",
+                ComboboxRoot {
+                    id: Some("fm7-cbx".to_string()),
+                    default_open: true,
+                    ComboboxInput {
+                        id: Some("fm7-cbx-input".to_string()),
+                        style: Some("width: 180px; height: 32px;".to_string()),
+                    }
+                    ComboboxPortal {
+                        ComboboxContent {
+                            id: Some("fm7-cbx-content".to_string()),
+                            style: Some("width: 180px; background: white;".to_string()),
+                            ComboboxArrow {
+                                id: Some("fm7-cbx-arrow-el".to_string()),
+                            }
+                            ComboboxViewport {
+                                ComboboxItem {
+                                    value: "a".to_string(),
+                                    "Alpha"
+                                }
+                            }
+                        }
+                    }
+                    CbxArrowProbe { slot }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario_with_props(
+        ComboboxArrowScenario,
+        ComboboxArrowScenarioProps {
+            slot: arrow_slot.clone(),
+        },
+    );
+    advance_frame_and_pump(&mut harness, 0.02);
+
+    assert!(harness.query("#fm7-cbx-arrow-el").is_some());
+    assert_eq!(
+        harness
+            .attr("#fm7-cbx-arrow-el", "data-combobox-arrow")
+            .as_deref(),
+        Some("")
+    );
+    assert_eq!(
+        harness.attr("#fm7-cbx-arrow-el", "data-state").as_deref(),
+        Some("open")
+    );
+    assert!(harness.attr("#fm7-cbx-arrow-el", "data-side").is_some());
+    assert!(harness.attr("#fm7-cbx-arrow-el", "data-align").is_some());
+    assert_eq!(
+        arrow_slot.0.borrow().as_deref(),
+        Some("fm7-cbx-arrow-el")
+    );
 }

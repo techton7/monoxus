@@ -4,6 +4,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::is_element_focused_by_id,
+    keyboard::is_ime_composing_key,
     shared::use_stable_id,
 };
 use crate::menu::{
@@ -74,7 +75,7 @@ pub fn build_leaf_item_handlers(
         if disabled {
             return;
         }
-        let select_evt = MenuSelectEvent::new();
+        let select_evt = MenuSelectEvent::empty();
         on_activate(select_evt.clone());
         if close_on_select && !select_evt.is_default_prevented() {
             if let Some(bridge) = root.menubar_bridge.as_ref() {
@@ -149,6 +150,8 @@ pub fn build_leaf_item_handlers(
         if disabled || evt.pointer_type() == "touch" {
             return;
         }
+        let coords = evt.data().client_coordinates();
+        pm_surface.record_pointer(coords.x, coords.y);
         if pm_surface.is_submenu_grace_blocking(Some(&pm_id)) {
             return;
         }
@@ -173,7 +176,7 @@ pub fn build_leaf_item_handlers(
     let kd_surface = surface;
     let kd_activate = activate;
     let on_key_down = EventHandler::new(move |evt: KeyboardEvent| {
-        if disabled || is_descendant_owning_focus(&kd_id) {
+        if disabled || is_ime_composing_key(&evt) || is_descendant_owning_focus(&kd_id) {
             return;
         }
         let Some(key) = translate_menu_key(&evt.key()) else {

@@ -179,7 +179,11 @@ pub fn start_toast_browser_monitor(
                             cb(ToastBrowserEvent::Hotkey { key });
                         }
                     } else if key == "Escape" && dioxus::core::Runtime::try_current().is_some() {
-                        if !inside_viewport {
+                        if !inside_viewport
+                            || crate::foundation::overlay::is_overlay_escape_consumed()
+                            || !crate::foundation::overlay::active_overlay_layers_snapshot()
+                                .is_empty()
+                        {
                             return;
                         }
 
@@ -193,10 +197,11 @@ pub fn start_toast_browser_monitor(
                             let can_dismiss = TOAST_STORE.peek().toasts.iter().any(|t| {
                                 t.id == tid
                                     && t.phase == ToastPhase::Active
-                                    && t.options.dismissible != Some(false)
+                                    && t.meta.dismissible != Some(false)
                                     && t.toast_type != ToastType::Loading
                             });
                             if can_dismiss {
+                                crate::foundation::overlay::mark_overlay_escape_consumed();
                                 toast::dismiss(Some(tid));
                                 crate::toast::hotkey::handle_post_dismiss_focus(Some(tid), &vp_id);
                             }
@@ -207,11 +212,12 @@ pub fn start_toast_browser_monitor(
                                 .iter()
                                 .find(|t| {
                                     t.phase == ToastPhase::Active
-                                        && t.options.dismissible != Some(false)
+                                        && t.meta.dismissible != Some(false)
                                         && t.toast_type != ToastType::Loading
                                 })
                                 .map(|t| t.id);
                             if let Some(tid) = front_dismissible {
+                                crate::foundation::overlay::mark_overlay_escape_consumed();
                                 toast::dismiss(Some(tid));
                                 crate::toast::hotkey::handle_post_dismiss_focus(None, &vp_id);
                             }
@@ -457,7 +463,13 @@ impl ToastRuntime {
     }
 
     pub fn toasts(&self) -> Vec<ToastItem> {
-        TOAST_STORE.read().toasts.clone()
+        TOAST_STORE
+            .read()
+            .toasts
+            .iter()
+            .cloned()
+            .map(ToastItem::from)
+            .collect()
     }
 
     pub fn is_paused(&self) -> bool {
@@ -709,7 +721,7 @@ pub mod toast {
         }
         item.remaining_duration = Duration::ZERO;
         item.last_started_at = now;
-        let auto_close_cb = item.options.on_auto_close;
+        let auto_close_cb = item.meta.on_auto_close;
         let emptied = expire_in_store(&mut store, id, auto_close_cb);
         drop(store);
         finalize_expired_toast(id, generation, emptied);
@@ -787,7 +799,7 @@ pub mod toast {
                                     if item.remaining_duration.is_zero()
                                         || item.duration.is_zero()
                                     {
-                                        let auto_close_cb = item.options.on_auto_close;
+                                        let auto_close_cb = item.meta.on_auto_close;
                                         let emptied =
                                             expire_in_store(&mut store, id, auto_close_cb);
                                         drop(store);

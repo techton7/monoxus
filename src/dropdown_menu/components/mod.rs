@@ -1,11 +1,7 @@
-pub mod content;
-pub mod content_static;
 pub mod root;
 pub mod trigger;
 
 pub use self::{
-    content::{DropdownMenuContent, DropdownMenuContentProps},
-    content_static::{DropdownMenuContentStatic, DropdownMenuContentStaticProps},
     root::{DropdownMenu, DropdownMenuRoot, DropdownMenuRootProps},
     trigger::{DropdownMenuTrigger, DropdownMenuTriggerProps, DropdownMenuTriggerRenderProps},
 };
@@ -17,8 +13,11 @@ pub use crate::menu::components::{
     MenuCheckboxItem as DropdownMenuCheckboxItem,
     MenuCheckboxItemProps as DropdownMenuCheckboxItemProps,
     MenuCheckboxItemRenderProps as DropdownMenuCheckboxItemRenderProps,
+    MenuContent as DropdownMenuContent, MenuContentProps as DropdownMenuContentProps,
     MenuContentRenderProps as DropdownMenuContentRenderProps,
-    MenuGroup as DropdownMenuGroup, MenuGroupHeading as DropdownMenuGroupHeading,
+    MenuContentStatic as DropdownMenuContentStatic,
+    MenuContentStaticProps as DropdownMenuContentStaticProps, MenuGroup as DropdownMenuGroup,
+    MenuGroupHeading as DropdownMenuGroupHeading,
     MenuGroupHeadingProps as DropdownMenuGroupHeadingProps,
     MenuGroupProps as DropdownMenuGroupProps, MenuItem as DropdownMenuItem,
     MenuItemIndicator as DropdownMenuItemIndicator,

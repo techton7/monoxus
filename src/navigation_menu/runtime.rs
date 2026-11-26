@@ -7,19 +7,25 @@ use std::{
 use dioxus::prelude::*;
 use futures_timer::Delay;
 use oxidase::dom::FocusOptions;
+use oxidase::dom::observer::{CaptureEventKind, CaptureEventMask, observe_capture_events_with_mask};
 
 use crate::foundation::{
     browser::{
-        DocumentDismissEvent, PresenceMonitorEvent, ResizeObserverBox, WatcherGuard,
-        focus_element_by_id, get_element_offset_rect, get_tabbable_candidates,
-        query_descendant_order, query_selector_all_by_id, remove_from_tab_order,
-        restore_focus_element_by_id_with_options, restore_tab_order, spawn_root_task,
-        start_document_dismiss_monitor_with_boundaries, start_presence_monitor,
-        start_resize_monitor,
+        ResizeObserverBox, WatcherGuard, focus_element_by_id,
+        focus_element_reliable as foundation_focus_element_reliable, get_element_offset_rect,
+        get_tabbable_candidates, query_descendant_order, query_selector_all_by_id,
+        remove_from_tab_order, restore_focus_element_by_id_with_options, restore_tab_order,
+        spawn_root_task, start_resize_monitor,
     },
-    overlay::PresenceController,
+    overlay::{
+        DismissCallbacks, DismissConfig, DismissEvent, DismissLayerHandle, WatcherSlot,
+        use_dismissable_layer, use_watcher_slot,
+    },
     roving_focus::RovingFocusRuntime,
-    shared::{Direction, Orientation, ScopeHandle},
+    shared::{
+        Direction, EscapeKeyDownEvent, FocusOutsideEvent, InteractOutsideEvent, Orientation,
+        PointerDownOutsideEvent, ScopeHandle,
+    },
 };
 
 use super::{
@@ -211,10 +217,10 @@ pub struct ViewportContentData {
     pub style: Option<String>,
     pub as_child: bool,
     pub render_child: Option<Callback<NavigationMenuContentRenderProps, Element>>,
-    pub on_escape_key_down: Option<EventHandler<()>>,
-    pub on_pointer_down_outside: Option<EventHandler<()>>,
-    pub on_focus_outside: Option<EventHandler<()>>,
-    pub on_interact_outside: Option<EventHandler<()>>,
+    pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
+    pub on_pointer_down_outside: Option<EventHandler<PointerDownOutsideEvent>>,
+    pub on_focus_outside: Option<EventHandler<FocusOutsideEvent>>,
+    pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
     pub escape_keydown_behavior: NavigationMenuOutsideBehavior,
     pub interact_outside_behavior: NavigationMenuOutsideBehavior,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
@@ -243,10 +249,10 @@ pub struct ContentDismissConfig {
     pub item_state: Option<NavigationMenuItemContext>,
     pub escape_keydown_behavior: NavigationMenuOutsideBehavior,
     pub interact_outside_behavior: NavigationMenuOutsideBehavior,
-    pub on_escape_key_down: Option<EventHandler<()>>,
-    pub on_pointer_down_outside: Option<EventHandler<()>>,
-    pub on_focus_outside: Option<EventHandler<()>>,
-    pub on_interact_outside: Option<EventHandler<()>>,
+    pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
+    pub on_pointer_down_outside: Option<EventHandler<PointerDownOutsideEvent>>,
+    pub on_focus_outside: Option<EventHandler<FocusOutsideEvent>>,
+    pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
 }
 
 /// Marker context distinguishing whether a `NavigationMenuLink` is inside `NavigationMenuContent`
@@ -345,7 +351,7 @@ pub struct NavigationMenuContext {
     pub value: Signal<String>,
     pub previous_value: Signal<String>,
     pub tracked_value: Signal<String>,
-    pub on_value_change: Signal<Option<EventHandler<String>>>,
+    pub on_value_change: CopyValue<Option<EventHandler<String>>>,
     pub dir: Signal<Direction>,
     pub orientation: Signal<Orientation>,
     pub activation_mode: Signal<NavigationMenuActivationMode>,
@@ -360,11 +366,11 @@ pub struct NavigationMenuContext {
     pub track_id: Signal<Option<String>>,
     pub triggers: Signal<Vec<RegisteredTrigger>>,
     pub contents: Signal<Vec<(String, String)>>,
-    pub active_content_config: Signal<Option<ContentDismissConfig>>,
+    pub active_content_config: CopyValue<Option<ContentDismissConfig>>,
     pub branches: Signal<Vec<String>>,
     pub roving: RovingFocusRuntime,
-    pub dismiss_monitor: Signal<Option<WatcherGuard>>,
-    pub focus_capture_monitor: Signal<Option<WatcherGuard>>,
+    pub dismiss_layer: Option<DismissLayerHandle>,
+    pub(crate) focus_capture_monitor: Option<WatcherSlot>,
     pub parent_root_dismiss: Option<Callback<()>>,
 }
 
@@ -407,68 +413,293 @@ pub fn use_navigation_menu_root_runtime(
     let roving = RovingFocusRuntime::new(def.list_roving_config(), None, relationships.list_id());
     let alive = use_hook(|| Rc::new(Cell::new(true)));
     let focus_tracker = use_hook(|| Rc::new(RefCell::new(FocusTrackerState::default())));
+    let root_menu_id = use_signal(|| dom_id.clone());
+    let menu_dom_id = use_signal(|| dom_id.clone());
+    let previous_value = use_signal(String::new);
+    let tracked_value = use_signal(|| initial_val.clone());
+    let on_value_change_slot = use_hook(|| CopyValue::new(on_value_change));
+    let dir_sig = use_signal(|| def.dir());
+    let orientation_sig = use_signal(|| def.orientation());
+    let activation_mode_sig = use_signal(|| def.activation_mode());
+    let disable_toggle = use_signal(|| false);
+    let aria_label_sig = use_signal(|| aria_label);
+    let hover_machine = Some(use_signal(|| initial_machine));
+    let viewport_id = use_signal(|| None::<String>);
+    let viewport_contents = use_signal(Vec::new);
+    let indicator_config = use_signal(|| None);
+    let track_id = use_signal(|| None);
+    let triggers = use_signal(Vec::<RegisteredTrigger>::new);
+    let contents = use_signal(Vec::<(String, String)>::new);
+    let active_content_config = use_hook(|| CopyValue::new(Option::<ContentDismissConfig>::None));
+    let branches = use_signal(Vec::<String>::new);
+    let focus_capture_monitor = use_watcher_slot();
 
-    let ctx = NavigationMenuContext {
-        is_root_menu: true,
-        root_menu_id: use_signal(|| dom_id.clone()),
-        menu_dom_id: use_signal(|| dom_id.clone()),
-        relationships,
-        value: value_signal,
-        previous_value: use_signal(String::new),
-        tracked_value: use_signal(|| initial_val),
-        on_value_change: use_signal(|| on_value_change),
-        dir: use_signal(|| def.dir()),
-        orientation: use_signal(|| def.orientation()),
-        activation_mode: use_signal(|| def.activation_mode()),
-        disable_toggle: use_signal(|| false),
-        aria_label: use_signal(|| aria_label),
-        hover_machine: Some(use_signal(|| initial_machine)),
-        alive: Rc::clone(&alive),
-        focus_tracker: Rc::clone(&focus_tracker),
-        viewport_id: use_signal(|| None),
-        viewport_contents: use_signal(Vec::new),
-        indicator_config: use_signal(|| None),
-        track_id: use_signal(|| None),
-        triggers: use_signal(Vec::new),
-        contents: use_signal(Vec::new),
-        active_content_config: use_signal(|| None),
-        branches: use_signal(Vec::new),
-        roving,
-        dismiss_monitor: use_signal(|| None),
-        focus_capture_monitor: use_signal(|| None),
-        parent_root_dismiss: None,
-    };
-
-    // Start root capture-phase FocusIn observer once on mount (ENG D-2).
+    // Start root capture-phase FocusIn observer once on mount using minimal mask.
     let tracker_for_capture = Rc::clone(&focus_tracker);
-    let mut capture_sig = ctx.focus_capture_monitor;
     use_hook(move || {
-        let watcher = oxidase::dom::observer::observe_capture_events(move |event| {
-            if matches!(event.kind, oxidase::dom::observer::CaptureEventKind::FocusIn)
+        let watcher = observe_capture_events_with_mask(CaptureEventMask::FOCUS_IN, move |event| {
+            if matches!(event.kind, CaptureEventKind::FocusIn)
                 && let Ok(mut ft) = tracker_for_capture.try_borrow_mut()
             {
                 ft.record_focus_in(event.target_id, event.path_ids);
             }
         })
         .unwrap_or_else(|_| WatcherGuard::noop());
-        if let Ok(mut w) = capture_sig.try_write() {
-            *w = Some(watcher);
+        focus_capture_monitor.replace(watcher);
+    });
+
+    let mut base_ctx = NavigationMenuContext {
+        is_root_menu: true,
+        root_menu_id,
+        menu_dom_id,
+        relationships,
+        value: value_signal,
+        previous_value,
+        tracked_value,
+        on_value_change: on_value_change_slot,
+        dir: dir_sig,
+        orientation: orientation_sig,
+        activation_mode: activation_mode_sig,
+        disable_toggle,
+        aria_label: aria_label_sig,
+        hover_machine,
+        alive: Rc::clone(&alive),
+        focus_tracker: Rc::clone(&focus_tracker),
+        viewport_id,
+        viewport_contents,
+        indicator_config,
+        track_id,
+        triggers,
+        contents,
+        active_content_config,
+        branches,
+        roving,
+        dismiss_layer: None,
+        focus_capture_monitor: Some(focus_capture_monitor),
+        parent_root_dismiss: None,
+    };
+
+    let is_open = !value_signal.read().is_empty();
+    let mut boundary_ids: Vec<String> = Vec::new();
+    for t in triggers.read().iter() {
+        if !boundary_ids.contains(&t.dom_id) {
+            boundary_ids.push(t.dom_id.clone());
+        }
+    }
+    if let Some(ref vp_id) = *viewport_id.read()
+        && !boundary_ids.contains(vp_id)
+    {
+        boundary_ids.push(vp_id.clone());
+    }
+    for (_, cid) in contents.read().iter() {
+        if !boundary_ids.contains(cid) {
+            boundary_ids.push(cid.clone());
+        }
+    }
+    for b in branches.read().iter() {
+        if !boundary_ids.contains(b) {
+            boundary_ids.push(b.clone());
+        }
+    }
+
+    let dismiss_config = DismissConfig {
+        layer_id: dom_id,
+        boundaries: boundary_ids,
+        modal: false,
+        disable_outside_pointer_events: false,
+        listen_escape: true,
+        listen_pointer_down_outside: true,
+        listen_focus_outside: true,
+    };
+
+    let ctx_for_callbacks = base_ctx.clone();
+    let dismiss_callbacks = use_hook(move || {
+        let ctx_esc = ctx_for_callbacks.clone();
+        let on_escape_key_down = EventHandler::new(move |evt: EscapeKeyDownEvent| {
+            if !ctx_esc.is_alive()
+                || ctx_esc
+                    .value
+                    .try_peek()
+                    .map(|v| v.is_empty())
+                    .unwrap_or(true)
+            {
+                evt.prevent_default();
+                return;
+            }
+            let cfg = ctx_esc
+                .active_content_config
+                .try_read()
+                .ok()
+                .and_then(|c| c.clone())
+                .unwrap_or_default();
+            if let Some(handler) = cfg.on_escape_key_down {
+                handler.call(evt.clone());
+            }
+            if !cfg.escape_keydown_behavior.should_close() {
+                evt.prevent_default();
+            }
+        });
+
+        let ctx_ptr = ctx_for_callbacks.clone();
+        let on_pointer_down_outside = EventHandler::new(move |evt: PointerDownOutsideEvent| {
+            if !ctx_ptr.is_alive()
+                || ctx_ptr
+                    .value
+                    .try_peek()
+                    .map(|v| v.is_empty())
+                    .unwrap_or(true)
+            {
+                evt.prevent_default();
+                return;
+            }
+            let cfg = ctx_ptr
+                .active_content_config
+                .try_read()
+                .ok()
+                .and_then(|c| c.clone())
+                .unwrap_or_default();
+            if let Some(handler) = cfg.on_pointer_down_outside {
+                handler.call(evt.clone());
+            }
+            if let Some(handler) = cfg.on_interact_outside {
+                handler.call(evt.clone());
+            }
+            if !cfg.interact_outside_behavior.should_close() {
+                evt.prevent_default();
+            }
+        });
+
+        let ctx_focus = ctx_for_callbacks.clone();
+        let on_focus_outside = EventHandler::new(move |evt: FocusOutsideEvent| {
+            if !ctx_focus.is_alive()
+                || ctx_focus
+                    .value
+                    .try_peek()
+                    .map(|v| v.is_empty())
+                    .unwrap_or(true)
+            {
+                evt.prevent_default();
+                return;
+            }
+            let cfg = ctx_focus
+                .active_content_config
+                .try_read()
+                .ok()
+                .and_then(|c| c.clone())
+                .unwrap_or_default();
+
+            let mut menu_ids = vec![
+                ctx_focus
+                    .root_menu_id
+                    .try_peek()
+                    .map(|s| s.clone())
+                    .unwrap_or_default(),
+            ];
+            if let Ok(vp_guard) = ctx_focus.viewport_id.try_peek()
+                && let Some(ref vp_id) = *vp_guard
+            {
+                menu_ids.push(vp_id.clone());
+            }
+            if let Ok(c_list) = ctx_focus.contents.try_peek() {
+                for (_, cid) in c_list.iter() {
+                    menu_ids.push(cid.clone());
+                }
+            }
+            if let Ok(b_list) = ctx_focus.branches.try_peek() {
+                for b in b_list.iter() {
+                    menu_ids.push(b.clone());
+                }
+            }
+
+            let focus_came_from_menu = ctx_focus
+                .focus_tracker
+                .try_borrow()
+                .is_ok_and(|ft| ft.prev_within_any(&menu_ids));
+
+            if !cfg.content_id.is_empty() {
+                remove_from_tab_order(&cfg.content_id);
+            }
+
+            if !should_dismiss_on_focus_outside(false, focus_came_from_menu) {
+                evt.prevent_default();
+                return;
+            }
+
+            if let Some(handler) = cfg.on_focus_outside {
+                handler.call(evt.clone());
+            }
+            if let Some(handler) = cfg.on_interact_outside {
+                handler.call(evt.clone());
+            }
+            if !cfg.interact_outside_behavior.should_close() {
+                evt.prevent_default();
+            }
+        });
+
+        let ctx_dismiss = ctx_for_callbacks;
+        let on_dismiss = EventHandler::new(move |event: DismissEvent| {
+            if !ctx_dismiss.is_alive()
+                || ctx_dismiss
+                    .value
+                    .try_peek()
+                    .map(|v| v.is_empty())
+                    .unwrap_or(true)
+            {
+                return;
+            }
+            let cfg = ctx_dismiss
+                .active_content_config
+                .try_read()
+                .ok()
+                .and_then(|c| c.clone())
+                .unwrap_or_default();
+            match event {
+                DismissEvent::Escape => {
+                    if let Some(ref item_state) = cfg.item_state {
+                        item_state.set_was_escape_close(true);
+                    }
+                    let was_inside_content = !cfg.content_id.is_empty()
+                        && (ctx_dismiss
+                            .focus_tracker
+                            .try_borrow()
+                            .is_ok_and(|ft| ft.current_within(&cfg.content_id))
+                            || is_active_element_inside(&cfg.content_id));
+                    if !cfg.content_id.is_empty() {
+                        remove_from_tab_order(&cfg.content_id);
+                    }
+                    ctx_dismiss.on_item_dismiss();
+                    if was_inside_content && !cfg.trigger_id.is_empty() {
+                        restore_focus_element_by_id_with_options(
+                            &cfg.trigger_id,
+                            FocusOptions::with_focus_visible(true, Some(true)),
+                        );
+                    }
+                }
+                DismissEvent::PointerDownOutside => {
+                    if !cfg.content_id.is_empty() {
+                        remove_from_tab_order(&cfg.content_id);
+                    }
+                    ctx_dismiss.on_item_dismiss();
+                }
+                DismissEvent::FocusOutside => {
+                    ctx_dismiss.on_item_dismiss();
+                }
+            }
+        });
+
+        DismissCallbacks {
+            on_escape_key_down: Some(on_escape_key_down),
+            on_pointer_down_outside: Some(on_pointer_down_outside),
+            on_focus_outside: Some(on_focus_outside),
+            on_interact_outside: None,
+            on_dismiss: Some(on_dismiss),
         }
     });
 
-    // Sync document dismiss monitor when open state or boundaries change.
-    let ctx_for_dismiss = ctx.clone();
-    use_effect(move || {
-        let current_val = (ctx_for_dismiss.value)();
-        let _ = ctx_for_dismiss.triggers.read();
-        let _ = ctx_for_dismiss.contents.read();
-        let _ = ctx_for_dismiss.viewport_id.read();
-        let _ = ctx_for_dismiss.branches.read();
-        let _ = ctx_for_dismiss.active_content_config.read();
-        sync_root_dismiss_monitor(&ctx_for_dismiss, !current_val.is_empty());
-    });
+    let dismiss_layer = use_dismissable_layer(is_open, dismiss_config, dismiss_callbacks);
+    base_ctx.dismiss_layer = Some(dismiss_layer);
 
-    let cleanup_ctx = ctx.clone();
+    let cleanup_ctx = base_ctx.clone();
     let cleanup_alive = Rc::clone(&alive);
     use_drop(move || {
         cleanup_alive.set(false);
@@ -477,11 +708,12 @@ pub fn use_navigation_menu_root_runtime(
         {
             let _ = m.cancel_all_timers();
         }
-        stop_watcher_signal(cleanup_ctx.dismiss_monitor);
-        stop_watcher_signal(cleanup_ctx.focus_capture_monitor);
+        if let Some(slot) = cleanup_ctx.focus_capture_monitor {
+            slot.clear();
+        }
     });
 
-    ctx
+    base_ctx
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -518,7 +750,7 @@ pub fn use_navigation_menu_sub_runtime(
         value: value_signal,
         previous_value: use_signal(String::new),
         tracked_value: use_signal(|| initial_val),
-        on_value_change: use_signal(|| on_value_change),
+        on_value_change: use_hook(|| CopyValue::new(on_value_change)),
         dir: use_signal(|| def.dir()),
         orientation: use_signal(|| def.orientation()),
         activation_mode: use_signal(|| def.activation_mode()),
@@ -533,11 +765,11 @@ pub fn use_navigation_menu_sub_runtime(
         track_id: use_signal(|| None),
         triggers: use_signal(Vec::new),
         contents: use_signal(Vec::new),
-        active_content_config: use_signal(|| None),
+        active_content_config: use_hook(|| CopyValue::new(None)),
         branches: use_signal(Vec::new),
         roving,
-        dismiss_monitor: use_signal(|| None),
-        focus_capture_monitor: use_signal(|| None),
+        dismiss_layer: None,
+        focus_capture_monitor: None,
         parent_root_dismiss,
     };
 
@@ -612,7 +844,10 @@ impl NavigationMenuContext {
     ) {
         update_signal_if_changed(self.root_menu_id, dom_id.to_string());
         update_signal_if_changed(self.menu_dom_id, dom_id.to_string());
-        update_signal_if_changed(self.on_value_change, on_value_change);
+        let mut on_change_slot = self.on_value_change;
+        if let Ok(mut w) = on_change_slot.try_write() {
+            *w = on_value_change;
+        }
         update_signal_if_changed(self.dir, dir);
         update_signal_if_changed(self.orientation, orientation);
         update_signal_if_changed(self.activation_mode, activation_mode);
@@ -641,7 +876,10 @@ impl NavigationMenuContext {
         disable_toggle: bool,
     ) {
         update_signal_if_changed(self.menu_dom_id, dom_id.to_string());
-        update_signal_if_changed(self.on_value_change, on_value_change);
+        let mut on_change_slot = self.on_value_change;
+        if let Ok(mut w) = on_change_slot.try_write() {
+            *w = on_value_change;
+        }
         update_signal_if_changed(self.dir, dir);
         update_signal_if_changed(self.orientation, orientation);
         update_signal_if_changed(self.activation_mode, activation_mode);
@@ -718,9 +956,7 @@ impl NavigationMenuContext {
             };
             self.run_timer_commands(cmds);
         }
-        if let Ok(cb) = self.on_value_change.try_peek()
-            && let Some(ref handler) = *cb
-        {
+        if let Some(handler) = self.on_value_change.try_read().ok().and_then(|g| *g) {
             handler.call(next_value);
         }
     }
@@ -853,15 +1089,11 @@ impl NavigationMenuContext {
             .try_peek()
             .map(|m| *m)
             .unwrap_or_default();
-        let item_override = self
-            .triggers
-            .try_peek()
-            .ok()
-            .and_then(|list| {
-                list.iter()
-                    .find(|t| t.value == current)
-                    .and_then(|t| t.open_on_hover)
-            });
+        let item_override = self.triggers.try_peek().ok().and_then(|list| {
+            list.iter()
+                .find(|t| t.value == current)
+                .and_then(|t| t.open_on_hover)
+        });
         is_item_hover_enabled(mode, item_override)
     }
 
@@ -1136,20 +1368,16 @@ impl NavigationMenuContext {
     }
 
     pub fn set_active_content_config(&self, config: Option<ContentDismissConfig>) {
-        let unchanged = self
-            .active_content_config
-            .try_peek()
-            .is_ok_and(|cur| *cur == config);
-        if unchanged {
-            return;
-        }
-        let mut sig = self.active_content_config;
-        if let Ok(mut w) = sig.try_write() {
+        let mut slot = self.active_content_config;
+        if let Ok(mut w) = slot.try_write() {
             *w = config;
         }
     }
 
     pub fn register_branch(&self, branch: String) {
+        if let Some(dl) = self.dismiss_layer {
+            dl.register_branch(branch.clone());
+        }
         let already = self
             .branches
             .try_peek()
@@ -1164,6 +1392,9 @@ impl NavigationMenuContext {
     }
 
     pub fn unregister_branch(&self, branch: &str) {
+        if let Some(dl) = self.dismiss_layer {
+            dl.unregister_branch(branch);
+        }
         let exists = self
             .branches
             .try_peek()
@@ -1372,155 +1603,6 @@ impl NavigationMenuContext {
     }
 }
 
-fn sync_root_dismiss_monitor(ctx: &NavigationMenuContext, is_open: bool) {
-    stop_watcher_signal(ctx.dismiss_monitor);
-    if !is_open {
-        return;
-    }
-
-    let mut boundary_ids: Vec<String> = Vec::new();
-    if let Ok(triggers) = ctx.triggers.try_peek() {
-        for t in triggers.iter() {
-            if !boundary_ids.contains(&t.dom_id) {
-                boundary_ids.push(t.dom_id.clone());
-            }
-        }
-    }
-    if let Ok(vp_guard) = ctx.viewport_id.try_peek()
-        && let Some(ref vp_id) = *vp_guard
-        && !boundary_ids.contains(vp_id)
-    {
-        boundary_ids.push(vp_id.clone());
-    }
-    if let Ok(contents) = ctx.contents.try_peek() {
-        for (_, cid) in contents.iter() {
-            if !boundary_ids.contains(cid) {
-                boundary_ids.push(cid.clone());
-            }
-        }
-    }
-    if let Ok(branches) = ctx.branches.try_peek() {
-        for b in branches.iter() {
-            if !boundary_ids.contains(b) {
-                boundary_ids.push(b.clone());
-            }
-        }
-    }
-
-    let boundary_refs: Vec<&str> = boundary_ids.iter().map(String::as_str).collect();
-    let ctx_cb = ctx.clone();
-
-    let watcher = start_document_dismiss_monitor_with_boundaries(&boundary_refs, move |event| {
-        if !ctx_cb.is_alive() {
-            return;
-        }
-        let current_val = ctx_cb
-            .value
-            .try_peek()
-            .map(|v| v.clone())
-            .unwrap_or_default();
-        if current_val.is_empty() {
-            return;
-        }
-        let cfg = ctx_cb
-            .active_content_config
-            .try_peek()
-            .ok()
-            .and_then(|c| c.clone())
-            .unwrap_or_default();
-
-        match event {
-            DocumentDismissEvent::Escape => {
-                if let Some(ref handler) = cfg.on_escape_key_down {
-                    handler.call(());
-                }
-                if cfg.escape_keydown_behavior.should_close() {
-                    if let Some(ref item_state) = cfg.item_state {
-                        item_state.set_was_escape_close(true);
-                    }
-                    let was_inside_content = !cfg.content_id.is_empty()
-                        && (ctx_cb
-                            .focus_tracker
-                            .try_borrow()
-                            .is_ok_and(|ft| ft.current_within(&cfg.content_id))
-                            || is_active_element_inside(&cfg.content_id));
-                    if !cfg.content_id.is_empty() {
-                        remove_from_tab_order(&cfg.content_id);
-                    }
-                    ctx_cb.on_item_dismiss();
-                    if was_inside_content && !cfg.trigger_id.is_empty() {
-                        restore_focus_element_by_id_with_options(
-                            &cfg.trigger_id,
-                            FocusOptions::with_focus_visible(true, Some(true)),
-                        );
-                    }
-                }
-            }
-            DocumentDismissEvent::PointerDown { .. } => {
-                if let Some(ref handler) = cfg.on_pointer_down_outside {
-                    handler.call(());
-                }
-                if let Some(ref handler) = cfg.on_interact_outside {
-                    handler.call(());
-                }
-                if cfg.interact_outside_behavior.should_close() {
-                    if !cfg.content_id.is_empty() {
-                        remove_from_tab_order(&cfg.content_id);
-                    }
-                    ctx_cb.on_item_dismiss();
-                }
-            }
-            DocumentDismissEvent::FocusIn { path_ids } => {
-                let mut menu_ids = vec![ctx_cb.root_dom_id()];
-                if let Ok(vp_guard) = ctx_cb.viewport_id.try_peek()
-                    && let Some(ref vp_id) = *vp_guard
-                {
-                    menu_ids.push(vp_id.clone());
-                }
-                if let Ok(contents) = ctx_cb.contents.try_peek() {
-                    for (_, cid) in contents.iter() {
-                        menu_ids.push(cid.clone());
-                    }
-                }
-                if let Ok(branches) = ctx_cb.branches.try_peek() {
-                    for b in branches.iter() {
-                        menu_ids.push(b.clone());
-                    }
-                }
-
-                let focus_moved_into_menu =
-                    path_ids.iter().any(|id| menu_ids.iter().any(|m| m == id));
-                let focus_came_from_menu = ctx_cb
-                    .focus_tracker
-                    .try_borrow()
-                    .is_ok_and(|ft| ft.prev_within_any(&menu_ids));
-
-                if !cfg.content_id.is_empty() && !path_ids.contains(&cfg.content_id) {
-                    remove_from_tab_order(&cfg.content_id);
-                }
-
-                if should_dismiss_on_focus_outside(focus_moved_into_menu, focus_came_from_menu) {
-                    if let Some(ref handler) = cfg.on_focus_outside {
-                        handler.call(());
-                    }
-                    if let Some(ref handler) = cfg.on_interact_outside {
-                        handler.call(());
-                    }
-                    if cfg.interact_outside_behavior.should_close() {
-                        ctx_cb.on_item_dismiss();
-                    }
-                }
-            }
-            DocumentDismissEvent::Click { .. } => {}
-        }
-    });
-
-    let mut sig = ctx.dismiss_monitor;
-    if let Ok(mut w) = sig.try_write() {
-        *w = Some(watcher);
-    }
-}
-
 pub fn active_element_id() -> Option<String> {
     oxidase::dom::Document::current()
         .and_then(|doc| doc.active_element())
@@ -1528,16 +1610,7 @@ pub fn active_element_id() -> Option<String> {
 }
 
 pub fn is_active_element_inside(container_id: &str) -> bool {
-    let Some(doc) = oxidase::dom::Document::current() else {
-        return false;
-    };
-    let Some(container) = doc.element_by_id(container_id) else {
-        return false;
-    };
-    let Some(active) = doc.active_element() else {
-        return false;
-    };
-    container.contains(&active)
+    crate::foundation::browser::is_focus_within_element(container_id)
 }
 
 pub fn is_ignored_arrow_element_by_id(element_id: &str) -> bool {
@@ -1566,15 +1639,7 @@ pub fn focus_content_candidates(content_id: &str, side: NavigationMenuFocusProxy
 }
 
 pub fn focus_element_reliable(target_id: &str) {
-    if let Some(doc) = oxidase::dom::Document::current()
-        && let Some(el) = doc.element_by_id(target_id)
-    {
-        let _ = el.focus_sync_with_options(FocusOptions::new(true));
-        if el.has_focus() {
-            return;
-        }
-    }
-    focus_element_by_id(target_id);
+    foundation_focus_element_reliable(target_id, FocusOptions::new(true));
 }
 
 pub fn focus_first_candidate_id(candidates: &[String]) -> bool {
@@ -1638,39 +1703,6 @@ pub fn handle_proxy_focus(proxy_id: &str) {
     });
 }
 
-/// Starts a `PresenceController` exit-animation monitor and resolves when transition/animation completes.
-pub fn sync_presence_lifecycle(
-    element_id: &str,
-    desired_present: bool,
-    mut presence: Signal<PresenceController>,
-    monitor_cell: &Rc<RefCell<Option<WatcherGuard>>>,
-    on_unmount: impl FnOnce(),
-) {
-    let update = presence.write().sync(desired_present);
-    if !update.should_render() {
-        *monitor_cell.borrow_mut() = None;
-        on_unmount();
-        return;
-    }
-    if desired_present {
-        *monitor_cell.borrow_mut() = None;
-        return;
-    }
-    if let Some(cycle_id) = update.started_close_cycle() {
-        let watcher = start_presence_monitor(element_id, cycle_id, move |event| match event {
-            PresenceMonitorEvent::Fallback { cycle_id: c, .. }
-            | PresenceMonitorEvent::AnimationEnd { cycle_id: c, .. }
-            | PresenceMonitorEvent::AnimationCancel { cycle_id: c, .. }
-            | PresenceMonitorEvent::TransitionEnd { cycle_id: c, .. }
-            | PresenceMonitorEvent::TransitionCancel { cycle_id: c, .. } => {
-                let _ = presence.write().complete_close_cycle(c);
-            }
-            PresenceMonitorEvent::Stopped { .. } => {}
-        });
-        *monitor_cell.borrow_mut() = Some(watcher);
-    }
-}
-
 /// Measures untransformed CSSOM `offset_rect()` dimensions for `Viewport` sizing.
 pub fn measure_viewport_offset_size(content_id: &str) -> Option<NavigationMenuViewportSize> {
     let rect = get_element_offset_rect(content_id)?;
@@ -1708,14 +1740,6 @@ pub fn start_offset_resize_observer(
     })
 }
 
-pub fn stop_watcher_signal(mut sig: Signal<Option<WatcherGuard>>) {
-    if sig.try_peek().is_ok_and(|g| g.is_some())
-        && let Ok(mut w) = sig.try_write()
-    {
-        *w = None;
-    }
-}
-
 fn update_signal_if_changed<T: PartialEq + 'static>(mut sig: Signal<T>, next: T) {
     if sig.try_peek().is_ok_and(|cur| *cur != next)
         && let Ok(mut w) = sig.try_write()
@@ -1730,8 +1754,4 @@ pub fn advance_guard_token(mut sig: Signal<u64>) -> u64 {
         *w = next;
     }
     next
-}
-
-pub fn clear_presence_guard(cell: &Rc<RefCell<Option<WatcherGuard>>>) {
-    *cell.borrow_mut() = None;
 }

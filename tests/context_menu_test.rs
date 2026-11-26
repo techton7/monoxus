@@ -568,4 +568,115 @@ mod native_tests {
         assert!(!harness.base().is_focus_visible(trig_node));
         assert_native_focus_id(&harness, "cm-esc-outside");
     }
+
+    #[component]
+    fn NativeContextMenuVirtualHideAndSiblingScenario() -> Element {
+        rsx! {
+            div { style: "padding: 20px; display: flex; gap: 16px;",
+                ContextMenuRoot {
+                    modal: true,
+                    ContextMenuTrigger {
+                        id: "cm-vh-trig-a",
+                        style: "width: 160px; height: 80px; background: #eee;",
+                        "Region A"
+                    }
+                    ContextMenuPortal {
+                        ContextMenuContent {
+                            id: "cm-vh-content-a",
+                            hide_when_detached: true,
+                            style: "width: 140px; padding: 4px; background: white;",
+                            ContextMenuItem { id: "cm-vh-a1", "Alpha" }
+                        }
+                    }
+                }
+                ContextMenuRoot {
+                    modal: true,
+                    ContextMenuTrigger {
+                        id: "cm-vh-trig-b",
+                        style: "width: 160px; height: 80px; background: #eef;",
+                        "Region B"
+                    }
+                    ContextMenuPortal {
+                        ContextMenuContent {
+                            id: "cm-vh-content-b",
+                            style: "width: 140px; padding: 4px; background: white;",
+                            ContextMenuItem { id: "cm-vh-b1", "Beta" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_ovl_5_and_7_context_menu_virtual_hide_and_aria_hidden_only_sibling() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeContextMenuVirtualHideAndSiblingScenario);
+
+        // Right-click Region A with `hide_when_detached: true` on VirtualPoint anchor -> no panic (`FM-OVL-5`).
+        let (ax, ay) = harness.center_of("#cm-vh-trig-a");
+        right_click_at(&mut harness, ax, ay);
+        assert!(harness.query("#cm-vh-content-a").is_some());
+        assert_eq!(
+            harness.attr("#cm-vh-content-a", "data-side").as_deref(),
+            Some("right")
+        );
+
+        // Modal ContextMenu uses `ModalShieldPolicy::AriaHiddenOnly` so sibling Region B is NOT inert
+        // and right-clicking Region B closes A and opens B (`FM-OVL-5`).
+        assert_eq!(harness.attr("#cm-vh-trig-b", "inert"), None);
+        let (bx, by) = harness.center_of("#cm-vh-trig-b");
+        right_click_at(&mut harness, bx, by);
+        assert!(harness.query("#cm-vh-content-a").is_none());
+        assert!(harness.query("#cm-vh-content-b").is_some());
+    }
+}
+
+#[test]
+fn fm_ovl_7_context_menu_defaults_to_right_and_2px_side_offset() {
+    use monoxus::foundation::overlay::PlacementSide;
+    use monoxus::menu::MENU_CONTEXT_DEFAULT_SIDE_OFFSET;
+
+    #[derive(Clone, Default, PartialEq)]
+    struct ContextDefaultsSnapshot {
+        side: Option<PlacementSide>,
+        side_offset: f32,
+    }
+
+    #[component]
+    fn ContextDefaultsProbe(out: Rc<RefCell<ContextDefaultsSnapshot>>) -> Element {
+        let root = use_context::<MenuRootContext>();
+        *out.borrow_mut() = ContextDefaultsSnapshot {
+            side: Some(*root.root_surface.side.read()),
+            side_offset: *root.root_surface.side_offset.read(),
+        };
+        rsx! {}
+    }
+
+    #[component]
+    fn ContextDefaultsSample(out: Rc<RefCell<ContextDefaultsSnapshot>>) -> Element {
+        rsx! {
+            ContextMenuRoot {
+                default_open: true,
+                ContextMenuTrigger { "Canvas" }
+                ContextMenuPortal {
+                    ContextMenuContent {
+                        ContextMenuItem { "Inspect" }
+                    }
+                }
+                ContextDefaultsProbe { out }
+            }
+        }
+    }
+
+    let snap = Rc::new(RefCell::new(ContextDefaultsSnapshot::default()));
+    let mut dom = VirtualDom::new_with_props(
+        ContextDefaultsSample,
+        ContextDefaultsSampleProps { out: snap.clone() },
+    );
+    dom.rebuild_in_place();
+
+    let res = snap.borrow();
+    assert_eq!(res.side, Some(PlacementSide::Right));
+    assert_eq!(res.side_offset, MENU_CONTEXT_DEFAULT_SIDE_OFFSET);
 }

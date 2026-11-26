@@ -79,6 +79,33 @@ pub fn ensure_active_overlay_layer(layer_id: &str) {
     });
 }
 
+/// Replaces `old_id` with `new_id` in place on `ACTIVE_OVERLAY_LAYERS` without disturbing LIFO
+/// stack order. If `old_id` is not present, pushes `new_id` unless already registered.
+pub fn replace_active_overlay_layer(old_id: &str, new_id: &str) {
+    if new_id.is_empty() {
+        if !old_id.is_empty() {
+            unregister_active_overlay_layer(old_id);
+        }
+        return;
+    }
+    if old_id == new_id {
+        ensure_active_overlay_layer(new_id);
+        return;
+    }
+    ACTIVE_OVERLAY_LAYERS.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        if let Some(pos) = stack.iter().position(|existing| existing == old_id) {
+            if stack.iter().any(|existing| existing == new_id) {
+                stack.remove(pos);
+            } else {
+                stack[pos] = new_id.to_owned();
+            }
+        } else if !stack.iter().any(|existing| existing == new_id) {
+            stack.push(new_id.to_owned());
+        }
+    });
+}
+
 pub fn unregister_active_overlay_layer(layer_id: &str) {
     ACTIVE_OVERLAY_LAYERS.with(|stack| {
         let mut stack = stack.borrow_mut();

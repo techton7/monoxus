@@ -1,10 +1,14 @@
+use crate::foundation::browser::{
+    FocusOptions, blur_active_element, focus_element_sync_or_defer, is_element_focused_by_id,
+    is_focus_within_element as foundation_is_focus_within_element, spawn_root_task,
+};
 use crate::toast::runtime::TOAST_STORE;
 use crate::toast::types::ToastId;
 use dioxus::prelude::*;
 
 /// Checks whether active keyboard focus currently resides on or within `element_id`.
 pub(crate) fn is_focus_within_element(element_id: &str) -> bool {
-    oxidase::dom::Document::current().is_some_and(|doc| doc.is_focus_within(element_id))
+    foundation_is_focus_within_element(element_id)
 }
 
 fn is_focus_within_viewport_or_toast(viewport_id: &str) -> bool {
@@ -60,10 +64,8 @@ pub(crate) fn handle_post_dismiss_focus(
         let toast_dom_id = format!("monoxus-toast-{}", toast_id.0);
         let keyboard_focused = TOAST_STORE.peek().interaction_state.focused;
         if !keyboard_focused {
-            if is_focus_within_element(&toast_dom_id)
-                && let Some(doc) = oxidase::dom::Document::current()
-            {
-                let _ = doc.blur_active();
+            if is_focus_within_element(&toast_dom_id) {
+                let _ = blur_active_element();
             }
             return;
         }
@@ -75,24 +77,14 @@ pub(crate) fn handle_post_dismiss_focus(
             .is_some_and(|doc| doc.element_by_id(fallback_viewport_id).is_none())
         {
             let fallback_vp = fallback_viewport_id.to_string();
-            crate::foundation::browser::spawn_root_task(async move {
+            spawn_root_task(async move {
                 let _ = oxidase::frame::next_frame().await;
                 if TOAST_STORE.peek().has_active_toasts()
                     && is_focus_within_element(&toast_dom_id)
                 {
-                    let vp =
-                        resolve_enclosing_viewport_id(&toast_dom_id).unwrap_or(fallback_vp);
-                    let opts = crate::foundation::browser::FocusOptions::with_focus_visible(
-                        true,
-                        Some(true),
-                    );
-                    if let Some(doc) = oxidase::dom::Document::current() {
-                        if let Some(el) = doc.element_by_id(&vp) {
-                            let _ = el.focus_with_options(opts).await;
-                        } else {
-                            let _ = doc.set_focus_with_options(&vp, opts);
-                        }
-                    }
+                    let vp = resolve_enclosing_viewport_id(&toast_dom_id).unwrap_or(fallback_vp);
+                    let opts = FocusOptions::with_focus_visible(true, Some(true));
+                    focus_element_sync_or_defer(&vp, opts);
                     if is_focus_within_element(&vp) {
                         TOAST_STORE.write().set_focused(true);
                     }
@@ -116,27 +108,25 @@ pub(crate) fn handle_post_dismiss_focus(
 
     if is_focus_within_viewport_or_toast(&viewport_id) {
         let prev_id = TOAST_STORE.peek().last_focused_element_id.clone();
-        let mut restored_sync = false;
-        if let Some(doc) = oxidase::dom::Document::current() {
-            let focus_opts =
-                crate::foundation::browser::FocusOptions::with_focus_visible(false, Some(false));
-            if let Some(prev) = prev_id.as_deref()
+        let focus_opts = FocusOptions::with_focus_visible(false, Some(false));
+        let restored_sync = if let Some(prev) = prev_id.as_deref() {
+            if let Some(doc) = oxidase::dom::Document::current()
                 && let Some(el) = doc.element_by_id(prev)
             {
                 let _ = el.focus_sync_with_options(focus_opts);
-                restored_sync = doc.is_element_active(prev);
-            } else {
-                let _ = doc.blur_active();
-                restored_sync = !is_focus_within_viewport_or_toast(&viewport_id);
             }
-        }
+            is_element_focused_by_id(prev)
+        } else {
+            let _ = blur_active_element();
+            !is_focus_within_viewport_or_toast(&viewport_id)
+        };
         if restored_sync {
             TOAST_STORE.write().last_focused_element_id = None;
         }
     }
 
     let vp_id = viewport_id;
-    crate::foundation::browser::spawn_root_task(async move {
+    spawn_root_task(async move {
         let _ = oxidase::frame::next_frame().await;
         if POST_DISMISS_SEQ.with(|c| c.get()) != seq {
             return;
@@ -145,18 +135,14 @@ pub(crate) fn handle_post_dismiss_focus(
             TOAST_STORE.write().clear_interaction_if_queue_empty();
             if is_focus_within_viewport_or_toast(&vp_id) {
                 let prev_id = TOAST_STORE.write().last_focused_element_id.take();
-                if let Some(doc) = oxidase::dom::Document::current() {
-                    let focus_opts = crate::foundation::browser::FocusOptions::with_focus_visible(
-                        false,
-                        Some(false),
-                    );
-                    if let Some(prev) = prev_id.as_deref()
-                        && let Some(el) = doc.element_by_id(prev)
-                    {
-                        let _ = el.focus_with_options(focus_opts).await;
-                    } else {
-                        let _ = doc.blur_active();
-                    }
+                let focus_opts = FocusOptions::with_focus_visible(false, Some(false));
+                if let Some(prev) = prev_id.as_deref()
+                    && let Some(doc) = oxidase::dom::Document::current()
+                    && let Some(el) = doc.element_by_id(prev)
+                {
+                    let _ = el.focus_with_options(focus_opts).await;
+                } else {
+                    let _ = blur_active_element();
                 }
             } else {
                 TOAST_STORE.write().last_focused_element_id = None;
@@ -182,9 +168,10 @@ pub fn matches_landmark_hotkey(pressed_key: &str, configured_hotkey: &str) -> bo
     if pressed_key.eq_ignore_ascii_case(configured_hotkey) {
         return true;
     }
-    // Also match normalized variants like "KeyF8" vs "F8"
     let stripped_pressed = pressed_key.strip_prefix("Key").unwrap_or(pressed_key);
-    let stripped_config = configured_hotkey.strip_prefix("Key").unwrap_or(configured_hotkey);
+    let stripped_config = configured_hotkey
+        .strip_prefix("Key")
+        .unwrap_or(configured_hotkey);
     stripped_pressed.eq_ignore_ascii_case(stripped_config)
 }
 
@@ -209,26 +196,23 @@ pub fn evaluate_landmark_hotkey(
 /// Dispatches immediate focus where supported and schedules next-frame confirmation
 /// when running inside an active Dioxus runtime.
 pub fn focus_landmark_viewport(viewport_id: &str) -> bool {
-    let opts = crate::foundation::browser::FocusOptions::with_focus_visible(true, Some(true));
+    let opts = FocusOptions::with_focus_visible(true, Some(true));
 
     if dioxus::core::Runtime::try_current().is_some() {
         TOAST_STORE.write().clear_viewport_pointer_press();
     }
 
-    if let Some(doc) = oxidase::dom::Document::current() {
-        let _ = doc.set_focus_with_options(viewport_id, opts);
-    }
+    focus_element_sync_or_defer(viewport_id, opts);
 
     if dioxus::core::Runtime::try_current().is_some() {
         if is_focus_within_element(viewport_id) && TOAST_STORE.peek().has_active_toasts() {
             TOAST_STORE.write().set_focused(true);
         }
         let target_id = viewport_id.to_string();
-        crate::foundation::browser::spawn_root_task(async move {
+        spawn_root_task(async move {
             for _ in 0..5 {
                 let _ = oxidase::frame::next_frame().await;
-                if !TOAST_STORE.peek().has_active_toasts()
-                    && !TOAST_STORE.peek().toasts.is_empty()
+                if !TOAST_STORE.peek().has_active_toasts() && !TOAST_STORE.peek().toasts.is_empty()
                 {
                     break;
                 }
@@ -324,8 +308,6 @@ impl ToastVisibilityManager {
     }
 
     /// Processes a visibility change event (`is_visible: true` if document is visible, `false` if hidden).
-    ///
-    /// Computes whether timers should transition to paused or resumed according to `pause_when_page_is_hidden`.
     pub fn handle_visibility_change(&mut self, is_visible: bool) -> VisibilityTransition {
         let hidden = !is_visible;
         if self.page_hidden == hidden {
@@ -347,9 +329,6 @@ impl ToastVisibilityManager {
 }
 
 /// Applies a document visibility change directly to the global `TOAST_STORE`.
-///
-/// Updates the reactive store's `interaction_state.page_hidden` flag, triggering
-/// countdown timer suspension when `pause_when_page_is_hidden` is active.
 pub fn apply_visibility_change(
     is_visible: bool,
     pause_when_page_is_hidden: bool,
@@ -380,7 +359,6 @@ mod tests {
         assert!(!matches_landmark_hotkey("Escape", "F8"));
         assert!(!matches_landmark_hotkey("Enter", "F8"));
 
-        // Custom hotkeys
         assert!(matches_landmark_hotkey("KeyT", "KeyT"));
         assert!(matches_landmark_hotkey("t", "KeyT"));
         assert!(!matches_landmark_hotkey("k", "KeyT"));
@@ -405,21 +383,17 @@ mod tests {
         let mut manager = ToastVisibilityManager::new(true);
         assert!(!manager.page_hidden);
 
-        // Document hidden -> transitions to Paused
         let trans1 = manager.handle_visibility_change(false);
         assert_eq!(trans1, VisibilityTransition::Paused);
         assert!(manager.page_hidden);
 
-        // Repeated hidden event is idempotent -> Unchanged
         let trans2 = manager.handle_visibility_change(false);
         assert_eq!(trans2, VisibilityTransition::Unchanged);
 
-        // Document visible -> transitions to Resumed
         let trans3 = manager.handle_visibility_change(true);
         assert_eq!(trans3, VisibilityTransition::Resumed);
         assert!(!manager.page_hidden);
 
-        // Repeated visible event is idempotent -> Unchanged
         let trans4 = manager.handle_visibility_change(true);
         assert_eq!(trans4, VisibilityTransition::Unchanged);
     }
@@ -428,7 +402,6 @@ mod tests {
     fn test_visibility_pause_disabled() {
         let mut manager = ToastVisibilityManager::new(false);
 
-        // When pause_when_page_is_hidden is false, transitions remain Unchanged
         let trans1 = manager.handle_visibility_change(false);
         assert_eq!(trans1, VisibilityTransition::Unchanged);
         assert!(manager.page_hidden);

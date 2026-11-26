@@ -1,9 +1,5 @@
 use oxidase::dom::{ModalShieldGuard, ModalShieldMode, ScrollLockOptions};
 
-pub(crate) fn suppress_external_dom(keep_ids: &[&str]) -> ModalShieldGuard {
-    oxidase::dom::suppress_others(keep_ids)
-}
-
 #[allow(dead_code)]
 pub(crate) fn shield_external_dom(keep_ids: &[&str], mode: ModalShieldMode) -> ModalShieldGuard {
     oxidase::dom::shield_others_with_mode(keep_ids, mode)

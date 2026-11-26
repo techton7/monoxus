@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use crate::foundation::shared::use_stable_id;
+use crate::foundation::{
+    compose::merge_global_attributes,
+    shared::{data_disabled_attr, use_stable_id},
+};
 use crate::popover::components::PopoverContext;
 
 #[derive(Props, Clone, PartialEq)]
@@ -13,6 +16,8 @@ pub struct PopoverCloseProps {
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     pub children: Element,
 }
 
@@ -25,19 +30,25 @@ pub fn PopoverClose(props: PopoverCloseProps) -> Element {
     let close_id = props
         .id
         .unwrap_or_else(|| format!("{stable_fallback}-close"));
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
 
     rsx! {
         button {
             id: "{close_id}",
             r#type: "button",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             disabled: props.disabled,
             "data-state": close.data_state().as_str(),
-            "data-disabled": crate::foundation::shared::data_disabled_attr(props.disabled),
+            "data-disabled": data_disabled_attr(props.disabled),
             onmounted: runtime.mount_close(),
             onpointerdown: runtime.close_pointer_down(),
             onclick: runtime.close_click(),
+            ..merged.rest,
             {props.children}
         }
     }

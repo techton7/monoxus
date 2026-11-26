@@ -231,3 +231,177 @@ fn popover_reuses_the_shared_state_composition_and_overlay_backbone() {
         ],
     );
 }
+
+
+#[cfg(feature = "native")]
+mod native_stage2a_tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+
+    use dioxus::prelude::*;
+    use dioxus_core::{Attribute, AttributeValue};
+    use keyboard_types::{Code, Key, NamedKey};
+    use monoxus::popover::{
+        EscapeKeyDownEvent, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger,
+    };
+
+    use crate::common::native_fixture::{
+        NATIVE_TEST_LOCK, advance_frame_and_pump, click_and_pump, mount_native_scenario,
+        mount_native_scenario_with_props, send_key_and_pump,
+    };
+
+    #[component]
+    fn PopoverAttrMergeScenario() -> Element {
+        let extra_attrs = vec![
+            Attribute::new("class", "extra-cls", None, false),
+            Attribute::new("style", "color: red", None, false),
+            Attribute {
+                name: "style",
+                value: AttributeValue::None,
+                namespace: None,
+                volatile: false,
+            },
+            Attribute::new("data-custom", "ok", None, false),
+        ];
+
+        rsx! {
+            PopoverRoot {
+                id: "attr-merge-popover",
+                default_open: true,
+                PopoverTrigger { id: "attr-merge-trigger", "Open" }
+                PopoverPortal {
+                    PopoverContent {
+                        id: "attr-merge-content",
+                        class: Some("base-cls".to_string()),
+                        style: Some("margin: 0".to_string()),
+                        attributes: extra_attrs,
+                        "Body"
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_api_3_popover_content_merge_global_attributes_preserves_css_vars_and_merges_class_style() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(PopoverAttrMergeScenario);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        let cid = harness.node("#attr-merge-content");
+        let base = harness.base();
+        let node = base.get_node(cid).unwrap();
+
+        let cls = node.attr("class".into()).unwrap_or_default();
+        assert!(
+            cls.contains("base-cls") && cls.contains("extra-cls"),
+            "Expected merged class containing both base-cls and extra-cls, got: {cls}"
+        );
+
+        let style = node.attr("style".into()).unwrap_or_default();
+        assert!(
+            style.contains("margin: 0") && style.contains("color: red"),
+            "Expected merged style containing both margin: 0 and color: red, got: {style}"
+        );
+        assert!(
+            style.contains("--monoxus-popover-") || style.contains("--radix-popover-"),
+            "Expected internal popover CSS custom properties preserved, got: {style}"
+        );
+        assert!(
+            !style.contains(";;"),
+            "Merged style must not contain duplicate semicolons: {style}"
+        );
+        assert_eq!(node.attr("data-custom".into()), Some("ok"));
+    }
+
+    #[derive(Clone, Props)]
+    struct PopoverHandlerToggleProps {
+        cb1_hits: Arc<AtomicUsize>,
+        cb2_hits: Arc<AtomicUsize>,
+    }
+
+    impl PartialEq for PopoverHandlerToggleProps {
+        fn eq(&self, other: &Self) -> bool {
+            Arc::ptr_eq(&self.cb1_hits, &other.cb1_hits)
+                && Arc::ptr_eq(&self.cb2_hits, &other.cb2_hits)
+        }
+    }
+
+    #[component]
+    fn PopoverHandlerToggleScenario(props: PopoverHandlerToggleProps) -> Element {
+        let mut stage = use_signal(|| 0_u8);
+        let open = use_signal(|| true);
+        let cb1_hits = props.cb1_hits.clone();
+        let cb2_hits = props.cb2_hits.clone();
+
+        let on_escape: Option<EventHandler<EscapeKeyDownEvent>> = match stage() {
+            0 => None,
+            1 => Some(EventHandler::new(move |evt: EscapeKeyDownEvent| {
+                cb1_hits.fetch_add(1, Ordering::SeqCst);
+                evt.prevent_default();
+            })),
+            _ => Some(EventHandler::new(move |evt: EscapeKeyDownEvent| {
+                cb2_hits.fetch_add(1, Ordering::SeqCst);
+                evt.prevent_default();
+            })),
+        };
+
+        rsx! {
+            div {
+                button {
+                    id: "advance-handler-stage",
+                    onclick: move |_| stage += 1,
+                    "Stage {stage()}"
+                }
+                PopoverRoot {
+                    id: "toggle-popover",
+                    open: open,
+                    outside_interaction: Some(monoxus::popover::PopoverOutsideInteractionPolicy::new(
+                        monoxus::popover::PopoverOutsideDismissBehavior::Ignore,
+                        monoxus::popover::PopoverOutsideDismissBehavior::Ignore,
+                    )),
+                    PopoverTrigger { id: "toggle-trigger", "Open" }
+                    PopoverPortal {
+                        PopoverContent {
+                            id: "toggle-content",
+                            on_escape_key_down: on_escape,
+                            button { id: "toggle-inner", "Inner" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_api_4_popover_content_handler_toggle_none_to_some_cb1_to_some_cb2() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let cb1_hits = Arc::new(AtomicUsize::new(0));
+        let cb2_hits = Arc::new(AtomicUsize::new(0));
+
+        let mut harness = mount_native_scenario_with_props(
+            PopoverHandlerToggleScenario,
+            PopoverHandlerToggleProps {
+                cb1_hits: cb1_hits.clone(),
+                cb2_hits: cb2_hits.clone(),
+            },
+        );
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        click_and_pump(&mut harness, "#advance-handler-stage");
+        click_and_pump(&mut harness, "#advance-handler-stage");
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        assert_eq!(cb1_hits.load(Ordering::SeqCst), 0);
+        assert_eq!(cb2_hits.load(Ordering::SeqCst), 1);
+        assert!(
+            harness.query("#toggle-content").is_some(),
+            "cb2 called prevent_default(), so PopoverContent must remain open"
+        );
+    }
+}

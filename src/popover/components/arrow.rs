@@ -1,5 +1,10 @@
+use std::{cell::RefCell, rc::Rc};
+
 use dioxus::prelude::*;
 
+use crate::foundation::overlay::{
+    FloatingArrowSpec, PlacementAlign, PlacementSide, render_floating_arrow,
+};
 use crate::popover::components::PopoverContext;
 
 #[derive(Props, Clone, PartialEq)]
@@ -14,90 +19,70 @@ pub struct PopoverArrowProps {
     pub width: f32,
     #[props(default = 5.0)]
     pub height: f32,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     pub children: Option<Element>,
 }
 
 #[component]
 pub fn PopoverArrow(props: PopoverArrowProps) -> Element {
     let ctx = use_context::<PopoverContext>();
-    let runtime = ctx.runtime.read();
+    let runtime = ctx.runtime.read().clone();
     let arrow = runtime.arrow();
     let arrow_id = props.id.unwrap_or_else(|| arrow.id().to_string());
-    let placement = runtime.placement();
 
-    let arrow_pos = placement.as_ref().map(|p| p.arrow());
-    let (arrow_x, arrow_y, is_hidden) = if let Some(pos) = arrow_pos {
-        (pos.x(), pos.y(), pos.hidden())
-    } else {
-        (None, None, false)
-    };
-
-    if is_hidden {
-        return rsx! {};
-    }
-
-    let side_str = arrow.data_side();
-    let rotate_deg = match side_str {
-        "bottom" => 0,
-        "top" => 180,
-        "left" => 90,
-        "right" => -90,
-        _ => 0,
-    };
-
-    let pos_style = match (arrow_x, arrow_y) {
-        (Some(x), Some(y)) => format!(
-            "position: absolute; left: {}px; top: {}px; transform: rotate({}deg);",
-            x, y, rotate_deg
-        ),
-        (Some(x), None) => format!(
-            "position: absolute; left: {}px; transform: rotate({}deg);",
-            x, rotate_deg
-        ),
-        (None, Some(y)) => format!(
-            "position: absolute; top: {}px; transform: rotate({}deg);",
-            y, rotate_deg
-        ),
-        (None, None) => format!("transform: rotate({}deg);", rotate_deg),
-    };
-
-    let merged_style = if let Some(custom) = &props.style {
-        format!("{pos_style} {custom}")
-    } else {
-        pos_style
-    };
-
-    if let Some(c) = props.children {
-        return rsx! {
-            div {
-                id: "{arrow_id}",
-                class: props.class.as_deref().unwrap_or_default(),
-                style: "{merged_style}",
-                "data-state": arrow.data_state().as_str(),
-                "data-side": arrow.data_side(),
-                "data-align": arrow.data_align(),
-                "aria-hidden": "true",
-                {c}
-            }
-        };
-    }
-
-    rsx! {
-        svg {
-            id: "{arrow_id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: "{merged_style}",
-            width: "{props.width}",
-            height: "{props.height}",
-            view_box: "0 0 {props.width} {props.height}",
-            "data-state": arrow.data_state().as_str(),
-            "data-side": arrow.data_side(),
-            "data-align": arrow.data_align(),
-            "aria-hidden": "true",
-            polygon {
-                points: "0,{props.height} {props.width / 2.0},0 {props.width},{props.height}",
-                fill: "currentColor",
-            }
+    let latest_aid = use_hook(|| Rc::new(RefCell::new(arrow_id.clone())));
+    {
+        let mut prev = latest_aid.borrow_mut();
+        if *prev != arrow_id {
+            runtime.unregister_arrow_id(&prev);
+            *prev = arrow_id.clone();
         }
     }
+    runtime.register_arrow_id(&arrow_id);
+    let aid_for_drop = Rc::clone(&latest_aid);
+    let rt_for_drop = runtime.clone();
+    use_drop(move || {
+        let current = aid_for_drop.borrow().clone();
+        rt_for_drop.unregister_arrow_id(&current);
+    });
+
+    let placement = runtime.placement();
+    let side = placement
+        .as_ref()
+        .map(|p| p.side())
+        .unwrap_or_else(|| match arrow.data_side() {
+            "top" => PlacementSide::Top,
+            "right" => PlacementSide::Right,
+            "left" => PlacementSide::Left,
+            _ => PlacementSide::Bottom,
+        });
+    let align = placement
+        .as_ref()
+        .map(|p| p.align())
+        .unwrap_or_else(|| match arrow.data_align() {
+            "start" => PlacementAlign::Start,
+            "end" => PlacementAlign::End,
+            _ => PlacementAlign::Center,
+        });
+
+    render_floating_arrow(FloatingArrowSpec {
+        id: arrow_id,
+        side,
+        align,
+        data_state: match arrow.data_state().as_str() {
+            "open" => "open",
+            _ => "closed",
+        },
+        arrow: placement.as_ref().map(|p| *p.arrow()),
+        width: props.width,
+        height: props.height,
+        arrow_padding: runtime.lifecycle().floating().arrow_padding(),
+        edge_offset: false,
+        class: props.class,
+        style: props.style,
+        part_attr: None,
+        attributes: props.attributes,
+        children: props.children,
+    })
 }

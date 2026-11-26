@@ -9,15 +9,15 @@ pub mod title;
 pub mod trigger;
 
 pub use self::{
-    anchor::PopoverAnchor,
-    arrow::PopoverArrow,
-    close::PopoverClose,
+    anchor::{PopoverAnchor, PopoverAnchorProps},
+    arrow::{PopoverArrow, PopoverArrowProps},
+    close::{PopoverClose, PopoverCloseProps},
     content::{PopoverContent, PopoverContentProps, PopoverContentRenderProps},
-    description::PopoverDescription,
-    portal::PopoverPortal,
-    root::PopoverRoot,
-    title::PopoverTitle,
-    trigger::PopoverTrigger,
+    description::{PopoverDescription, PopoverDescriptionProps},
+    portal::{PopoverPortal, PopoverPortalProps},
+    root::{PopoverRoot, PopoverRootProps},
+    title::{PopoverTitle, PopoverTitleProps},
+    trigger::{PopoverTrigger, PopoverTriggerProps, PopoverTriggerRenderProps},
 };
 
 use dioxus::prelude::*;

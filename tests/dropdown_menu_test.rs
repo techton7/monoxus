@@ -777,4 +777,184 @@ mod native_tests {
         send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowDown), Code::ArrowDown);
         assert_native_focus_id(&harness, "dm-clamp-3");
     }
+
+    #[test]
+    fn fm_ovl_1_dropdown_menu_ime_process_key_does_not_dismiss() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeDropdownLoopClampScenario);
+
+        focus_node(&mut harness, "#dm-clamp-trig");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#dm-clamp-content").is_some());
+
+        // IME Process key must not dismiss open menu (`FM-OVL-1`, `radix#4153`).
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Process), Code::Unidentified);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#dm-clamp-content").is_some());
+
+        // Normal Escape closes menu and restores trigger focus.
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#dm-clamp-content").is_none());
+        assert_native_focus_id(&harness, "dm-clamp-trig");
+    }
+
+    #[component]
+    fn NativeDropdownCallbackToggleScenario() -> Element {
+        let mut stage = use_signal(|| 0_u8);
+        let mut cb1_hits = use_signal(|| 0_u32);
+        let mut cb2_hits = use_signal(|| 0_u32);
+
+        let on_esc = match stage() {
+            0 => None,
+            1 => Some(EventHandler::new(move |_evt: monoxus::menu::MenuPreventableEvent| {
+                cb1_hits.set(cb1_hits() + 1);
+            })),
+            _ => Some(EventHandler::new(move |evt: monoxus::menu::MenuPreventableEvent| {
+                cb2_hits.set(cb2_hits() + 1);
+                evt.prevent_default();
+            })),
+        };
+
+        rsx! {
+            div { style: "padding: 24px;",
+                button {
+                    id: "dm-cb-next-stage",
+                    r#type: "button",
+                    style: "width: 80px; height: 24px;",
+                    onclick: move |_| stage.set(stage() + 1),
+                    "Next Stage"
+                }
+                span { id: "dm-cb-hits", "{cb1_hits()}:{cb2_hits()}" }
+                DropdownMenuRoot {
+                    DropdownMenuTrigger {
+                        id: "dm-cb-trig",
+                        style: "width: 100px; height: 28px;",
+                        "Toggle Menu"
+                    }
+                    DropdownMenuPortal {
+                        DropdownMenuContent {
+                            id: "dm-cb-content",
+                            style: "width: 140px; padding: 4px; background: white;",
+                            on_escape_key_down: on_esc,
+                            DropdownMenuItem { id: "dm-cb-item-1", "Alpha" }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_api_4_dropdown_menu_content_callback_toggle_none_some_some() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeDropdownCallbackToggleScenario);
+
+        // Toggle `on_escape_key_down` across `None -> Some(cb1) -> Some(cb2)` without panic (`Dioxus #5894`).
+        click_and_pump(&mut harness, "#dm-cb-next-stage"); // None -> Some(cb1)
+        click_and_pump(&mut harness, "#dm-cb-next-stage"); // Some(cb1) -> Some(cb2)
+
+        focus_node(&mut harness, "#dm-cb-trig");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Enter), Code::Enter);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#dm-cb-content").is_some());
+
+        // Escape must invoke `cb2` (which calls `prevent_default()` -> menu stays open).
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#dm-cb-content").is_some());
+        assert_eq!(harness.text_content("#dm-cb-hits"), "0:1");
+    }
+}
+
+#[test]
+fn fm_ovl_5_submenu_corridor_progress_and_coalesced_leave_direction() {
+    use monoxus::foundation::overlay::{
+        GraceTransit, PlacementSide, Point2D, Rect2D, SUBMENU_INTENT_MIN_PROGRESS_PX,
+        point_to_rect_distance,
+    };
+    use monoxus::menu::MenuSurfaceRuntime;
+
+    // Coalesced pointerleave horizontal direction recomputation (`radix menu.tsx:488`).
+    assert!(MenuSurfaceRuntime::is_pointer_leaving_away_from_submenu(
+        PlacementSide::Right,
+        -(SUBMENU_INTENT_MIN_PROGRESS_PX + 1.0),
+        false,
+    ));
+    assert!(!MenuSurfaceRuntime::is_pointer_leaving_away_from_submenu(
+        PlacementSide::Right,
+        SUBMENU_INTENT_MIN_PROGRESS_PX + 1.0,
+        false,
+    ));
+    assert!(MenuSurfaceRuntime::is_pointer_leaving_away_from_submenu(
+        PlacementSide::Left,
+        SUBMENU_INTENT_MIN_PROGRESS_PX + 1.0,
+        false,
+    ));
+    assert!(MenuSurfaceRuntime::is_pointer_leaving_away_from_submenu(
+        PlacementSide::Right,
+        SUBMENU_INTENT_MIN_PROGRESS_PX + 1.0,
+        true,
+    ));
+
+    // Monotonic progress threshold (`bits#2192`): >= 1.0px progress vs < 1.0px micro-jitter.
+    let from = Rect2D::new(0.0, 0.0, 120.0, 32.0);
+    let to = Rect2D::new(140.0, 0.0, 140.0, 160.0);
+    let exit = Point2D::new(120.0, 16.0);
+    let transit = GraceTransit::new(exit, from, to, Some(5.0), false);
+    let d0 = point_to_rect_distance(exit, &transit.to_rect);
+    let d_jitter = point_to_rect_distance(Point2D::new(120.5, 16.0), &transit.to_rect);
+    let d_progress = point_to_rect_distance(Point2D::new(125.0, 20.0), &transit.to_rect);
+    assert!(d0 - d_jitter < SUBMENU_INTENT_MIN_PROGRESS_PX);
+    assert!(d0 - d_progress >= SUBMENU_INTENT_MIN_PROGRESS_PX);
+}
+
+#[test]
+fn fm_ovl_7_dropdown_menu_defaults_to_bottom_and_4px_side_offset() {
+    use monoxus::foundation::overlay::PlacementSide;
+    use monoxus::menu::MENU_DEFAULT_SIDE_OFFSET;
+
+    #[derive(Clone, Default, PartialEq)]
+    struct DefaultsSnapshot {
+        side: Option<PlacementSide>,
+        side_offset: f32,
+    }
+
+    #[component]
+    fn DefaultsProbe(out: Rc<RefCell<DefaultsSnapshot>>) -> Element {
+        let root = use_context::<MenuRootContext>();
+        *out.borrow_mut() = DefaultsSnapshot {
+            side: Some(*root.root_surface.side.read()),
+            side_offset: *root.root_surface.side_offset.read(),
+        };
+        rsx! {}
+    }
+
+    #[component]
+    fn DropdownDefaultsSample(out: Rc<RefCell<DefaultsSnapshot>>) -> Element {
+        rsx! {
+            DropdownMenuRoot {
+                default_open: true,
+                DropdownMenuTrigger { "Open" }
+                DropdownMenuPortal {
+                    DropdownMenuContent {
+                        DropdownMenuItem { "One" }
+                    }
+                }
+                DefaultsProbe { out }
+            }
+        }
+    }
+
+    let snap = Rc::new(RefCell::new(DefaultsSnapshot::default()));
+    let mut dom = VirtualDom::new_with_props(
+        DropdownDefaultsSample,
+        DropdownDefaultsSampleProps { out: snap.clone() },
+    );
+    dom.rebuild_in_place();
+
+    let res = snap.borrow();
+    assert_eq!(res.side, Some(PlacementSide::Bottom));
+    assert_eq!(res.side_offset, MENU_DEFAULT_SIDE_OFFSET);
 }

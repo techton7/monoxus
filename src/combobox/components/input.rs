@@ -106,8 +106,7 @@ pub fn ComboboxInput(props: ComboboxInputProps) -> Element {
 
     let mount_rt = ctx.runtime.clone();
     let on_mounted = EventHandler::new(move |evt: MountedEvent| {
-        let mut ih = mount_rt.state.input_handle;
-        let _ = ih.try_write().map(|mut w| *w = Some(evt.data()));
+        mount_rt.capture_input_mount(evt.data());
     });
 
     if props.as_child {

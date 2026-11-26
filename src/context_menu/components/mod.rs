@@ -1,11 +1,7 @@
-pub mod content;
-pub mod content_static;
 pub mod root;
 pub mod trigger;
 
 pub use self::{
-    content::{ContextMenuContent, ContextMenuContentProps},
-    content_static::{ContextMenuContentStatic, ContextMenuContentStaticProps},
     root::{ContextMenu, ContextMenuRoot, ContextMenuRootProps},
     trigger::{ContextMenuTrigger, ContextMenuTriggerProps, ContextMenuTriggerRenderProps},
 };
@@ -17,8 +13,11 @@ pub use crate::menu::components::{
     MenuCheckboxItem as ContextMenuCheckboxItem,
     MenuCheckboxItemProps as ContextMenuCheckboxItemProps,
     MenuCheckboxItemRenderProps as ContextMenuCheckboxItemRenderProps,
+    MenuContent as ContextMenuContent, MenuContentProps as ContextMenuContentProps,
     MenuContentRenderProps as ContextMenuContentRenderProps,
-    MenuGroup as ContextMenuGroup, MenuGroupHeading as ContextMenuGroupHeading,
+    MenuContentStatic as ContextMenuContentStatic,
+    MenuContentStaticProps as ContextMenuContentStaticProps, MenuGroup as ContextMenuGroup,
+    MenuGroupHeading as ContextMenuGroupHeading,
     MenuGroupHeadingProps as ContextMenuGroupHeadingProps,
     MenuGroupProps as ContextMenuGroupProps, MenuItem as ContextMenuItem,
     MenuItemIndicator as ContextMenuItemIndicator,

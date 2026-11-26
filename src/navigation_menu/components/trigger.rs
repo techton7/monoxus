@@ -6,6 +6,8 @@ use futures_timer::Delay;
 use crate::{
     foundation::{
         browser::spawn_root_task,
+        compose::merge_global_attributes,
+        keyboard::is_ime_composing_key,
         roving_focus::{RovingItemMeta, key_to_roving_str, use_roving_focus_item},
     },
     visually_hidden::VisuallyHiddenState,
@@ -199,7 +201,7 @@ pub fn NavigationMenuTrigger(props: NavigationMenuTriggerProps) -> Element {
             if let Some(ref handler) = consumer_on_key_down {
                 handler.call(evt.clone());
             }
-            if !evt.default_action_enabled() || disabled {
+            if disabled || is_ime_composing_key(&evt) {
                 return;
             }
             let currently_open = ctx.value.try_peek().is_ok_and(|v| *v == item_value);
@@ -275,11 +277,17 @@ pub fn NavigationMenuTrigger(props: NavigationMenuTriggerProps) -> Element {
         );
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         button {
             id: "{trigger_attrs.id()}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             r#type: "{trigger_attrs.button_type()}",
             disabled: trigger_attrs.is_disabled(),
             aria_expanded: "{trigger_attrs.aria_expanded()}",
@@ -299,7 +307,7 @@ pub fn NavigationMenuTrigger(props: NavigationMenuTriggerProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
         {proxies}

@@ -174,9 +174,12 @@ impl AlertDialogRuntime {
 }
 
 pub use crate::dialog::{
-    AlertDialogAction, AlertDialogCancel, DialogClose, DialogContent, DialogDescription,
-    DialogOverlay, DialogPortal, DialogTitle, DialogTrigger,
+    AlertDialogAction, AlertDialogCancel, CloseAutoFocusEvent, DialogClose, DialogContent,
+    DialogDescription, DialogOverlay, DialogPortal, DialogTitle, DialogTrigger, EscapeKeyDownEvent,
+    FocusOutsideEvent, InteractOutsideEvent, OpenAutoFocusEvent, PointerDownOutsideEvent,
+    PreventableEvent,
 };
+pub type AlertDialogPreventableEvent = PreventableEvent<()>;
 
 #[component]
 pub fn AlertDialogRoot(

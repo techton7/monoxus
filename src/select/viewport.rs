@@ -1,4 +1,7 @@
+use dioxus::prelude::keyboard_types::Key;
 use dioxus::prelude::*;
+
+use crate::foundation::keyboard::{NavKey, is_ime_composing_key, translate_nav_key};
 
 use super::{runtime::SelectRuntime, types::SelectItemData};
 
@@ -15,10 +18,10 @@ pub fn apply_document_order(items: &mut Vec<SelectItemData>, order: &[String]) {
 
 impl SelectRuntime {
     pub fn item_label(&self, val: &str) -> Option<String> {
-        if let Ok(labels) = self.state.selected_labels.try_read() {
-            if let Some(lbl) = labels.get(val) {
-                return Some(lbl.clone());
-            }
+        if let Ok(labels) = self.state.selected_labels.try_read()
+            && let Some(lbl) = labels.get(val)
+        {
+            return Some(lbl.clone());
         }
         let reg = self.state.registry.read();
         if let Some(item) = reg.active_items().find(|i| i.value == val) {
@@ -66,7 +69,7 @@ impl SelectRuntime {
                 } else if loop_selection {
                     0
                 } else {
-                    idx // Clamp at end per loop = false contract
+                    idx
                 }
             }
             None => 0,
@@ -107,7 +110,7 @@ impl SelectRuntime {
                 if loop_selection {
                     enabled.len() - 1
                 } else {
-                    0 // Clamp at start per loop = false contract
+                    0
                 }
             }
             Some(idx) => idx - 1,
@@ -145,34 +148,34 @@ impl SelectRuntime {
     }
 
     pub fn handle_content_keydown(&self, event: &KeyboardEvent, now_ms: f64) {
-        if !self.is_open() {
+        if !self.is_open() || is_ime_composing_key(event) {
             return;
         }
-        let key = event.key().to_string();
-        match key.as_str() {
-            "ArrowDown" => {
+        let key = event.key();
+        match translate_nav_key(&key) {
+            Some(NavKey::ArrowDown) => {
                 event.prevent_default();
                 self.highlight_next();
             }
-            "ArrowUp" => {
+            Some(NavKey::ArrowUp) => {
                 event.prevent_default();
                 self.highlight_prev();
             }
-            "Home" => {
+            Some(NavKey::Home) => {
                 event.prevent_default();
                 self.highlight_first();
             }
-            "End" => {
+            Some(NavKey::End) => {
                 event.prevent_default();
                 self.highlight_last();
             }
-            "Enter" => {
+            Some(NavKey::Enter) => {
                 event.prevent_default();
                 if let Some(cand) = self.highlighted_value() {
                     self.select_item(&cand);
                 }
             }
-            " " => {
+            Some(NavKey::Space) => {
                 event.prevent_default();
                 if self.has_active_typeahead(now_ms) {
                     self.handle_typeahead(' ', now_ms);
@@ -180,18 +183,20 @@ impl SelectRuntime {
                     self.select_item(&cand);
                 }
             }
-            "Escape" => {
+            Some(NavKey::Escape) => {
                 event.prevent_default();
                 self.close_dropdown();
             }
-            "Tab" => {
+            Some(NavKey::Tab) => {
                 // Do NOT prevent_default(), let browser naturally advance tab focus!
                 self.close_dropdown_without_restore();
             }
             _ => {
-                if key.len() == 1 {
-                    let ch = key.chars().next().unwrap();
-                    if ch.is_alphanumeric() || ch.is_whitespace() {
+                if let Key::Character(ref s) = key {
+                    let mut chars = s.chars();
+                    if let (Some(ch), None) = (chars.next(), chars.next())
+                        && (ch.is_alphanumeric() || ch.is_whitespace())
+                    {
                         self.handle_typeahead(ch, now_ms);
                     }
                 }
@@ -255,12 +260,7 @@ pub(crate) fn scroll_item_within_container(
     let item_id = item_id.to_owned();
     crate::foundation::browser::spawn_root_task(async move {
         for attempt in 0..3 {
-            if try_scroll_item_within_container(
-                &viewport_id,
-                &fallback_content_id,
-                &item_id,
-            )
-            .await
+            if try_scroll_item_within_container(&viewport_id, &fallback_content_id, &item_id).await
             {
                 break;
             }
@@ -327,4 +327,3 @@ pub fn SelectScrollDownButton(
         }
     }
 }
-

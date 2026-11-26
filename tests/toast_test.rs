@@ -760,7 +760,7 @@ fn custom_toast_and_viewport_automount_test() {
     dom.in_runtime(|| {
         let store = TOAST_STORE.read();
         assert_eq!(store.toasts.len(), 2);
-        assert!(store.toasts[1].options.custom_renderer.is_some());
+        assert!(store.toasts[1].meta.custom_renderer.is_some());
     });
 }
 
@@ -1870,4 +1870,191 @@ fn pointer_close_and_action_keep_viewport_unfocused_collapse_on_mouseleave_and_e
         let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
         assert!(TOAST_STORE.peek().toasts.is_empty());
     }
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn fm_ovl_1_and_fm_ovl_8_toast_ime_escape_and_nested_dialog_escape_coordination() {
+    use blitz_traits::events::{BlitzKeyEvent, KeyState, UiEvent};
+    use keyboard_types::{Code, Key, Location, Modifiers, NamedKey};
+    use monoxus::dialog::{
+        DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTitle, DialogTrigger,
+    };
+
+    let _lock = crate::common::native_fixture::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
+    #[component]
+    fn ToastWithDialogScenario() -> Element {
+        let dialog_open = use_signal(|| false);
+        rsx! {
+            div {
+                DialogRoot {
+                    id: "toast-coord-dialog",
+                    open: dialog_open,
+                    DialogTrigger { id: "toast-coord-dialog-trigger", "Open Dialog" }
+                    DialogPortal {
+                        DialogOverlay { id: "toast-coord-dialog-overlay" }
+                        DialogContent {
+                            id: "toast-coord-dialog-content",
+                            DialogTitle { "Overlay Above Toast" }
+                        }
+                    }
+                }
+                ToastProvider {
+                    ToastViewport { id: "monoxus-toast-viewport" }
+                }
+            }
+        }
+    }
+
+    let mut harness = crate::common::native_fixture::mount_native_scenario(ToastWithDialogScenario);
+    let toast_id = {
+        let _guard = dioxus::core::RuntimeGuard::new(harness.doc.vdom.runtime());
+        TOAST_STORE.write().toasts.clear();
+        TOAST_STORE.write().toast_heights.clear();
+        toast::message(
+            "Coordinated Toast",
+            Some(ToastOptions {
+                duration: Some(Duration::from_secs(60)),
+                ..Default::default()
+            }),
+        )
+    };
+    crate::common::native_fixture::advance_frame_and_pump(&mut harness, 0.02);
+
+    // Open Dialog so an overlay layer is active on top
+    crate::common::native_fixture::click_and_pump(&mut harness, "#toast-coord-dialog-trigger");
+    crate::common::native_fixture::advance_frame_and_pump(&mut harness, 0.02);
+    assert!(harness.query("#toast-coord-dialog-content").is_some());
+
+    // Focus the toast card while Dialog is open
+    let toast_sel = format!("#monoxus-toast-{}", toast_id.0);
+    crate::common::native_fixture::focus_node(&mut harness, &toast_sel);
+    crate::common::native_fixture::advance_frame_and_pump(&mut harness, 0.02);
+
+    // FM-OVL-8: Escape while Dialog is open must close ONLY Dialog, leaving Toast active
+    crate::common::native_fixture::send_key_and_pump(
+        &mut harness,
+        Key::Named(NamedKey::Escape),
+        Code::Escape,
+    );
+    crate::common::native_fixture::advance_frame_and_pump(&mut harness, 0.02);
+    assert!(
+        harness.query("#toast-coord-dialog-content").is_none(),
+        "First Escape must close active Dialog"
+    );
+    assert_eq!(
+        harness.attr(&toast_sel, "data-state").as_deref(),
+        Some("open"),
+        "Toast must remain active when Dialog consumes Escape"
+    );
+
+    // Re-focus toast and dispatch IME composing Escape -> must NOT dismiss Toast (FM-OVL-1)
+    crate::common::native_fixture::focus_node(&mut harness, &toast_sel);
+    let ime_down = BlitzKeyEvent {
+        key: Key::Named(NamedKey::Escape),
+        code: Code::Escape,
+        modifiers: Modifiers::default(),
+        location: Location::Standard,
+        is_auto_repeating: false,
+        is_composing: true,
+        state: KeyState::Pressed,
+        text: None,
+    };
+    let ime_up = BlitzKeyEvent {
+        key: Key::Named(NamedKey::Escape),
+        code: Code::Escape,
+        modifiers: Modifiers::default(),
+        location: Location::Standard,
+        is_auto_repeating: false,
+        is_composing: true,
+        state: KeyState::Released,
+        text: None,
+    };
+    harness.dispatch(UiEvent::KeyDown(ime_down));
+    harness.dispatch(UiEvent::KeyUp(ime_up));
+    crate::common::native_fixture::drain_polls_and_resolve(&mut harness);
+    assert_eq!(
+        harness.attr(&toast_sel, "data-state").as_deref(),
+        Some("open"),
+        "IME composing Escape must not dismiss focused Toast"
+    );
+
+    // Normal Escape with no active overlay dismisses focused Toast
+    crate::common::native_fixture::send_key_and_pump(
+        &mut harness,
+        Key::Named(NamedKey::Escape),
+        Code::Escape,
+    );
+    crate::common::native_fixture::advance_frame_and_pump(&mut harness, 0.02);
+    assert_eq!(
+        harness.attr(&toast_sel, "data-state").as_deref(),
+        Some("closed"),
+        "Second normal Escape must dismiss focused Toast"
+    );
+}
+
+#[cfg(feature = "native")]
+#[test]
+fn fm_api_3_toast_root_merge_global_attributes() {
+    use dioxus_core::{Attribute, AttributeValue};
+
+    let _lock = crate::common::native_fixture::NATIVE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
+    #[component]
+    fn ToastAttrMergeScenario() -> Element {
+        let extra = vec![
+            Attribute::new("class", "toast-extra", None, false),
+            Attribute::new("style", "color: red", None, false),
+            Attribute {
+                name: "style",
+                value: AttributeValue::None,
+                namespace: None,
+                volatile: false,
+            },
+            Attribute::new("data-toast-custom", "yes", None, false),
+        ];
+
+        rsx! {
+            ol {
+                ToastRoot {
+                    id: ToastId(77),
+                    class: Some("toast-base".to_string()),
+                    style: Some("margin: 0".to_string()),
+                    attributes: extra,
+                    ToastTitle { "Merged" }
+                }
+            }
+        }
+    }
+
+    let mut harness = crate::common::native_fixture::mount_native_scenario(ToastAttrMergeScenario);
+    crate::common::native_fixture::advance_frame_and_pump(&mut harness, 0.02);
+
+    let nid = harness.node("#monoxus-toast-77");
+    let base = harness.base();
+    let node = base.get_node(nid).unwrap();
+
+    let cls = node.attr("class".into()).unwrap_or_default();
+    assert!(
+        cls.contains("toast-base") && cls.contains("toast-extra"),
+        "Expected merged class on ToastRoot, got: {cls}"
+    );
+    let style = node.attr("style".into()).unwrap_or_default();
+    assert!(
+        style.contains("pointer-events: auto")
+            && style.contains("--swipe-amount-x:")
+            && style.contains("margin: 0")
+            && style.contains("color: red"),
+        "Expected internal ToastRoot CSS vars and user styles merged, got: {style}"
+    );
+    assert!(
+        !style.contains(";;"),
+        "Merged ToastRoot style must not contain duplicate semicolons: {style}"
+    );
+    assert_eq!(node.attr("data-toast-custom".into()), Some("yes"));
 }

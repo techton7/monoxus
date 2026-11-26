@@ -2,8 +2,8 @@ use dioxus::prelude::*;
 use monoxus::{
     foundation::{overlay::PortalHost, shared::ScopeHandle},
     select::{
-        PointerDownOutsideEvent, Select, SelectContent, SelectItem, SelectPortal, SelectRoot,
-        SelectTrigger, SelectValue, SelectViewport, use_select_runtime,
+        EscapeKeyDownEvent, PointerDownOutsideEvent, Select, SelectContent, SelectItem,
+        SelectPortal, SelectRoot, SelectTrigger, SelectValue, SelectViewport, use_select_runtime,
     },
 };
 
@@ -128,7 +128,7 @@ pub fn PortaledSelectSection() -> Element {
                                         evt.prevent_default();
                                     }
                                 },
-                                on_escape_keydown: move |evt: KeyboardEvent| {
+                                on_escape_key_down: move |evt: EscapeKeyDownEvent| {
                                     if prevent_escape() {
                                         evt.prevent_default();
                                     }

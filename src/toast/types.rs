@@ -99,6 +99,13 @@ impl ToastInstant {
     }
 }
 
+impl monoxus_core::toast::state::ToastClockInstant for ToastInstant {
+    #[inline]
+    fn saturating_duration_since(&self, earlier: Self) -> Duration {
+        self.0.saturating_duration_since(earlier.0)
+    }
+}
+
 /// A queued or active toast notification record.
 #[derive(Clone)]
 pub struct ToastItem {
@@ -140,6 +147,46 @@ impl ToastItem {
             last_started_at: now,
             paused_at: None,
             options,
+        }
+    }
+}
+
+impl From<ToastItem> for monoxus_core::toast::state::ToastQueueItem<ToastOptions, ToastInstant> {
+    fn from(item: ToastItem) -> Self {
+        Self {
+            id: item.id,
+            generation: item.generation,
+            content_generation: item.content_generation,
+            toast_type: item.toast_type,
+            title: item.title,
+            description: item.description,
+            phase: item.phase,
+            duration: item.duration,
+            remaining_duration: item.remaining_duration,
+            created_at: item.created_at,
+            last_started_at: item.last_started_at,
+            paused_at: item.paused_at,
+            meta: item.options,
+        }
+    }
+}
+
+impl From<monoxus_core::toast::state::ToastQueueItem<ToastOptions, ToastInstant>> for ToastItem {
+    fn from(item: monoxus_core::toast::state::ToastQueueItem<ToastOptions, ToastInstant>) -> Self {
+        Self {
+            id: item.id,
+            generation: item.generation,
+            content_generation: item.content_generation,
+            toast_type: item.toast_type,
+            title: item.title,
+            description: item.description,
+            phase: item.phase,
+            duration: item.duration,
+            remaining_duration: item.remaining_duration,
+            created_at: item.created_at,
+            last_started_at: item.last_started_at,
+            paused_at: item.paused_at,
+            options: item.meta,
         }
     }
 }

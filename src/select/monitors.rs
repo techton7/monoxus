@@ -1,191 +1,54 @@
 use dioxus::prelude::*;
-use dioxus::prelude::keyboard_types::{Code, Key, Location, Modifiers, NamedKey};
 
-use crate::foundation::{
-    browser::{
-        DocumentDismissEvent, start_document_dismiss_monitor_with_boundaries,
-        start_floating_auto_update_monitor, start_form_reset_monitor,
-    },
-    overlay::{FloatingReadiness, OverlayPositionConfig, compute_overlay_position},
+use crate::foundation::overlay::{
+    FloatingReadiness, OverlayPositionConfig, compute_overlay_position,
 };
 
 use super::{runtime::SelectRuntime, types::SelectMode};
 
-struct SyntheticEscapeKey;
-
-impl dioxus::html::ModifiersInteraction for SyntheticEscapeKey {
-    fn modifiers(&self) -> Modifiers {
-        Modifiers::empty()
-    }
-}
-
-impl dioxus::events::HasKeyboardData for SyntheticEscapeKey {
-    fn key(&self) -> Key {
-        Key::Named(NamedKey::Escape)
-    }
-
-    fn code(&self) -> Code {
-        Code::Escape
-    }
-
-    fn location(&self) -> Location {
-        Location::Standard
-    }
-
-    fn is_auto_repeating(&self) -> bool {
-        false
-    }
-
-    fn is_composing(&self) -> bool {
-        false
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct PointerDownOutsideEvent {
-    prevented: std::rc::Rc<std::cell::Cell<bool>>,
-}
-
-impl PointerDownOutsideEvent {
-    pub fn new() -> Self {
-        Self {
-            prevented: std::rc::Rc::new(std::cell::Cell::new(false)),
+impl SelectRuntime {
+    pub fn start_dismiss_monitor(&self) {
+        if let Some(d) = self.state.dismiss {
+            d.reset_interaction();
         }
     }
 
-    pub fn prevent_default(&self) {
-        self.prevented.set(true);
-    }
-
-    pub fn default_action_enabled(&self) -> bool {
-        !self.prevented.get()
-    }
-}
-
-impl Default for PointerDownOutsideEvent {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SelectRuntime {
-    pub fn start_dismiss_monitor(&self) {
-        self.stop_dismiss_monitor();
-
-        let runtime = self.clone();
-        let trigger_id = self.relationships().trigger_id().to_owned();
-        let content_id = self.relationships().content_id().to_owned();
-
-        let boundaries = [trigger_id.as_str(), content_id.as_str()];
-        let trigger_id_clone = trigger_id.clone();
-        let content_id_clone = content_id.clone();
-        let watcher =
-            start_document_dismiss_monitor_with_boundaries(&boundaries, move |event| match event {
-                DocumentDismissEvent::Escape => {
-                    if crate::foundation::overlay::is_overlay_escape_consumed()
-                        || !crate::foundation::overlay::is_topmost_overlay_layer(&content_id_clone)
-                    {
-                        return;
-                    }
-                    if let Some(cb) = runtime.state.on_escape_keydown.read().clone() {
-                        let synth = SyntheticEscapeKey;
-                        let kb_data = dioxus::html::KeyboardData::new(synth);
-                        let evt = dioxus::core::Event::new(std::rc::Rc::new(kb_data), true);
-                        cb.call(evt.clone());
-                        if !evt.default_action_enabled() {
-                            return;
-                        }
-                    }
-                    if runtime.is_escape_prevented() {
-                        runtime.set_escape_prevented(false);
-                        return;
-                    }
-                    crate::foundation::overlay::mark_overlay_escape_consumed();
-                    runtime.clear_pointer_dismiss();
-                    runtime.close_dropdown();
-                }
-                DocumentDismissEvent::PointerDown { path_ids }
-                | DocumentDismissEvent::Click { path_ids } => {
-                    let is_inside = path_ids
-                        .iter()
-                        .any(|id| id == &trigger_id_clone || id == &content_id_clone);
-                    if !is_inside {
-                        let should_close = runtime.trigger_pointer_down_outside();
-                        if !should_close {
-                            return;
-                        }
-                        runtime.mark_pointer_dismiss();
-                        runtime.close_dropdown();
-                    }
-                }
-                DocumentDismissEvent::FocusIn { path_ids } => {
-                    let is_inside = path_ids
-                        .iter()
-                        .any(|id| id == &trigger_id_clone || id == &content_id_clone);
-                    if !is_inside {
-                        runtime.clear_pointer_dismiss();
-                        runtime.close_dropdown_without_restore();
-                    }
-                }
-            });
-
-        let mut dm_sig = self.state.dismiss_monitor;
-        dm_sig.set(Some(watcher));
-    }
-
     pub fn stop_dismiss_monitor(&self) {
-        let mut dm_sig = self.state.dismiss_monitor;
-        if let Ok(mut dm) = dm_sig.try_write() {
-            *dm = None;
+        if let Some(d) = self.state.dismiss {
+            d.stop();
         }
     }
 
     pub fn start_position_monitor(&self) {
-        self.stop_position_monitor();
-
-        let trigger_id = self.relationships().trigger_id().to_owned();
-        let content_id = self.relationships().content_id().to_owned();
-
-        let runtime = self.clone();
-        let watcher =
-            start_floating_auto_update_monitor(&[&trigger_id], &content_id, move |_event| {
-                if !runtime.recalculate_floating_position_sync() {
-                    let runtime = runtime.clone();
-                    crate::foundation::browser::spawn_root_task(async move {
-                        runtime.recalculate_floating_position().await;
-                    });
-                }
-            });
-
-        let mut monitor_sig = self.state.position_monitor;
-        monitor_sig.set(Some(watcher));
-
-        // Initial sync position evaluation matching @floating-ui/dom autoUpdate standard
-        self.recalculate_floating_position_sync();
+        if let Some(f) = self.state.floating {
+            f.refresh();
+        } else {
+            let _ = self.recalculate_floating_position_sync();
+        }
     }
 
     pub fn stop_position_monitor(&self) {
-        let mut pm_sig = self.state.position_monitor;
-        if let Ok(mut pm) = pm_sig.try_write() {
-            *pm = None;
+        if let Some(f) = self.state.floating {
+            f.clear();
         }
     }
 
     pub fn recalculate_floating_position_sync(&self) -> bool {
+        if let Some(f) = self.state.floating {
+            return f.recalculate_sync();
+        }
+
         let trigger_id = self.relationships().trigger_id();
         let content_id = self.relationships().content_id();
         let boundary_id = self.collision_boundary();
         let custom_anchor_id = self.custom_anchor();
         let anchor_id = custom_anchor_id.as_deref().unwrap_or(trigger_id);
+        let arrow_id = self.arrow_id();
 
         let config = OverlayPositionConfig {
             anchor_id,
             content_id,
-            arrow_id: None,
+            arrow_id: arrow_id.as_deref(),
             boundary_id: boundary_id.as_deref(),
             side: self.preferred_side(),
             align: self.preferred_align(),
@@ -199,19 +62,7 @@ impl SelectRuntime {
             namespace: Some("select"),
         };
 
-        self.sync_content_z_index();
-
         if let Some(computed) = compute_overlay_position(&config) {
-            let mut side_sig = self.state.side;
-            if *side_sig.peek() != computed.side() {
-                side_sig.set(computed.side());
-            }
-            let mut align_sig = self.state.align;
-            if *align_sig.peek() != computed.align() {
-                align_sig.set(computed.align());
-            }
-            self.set_reference_hidden(computed.reference_hidden());
-
             let geom = computed.geometry();
             let next_readiness = if geom.content_width() > 0.0 && geom.content_height() > 0.0 {
                 FloatingReadiness::Ready
@@ -219,15 +70,11 @@ impl SelectRuntime {
                 FloatingReadiness::Measuring
             };
             let is_ready = next_readiness == FloatingReadiness::Ready;
-            let mut readiness_sig = self.state.content_readiness;
-            if *readiness_sig.peek() != next_readiness {
-                readiness_sig.set(next_readiness);
+            let mut readiness_sig = self.state.fallback_readiness;
+            if readiness_sig.try_peek().is_ok_and(|cur| *cur != next_readiness) {
+                let _ = readiness_sig.try_write().map(|mut w| *w = next_readiness);
             }
-
-            let mut placement_sig = self.state.placement;
-            if placement_sig.peek().as_ref() != Some(&computed) {
-                placement_sig.set(Some(computed));
-            }
+            self.set_reference_hidden(computed.reference_hidden());
             is_ready
         } else {
             false
@@ -235,135 +82,10 @@ impl SelectRuntime {
     }
 
     pub async fn recalculate_floating_position(&self) {
-        if self.recalculate_floating_position_sync() {
-            return;
-        }
-
-        let trigger_handle_opt = self.state.trigger_handle.try_peek().ok().and_then(|h| h.clone());
-        let content_handle_opt = self.state.content_handle.try_peek().ok().and_then(|h| h.clone());
-        if let (Some(th), Some(ch)) = (trigger_handle_opt, content_handle_opt) {
-                if let (Ok(tr_rect), Ok(co_rect)) =
-                    (th.get_client_rect().await, ch.get_client_rect().await)
-                {
-                    let anchor = crate::foundation::overlay::Rect::new(
-                        tr_rect.origin.x as f32,
-                        tr_rect.origin.y as f32,
-                        tr_rect.width() as f32,
-                        tr_rect.height() as f32,
-                    );
-                    let content_size = crate::foundation::overlay::Size::new(
-                        co_rect.width() as f32,
-                        co_rect.height() as f32,
-                    );
-                    let avail_size = crate::foundation::browser::get_viewport_size()
-                        .await
-                        .ok()
-                        .map(|vp| {
-                            crate::foundation::overlay::Size::new(vp[0] as f32, vp[1] as f32)
-                        });
-                    let placement = match avail_size {
-                        Some(avail) => {
-                            let layer = crate::foundation::overlay::FloatingLayer::new(
-                                self.preferred_side(),
-                            )
-                            .with_align(self.preferred_align())
-                            .with_side_offset(self.side_offset())
-                            .with_align_offset(self.align_offset())
-                            .with_available_space(avail);
-                            layer.position_with_available_size(anchor, content_size, avail)
-                        }
-                        None => {
-                            let layer = crate::foundation::overlay::FloatingLayer::new(
-                                self.preferred_side(),
-                            )
-                            .with_align(self.preferred_align())
-                            .with_side_offset(self.side_offset())
-                            .with_align_offset(self.align_offset());
-                            layer.position(anchor, content_size)
-                        }
-                    };
-
-                    let Ok(side_val) = self.state.side.try_peek() else {
-                        return;
-                    };
-                    if *side_val != placement.side() {
-                        drop(side_val);
-                        let mut side_sig = self.state.side;
-                        if let Ok(mut w) = side_sig.try_write() {
-                            *w = placement.side();
-                        }
-                    } else {
-                        drop(side_val);
-                    }
-
-                    if let Ok(align_val) = self.state.align.try_peek() {
-                        if *align_val != placement.align() {
-                            drop(align_val);
-                            let mut align_sig = self.state.align;
-                            if let Ok(mut w) = align_sig.try_write() {
-                                *w = placement.align();
-                            }
-                        }
-                    }
-
-                    self.set_reference_hidden(placement.reference_hidden());
-                    self.sync_content_z_index();
-
-                    let geom = placement.geometry();
-                    let next_readiness = if geom.content_width() > 0.0 && geom.content_height() > 0.0 {
-                        FloatingReadiness::Ready
-                    } else {
-                        FloatingReadiness::Measuring
-                    };
-                    let should_update_readiness = self
-                        .state
-                        .content_readiness
-                        .try_peek()
-                        .map(|current| *current != next_readiness)
-                        .unwrap_or(false);
-                    if should_update_readiness {
-                        let mut readiness_sig = self.state.content_readiness;
-                        if let Ok(mut readiness) = readiness_sig.try_write() {
-                            *readiness = next_readiness;
-                        }
-                    }
-
-                    let should_update_placement = self
-                        .state
-                        .placement
-                        .try_peek()
-                        .map(|current| current.as_ref() != Some(&placement))
-                        .unwrap_or(false);
-                    if should_update_placement {
-                        let mut placement_sig = self.state.placement;
-                        if let Ok(mut current) = placement_sig.try_write() {
-                            *current = Some(placement);
-                        }
-                    }
-                }
-            }
-        }
-
-    pub fn start_form_reset_monitor(&self) {
-        self.stop_form_reset_monitor();
-
-        let trigger_id = self.relationships().trigger_id().to_owned();
-        let form_id = self.select.form().map(str::to_owned);
-
-        let runtime = self.clone();
-        let watcher = start_form_reset_monitor(&trigger_id, form_id.as_deref(), move || {
-            runtime.handle_form_reset();
-        });
-        let mut frm_sig = self.state.form_reset_monitor;
-        if let Ok(mut frm) = frm_sig.try_write() {
-            *frm = Some(watcher);
-        }
-    }
-
-    pub fn stop_form_reset_monitor(&self) {
-        let mut frm_sig = self.state.form_reset_monitor;
-        if let Ok(mut frm) = frm_sig.try_write() {
-            *frm = None;
+        if let Some(f) = self.state.floating {
+            f.recalculate_with_async_fallback().await;
+        } else {
+            let _ = self.recalculate_floating_position_sync();
         }
     }
 

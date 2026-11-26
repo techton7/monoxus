@@ -1,21 +1,20 @@
-use std::{cell::RefCell, rc::Rc};
-
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    browser::{WatcherGuard, spawn_root_task},
-    overlay::PresenceController,
+    browser::spawn_root_task,
+    compose::merge_global_attributes,
+    overlay::{use_presence, use_watcher_slot},
 };
 
 use super::{
     super::{
         runtime::{
-            NavigationMenuContext, NavigationMenuViewportRenderProps, ViewportContentData,
-            measure_viewport_offset_size, start_offset_resize_observer, sync_presence_lifecycle,
+            NavigationMenuContext, NavigationMenuViewportRenderProps, measure_viewport_offset_size,
+            start_offset_resize_observer,
         },
         types::NavigationMenuViewportSize,
     },
-    content::NavigationMenuContentImpl,
+    content::{NavigationMenuContentImplSpec, render_navigation_menu_content_impl},
 };
 
 #[derive(Clone, PartialEq, Props)]
@@ -60,25 +59,26 @@ pub fn NavigationMenuViewport(props: NavigationMenuViewportProps) -> Element {
     let is_open = !current_val.is_empty();
     let desired_present = props.force_mount || is_open;
 
-    let presence =
-        use_signal(|| PresenceController::new(desired_present).with_retained_mount(true));
-    let presence_guard = use_hook(|| Rc::new(RefCell::new(None::<WatcherGuard>)));
-    let resize_guard = use_hook(|| Rc::new(RefCell::new(None::<WatcherGuard>)));
     let mut size = use_signal(|| None::<NavigationMenuViewportSize>);
-
-    let vp_id_for_presence = viewport_id.clone();
-    let pg_for_effect = Rc::clone(&presence_guard);
-    use_effect(use_reactive((&desired_present,), move |(present,)| {
-        sync_presence_lifecycle(&vp_id_for_presence, present, presence, &pg_for_effect, || {
-            if size.try_peek().is_ok_and(|s| s.is_some())
+    let on_presence_complete = use_hook(move || {
+        EventHandler::new(move |open: bool| {
+            if !open
+                && size.try_peek().is_ok_and(|s| s.is_some())
                 && let Ok(mut w) = size.try_write()
             {
                 *w = None;
             }
-        });
-    }));
+        })
+    });
+    let presence = use_presence(
+        desired_present,
+        &viewport_id,
+        true,
+        Some(on_presence_complete),
+    );
+    let resize_guard = use_watcher_slot();
 
-    let should_render = desired_present || presence.read().should_render();
+    let should_render = desired_present || presence.should_render();
     let active_content_value = if is_open {
         current_val
     } else {
@@ -95,12 +95,11 @@ pub fn NavigationMenuViewport(props: NavigationMenuViewportProps) -> Element {
         None
     };
 
-    let rg_for_effect = Rc::clone(&resize_guard);
     let ctx_alive = ctx.clone();
     use_effect(use_reactive(
         (&should_render, &active_content_id),
         move |(render, cid_opt)| {
-            *rg_for_effect.borrow_mut() = None;
+            resize_guard.clear();
             if !render {
                 if size.try_peek().is_ok_and(|s| s.is_some())
                     && let Ok(mut w) = size.try_write()
@@ -135,18 +134,9 @@ pub fn NavigationMenuViewport(props: NavigationMenuViewportProps) -> Element {
                 }
             });
 
-            *rg_for_effect.borrow_mut() = Some(start_offset_resize_observer(&cid, measure_now));
+            resize_guard.replace(start_offset_resize_observer(&cid, measure_now));
         },
     ));
-
-    use_drop({
-        let pg = Rc::clone(&presence_guard);
-        let rg = Rc::clone(&resize_guard);
-        move || {
-            *pg.borrow_mut() = None;
-            *rg.borrow_mut() = None;
-        }
-    });
 
     if !should_render {
         return rsx! {};
@@ -180,12 +170,12 @@ pub fn NavigationMenuViewport(props: NavigationMenuViewportProps) -> Element {
 
     let combined_children = rsx! {
         {props.children}
-        for (val, entry) in entries.into_iter() {
+        for (val, _) in entries.into_iter() {
             NavigationMenuViewportItem {
                 key: "{val}",
+                value: val.clone(),
                 is_item_open: is_open && active_content_value == val,
                 is_active: active_content_value == val,
-                entry,
             }
         }
     };
@@ -207,11 +197,17 @@ pub fn NavigationMenuViewport(props: NavigationMenuViewportProps) -> Element {
         );
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        Some(vp_attrs.style()),
+        props.attributes,
+    );
+
     rsx! {
         div {
             id: "{vp_attrs.id()}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: "{vp_attrs.style()}",
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             "data-state": vp_attrs.data_state().as_str(),
             "data-orientation": "{vp_attrs.data_orientation()}",
             "data-monoxus-navigation-menu-viewport": "{vp_attrs.data_monoxus_navigation_menu_viewport()}",
@@ -222,7 +218,7 @@ pub fn NavigationMenuViewport(props: NavigationMenuViewportProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {combined_children}
         }
     }
@@ -230,37 +226,39 @@ pub fn NavigationMenuViewport(props: NavigationMenuViewportProps) -> Element {
 
 #[derive(Clone, PartialEq, Props)]
 struct NavigationMenuViewportItemProps {
-    entry: ViewportContentData,
+    value: String,
     is_active: bool,
     is_item_open: bool,
 }
 
 #[component]
 fn NavigationMenuViewportItem(props: NavigationMenuViewportItemProps) -> Element {
-    let entry = props.entry;
-    let desired_present = entry.force_mount || props.is_active;
-    let presence =
-        use_signal(|| PresenceController::new(desired_present).with_retained_mount(true));
-    let presence_guard = use_hook(|| Rc::new(RefCell::new(None::<WatcherGuard>)));
+    let ctx = use_context::<NavigationMenuContext>();
+    let entry_opt = ctx
+        .viewport_contents
+        .read()
+        .iter()
+        .find(|(v, _)| v == &props.value)
+        .map(|(_, data)| data.clone());
 
-    let cid = entry.content_id.clone();
-    let pg = Rc::clone(&presence_guard);
-    use_effect(use_reactive((&desired_present,), move |(present,)| {
-        sync_presence_lifecycle(&cid, present, presence, &pg, || {});
-    }));
-    use_drop({
-        let pg = Rc::clone(&presence_guard);
-        move || {
-            *pg.borrow_mut() = None;
-        }
-    });
+    let content_id = entry_opt
+        .as_ref()
+        .map(|e| e.content_id.clone())
+        .unwrap_or_else(|| ctx.relationships.content_id(&props.value));
+    let desired_present = entry_opt
+        .as_ref()
+        .is_some_and(|e| e.force_mount || props.is_active);
+    let presence = use_presence(desired_present, &content_id, true, None);
 
-    if !desired_present && !presence.read().should_render() {
+    let Some(entry) = entry_opt else {
         return rsx! {};
-    }
+    };
+    let active = desired_present || presence.should_render();
 
-    rsx! {
-        NavigationMenuContentImpl {
+    render_navigation_menu_content_impl(
+        &ctx,
+        NavigationMenuContentImplSpec {
+            active,
             value: entry.value,
             content_id: entry.content_id,
             trigger_id: entry.trigger_id,
@@ -281,6 +279,6 @@ fn NavigationMenuViewportItem(props: NavigationMenuViewportItemProps) -> Element
             on_mounted: entry.on_mounted,
             attributes: entry.attributes,
             children: entry.children,
-        }
-    }
+        },
+    )
 }

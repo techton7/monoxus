@@ -763,4 +763,108 @@ mod native_tests {
         assert!(harness.query("#content-one").is_none());
         assert_native_focus_visible(&harness, "trig-one", true);
     }
+
+    #[component]
+    fn NativeNavMenuWithNestedPopoverScenario() -> Element {
+        use monoxus::popover::{PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger};
+
+        let nav_val = use_signal(|| "products".to_string());
+        let pop_open = use_signal(|| false);
+
+        rsx! {
+            div {
+                id: "nav-nested-wrapper",
+                NavigationMenuRoot {
+                    id: "nav-nested-root",
+                    value: Some(nav_val),
+                    NavigationMenuList {
+                        NavigationMenuItem {
+                            value: Some("products".to_string()),
+                            NavigationMenuTrigger { id: "nav-nested-trig", "Products" }
+                            NavigationMenuContent {
+                                id: "nav-nested-content",
+                                PopoverRoot {
+                                    id: "nav-inner-popover",
+                                    open: pop_open,
+                                    PopoverTrigger { id: "nav-inner-pop-trig", "Nested Popover" }
+                                    PopoverPortal {
+                                        PopoverContent {
+                                            id: "nav-inner-pop-content",
+                                            button { id: "nav-inner-pop-btn", "Pop Action" }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fm_ovl_1_and_fm_ovl_8_navigation_menu_ime_escape_and_nested_popover_escape_coordination() {
+        use blitz_traits::events::{BlitzKeyEvent, KeyState, UiEvent};
+        use keyboard_types::{Location, Modifiers};
+
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(NativeNavMenuWithNestedPopoverScenario);
+        advance_frame_and_pump(&mut harness, 0.02);
+
+        assert!(harness.query("#nav-nested-content").is_some());
+
+        // Open nested Popover inside NavigationMenuContent
+        click_and_pump(&mut harness, "#nav-inner-pop-trig");
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#nav-inner-pop-content").is_some());
+        assert!(harness.query("#nav-nested-content").is_some());
+
+        // FM-OVL-1: IME composing Escape must dismiss neither nested Popover nor NavigationMenu
+        let ime_down = BlitzKeyEvent {
+            key: Key::Named(NamedKey::Escape),
+            code: Code::Escape,
+            modifiers: Modifiers::default(),
+            location: Location::Standard,
+            is_auto_repeating: false,
+            is_composing: true,
+            state: KeyState::Pressed,
+            text: None,
+        };
+        let ime_up = BlitzKeyEvent {
+            key: Key::Named(NamedKey::Escape),
+            code: Code::Escape,
+            modifiers: Modifiers::default(),
+            location: Location::Standard,
+            is_auto_repeating: false,
+            is_composing: true,
+            state: KeyState::Released,
+            text: None,
+        };
+        harness.dispatch(UiEvent::KeyDown(ime_down));
+        harness.dispatch(UiEvent::KeyUp(ime_up));
+        drain_polls_and_resolve(&mut harness);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(harness.query("#nav-inner-pop-content").is_some());
+        assert!(harness.query("#nav-nested-content").is_some());
+
+        // FM-OVL-8: First normal Escape closes ONLY nested Popover; NavigationMenu stays open
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#nav-inner-pop-content").is_none(),
+            "First Escape must close nested Popover"
+        );
+        assert!(
+            harness.query("#nav-nested-content").is_some(),
+            "NavigationMenu must remain open when nested Popover consumes Escape"
+        );
+
+        // Second normal Escape closes NavigationMenu
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        advance_frame_and_pump(&mut harness, 0.02);
+        assert!(
+            harness.query("#nav-nested-content").is_none(),
+            "Second Escape must close NavigationMenu"
+        );
+    }
 }

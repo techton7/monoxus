@@ -1,3 +1,4 @@
+use crate::foundation::compose::merge_global_attributes;
 use crate::toast::attrs::ToastActionAttrs;
 use crate::toast::runtime::toast;
 use crate::toast::types::{ToastActionEvent, ToastId};
@@ -14,6 +15,8 @@ pub struct ToastActionProps {
     pub cancel: bool,
     #[props(default)]
     pub class: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     #[props(default)]
     pub children: Element,
 }
@@ -41,14 +44,18 @@ pub fn ToastAction(props: ToastActionProps) -> Element {
         }
     };
 
+    let merged = merge_global_attributes(props.class.as_deref(), None, props.attributes);
+
     rsx! {
         button {
             r#type: "{attrs.r#type}",
             aria_label: "{attrs.aria_label}",
             "data-button": if props.cancel { None } else { Some("") },
             "data-cancel": if props.cancel { Some("") } else { None },
-            class: props.class.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref(),
             onclick: handle_click,
+            ..merged.rest,
             {props.children}
         }
     }

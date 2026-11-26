@@ -775,7 +775,6 @@ pub fn DateRangePickerContent(props: DateRangePickerContentProps) -> Element {
                 ctx.content_id.set(None);
             }
             runtime.unregister_content_id(&prev);
-            crate::foundation::overlay::unregister_active_overlay_layer(&prev);
             *prev = content_id.clone();
         }
     }
@@ -802,7 +801,6 @@ pub fn DateRangePickerContent(props: DateRangePickerContentProps) -> Element {
             }
         }
         runtime_for_drop.unregister_content_id(&current_cid);
-        crate::foundation::overlay::unregister_active_overlay_layer(&current_cid);
     });
 
     let effect_wrapper_id = wrapper_id.clone();
@@ -855,24 +853,6 @@ pub fn DateRangePickerContent(props: DateRangePickerContentProps) -> Element {
             },
         )
     });
-
-    let mut registered_layer_id = use_signal(|| Option::<String>::None);
-    if is_open {
-        let prev = registered_layer_id.peek().clone();
-        if prev.as_deref() != Some(content_id.as_str()) {
-            if let Some(prev_id) = prev.as_deref() {
-                crate::foundation::overlay::unregister_active_overlay_layer(prev_id);
-            }
-            crate::foundation::overlay::register_active_overlay_layer(&content_id);
-            registered_layer_id.set(Some(content_id.clone()));
-        }
-    } else {
-        let prev = registered_layer_id.peek().clone();
-        if let Some(prev_id) = prev {
-            crate::foundation::overlay::unregister_active_overlay_layer(&prev_id);
-            registered_layer_id.set(None);
-        }
-    }
 
     if !should_render {
         return rsx! {};
@@ -1006,7 +986,6 @@ pub fn DateRangePickerContentStatic(props: DateRangePickerContentProps) -> Eleme
                 ctx.content_id.set(None);
             }
             runtime.unregister_content_id(&prev);
-            crate::foundation::overlay::unregister_active_overlay_layer(&prev);
             *prev = content_id.clone();
         }
     }
@@ -1033,7 +1012,6 @@ pub fn DateRangePickerContentStatic(props: DateRangePickerContentProps) -> Eleme
             }
         }
         runtime_for_drop.unregister_content_id(&current_cid);
-        crate::foundation::overlay::unregister_active_overlay_layer(&current_cid);
     });
 
     let runtime_for_branch = runtime.clone();
@@ -1071,24 +1049,6 @@ pub fn DateRangePickerContentStatic(props: DateRangePickerContentProps) -> Eleme
             },
         )
     });
-
-    let mut registered_layer_id = use_signal(|| Option::<String>::None);
-    if is_open {
-        let prev = registered_layer_id.peek().clone();
-        if prev.as_deref() != Some(content_id.as_str()) {
-            if let Some(prev_id) = prev.as_deref() {
-                crate::foundation::overlay::unregister_active_overlay_layer(prev_id);
-            }
-            crate::foundation::overlay::register_active_overlay_layer(&content_id);
-            registered_layer_id.set(Some(content_id.clone()));
-        }
-    } else {
-        let prev = registered_layer_id.peek().clone();
-        if let Some(prev_id) = prev {
-            crate::foundation::overlay::unregister_active_overlay_layer(&prev_id);
-            registered_layer_id.set(None);
-        }
-    }
 
     if !should_render {
         return rsx! {};

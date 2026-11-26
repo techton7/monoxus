@@ -20,7 +20,8 @@ use crate::foundation::{
 
 use super::{
     OverlayBranchContext, is_overlay_escape_consumed, is_topmost_overlay_layer,
-    mark_overlay_escape_consumed, register_active_overlay_layer, unregister_active_overlay_layer,
+    mark_overlay_escape_consumed, register_active_overlay_layer, replace_active_overlay_layer,
+    unregister_active_overlay_layer,
     watcher::{WatcherSlot, use_watcher_slot},
 };
 
@@ -81,10 +82,7 @@ impl dioxus::events::HasKeyboardData for SyntheticEscapeKey {
     }
 }
 
-/// Registers `layer_id` on the global LIFO `ACTIVE_OVERLAY_LAYERS` stack while `active` is `true`,
-/// preserving stack order as a no-op when re-rendered with the same `layer_id` (`bits#2143`),
-/// and cleaning up automatically on close or unmount (`use_drop`).
-pub fn use_overlay_layer_registration(layer_id: &str, active: bool) {
+fn use_overlay_layer_registration_slot(layer_id: &str, active: bool) -> CopyValue<Option<String>> {
     let mut registered = use_hook(|| CopyValue::new(Option::<String>::None));
 
     if active && !layer_id.is_empty() {
@@ -94,9 +92,10 @@ pub fn use_overlay_layer_registration(layer_id: &str, active: bool) {
         if !same {
             let prev = registered.try_write().ok().and_then(|mut cur| cur.take());
             if let Some(prev_id) = prev {
-                unregister_active_overlay_layer(&prev_id);
+                replace_active_overlay_layer(&prev_id, layer_id);
+            } else {
+                register_active_overlay_layer(layer_id);
             }
-            register_active_overlay_layer(layer_id);
             if let Ok(mut cur) = registered.try_write() {
                 *cur = Some(layer_id.to_owned());
             }
@@ -114,6 +113,15 @@ pub fn use_overlay_layer_registration(layer_id: &str, active: bool) {
             unregister_active_overlay_layer(&prev_id);
         }
     });
+
+    registered
+}
+
+/// Registers `layer_id` on the global LIFO `ACTIVE_OVERLAY_LAYERS` stack while `active` is `true`,
+/// preserving stack order as a no-op when re-rendered with the same `layer_id` (`bits#2143`),
+/// and cleaning up automatically on close or unmount (`use_drop`).
+pub fn use_overlay_layer_registration(layer_id: &str, active: bool) {
+    let _ = use_overlay_layer_registration_slot(layer_id, active);
 }
 
 /// Provides an [`OverlayBranchContext`] that records child overlay branches into the current
@@ -217,6 +225,7 @@ pub struct DismissCallbacks {
 #[derive(Clone, Copy, PartialEq)]
 pub struct DismissLayerHandle {
     layer_id: CopyValue<String>,
+    registered_layer: CopyValue<Option<String>>,
     branches: Signal<Vec<String>>,
     watcher: WatcherSlot,
     alive: CopyValue<bool>,
@@ -229,6 +238,36 @@ pub struct DismissLayerHandle {
 impl DismissLayerHandle {
     pub fn is_alive(&self) -> bool {
         self.alive.try_read().map(|g| *g).unwrap_or(false)
+    }
+
+    /// Synchronously renames the active layer ID in place (preserving LIFO stack position) when
+    /// a child `*Content` registers a custom DOM `id` during the initial render pass.
+    pub fn rename_layer_id(&self, new_id: &str) {
+        if new_id.is_empty() {
+            return;
+        }
+        let mut lid = self.layer_id;
+        let old_id = lid.try_read().ok().map(|g| g.clone());
+        if old_id.as_deref() != Some(new_id) {
+            let _ = lid.try_write().map(|mut w| *w = new_id.to_owned());
+        }
+        let mut cfg_slot = self.config;
+        if let Ok(mut cfg) = cfg_slot.try_write() {
+            if cfg.layer_id != new_id {
+                cfg.layer_id = new_id.to_owned();
+            }
+            if !cfg.boundaries.iter().any(|b| b == new_id) {
+                cfg.boundaries.push(new_id.to_owned());
+            }
+        }
+        let mut reg_slot = self.registered_layer;
+        let prev_reg = reg_slot.try_read().ok().and_then(|g| g.clone());
+        if let Some(prev_id) = prev_reg
+            && prev_id != new_id
+        {
+            replace_active_overlay_layer(&prev_id, new_id);
+            let _ = reg_slot.try_write().map(|mut w| *w = Some(new_id.to_owned()));
+        }
     }
 
     /// Evaluates live LIFO topmost membership against `ACTIVE_OVERLAY_LAYERS` (`radix#4143/#4253`).
@@ -428,7 +467,7 @@ pub fn use_dismissable_layer(
     config: DismissConfig,
     callbacks: DismissCallbacks,
 ) -> DismissLayerHandle {
-    use_overlay_layer_registration(&config.layer_id, active);
+    let registered_layer = use_overlay_layer_registration_slot(&config.layer_id, active);
 
     let mut layer_id = use_hook(|| CopyValue::new(config.layer_id.clone()));
     let branches = use_signal(Vec::new);
@@ -461,6 +500,7 @@ pub fn use_dismissable_layer(
 
     let handle = DismissLayerHandle {
         layer_id,
+        registered_layer,
         branches,
         watcher,
         alive,

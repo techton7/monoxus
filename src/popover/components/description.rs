@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 
+use crate::foundation::compose::merge_global_attributes;
 use crate::popover::components::PopoverContext;
 
 #[derive(Props, Clone, PartialEq)]
@@ -10,6 +11,8 @@ pub struct PopoverDescriptionProps {
     pub class: Option<String>,
     #[props(default)]
     pub style: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     pub children: Element,
 }
 
@@ -37,11 +40,18 @@ pub fn PopoverDescription(props: PopoverDescriptionProps) -> Element {
         }
     });
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         p {
             id: "{desc_id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
+            ..merged.rest,
             {props.children}
         }
     }

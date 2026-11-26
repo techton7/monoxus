@@ -271,6 +271,19 @@ impl FocusScopeHandle {
         }
     }
 
+    /// Synchronously updates the target container ID when a child `*Content` mounts with a custom `id`.
+    pub fn rename_container_id(&self, new_id: &str) {
+        if new_id.is_empty() {
+            return;
+        }
+        let mut cfg_slot = self.config;
+        if let Ok(mut cfg) = cfg_slot.try_write()
+            && cfg.container_id != new_id
+        {
+            cfg.container_id = new_id.to_owned();
+        }
+    }
+
     /// Fires `on_open_auto_focus` (checking `defaultPrevented`, `bits#2219`) and, unless prevented,
     /// focuses the target with a bounded 5-frame `next_frame()` retry loop.
     pub fn apply_open_focus(&self) {
@@ -281,6 +294,9 @@ impl FocusScopeHandle {
             return;
         };
         if !cfg.auto_focus_on_open || cfg.container_id.is_empty() {
+            return;
+        }
+        if !super::is_topmost_overlay_layer(&cfg.container_id) {
             return;
         }
 
@@ -320,7 +336,15 @@ impl FocusScopeHandle {
                 {
                     return;
                 }
-                if try_focus_scope_target_sync(&container_id, preferred_id.as_deref(), &selector) {
+                let live_cid = handle
+                    .config
+                    .try_read()
+                    .map(|g| g.container_id.clone())
+                    .unwrap_or_else(|_| container_id.clone());
+                if !super::is_topmost_overlay_layer(&live_cid) {
+                    return;
+                }
+                if try_focus_scope_target_sync(&live_cid, preferred_id.as_deref(), &selector) {
                     return;
                 }
             }

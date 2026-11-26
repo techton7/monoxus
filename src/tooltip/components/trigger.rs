@@ -5,7 +5,10 @@ use std::{
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::data_disabled_attr;
+use crate::foundation::{
+    compose::merge_global_attributes,
+    shared::data_disabled_attr,
+};
 use crate::tooltip::components::TooltipRootContext;
 
 #[derive(Props, Clone, PartialEq)]
@@ -18,6 +21,8 @@ pub struct TooltipTriggerProps {
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     pub children: Element,
 }
 
@@ -59,12 +64,18 @@ pub fn TooltipTrigger(props: TooltipTriggerProps) -> Element {
         }
     }));
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         button {
             id: "{trigger_id}",
             r#type: "button",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref(),
+            style: merged.style.as_deref(),
             disabled: props.disabled,
             aria_describedby: trigger.aria_describedby(),
             "data-state": trigger.data_state().as_str(),
@@ -78,6 +89,7 @@ pub fn TooltipTrigger(props: TooltipTriggerProps) -> Element {
             onblur: runtime.trigger_blur(),
             onclick: runtime.trigger_click(),
             onkeydown: runtime.escape_keydown(),
+            ..merged.rest,
             {props.children}
         }
     }

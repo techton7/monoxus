@@ -1,3 +1,4 @@
+use crate::foundation::compose::merge_global_attributes;
 use crate::toast::attrs::ToastCloseAttrs;
 use crate::toast::runtime::{TOAST_STORE, toast};
 use crate::toast::types::ToastId;
@@ -11,6 +12,8 @@ pub struct ToastCloseProps {
     pub aria_label: Option<String>,
     #[props(default)]
     pub class: Option<String>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     #[props(default)]
     pub children: Element,
 }
@@ -32,14 +35,18 @@ pub fn ToastClose(props: ToastCloseProps) -> Element {
         }
     };
 
+    let merged = merge_global_attributes(props.class.as_deref(), None, props.attributes);
+
     rsx! {
         button {
             r#type: "{attrs.r#type}",
             aria_label: "{label}",
             "data-close-button": "",
             "data-radix-toast-announce-exclude": "{attrs.data_radix_toast_announce_exclude}",
-            class: props.class.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref(),
             onclick: handle_click,
+            ..merged.rest,
             {props.children}
         }
     }

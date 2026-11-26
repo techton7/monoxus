@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::foundation::overlay::PortalHost;
+use crate::foundation::overlay::{OverlayPortalSpec, PortalHost, render_overlay_portal};
 use crate::tooltip::components::TooltipRootContext;
 
 #[derive(Props, Clone, PartialEq)]
@@ -16,37 +16,17 @@ pub struct TooltipPortalProps {
 pub fn TooltipPortal(props: TooltipPortalProps) -> Element {
     let ctx = use_context::<TooltipRootContext>();
     let runtime = ctx.runtime.read();
-    let should_render = props.force_mount || runtime.should_render_portal();
-
     let resolved_host = props
         .host
         .unwrap_or_else(|| runtime.portal().host().clone());
-    let host_attr = if resolved_host.is_inline() {
-        "inline"
-    } else {
-        resolved_host.id().unwrap_or("default")
-    };
 
-    let pid = runtime.relationships().scope().qualify("portal");
-    crate::foundation::overlay::use_portal_teleport(
-        pid.clone(),
-        should_render,
-        false,
-        &resolved_host,
-    );
-
-    rsx! {
-        div {
-            style: "display: contents;",
-            "data-portal-anchor": "",
-            if should_render {
-                div {
-                    id: "{pid}",
-                    style: "display: contents;",
-                    "data-portal-host": "{host_attr}",
-                    {props.children}
-                }
-            }
-        }
-    }
+    render_overlay_portal(OverlayPortalSpec {
+        portal_id: runtime.relationships().scope().qualify("portal"),
+        should_render: runtime.should_render_portal(),
+        disabled: false,
+        force_mount: props.force_mount,
+        host: resolved_host,
+        emit_status_attrs: false,
+        children: props.children,
+    })
 }

@@ -130,7 +130,9 @@ pub fn PopoverRoot(props: PopoverRootProps) -> Element {
         runtime.set_content_placement_overrides(None, None, None, None, None, None, props.sticky);
     }
     let mut runtime_sig = use_signal(|| runtime.clone());
-    runtime_sig.set(runtime.clone());
+    if runtime_sig.peek().popover() != runtime.popover() {
+        runtime_sig.set(runtime.clone());
+    }
 
     let title_id = use_signal(|| None);
     let description_id = use_signal(|| None);

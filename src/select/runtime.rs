@@ -1,21 +1,25 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use monoxus_core::foundation::typeahead::{TypeaheadBuffer, TypeaheadConfig};
 
-#[allow(unused_imports)]
+pub use crate::foundation::overlay::serialize_css_custom_properties;
+pub use crate::foundation::shared::{EscapeKeyDownEvent, PointerDownOutsideEvent};
+
 use crate::foundation::{
-    browser::{
-        DocumentDismissEvent, FloatingAutoUpdateEvent, FocusOptions, PresenceMonitorEvent,
-        WatcherGuard, restore_focus_element_by_id, restore_focus_element_by_id_with_options,
-        scroll_element_into_view_nearest, start_document_dismiss_monitor,
-        start_floating_auto_update_monitor, start_form_reset_monitor, start_presence_monitor,
-    },
+    browser::{FocusOptions, restore_focus_element_by_id, restore_focus_element_by_id_with_options},
+    compose::MountedHandle,
+    form::use_form_control_sync_with_epoch,
     overlay::{
-        FloatingLayer, FloatingPlacement, FloatingReadiness, GeometryVars, PlacementAlign,
-        PlacementSide, Presence, PresenceCloseCycleId, PresenceController,
-        PresenceControllerUpdate, PresenceState, Rect, Size,
+        DismissCallbacks, DismissConfig, DismissEvent, DismissLayerHandle, FloatingHandle,
+        FloatingMonitorSpec, FloatingPlacement, FloatingReadiness, FloatingScrollPolicy,
+        FocusScopeConfig, FocusScopeHandle, GeometryVars, ModalLayerConfig, ModalLayerHandle,
+        ModalShieldPolicy, PlacementAlign, PlacementSide, PresenceController, PresenceHandle,
+        PresenceState, use_dismissable_layer, use_floating_layer, use_focus_scope,
+        use_modal_layer, use_presence,
     },
-    state::DataState,
+    shared::PreventableEvent,
+    state::{DataState, sync_signal},
 };
 
 use super::{
@@ -27,12 +31,6 @@ use super::{
     relationships::SelectRelationships,
     state::Select,
     types::{SelectItemData, SelectMode},
-};
-
-pub use super::monitors::PointerDownOutsideEvent;
-pub(crate) use super::presence::{
-    RetainedRootPresenceMonitorState, SelectContentPresenceLane, stop_select_presence_monitor,
-    sync_select_presence,
 };
 
 pub type SelectValueChangeHandler = Rc<dyn Fn(Option<String>)>;
@@ -52,12 +50,10 @@ pub struct SelectRuntimeState {
     pub initial_highlight_pending: Signal<bool>,
     pub items: Signal<Vec<SelectItemData>>,
     pub registry: Signal<MountedOptionRegistry>,
-    pub typeahead_buffer: Signal<String>,
+    pub typeahead: Signal<TypeaheadBuffer>,
     pub last_key_timestamp_ms: Signal<f64>,
     pub preferred_side: Signal<PlacementSide>,
     pub preferred_align: Signal<PlacementAlign>,
-    pub side: Signal<PlacementSide>,
-    pub align: Signal<PlacementAlign>,
     pub side_offset: Signal<f32>,
     pub align_offset: Signal<f32>,
     pub avoid_collisions: Signal<bool>,
@@ -69,25 +65,22 @@ pub struct SelectRuntimeState {
     pub collision_boundary: Signal<Option<String>>,
     pub collision_padding: Signal<f32>,
     pub arrow_padding: Signal<f32>,
+    pub arrow_id: Signal<Option<String>>,
     pub sticky: Signal<Option<String>>,
     pub reference_hidden: Signal<bool>,
-    pub escape_prevented: Signal<bool>,
     pub last_dismiss_was_pointer: Signal<bool>,
-    pub on_escape_keydown: Signal<Option<EventHandler<KeyboardEvent>>>,
-    pub on_pointer_down_outside: Signal<Option<EventHandler<PointerDownOutsideEvent>>>,
-    pub on_close_auto_focus: Signal<Option<EventHandler<()>>>,
-    pub dismiss_monitor: Signal<Option<WatcherGuard>>,
-    pub dismiss_loop_token: Signal<u64>,
-    pub position_monitor: Signal<Option<WatcherGuard>>,
-    pub position_loop_token: Signal<u64>,
-    pub form_reset_monitor: Signal<Option<WatcherGuard>>,
-    pub presence_lane: Signal<SelectContentPresenceLane>,
-    pub presence_monitor: RetainedRootPresenceMonitorState,
-    pub placement: Signal<Option<FloatingPlacement>>,
-    pub content_readiness: Signal<FloatingReadiness>,
-    pub content_z_index: Signal<Option<String>>,
-    pub trigger_handle: Signal<Option<Rc<MountedData>>>,
-    pub content_handle: Signal<Option<Rc<MountedData>>>,
+    pub is_static_content: Signal<bool>,
+    pub reset_epoch: Signal<u64>,
+    pub on_escape_key_down: CopyValue<Option<EventHandler<EscapeKeyDownEvent>>>,
+    pub on_pointer_down_outside: CopyValue<Option<EventHandler<PointerDownOutsideEvent>>>,
+    pub on_close_auto_focus: CopyValue<Option<EventHandler<()>>>,
+    pub presence: Option<PresenceHandle>,
+    pub presence_fallback: Signal<PresenceController>,
+    pub floating: Option<FloatingHandle>,
+    pub dismiss: Option<DismissLayerHandle>,
+    pub modal_layer: Option<ModalLayerHandle>,
+    pub focus_scope: Option<FocusScopeHandle>,
+    pub fallback_readiness: Signal<FloatingReadiness>,
     pub selected_labels: Signal<std::collections::BTreeMap<String, String>>,
     pub pressed_item: Signal<Option<super::types::PressedSelectItem>>,
 }
@@ -159,115 +152,249 @@ where
         initial_labels.insert(item.value.clone(), item.text.clone());
     }
 
-    let state = SelectRuntimeState {
-        value: use_signal(|| initial_val),
-        default_value: use_signal(|| initial_def_val),
-        values: use_signal(|| initial_vals),
-        default_values: use_signal(|| initial_def_vals),
-        open: use_signal(|| initial_open),
-        disabled: use_signal(|| select.is_disabled()),
-        highlighted_value: use_signal(|| None),
-        initial_highlight_pending: use_signal(|| false),
-        items: use_signal(|| select.items().to_vec()),
-        registry: use_signal(|| initial_registry),
-        typeahead_buffer: use_signal(String::new),
-        last_key_timestamp_ms: use_signal(|| 0.0),
-        preferred_side: use_signal(|| PlacementSide::Bottom),
-        preferred_align: use_signal(|| PlacementAlign::Start),
-        side: use_signal(|| PlacementSide::Bottom),
-        align: use_signal(|| PlacementAlign::Start),
-        side_offset: use_signal(|| 4.0),
-        align_offset: use_signal(|| 0.0),
-        avoid_collisions: use_signal(|| true),
-        hide_when_detached: use_signal(|| false),
-        custom_anchor: use_signal(|| None),
-        prevent_scroll: use_signal(|| false),
-        prevent_overflow_text_selection: use_signal(|| false),
-        force_mount: use_signal(|| false),
-        collision_boundary: use_signal(|| None),
-        collision_padding: use_signal(|| 0.0),
-        arrow_padding: use_signal(|| 0.0),
-        sticky: use_signal(|| None),
-        reference_hidden: use_signal(|| false),
-        escape_prevented: use_signal(|| false),
-        last_dismiss_was_pointer: use_signal(|| false),
-        on_escape_keydown: use_signal(|| None),
-        on_pointer_down_outside: use_signal(|| None),
-        on_close_auto_focus: use_signal(|| None),
-        dismiss_monitor: use_signal(|| None),
-        dismiss_loop_token: use_signal(|| 0),
-        position_monitor: use_signal(|| None),
-        position_loop_token: use_signal(|| 0),
-        form_reset_monitor: use_signal(|| None),
-        presence_lane: use_signal(|| SelectContentPresenceLane::new(select.presence())),
-        presence_monitor: RetainedRootPresenceMonitorState {
-            monitor: use_signal(|| None),
-            cycle_id: use_signal(|| None),
-        },
-        placement: use_signal(|| None),
-        content_readiness: use_signal(FloatingReadiness::default),
-        content_z_index: use_signal(|| None),
-        trigger_handle: use_signal(|| None),
-        content_handle: use_signal(|| None),
-        selected_labels: use_signal(|| initial_labels),
-        pressed_item: use_signal(|| None),
-    };
-
-    let cleanup_state = state;
-    let cleanup_content_id = select.relationships().content_id().to_owned();
-    dioxus::core::use_drop(move || {
-        crate::foundation::overlay::unregister_active_overlay_layer(cleanup_content_id.as_str());
-        stop_select_presence_monitor(cleanup_state, cleanup_content_id.as_str());
-        let mut dm_sig = cleanup_state.dismiss_monitor;
-        if let Ok(mut dm) = dm_sig.try_write() {
-            *dm = None;
-        }
-        let mut pm_sig = cleanup_state.position_monitor;
-        if let Ok(mut pm) = pm_sig.try_write() {
-            *pm = None;
-        }
-        let mut frm_sig = cleanup_state.form_reset_monitor;
-        if let Ok(mut frm) = frm_sig.try_write() {
-            *frm = None;
-        }
+    let value_sig = use_signal(|| initial_val);
+    let default_value_sig = use_signal(|| initial_def_val);
+    let values_sig = use_signal(|| initial_vals);
+    let default_values_sig = use_signal(|| initial_def_vals);
+    let open_sig = use_signal(|| initial_open);
+    let disabled_sig = use_signal(|| select.is_disabled());
+    let highlighted_value_sig = use_signal(|| None);
+    let initial_highlight_pending_sig = use_signal(|| false);
+    let items_sig = use_signal(|| select.items().to_vec());
+    let registry_sig = use_signal(|| initial_registry);
+    let typeahead_sig = use_signal(|| TypeaheadBuffer::new(TypeaheadConfig::SELECT));
+    let last_key_timestamp_ms_sig = use_signal(|| 0.0);
+    let preferred_side_sig = use_signal(|| PlacementSide::Bottom);
+    let preferred_align_sig = use_signal(|| PlacementAlign::Start);
+    let side_offset_sig = use_signal(|| 4.0);
+    let align_offset_sig = use_signal(|| 0.0);
+    let avoid_collisions_sig = use_signal(|| true);
+    let hide_when_detached_sig = use_signal(|| false);
+    let custom_anchor_sig = use_signal(|| None::<String>);
+    let prevent_scroll_sig = use_signal(|| false);
+    let prevent_overflow_text_selection_sig = use_signal(|| false);
+    let force_mount_sig = use_signal(|| false);
+    let collision_boundary_sig = use_signal(|| None::<String>);
+    let collision_padding_sig = use_signal(|| 0.0);
+    let arrow_padding_sig = use_signal(|| 0.0);
+    let arrow_id_sig = use_signal(|| None::<String>);
+    let sticky_sig = use_signal(|| None::<String>);
+    let reference_hidden_sig = use_signal(|| false);
+    let last_dismiss_was_pointer_sig = use_signal(|| false);
+    let is_static_content_sig = use_signal(|| false);
+    let mut reset_epoch_sig = use_signal(|| 0_u64);
+    let fallback_readiness_sig = use_signal(FloatingReadiness::default);
+    let selected_labels_sig = use_signal(|| initial_labels);
+    let pressed_item_sig = use_signal(|| None);
+    let presence_fallback_sig = use_signal(|| {
+        PresenceController::new(select.presence().desired_present())
+            .with_retained_mount(select.presence().retain_mount())
     });
 
-    let presence_sync_state = state;
-    let presence_content_id = select.relationships().content_id().to_owned();
-    let mut layer_registered = use_signal(|| false);
-    use_effect(use_reactive((&state.open,), move |(open,)| {
-        let is_open = *open.read();
-        sync_select_presence(&presence_content_id, presence_sync_state, is_open);
-        let registered = *layer_registered.peek();
-        if is_open && !registered {
-            crate::foundation::overlay::register_active_overlay_layer(&presence_content_id);
-            layer_registered.set(true);
-        } else if !is_open && registered {
-            crate::foundation::overlay::unregister_active_overlay_layer(&presence_content_id);
-            layer_registered.set(false);
-        }
-    }));
+    let on_escape_key_down_slot =
+        use_hook(|| CopyValue::new(None::<EventHandler<EscapeKeyDownEvent>>));
+    let on_pointer_down_outside_slot =
+        use_hook(|| CopyValue::new(None::<EventHandler<PointerDownOutsideEvent>>));
+    let on_close_auto_focus_slot = use_hook(|| CopyValue::new(None::<EventHandler<()>>));
+    let mut on_complete_cb_slot =
+        use_hook(|| CopyValue::new(synced_open_change_complete.clone()));
+    on_complete_cb_slot.set(synced_open_change_complete.clone());
+
+    let mut rt_slot: CopyValue<Option<SelectRuntime>> = use_hook(|| CopyValue::new(None));
+
+    let content_id = select.relationships().content_id().to_owned();
+    let trigger_id = select.relationships().trigger_id().to_owned();
+    let wrapper_id = format!("{content_id}-wrapper");
+    let portal_id = format!("{content_id}-portal-root");
+    let is_open = *open_sig.read();
+
+    // 1. Presence (`use_presence`)
+    let presence = use_presence(
+        is_open,
+        &content_id,
+        select.presence().retain_mount(),
+        Some(EventHandler::new(move |open: bool| {
+            if let Some(cb) = on_complete_cb_slot.try_read().ok().and_then(|g| g.clone()) {
+                cb(open);
+            }
+        })),
+    );
+
+    // 2. Floating layer (`use_floating_layer` with `arrow_id` registration)
+    let should_render = presence.should_render() || *force_mount_sig.read();
+    let is_static = *is_static_content_sig.read();
+    let effective_anchor = custom_anchor_sig
+        .read()
+        .clone()
+        .unwrap_or_else(|| trigger_id.clone());
+    let mut floating_spec = FloatingMonitorSpec::new(effective_anchor, content_id.clone());
+    floating_spec.arrow_id = arrow_id_sig.read().clone();
+    floating_spec.boundary_id = collision_boundary_sig.read().clone();
+    floating_spec.side = *preferred_side_sig.read();
+    floating_spec.align = *preferred_align_sig.read();
+    floating_spec.side_offset = *side_offset_sig.read();
+    floating_spec.align_offset = *align_offset_sig.read();
+    floating_spec.avoid_collisions = *avoid_collisions_sig.read();
+    floating_spec.collision_padding = *collision_padding_sig.read();
+    floating_spec.arrow_padding = *arrow_padding_sig.read();
+    floating_spec.hide_when_detached = *hide_when_detached_sig.read();
+    floating_spec.sticky = sticky_sig.read().as_deref() == Some("always");
+    floating_spec.namespace = Some("select".to_owned());
+    floating_spec.scroll_policy = FloatingScrollPolicy::Reposition;
+
+    let floating = use_floating_layer(is_open && should_render && !is_static, floating_spec, None);
+    let presence_state = presence.state();
+    use_effect(use_reactive(
+        (&is_open, &presence_state),
+        move |(open_now, p_state)| {
+            if !open_now && p_state == PresenceState::Unmounted {
+                floating.clear();
+            }
+        },
+    ));
+
+    // 3. Modal scroll lock (`use_modal_layer`)
+    let prevent_scroll = *prevent_scroll_sig.read();
+    let modal_cfg = ModalLayerConfig {
+        lock_id: format!("select-scroll-lock-{content_id}"),
+        keep_ids: vec![content_id.clone(), wrapper_id.clone(), portal_id.clone()],
+        shield_policy: ModalShieldPolicy::None,
+        prevent_scroll,
+        prevent_body_pointer_events: prevent_scroll,
+    };
+    let modal_layer = use_modal_layer(is_open && prevent_scroll, modal_cfg);
+
+    // 4. Focus scope (`use_focus_scope`)
+    let mut focus_cfg = FocusScopeConfig::new(content_id.clone());
+    focus_cfg.restore_target_id = Some(trigger_id.clone());
+    focus_cfg.auto_focus_on_open = false;
+    focus_cfg.restore_focus_on_close = true;
+    let focus_scope = use_focus_scope(
+        is_open,
+        focus_cfg,
+        None,
+        Some(EventHandler::new(move |_evt| {
+            if let Some(cb) = on_close_auto_focus_slot.try_read().ok().and_then(|s| *s) {
+                cb.call(());
+            }
+        })),
+    );
+
+    // 5. Dismissable layer (`use_dismissable_layer`)
+    let dismiss_cfg = DismissConfig::new(content_id.clone())
+        .with_boundaries(vec![
+            trigger_id.clone(),
+            content_id.clone(),
+            wrapper_id,
+            portal_id,
+        ])
+        .with_modal(false)
+        .with_listen_focus_outside(false)
+        .with_disable_outside_pointer_events(false);
+    let dismiss_callbacks = DismissCallbacks {
+        on_escape_key_down: Some(EventHandler::new(move |evt| {
+            if let Some(cb) = on_escape_key_down_slot.try_read().ok().and_then(|s| *s) {
+                cb.call(evt);
+            }
+        })),
+        on_pointer_down_outside: Some(EventHandler::new(move |evt| {
+            if let Some(cb) = on_pointer_down_outside_slot.try_read().ok().and_then(|s| *s) {
+                cb.call(evt);
+            }
+        })),
+        on_focus_outside: None,
+        on_interact_outside: None,
+        on_dismiss: Some(EventHandler::new(move |evt: DismissEvent| {
+            let Some(rt) = rt_slot.try_read().ok().and_then(|g| g.clone()) else {
+                return;
+            };
+            match evt {
+                DismissEvent::Escape => {
+                    rt.clear_pointer_dismiss();
+                    rt.close_dropdown();
+                }
+                DismissEvent::PointerDownOutside => {
+                    rt.mark_pointer_dismiss();
+                    rt.close_dropdown();
+                }
+                DismissEvent::FocusOutside => {
+                    rt.clear_pointer_dismiss();
+                    rt.close_dropdown_without_restore();
+                }
+            }
+        })),
+    };
+    let dismiss = use_dismissable_layer(is_open, dismiss_cfg, dismiss_callbacks);
+
+    // 6. Form reset synchronization (`use_form_control_sync_with_epoch`, `B12`)
+    let (_has_form, reset_epoch) = use_form_control_sync_with_epoch(
+        &trigger_id,
+        select.name(),
+        select.form(),
+        move || {
+            if let Some(rt) = rt_slot.try_read().ok().and_then(|g| g.clone()) {
+                rt.handle_form_reset();
+            }
+        },
+    );
+    sync_signal(&mut reset_epoch_sig, reset_epoch);
+
+    let state = SelectRuntimeState {
+        value: value_sig,
+        default_value: default_value_sig,
+        values: values_sig,
+        default_values: default_values_sig,
+        open: open_sig,
+        disabled: disabled_sig,
+        highlighted_value: highlighted_value_sig,
+        initial_highlight_pending: initial_highlight_pending_sig,
+        items: items_sig,
+        registry: registry_sig,
+        typeahead: typeahead_sig,
+        last_key_timestamp_ms: last_key_timestamp_ms_sig,
+        preferred_side: preferred_side_sig,
+        preferred_align: preferred_align_sig,
+        side_offset: side_offset_sig,
+        align_offset: align_offset_sig,
+        avoid_collisions: avoid_collisions_sig,
+        hide_when_detached: hide_when_detached_sig,
+        custom_anchor: custom_anchor_sig,
+        prevent_scroll: prevent_scroll_sig,
+        prevent_overflow_text_selection: prevent_overflow_text_selection_sig,
+        force_mount: force_mount_sig,
+        collision_boundary: collision_boundary_sig,
+        collision_padding: collision_padding_sig,
+        arrow_padding: arrow_padding_sig,
+        arrow_id: arrow_id_sig,
+        sticky: sticky_sig,
+        reference_hidden: reference_hidden_sig,
+        last_dismiss_was_pointer: last_dismiss_was_pointer_sig,
+        is_static_content: is_static_content_sig,
+        reset_epoch: reset_epoch_sig,
+        on_escape_key_down: on_escape_key_down_slot,
+        on_pointer_down_outside: on_pointer_down_outside_slot,
+        on_close_auto_focus: on_close_auto_focus_slot,
+        presence: Some(presence),
+        presence_fallback: presence_fallback_sig,
+        floating: Some(floating),
+        dismiss: Some(dismiss),
+        modal_layer: Some(modal_layer),
+        focus_scope: Some(focus_scope),
+        fallback_readiness: fallback_readiness_sig,
+        selected_labels: selected_labels_sig,
+        pressed_item: pressed_item_sig,
+    };
 
     let effect_state = state;
     use_effect(use_reactive((&select,), move |(select,)| {
         let mut val_sig = effect_state.value;
-        let incoming_val = select.value().map(str::to_owned);
-        if *val_sig.peek() != incoming_val {
-            val_sig.set(incoming_val);
-        }
+        sync_signal(&mut val_sig, select.value().map(str::to_owned));
         let mut vals_sig = effect_state.values;
-        let incoming_vals = select.values().to_vec();
-        if *vals_sig.peek() != incoming_vals {
-            vals_sig.set(incoming_vals);
-        }
-        let mut open_sig = effect_state.open;
-        if *open_sig.peek() != select.is_open() {
-            open_sig.set(select.is_open());
-        }
-        let mut disabled_sig = effect_state.disabled;
-        if *disabled_sig.peek() != select.is_disabled() {
-            disabled_sig.set(select.is_disabled());
-        }
+        sync_signal(&mut vals_sig, select.values().to_vec());
+        let mut open_s = effect_state.open;
+        sync_signal(&mut open_s, select.is_open());
+        let mut dis_sig = effect_state.disabled;
+        sync_signal(&mut dis_sig, select.is_disabled());
         let current_items = select.items();
         if !current_items.is_empty() && effect_state.registry.peek().is_empty() {
             let mut reg_sig = effect_state.registry;
@@ -283,14 +410,7 @@ where
         on_open_change_complete: synced_open_change_complete,
         state,
     };
-
-    let has_form = runtime.select().name().is_some() || runtime.select().form().is_some();
-    let rt = runtime.clone();
-    use_effect(move || {
-        if has_form {
-            rt.start_form_reset_monitor();
-        }
-    });
+    rt_slot.set(Some(runtime.clone()));
 
     runtime
 }
@@ -319,12 +439,10 @@ impl SelectRuntime {
             initial_highlight_pending: Signal::new(false),
             items: Signal::new(select.items().to_vec()),
             registry: Signal::new(initial_registry),
-            typeahead_buffer: Signal::new(String::new()),
+            typeahead: Signal::new(TypeaheadBuffer::new(TypeaheadConfig::SELECT)),
             last_key_timestamp_ms: Signal::new(0.0),
             preferred_side: Signal::new(PlacementSide::Bottom),
             preferred_align: Signal::new(PlacementAlign::Start),
-            side: Signal::new(PlacementSide::Bottom),
-            align: Signal::new(PlacementAlign::Start),
             side_offset: Signal::new(4.0),
             align_offset: Signal::new(0.0),
             avoid_collisions: Signal::new(true),
@@ -336,28 +454,25 @@ impl SelectRuntime {
             collision_boundary: Signal::new(None),
             collision_padding: Signal::new(0.0),
             arrow_padding: Signal::new(0.0),
+            arrow_id: Signal::new(None),
             sticky: Signal::new(None),
             reference_hidden: Signal::new(false),
-            escape_prevented: Signal::new(false),
             last_dismiss_was_pointer: Signal::new(false),
-            on_escape_keydown: Signal::new(None),
-            on_pointer_down_outside: Signal::new(None),
-            on_close_auto_focus: Signal::new(None),
-            dismiss_monitor: Signal::new(None),
-            dismiss_loop_token: Signal::new(0),
-            position_monitor: Signal::new(None),
-            position_loop_token: Signal::new(0),
-            form_reset_monitor: Signal::new(None),
-            presence_lane: Signal::new(SelectContentPresenceLane::new(select.presence())),
-            presence_monitor: RetainedRootPresenceMonitorState {
-                monitor: Signal::new(None),
-                cycle_id: Signal::new(None),
-            },
-            placement: Signal::new(None),
-            content_readiness: Signal::new(FloatingReadiness::default()),
-            content_z_index: Signal::new(None),
-            trigger_handle: Signal::new(None),
-            content_handle: Signal::new(None),
+            is_static_content: Signal::new(false),
+            reset_epoch: Signal::new(0),
+            on_escape_key_down: CopyValue::new(None),
+            on_pointer_down_outside: CopyValue::new(None),
+            on_close_auto_focus: CopyValue::new(None),
+            presence: None,
+            presence_fallback: Signal::new(
+                PresenceController::new(select.presence().desired_present())
+                    .with_retained_mount(select.presence().retain_mount()),
+            ),
+            floating: None,
+            dismiss: None,
+            modal_layer: None,
+            focus_scope: None,
+            fallback_readiness: Signal::new(FloatingReadiness::default()),
             selected_labels: Signal::new(initial_labels),
             pressed_item: Signal::new(None),
         };
@@ -381,15 +496,27 @@ impl SelectRuntime {
     }
 
     pub fn should_render_portal(&self) -> bool {
-        self.state.presence_lane.read().should_render_portal()
+        self.should_render_content()
     }
 
     pub fn should_render_content(&self) -> bool {
-        self.state.presence_lane.read().should_render_content()
+        if let Some(p) = self.state.presence {
+            p.should_render()
+        } else {
+            self.state.presence_fallback.read().should_render()
+        }
     }
 
     pub fn presence_state(&self) -> PresenceState {
-        self.state.presence_lane.read().content.state()
+        if let Some(p) = self.state.presence {
+            p.state()
+        } else {
+            self.state.presence_fallback.read().state()
+        }
+    }
+
+    pub fn reset_epoch(&self) -> u64 {
+        *self.state.reset_epoch.read()
     }
 
     pub fn value(&self) -> Option<String> {
@@ -527,18 +654,14 @@ impl SelectRuntime {
     }
 
     pub fn side(&self) -> PlacementSide {
-        *self.state.side.read()
+        self.placement()
+            .map(|p| p.side())
+            .unwrap_or_else(|| self.preferred_side())
     }
 
     pub fn set_side(&self, side: PlacementSide) {
         let mut pref_sig = self.state.preferred_side;
-        if *pref_sig.peek() != side {
-            pref_sig.set(side);
-            let mut side_sig = self.state.side;
-            if *side_sig.peek() != side {
-                side_sig.set(side);
-            }
-        }
+        sync_signal(&mut pref_sig, side);
     }
 
     pub fn preferred_align(&self) -> PlacementAlign {
@@ -546,18 +669,14 @@ impl SelectRuntime {
     }
 
     pub fn align(&self) -> PlacementAlign {
-        *self.state.align.read()
+        self.placement()
+            .map(|p| p.align())
+            .unwrap_or_else(|| self.preferred_align())
     }
 
     pub fn set_align(&self, align: PlacementAlign) {
         let mut pref_sig = self.state.preferred_align;
-        if *pref_sig.peek() != align {
-            pref_sig.set(align);
-            let mut align_sig = self.state.align;
-            if *align_sig.peek() != align {
-                align_sig.set(align);
-            }
-        }
+        sync_signal(&mut pref_sig, align);
     }
 
     pub fn side_offset(&self) -> f32 {
@@ -566,9 +685,7 @@ impl SelectRuntime {
 
     pub fn set_side_offset(&self, offset: f32) {
         let mut sig = self.state.side_offset;
-        if *sig.peek() != offset {
-            sig.set(offset);
-        }
+        sync_signal(&mut sig, offset);
     }
 
     pub fn align_offset(&self) -> f32 {
@@ -577,9 +694,7 @@ impl SelectRuntime {
 
     pub fn set_align_offset(&self, offset: f32) {
         let mut sig = self.state.align_offset;
-        if *sig.peek() != offset {
-            sig.set(offset);
-        }
+        sync_signal(&mut sig, offset);
     }
 
     pub fn avoid_collisions(&self) -> bool {
@@ -588,9 +703,7 @@ impl SelectRuntime {
 
     pub fn set_avoid_collisions(&self, avoid: bool) {
         let mut sig = self.state.avoid_collisions;
-        if *sig.peek() != avoid {
-            sig.set(avoid);
-        }
+        sync_signal(&mut sig, avoid);
     }
 
     pub fn hide_when_detached(&self) -> bool {
@@ -599,9 +712,7 @@ impl SelectRuntime {
 
     pub fn set_hide_when_detached(&self, hide: bool) {
         let mut sig = self.state.hide_when_detached;
-        if *sig.peek() != hide {
-            sig.set(hide);
-        }
+        sync_signal(&mut sig, hide);
     }
 
     pub fn collision_boundary(&self) -> Option<String> {
@@ -610,9 +721,7 @@ impl SelectRuntime {
 
     pub fn set_collision_boundary(&self, boundary: Option<String>) {
         let mut sig = self.state.collision_boundary;
-        if *sig.peek() != boundary {
-            sig.set(boundary);
-        }
+        sync_signal(&mut sig, boundary);
     }
 
     pub fn collision_padding(&self) -> f32 {
@@ -621,9 +730,7 @@ impl SelectRuntime {
 
     pub fn set_collision_padding(&self, padding: f32) {
         let mut sig = self.state.collision_padding;
-        if *sig.peek() != padding {
-            sig.set(padding);
-        }
+        sync_signal(&mut sig, padding);
     }
 
     pub fn arrow_padding(&self) -> f32 {
@@ -632,8 +739,47 @@ impl SelectRuntime {
 
     pub fn set_arrow_padding(&self, padding: f32) {
         let mut sig = self.state.arrow_padding;
-        if *sig.peek() != padding {
-            sig.set(padding);
+        sync_signal(&mut sig, padding);
+    }
+
+    pub fn arrow_id(&self) -> Option<String> {
+        if let Some(f) = self.state.floating
+            && let Some(id) = f.arrow_id()
+        {
+            return Some(id);
+        }
+        self.state.arrow_id.read().clone()
+    }
+
+    pub fn register_arrow_id(&self, id: &str) {
+        let mut sig = self.state.arrow_id;
+        sync_signal(&mut sig, Some(id.to_owned()));
+        if let Some(f) = self.state.floating {
+            f.register_arrow_id(id);
+        }
+    }
+
+    pub fn unregister_arrow_id(&self, id: &str) {
+        let mut sig = self.state.arrow_id;
+        if sig.try_peek().is_ok_and(|cur| cur.as_deref() == Some(id))
+            && let Ok(mut w) = sig.try_write()
+        {
+            *w = None;
+        }
+        if let Some(f) = self.state.floating {
+            f.unregister_arrow_id(id);
+        }
+    }
+
+    pub fn capture_trigger_mount(&self, handle: MountedHandle) {
+        if let Some(f) = self.state.floating {
+            f.capture_anchor(handle);
+        }
+    }
+
+    pub fn capture_content_mount(&self, handle: MountedHandle) {
+        if let Some(f) = self.state.floating {
+            f.capture_content(handle);
         }
     }
 
@@ -643,39 +789,23 @@ impl SelectRuntime {
 
     pub fn set_sticky(&self, sticky: Option<String>) {
         let mut sig = self.state.sticky;
-        if *sig.peek() != sticky {
-            sig.set(sticky);
-        }
+        sync_signal(&mut sig, sticky);
     }
 
     pub fn is_reference_hidden(&self) -> bool {
-        *self.state.reference_hidden.read()
+        self.placement()
+            .map(|p| p.reference_hidden())
+            .unwrap_or_else(|| *self.state.reference_hidden.read())
     }
 
     pub fn set_reference_hidden(&self, hidden: bool) {
-        if let Ok(current) = self.state.reference_hidden.try_peek() {
-            if *current != hidden {
-                drop(current);
-                let mut sig = self.state.reference_hidden;
-                if let Ok(mut w) = sig.try_write() {
-                    *w = hidden;
-                }
-            }
-        }
+        let mut sig = self.state.reference_hidden;
+        sync_signal(&mut sig, hidden);
     }
 
-    pub fn is_escape_prevented(&self) -> bool {
-        *self.state.escape_prevented.read()
-    }
-
-    pub fn set_escape_prevented(&self, val: bool) {
-        let mut sig = self.state.escape_prevented;
-        sig.set(val);
-    }
-
-    pub fn set_on_escape_keydown(&self, cb: Option<EventHandler<KeyboardEvent>>) {
-        let mut sig = self.state.on_escape_keydown;
-        sig.set(cb);
+    pub fn set_on_escape_key_down(&self, cb: Option<EventHandler<EscapeKeyDownEvent>>) {
+        let mut slot = self.state.on_escape_key_down;
+        slot.set(cb);
     }
 
     pub fn custom_anchor(&self) -> Option<String> {
@@ -684,9 +814,7 @@ impl SelectRuntime {
 
     pub fn set_custom_anchor(&self, anchor: Option<String>) {
         let mut sig = self.state.custom_anchor;
-        if *sig.peek() != anchor {
-            sig.set(anchor);
-        }
+        sync_signal(&mut sig, anchor);
     }
 
     pub fn prevent_scroll(&self) -> bool {
@@ -695,9 +823,7 @@ impl SelectRuntime {
 
     pub fn set_prevent_scroll(&self, prevent: bool) {
         let mut sig = self.state.prevent_scroll;
-        if *sig.peek() != prevent {
-            sig.set(prevent);
-        }
+        sync_signal(&mut sig, prevent);
     }
 
     pub fn prevent_overflow_text_selection(&self) -> bool {
@@ -706,9 +832,7 @@ impl SelectRuntime {
 
     pub fn set_prevent_overflow_text_selection(&self, prevent: bool) {
         let mut sig = self.state.prevent_overflow_text_selection;
-        if *sig.peek() != prevent {
-            sig.set(prevent);
-        }
+        sync_signal(&mut sig, prevent);
     }
 
     pub fn force_mount(&self) -> bool {
@@ -717,27 +841,30 @@ impl SelectRuntime {
 
     pub fn set_force_mount(&self, force: bool) {
         let mut sig = self.state.force_mount;
-        if *sig.peek() != force {
-            sig.set(force);
-        }
+        sync_signal(&mut sig, force);
+    }
+
+    pub fn set_is_static_content(&self, is_static: bool) {
+        let mut sig = self.state.is_static_content;
+        sync_signal(&mut sig, is_static);
     }
 
     pub fn set_on_pointer_down_outside(&self, cb: Option<EventHandler<PointerDownOutsideEvent>>) {
-        let mut sig = self.state.on_pointer_down_outside;
-        sig.set(cb);
+        let mut slot = self.state.on_pointer_down_outside;
+        slot.set(cb);
     }
 
     pub fn set_on_close_auto_focus(&self, cb: Option<EventHandler<()>>) {
-        let mut sig = self.state.on_close_auto_focus;
-        sig.set(cb);
+        let mut slot = self.state.on_close_auto_focus;
+        slot.set(cb);
     }
 
     pub fn trigger_pointer_down_outside(&self) -> bool {
-        let evt = PointerDownOutsideEvent::new();
-        if let Some(cb) = self.state.on_pointer_down_outside.read().clone() {
+        let evt: PointerDownOutsideEvent = PreventableEvent::new(None);
+        if let Some(cb) = self.state.on_pointer_down_outside.try_read().ok().and_then(|s| *s) {
             cb.call(evt.clone());
         }
-        evt.default_action_enabled()
+        !evt.is_default_prevented()
     }
 
     pub fn mark_pointer_dismiss(&self) {
@@ -755,12 +882,16 @@ impl SelectRuntime {
     }
 
     pub fn trigger_close_auto_focus(&self) {
-        if let Some(cb) = self.state.on_close_auto_focus.read().clone() {
-            cb.call(());
-        }
         let was_pointer = *self.state.last_dismiss_was_pointer.peek();
         let mut sig = self.state.last_dismiss_was_pointer;
         sig.set(false);
+        if let Some(fs) = self.state.focus_scope {
+            fs.apply_close_focus(was_pointer);
+            return;
+        }
+        if let Some(cb) = self.state.on_close_auto_focus.try_read().ok().and_then(|s| *s) {
+            cb.call(());
+        }
         if was_pointer {
             restore_focus_element_by_id_with_options(
                 self.relationships().trigger_id(),
@@ -779,20 +910,27 @@ impl SelectRuntime {
         self.clear_pointer_dismiss();
         let mut open_sig = self.state.open;
         open_sig.set(true);
-        crate::foundation::overlay::register_active_overlay_layer(
-            self.relationships().content_id(),
-        );
-        sync_select_presence(self.relationships().content_id(), self.state, true);
+        let content_id = self.relationships().content_id();
+        crate::foundation::overlay::ensure_active_overlay_layer(content_id);
 
-        let mut tb_sig = self.state.typeahead_buffer;
-        tb_sig.set(String::new());
+        if let Some(p) = self.state.presence {
+            p.sync(true, content_id);
+        } else {
+            let mut fallback = self.state.presence_fallback;
+            fallback.write().sync(true);
+        }
+
+        let mut ta_sig = self.state.typeahead;
+        ta_sig.write().reset();
         let mut time_sig = self.state.last_key_timestamp_ms;
         time_sig.set(0.0);
 
         if let Some(ref cb) = self.on_open_change {
             cb(true);
         }
-        if let Some(ref cb) = self.on_open_change_complete {
+        if self.state.presence.is_none()
+            && let Some(ref cb) = self.on_open_change_complete
+        {
             cb(true);
         }
 
@@ -863,7 +1001,6 @@ impl SelectRuntime {
         };
 
         if let Some(item) = removed {
-            // Keep items synchronized in pure Rust
             let active: Vec<SelectItemData> = r
                 .active_items()
                 .map(|i| SelectItemData {
@@ -962,11 +1099,12 @@ impl SelectRuntime {
             } else {
                 None
             };
-            if self.is_open() && *self.state.initial_highlight_pending.peek() {
-                if let Some(value) = enabled_selected_value.or(dom_first_value) {
-                    self.set_highlighted(Some(value));
-                    self.clear_initial_highlight_pending();
-                }
+            if self.is_open()
+                && *self.state.initial_highlight_pending.peek()
+                && let Some(value) = enabled_selected_value.or(dom_first_value)
+            {
+                self.set_highlighted(Some(value));
+                self.clear_initial_highlight_pending();
             }
 
             let registered_order: Vec<String> = {
@@ -996,39 +1134,49 @@ impl SelectRuntime {
             return;
         }
 
+        let content_id = self.relationships().content_id();
         let mut open_sig = self.state.open;
         open_sig.set(false);
-        sync_select_presence(self.relationships().content_id(), self.state, false);
+        crate::foundation::overlay::unregister_active_overlay_layer(content_id);
+
+        if let Some(p) = self.state.presence {
+            p.sync(false, content_id);
+        } else {
+            let mut fallback = self.state.presence_fallback;
+            let update = fallback.write().sync(false);
+            if let Some(cycle) = update.started_close_cycle() {
+                fallback.write().complete_close_cycle(cycle);
+            }
+        }
 
         if let Some(ref cb) = self.on_open_change {
             cb(false);
         }
-        if let Some(ref cb) = self.on_open_change_complete {
+        if self.state.presence.is_none()
+            && let Some(ref cb) = self.on_open_change_complete
+        {
             cb(false);
         }
 
         self.set_highlighted(None);
         self.stop_dismiss_monitor();
-        self.stop_position_monitor();
 
-        let mut tb_sig = self.state.typeahead_buffer;
-        tb_sig.set(String::new());
+        let mut ta_sig = self.state.typeahead;
+        ta_sig.write().reset();
         let mut time_sig = self.state.last_key_timestamp_ms;
         time_sig.set(0.0);
 
-        let mut placement_sig = self.state.placement;
-        placement_sig.set(None);
-        let mut readiness_sig = self.state.content_readiness;
-        readiness_sig.set(FloatingReadiness::Measuring);
-        self.clear_content_z_index();
-        let mut ch_sig = self.state.content_handle;
-        ch_sig.set(None);
+        if self.presence_state() == PresenceState::Unmounted {
+            self.stop_position_monitor();
+        }
+        let mut fb_rd = self.state.fallback_readiness;
+        sync_signal(&mut fb_rd, FloatingReadiness::Measuring);
 
         self.clear_pressed_item();
 
         if restore_focus {
             self.trigger_close_auto_focus();
-        } else if let Some(cb) = self.state.on_close_auto_focus.read().clone() {
+        } else if let Some(cb) = self.state.on_close_auto_focus.try_read().ok().and_then(|s| *s) {
             cb.call(());
         }
     }
@@ -1173,36 +1321,32 @@ impl SelectRuntime {
     }
 
     pub fn placement(&self) -> Option<FloatingPlacement> {
-        self.state.placement.read().clone()
+        self.state.floating.and_then(|f| f.placement())
     }
 
     pub fn content_readiness(&self) -> FloatingReadiness {
-        *self.state.content_readiness.read()
+        if *self.state.is_static_content.read() {
+            return *self.state.fallback_readiness.read();
+        }
+        self.state
+            .floating
+            .map(|f| f.readiness())
+            .unwrap_or_else(|| *self.state.fallback_readiness.read())
     }
 
     pub fn content_z_index(&self) -> Option<String> {
-        self.state.content_z_index.read().clone()
+        self.state.floating.and_then(|f| f.content_z_index())
     }
 
     pub fn sync_content_z_index(&self) {
-        let content_id = self.relationships().content_id();
-        let next = crate::foundation::overlay::normalize_hoisted_z_index(
-            crate::foundation::browser::get_element_computed_z_index(content_id).as_deref(),
-        );
-        let mut sig = self.state.content_z_index;
-        if sig.try_peek().is_ok_and(|cur| *cur != next) {
-            if let Ok(mut w) = sig.try_write() {
-                *w = next;
-            }
+        if let Some(f) = self.state.floating {
+            f.sync_z_index();
         }
     }
 
     pub fn clear_content_z_index(&self) {
-        let mut sig = self.state.content_z_index;
-        if sig.try_peek().is_ok_and(|cur| cur.is_some()) {
-            if let Ok(mut w) = sig.try_write() {
-                *w = None;
-            }
+        if let Some(f) = self.state.floating {
+            f.clear_z_index();
         }
     }
 
@@ -1225,14 +1369,13 @@ pub const SELECT_RADIX_COMPATIBILITY_PREFIX: &str = "radix-select";
 pub const SELECT_RADIX_ANCHOR_LABEL: &str = "trigger";
 
 pub fn select_content_css_variables(geometry: &GeometryVars) -> Vec<(String, String)> {
-    let mut vars: Vec<(String, String)> =
-        geometry
-            .css_iter()
-            .chain(geometry.compatibility_alias_iter(
-                SELECT_RADIX_COMPATIBILITY_PREFIX,
-                SELECT_RADIX_ANCHOR_LABEL,
-            ))
-            .collect();
+    let mut vars: Vec<(String, String)> = geometry
+        .css_iter()
+        .chain(geometry.compatibility_alias_iter(
+            SELECT_RADIX_COMPATIBILITY_PREFIX,
+            SELECT_RADIX_ANCHOR_LABEL,
+        ))
+        .collect();
 
     vars.push((
         "--bits-select-anchor-width".to_string(),
@@ -1256,16 +1399,4 @@ pub fn select_content_css_variables(geometry: &GeometryVars) -> Vec<(String, Str
     ));
 
     vars
-}
-
-pub fn serialize_css_custom_properties(entries: &[(String, String)]) -> String {
-    let mut style = String::new();
-    for (name, value) in entries {
-        style.push(' ');
-        style.push_str(name);
-        style.push_str(": ");
-        style.push_str(value);
-        style.push(';');
-    }
-    style
 }

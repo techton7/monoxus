@@ -617,10 +617,8 @@ impl FloatingHandle {
         let mut readiness_sig = self.readiness;
         sync_signal(&mut readiness_sig, next_readiness);
 
-        if is_ready {
-            let mut placement_sig = self.placement;
-            sync_signal(&mut placement_sig, Some(computed));
-        }
+        let mut placement_sig = self.placement;
+        sync_signal(&mut placement_sig, Some(computed));
 
         is_ready
     }

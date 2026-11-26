@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use crate::foundation::overlay::PortalHost;
+use crate::foundation::{
+    overlay::{OverlayPortalSpec, PortalHost, render_overlay_portal},
+    state::sync_signal,
+};
 use crate::menu::{MenuRootContext, MenuSurfaceRuntime};
 
 /// Context selecting which surface owns the enclosing `Portal` (`Content` vs `SubContent`).
@@ -24,43 +27,17 @@ pub fn MenuPortal(props: MenuPortalProps) -> Element {
         .map(|s| s.0)
         .unwrap_or_else(|| root.root_surface.clone());
 
-    let should_render = props.force_mount || portal_surface.should_render_content();
-
-    let resolved_host = props.host.unwrap_or_else(PortalHost::default_host);
-    let host_attr = if resolved_host.is_inline() {
-        "inline"
-    } else {
-        resolved_host.id().unwrap_or("default")
-    };
-
     let pid = use_hook(|| format!("{}-portal", portal_surface.surface_key));
-    {
-        let mut portal_id_sig = portal_surface.portal_id;
-        let pid_reg = pid.clone();
-        if portal_id_sig.try_peek().is_ok_and(|g| g.as_deref() != Some(pid_reg.as_str())) {
-            let _ = portal_id_sig.try_write().map(|mut w| *w = Some(pid_reg));
-        }
-    }
+    let mut portal_id_sig = portal_surface.portal_id;
+    sync_signal(&mut portal_id_sig, Some(pid.clone()));
 
-    crate::foundation::overlay::use_portal_teleport(
-        pid.clone(),
-        should_render,
-        false,
-        &resolved_host,
-    );
-
-    rsx! {
-        div {
-            style: "display: contents;",
-            "data-portal-anchor": "",
-            if should_render {
-                div {
-                    id: "{pid}",
-                    style: "display: contents;",
-                    "data-portal-host": "{host_attr}",
-                    {props.children}
-                }
-            }
-        }
-    }
+    render_overlay_portal(OverlayPortalSpec {
+        portal_id: pid,
+        should_render: portal_surface.should_render_content(),
+        disabled: false,
+        force_mount: props.force_mount,
+        host: props.host.unwrap_or_else(PortalHost::default_host),
+        emit_status_attrs: false,
+        children: props.children,
+    })
 }

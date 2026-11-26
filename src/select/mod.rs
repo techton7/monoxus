@@ -6,7 +6,6 @@ pub mod hidden_input;
 pub mod item;
 pub(crate) mod monitors;
 pub mod portal;
-pub(crate) mod presence;
 pub mod registry;
 pub mod relationships;
 pub mod runtime;

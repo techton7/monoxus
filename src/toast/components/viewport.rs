@@ -1,3 +1,4 @@
+use crate::foundation::compose::merge_global_attributes;
 use crate::toast::attrs::ToastViewportAttrs;
 use crate::toast::components::{ToastAction, ToastClose, ToastDescription, ToastRoot, ToastTitle};
 use crate::toast::layout::ToastStackLayout;
@@ -17,6 +18,8 @@ pub struct ToastViewportProps {
     pub style: Option<String>,
     #[props(default)]
     pub position: Option<ToastPosition>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
     #[props(default)]
     pub children: Option<Element>,
 }
@@ -144,13 +147,13 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
                     index: idx,
                     visible_limit: store.config.visible_toasts,
                     expanded: is_expanded,
-                    dismissible: item.options.dismissible != Some(false)
+                    dismissible: item.meta.dismissible != Some(false)
                         && item.toast_type != crate::toast::types::ToastType::Loading,
-                    position: item.options.position.unwrap_or(effective_position),
-                    test_id: item.options.test_id.clone(),
+                    position: item.meta.position.unwrap_or(effective_position),
+                    test_id: item.meta.test_id.clone(),
                     computed_style: computed_styles.get(idx).copied(),
                     content_generation: item.content_generation,
-                    if let Some(ref custom_render) = item.options.custom_renderer {
+                    if let Some(ref custom_render) = item.meta.custom_renderer {
                         {custom_render(item.id)}
                     } else {
                         ToastTitle {
@@ -161,7 +164,7 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
                                 "{desc}"
                             }
                         }
-                        if let Some(ref action) = item.options.action {
+                        if let Some(ref action) = item.meta.action {
                             ToastAction {
                                 alt_text: action.alt_text.clone(),
                                 toast_id: Some(item.id),
@@ -169,7 +172,7 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
                                 "{action.label}"
                             }
                         }
-                        if let Some(ref cancel) = item.options.cancel {
+                        if let Some(ref cancel) = item.meta.cancel {
                             ToastAction {
                                 alt_text: cancel.alt_text.clone(),
                                 toast_id: Some(item.id),
@@ -178,8 +181,8 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
                                 "{cancel.label}"
                             }
                         }
-                        if item.options.dismissible != Some(false)
-                            && item.options.close_button.unwrap_or(
+                        if item.meta.dismissible != Some(false)
+                            && item.meta.close_button.unwrap_or(
                                 store.config.close_button
                                     && item.toast_type != crate::toast::types::ToastType::Loading,
                             )
@@ -195,6 +198,12 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
         }
     };
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        (!combined_style.is_empty()).then_some(combined_style.as_str()),
+        props.attributes,
+    );
+
     let vp_id_for_focusout = viewport_id.clone();
 
     rsx! {
@@ -208,9 +217,9 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
             "data-position": "{attrs.data_position}",
             "data-x-position": "{attrs.data_x_position}",
             "data-y-position": "{attrs.data_y_position}",
-            class: props.class.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
             id: "{viewport_id}",
-            style: if combined_style.is_empty() { None } else { Some(combined_style.as_str()) },
+            style: merged.style.as_deref(),
             onmouseenter: move |_| {
                 if TOAST_STORE.peek().has_active_toasts() {
                     TOAST_STORE.write().set_hovered(true);
@@ -255,6 +264,7 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
                     }
                 });
             },
+            ..merged.rest,
             {content}
         }
     }

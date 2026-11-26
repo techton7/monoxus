@@ -44,3 +44,88 @@ fn select_form_reset_listener_contract() {
     assert_eq!(select.value(), Some("pro"));
     assert_eq!(select.name(), Some("plan"));
 }
+
+#[cfg(feature = "native")]
+#[test]
+fn fm_col_4_select_empty_multiple_hidden_input_emits_single_empty_placeholder() {
+    use dioxus::prelude::*;
+    use monoxus::select::{
+        SelectContent, SelectItem, SelectPortal, SelectRoot, SelectTrigger, SelectViewport,
+    };
+
+    use crate::common::native_fixture::*;
+
+    let _guard = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    #[component]
+    fn EmptyMultipleSelectScenario() -> Element {
+        rsx! {
+            div { style: "padding: 24px;",
+                SelectRoot {
+                    id: "fm-col4-multi".to_string(),
+                    multiple: true,
+                    name: "fm_col4_tags".to_string(),
+                    SelectTrigger {
+                        class: "fm-col4-trig".to_string(),
+                        style: "width: 160px; height: 32px;".to_string(),
+                        "Tags"
+                    }
+                    SelectPortal {
+                        SelectContent {
+                            class: "fm-col4-content".to_string(),
+                            style: "width: 160px; background: white;".to_string(),
+                            SelectViewport {
+                                SelectItem {
+                                    value: "rust".to_string(),
+                                    text: "Rust".to_string(),
+                                    class: "fm-col4-opt-rust".to_string(),
+                                    "Rust"
+                                }
+                                SelectItem {
+                                    value: "wasm".to_string(),
+                                    text: "Wasm".to_string(),
+                                    class: "fm-col4-opt-wasm".to_string(),
+                                    "Wasm"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(EmptyMultipleSelectScenario);
+
+    // Empty `multiple` Select must emit a single empty placeholder `<input type="hidden" name="fm_col4_tags" value="">` (`B12`, `FM-COL-4`).
+    assert_eq!(
+        harness
+            .attr("input[type='hidden'][name='fm_col4_tags']", "value")
+            .as_deref(),
+        Some("")
+    );
+
+    // Selecting items replaces the empty placeholder with per-value hidden inputs.
+    click_and_pump(&mut harness, ".fm-col4-trig");
+    advance_frame_and_pump(&mut harness, 0.02);
+    click_and_pump(&mut harness, ".fm-col4-opt-rust");
+    click_and_pump(&mut harness, ".fm-col4-opt-wasm");
+    advance_frame_and_pump(&mut harness, 0.02);
+    assert_eq!(
+        harness
+            .attr("input[type='hidden'][name='fm_col4_tags'][value='rust']", "value")
+            .as_deref(),
+        Some("rust")
+    );
+    assert_eq!(
+        harness
+            .attr("input[type='hidden'][name='fm_col4_tags'][value='wasm']", "value")
+            .as_deref(),
+        Some("wasm")
+    );
+    assert!(
+        harness
+            .query("input[type='hidden'][name='fm_col4_tags'][value='']")
+            .is_none()
+    );
+}

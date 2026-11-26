@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::foundation::shared::use_stable_id;
+use crate::foundation::{compose::merge_global_attributes, shared::use_stable_id};
 
 use super::super::runtime::{
     NavigationMenuContext, NavigationMenuItemContext, NavigationMenuItemRenderProps,
@@ -82,18 +82,24 @@ pub fn NavigationMenuItem(props: NavigationMenuItemProps) -> Element {
         );
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         li {
             id: "{item_attrs.id()}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             "data-monoxus-navigation-menu-item": "{item_attrs.data_monoxus_navigation_menu_item()}",
             onmounted: move |evt| {
                 if let Some(ref handler) = props.on_mounted {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }

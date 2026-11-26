@@ -2,8 +2,9 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::{
-    Direction, Orientation, ScopeHandle, use_direction_context, use_stable_id,
+use crate::foundation::{
+    compose::merge_global_attributes,
+    shared::{Direction, Orientation, ScopeHandle, use_direction_context, use_stable_id},
 };
 
 use super::super::{
@@ -114,11 +115,17 @@ pub fn NavigationMenuRoot(props: NavigationMenuRootProps) -> Element {
         );
     }
 
+    let merged = merge_global_attributes(
+        props.class.as_deref(),
+        props.style.as_deref(),
+        props.attributes,
+    );
+
     rsx! {
         nav {
             id: "{root_attrs.id()}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
+            class: merged.class.as_deref().unwrap_or_default(),
+            style: merged.style.as_deref().unwrap_or_default(),
             aria_label: root_attrs.aria_label(),
             dir: "{root_attrs.dir()}",
             "data-orientation": "{root_attrs.data_orientation()}",
@@ -128,7 +135,7 @@ pub fn NavigationMenuRoot(props: NavigationMenuRootProps) -> Element {
                     handler.call(evt);
                 }
             },
-            ..props.attributes,
+            ..merged.rest,
             {props.children}
         }
     }
