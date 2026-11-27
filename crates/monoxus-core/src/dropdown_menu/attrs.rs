@@ -1,3 +1,4 @@
+// [KEEP-MONOXUS-BRAND] Re-aliases Monoxus-branded `crate::menu` attribute types for `DropdownMenu`.
 pub use crate::menu::{
     MenuArrowAttributes as DropdownMenuArrowAttributes,
     MenuCheckboxItemAttributes as DropdownMenuCheckboxItemAttributes,

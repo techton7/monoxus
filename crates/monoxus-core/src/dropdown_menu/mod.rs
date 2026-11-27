@@ -1,9 +1,7 @@
+// [KEEP-MONOXUS-BRAND] Re-exports `ui_sdk::dropdown_menu` with Monoxus/Radix compat shims.
 pub mod attrs;
-pub mod relationships;
+pub use ui_sdk::dropdown_menu::relationships;
 pub mod state;
 pub mod types;
-
-#[cfg(test)]
-mod tests;
 
 pub use self::{attrs::*, relationships::*, state::*, types::*};

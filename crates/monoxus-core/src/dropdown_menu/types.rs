@@ -1,10 +1,15 @@
+// [KEEP-MONOXUS-BRAND] Legacy Radix compat constants and `MenuPart` slice alongside `ui_sdk::dropdown_menu::types`.
 use crate::menu::MenuPart;
 
-pub const DROPDOWN_MENU_GEOMETRY_NAMESPACE: &str = "dropdown-menu";
+pub use ui_sdk::dropdown_menu::types::{
+    DROPDOWN_MENU_DEFAULT_HOVER_CLOSE_DELAY_MS, DROPDOWN_MENU_DEFAULT_HOVER_OPEN_DELAY_MS,
+    DROPDOWN_MENU_DEFAULT_LOOP_FOCUS, DROPDOWN_MENU_DEFAULT_MODAL,
+    DROPDOWN_MENU_DEFAULT_OPEN_ON_HOVER, DROPDOWN_MENU_GEOMETRY_NAMESPACE,
+    DropdownMenuTriggerAction,
+};
+
 pub const DROPDOWN_MENU_RADIX_COMPATIBILITY_PREFIX: &str = "radix-dropdown-menu";
 pub const DROPDOWN_MENU_RADIX_ANCHOR_LABEL: &str = "trigger";
-pub const DROPDOWN_MENU_DEFAULT_MODAL: bool = true;
-pub const DROPDOWN_MENU_DEFAULT_LOOP_FOCUS: bool = true;
 
 pub const DROPDOWN_MENU_PARTS: [MenuPart; 20] = [
     MenuPart::Root,
@@ -28,11 +33,3 @@ pub const DROPDOWN_MENU_PARTS: [MenuPart; 20] = [
     MenuPart::SubContent,
     MenuPart::SubContentStatic,
 ];
-
-/// Keyboard action evaluated on `DropdownMenu.Trigger`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum DropdownMenuTriggerAction {
-    ToggleOpen,
-    OpenAndFocusFirst,
-    Ignore,
-}

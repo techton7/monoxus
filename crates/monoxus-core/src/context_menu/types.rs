@@ -1,11 +1,14 @@
-use crate::menu::{MENU_CONTEXT_LONG_PRESS_MS, MenuPart};
+// [KEEP-MONOXUS-BRAND] Legacy Radix compat constants and `MenuPart` slice alongside `ui_sdk::context_menu::types`.
+use crate::menu::MenuPart;
 
-pub const CONTEXT_MENU_GEOMETRY_NAMESPACE: &str = "context-menu";
+pub use ui_sdk::context_menu::types::{
+    CONTEXT_MENU_DEFAULT_LOOP_FOCUS, CONTEXT_MENU_DEFAULT_MODAL, CONTEXT_MENU_GEOMETRY_NAMESPACE,
+    CONTEXT_MENU_LONG_PRESS_DELAY_MS, CONTEXT_MENU_LONG_PRESS_MOVE_THRESHOLD_PX,
+    CONTEXT_MENU_TOUCH_ANCHOR_SIZE_PX, ContextMenuTriggerAction, VirtualAnchorPoint,
+};
+
 pub const CONTEXT_MENU_RADIX_COMPATIBILITY_PREFIX: &str = "radix-context-menu";
 pub const CONTEXT_MENU_RADIX_ANCHOR_LABEL: &str = "trigger";
-pub const CONTEXT_MENU_DEFAULT_MODAL: bool = true;
-pub const CONTEXT_MENU_DEFAULT_LOOP_FOCUS: bool = true;
-pub const CONTEXT_MENU_LONG_PRESS_DELAY_MS: u64 = MENU_CONTEXT_LONG_PRESS_MS;
 
 pub const CONTEXT_MENU_PARTS: [MenuPart; 20] = [
     MenuPart::Root,
@@ -29,23 +32,3 @@ pub const CONTEXT_MENU_PARTS: [MenuPart; 20] = [
     MenuPart::SubContent,
     MenuPart::SubContentStatic,
 ];
-
-/// Screen-space virtual anchor coordinate recorded on `contextmenu` / long-press open (`CM-3`).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct VirtualAnchorPoint {
-    pub x: f64,
-    pub y: f64,
-}
-
-impl VirtualAnchorPoint {
-    pub const fn new(x: f64, y: f64) -> Self {
-        Self { x, y }
-    }
-}
-
-/// Outcome of evaluating a context-menu trigger gesture (`contextmenu` or long-press).
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum ContextMenuTriggerAction {
-    OpenAtPoint { point: VirtualAnchorPoint },
-    Ignore,
-}

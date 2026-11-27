@@ -1,184 +1,185 @@
-use crate::foundation::{overlay::GeometryVars, shared::Direction};
+// [KEEP-MONOXUS-BRAND] Thin `MenubarState` wrapper over `ui_sdk` preserving Monoxus/Radix CSS vars and `data-monoxus-*` attrs.
+use crate::foundation::{
+    overlay::GeometryVars,
+    shared::{Direction, Orientation},
+};
 use crate::menu::{MenuKey, MenuVariant, menu_css_vars};
 
 use super::{
     attrs::{MenubarRootAttributes, MenubarTriggerAttributes},
     relationships::MenubarRelationships,
-    types::{
-        MENUBAR_DEFAULT_LOOP_FOCUS, MenubarCrossMenuResult, MenubarMenuEntry, MenubarNavigationStep,
-    },
+    types::{MenubarCrossMenuResult, MenubarMenuEntry, MenubarNavigationStep},
 };
 
-/// Pure headless state machine coordinating top-level `Menubar` focus, hover swap, and cross-menu arrows (`MB-1`..`MB-7`).
+/// Pure headless state machine coordinating top-level `Menubar` focus, hover swap, and cross-menu arrows.
 #[derive(Clone, Debug, PartialEq)]
-pub struct MenubarState {
-    relationships: MenubarRelationships,
-    active_value: Option<String>,
-    current_tabstop_value: Option<String>,
-    highlighted_value: Option<String>,
-    direction: Direction,
-    loop_focus: bool,
-    menus: Vec<MenubarMenuEntry>,
+pub struct MenubarState(ui_sdk::menubar::state::MenubarState);
+
+impl From<ui_sdk::menubar::state::MenubarState> for MenubarState {
+    #[inline]
+    fn from(inner: ui_sdk::menubar::state::MenubarState) -> Self {
+        Self(inner)
+    }
+}
+
+impl From<MenubarState> for ui_sdk::menubar::state::MenubarState {
+    #[inline]
+    fn from(state: MenubarState) -> Self {
+        state.0
+    }
 }
 
 impl MenubarState {
     pub fn new(relationships: MenubarRelationships) -> Self {
-        Self {
-            relationships,
-            active_value: None,
-            current_tabstop_value: None,
-            highlighted_value: None,
-            direction: Direction::Ltr,
-            loop_focus: MENUBAR_DEFAULT_LOOP_FOCUS,
-            menus: Vec::new(),
-        }
+        Self(ui_sdk::menubar::state::MenubarState::new(relationships))
     }
 
-    pub fn with_active_value(mut self, active_value: Option<String>) -> Self {
-        self.active_value = active_value;
-        self
+    pub fn inner(&self) -> &ui_sdk::menubar::state::MenubarState {
+        &self.0
     }
 
-    pub fn with_direction(mut self, direction: Direction) -> Self {
-        self.direction = direction;
-        self
+    pub fn as_inner(&self) -> &ui_sdk::menubar::state::MenubarState {
+        &self.0
     }
 
-    pub fn with_loop_focus(mut self, loop_focus: bool) -> Self {
-        self.loop_focus = loop_focus;
-        self
+    pub fn into_inner(self) -> ui_sdk::menubar::state::MenubarState {
+        self.0
+    }
+
+    pub fn with_active_value(self, active_value: Option<String>) -> Self {
+        Self(self.0.with_active_value(active_value))
+    }
+
+    pub fn with_direction(self, direction: Direction) -> Self {
+        Self(self.0.with_direction(direction))
+    }
+
+    pub fn with_orientation(self, orientation: Orientation) -> Self {
+        Self(self.0.with_orientation(orientation))
+    }
+
+    pub fn with_loop_focus(self, loop_focus: bool) -> Self {
+        Self(self.0.with_loop_focus(loop_focus))
+    }
+
+    pub fn with_modal(self, modal: bool) -> Self {
+        Self(self.0.with_modal(modal))
+    }
+
+    pub fn with_disabled(self, disabled: bool) -> Self {
+        Self(self.0.with_disabled(disabled))
     }
 
     pub fn relationships(&self) -> &MenubarRelationships {
-        &self.relationships
+        self.0.relationships()
     }
 
     pub fn active_value(&self) -> Option<&str> {
-        self.active_value.as_deref()
+        self.0.active_value()
     }
 
     pub fn set_active_value(&mut self, value: Option<String>) {
-        self.active_value = value;
+        self.0.set_active_value(value);
     }
 
     pub fn current_tabstop_value(&self) -> Option<&str> {
-        self.current_tabstop_value.as_deref()
+        self.0.current_tabstop_value()
     }
 
     pub fn set_current_tabstop_value(&mut self, value: Option<String>) {
-        self.current_tabstop_value = value;
+        self.0.set_current_tabstop_value(value);
     }
 
     pub fn highlighted_value(&self) -> Option<&str> {
-        self.highlighted_value.as_deref()
+        self.0.highlighted_value()
     }
 
     pub fn set_highlighted_value(&mut self, value: Option<String>) {
-        self.highlighted_value = value;
+        self.0.set_highlighted_value(value);
     }
 
     pub fn direction(&self) -> Direction {
-        self.direction
+        self.0.direction()
+    }
+
+    pub fn orientation(&self) -> Orientation {
+        self.0.orientation()
     }
 
     pub fn loop_focus(&self) -> bool {
-        self.loop_focus
+        self.0.loop_focus()
+    }
+
+    pub fn is_modal(&self) -> bool {
+        self.0.is_modal()
+    }
+
+    pub fn is_disabled(&self) -> bool {
+        self.0.is_disabled()
+    }
+
+    pub fn has_submenu_open(&self) -> bool {
+        self.0.has_submenu_open()
+    }
+
+    pub fn data_has_submenu_open(&self) -> Option<&'static str> {
+        self.0.data_has_submenu_open()
+    }
+
+    pub fn data_modal(&self) -> Option<&'static str> {
+        self.0.data_modal()
+    }
+
+    pub fn data_disabled(&self) -> Option<&'static str> {
+        self.0.data_disabled()
+    }
+
+    pub fn data_orientation(&self) -> &'static str {
+        self.0.data_orientation()
     }
 
     pub fn menus(&self) -> &[MenubarMenuEntry] {
-        &self.menus
+        self.0.menus()
     }
 
     pub fn register_menu(&mut self, entry: MenubarMenuEntry) {
-        if let Some(existing) = self.menus.iter_mut().find(|m| m.value == entry.value) {
-            *existing = entry;
-        } else {
-            self.menus.push(entry);
-        }
-        self.menus.sort_by_key(|m| m.dom_order);
-        self.ensure_valid_tabstop();
+        self.0.register_menu(entry);
     }
 
     pub fn unregister_menu(&mut self, value: &str) {
-        self.menus.retain(|m| m.value != value);
-        if self.active_value.as_deref() == Some(value) {
-            self.active_value = None;
-        }
-        if self.current_tabstop_value.as_deref() == Some(value) {
-            self.current_tabstop_value = None;
-        }
-        if self.highlighted_value.as_deref() == Some(value) {
-            self.highlighted_value = None;
-        }
-        self.ensure_valid_tabstop();
+        self.0.unregister_menu(value);
     }
 
     pub fn sync_dom_order(&mut self, ordered_trigger_ids: &[String]) {
-        for entry in &mut self.menus {
-            if let Some(pos) = ordered_trigger_ids.iter().position(|id| id == &entry.trigger_id) {
-                entry.dom_order = pos;
-            }
-        }
-        self.menus.sort_by_key(|m| m.dom_order);
-        self.ensure_valid_tabstop();
-    }
-
-    fn ensure_valid_tabstop(&mut self) {
-        let valid = self.current_tabstop_value.as_deref().is_some_and(|val| {
-            self.menus.iter().any(|m| m.value == val && !m.disabled)
-        });
-        if !valid {
-            self.current_tabstop_value = self
-                .menus
-                .iter()
-                .find(|m| !m.disabled)
-                .map(|m| m.value.clone());
-        }
+        self.0.sync_dom_order(ordered_trigger_ids);
     }
 
     pub fn is_tabstop(&self, value: &str) -> bool {
-        if let Some(ref current) = self.current_tabstop_value {
-            current == value
-        } else {
-            self.menus
-                .iter()
-                .find(|m| !m.disabled)
-                .is_some_and(|first| first.value == value)
-        }
+        self.0.is_tabstop(value)
     }
 
-    /// Open `value`, returning `(previous_active_value, skip_exit_animation)` (`MB-5`).
     pub fn open_menu(&mut self, value: &str) -> (Option<String>, bool) {
-        let previous = self.active_value.take();
-        let skip_exit_animation = previous.as_deref().is_some_and(|prev| prev != value);
-        self.active_value = Some(value.to_owned());
-        self.current_tabstop_value = Some(value.to_owned());
-        (previous, skip_exit_animation)
+        self.0.open_menu(value)
     }
 
     pub fn close_menu(&mut self, value: &str) -> bool {
-        if self.active_value.as_deref() == Some(value) {
-            self.active_value = None;
-            true
-        } else {
-            false
-        }
+        self.0.close_menu(value)
     }
 
     pub fn close_all(&mut self) {
-        self.active_value = None;
+        self.0.close_all();
     }
 
     pub fn is_trigger_element_id(&self, id: &str) -> bool {
-        self.menus.iter().any(|m| m.trigger_id == id)
+        self.0.is_trigger_element_id(id)
     }
 
     pub fn first_enabled_menu(&self) -> Option<&MenubarMenuEntry> {
-        self.menus.iter().find(|m| !m.disabled)
+        self.0.first_enabled_menu()
     }
 
     pub fn last_enabled_menu(&self) -> Option<&MenubarMenuEntry> {
-        self.menus.iter().rev().find(|m| !m.disabled)
+        self.0.last_enabled_menu()
     }
 
     pub fn adjacent_enabled_menu(
@@ -186,94 +187,17 @@ impl MenubarState {
         current_value: &str,
         forward: bool,
     ) -> Option<&MenubarMenuEntry> {
-        let enabled: Vec<&MenubarMenuEntry> = self.menus.iter().filter(|m| !m.disabled).collect();
-        if enabled.is_empty() {
-            return None;
-        }
-        let pos = enabled.iter().position(|m| m.value == current_value)?;
-        if forward {
-            if pos + 1 < enabled.len() {
-                Some(enabled[pos + 1])
-            } else if self.loop_focus {
-                Some(enabled[0])
-            } else {
-                None
-            }
-        } else if pos > 0 {
-            Some(enabled[pos - 1])
-        } else if self.loop_focus {
-            Some(enabled[enabled.len() - 1])
-        } else {
-            None
-        }
+        self.0.adjacent_enabled_menu(current_value, forward)
     }
 
-    /// Hover-switch rule (`MB-3`): hovering a sibling trigger swaps active menu ONLY when one is already open.
     pub fn on_trigger_pointer_enter(&self, value: &str) -> Option<&MenubarMenuEntry> {
-        if self.active_value.is_none() || self.active_value.as_deref() == Some(value) {
-            return None;
-        }
-        self.menus.iter().find(|m| m.value == value && !m.disabled)
+        self.0.on_trigger_pointer_enter(value)
     }
 
-    /// Resolve keyboard navigation when focus is on a `Menubar.Trigger` (`MB-2`).
     pub fn on_trigger_key(&self, current_value: &str, key: MenuKey) -> MenubarNavigationStep {
-        let is_open = self.active_value.is_some();
-        let next_key = match self.direction {
-            Direction::Ltr => MenuKey::ArrowRight,
-            Direction::Rtl => MenuKey::ArrowLeft,
-        };
-        let prev_key = match self.direction {
-            Direction::Ltr => MenuKey::ArrowLeft,
-            Direction::Rtl => MenuKey::ArrowRight,
-        };
-
-        if key == MenuKey::Escape {
-            return MenubarNavigationStep::CloseAll;
-        }
-
-        if matches!(key, MenuKey::Enter | MenuKey::Space | MenuKey::ArrowDown) {
-            return MenubarNavigationStep::OpenCurrentAndFocusFirst {
-                value: current_value.to_owned(),
-            };
-        }
-
-        if matches!(key, MenuKey::ArrowUp) {
-            return MenubarNavigationStep::OpenCurrentAndFocusLast {
-                value: current_value.to_owned(),
-            };
-        }
-
-        let target = if key == next_key {
-            self.adjacent_enabled_menu(current_value, true)
-        } else if key == prev_key {
-            self.adjacent_enabled_menu(current_value, false)
-        } else if key == MenuKey::Home {
-            self.first_enabled_menu()
-        } else if key == MenuKey::End {
-            self.last_enabled_menu()
-        } else {
-            None
-        };
-
-        let Some(entry) = target else {
-            return MenubarNavigationStep::None;
-        };
-
-        if is_open {
-            MenubarNavigationStep::FocusAndOpenMenu {
-                value: entry.value.clone(),
-                trigger_id: entry.trigger_id.clone(),
-            }
-        } else {
-            MenubarNavigationStep::FocusTrigger {
-                value: entry.value.clone(),
-                trigger_id: entry.trigger_id.clone(),
-            }
-        }
+        self.0.on_trigger_key(current_value, key)
     }
 
-    /// Resolve cross-menu horizontal arrow navigation from inside an open `Menubar.Content` or `SubContent` (`MB-6`).
     pub fn resolve_cross_menu_arrow(
         &self,
         current_value: &str,
@@ -281,38 +205,20 @@ impl MenubarState {
         on_sub_trigger: bool,
         in_submenu: bool,
     ) -> MenubarCrossMenuResult {
-        let forward_key = match self.direction {
-            Direction::Ltr => MenuKey::ArrowRight,
-            Direction::Rtl => MenuKey::ArrowLeft,
-        };
-        let backward_key = match self.direction {
-            Direction::Ltr => MenuKey::ArrowLeft,
-            Direction::Rtl => MenuKey::ArrowRight,
-        };
-
-        let next_entry = if key == forward_key && !on_sub_trigger {
-            self.adjacent_enabled_menu(current_value, true)
-        } else if key == backward_key && !in_submenu {
-            self.adjacent_enabled_menu(current_value, false)
-        } else {
-            None
-        };
-
-        match next_entry {
-            Some(entry) if entry.value != current_value => MenubarCrossMenuResult::SwitchToMenu {
-                value: entry.value.clone(),
-                trigger_id: entry.trigger_id.clone(),
-            },
-            _ => MenubarCrossMenuResult::None,
-        }
+        self.0
+            .resolve_cross_menu_arrow(current_value, key, on_sub_trigger, in_submenu)
     }
 
     pub fn css_vars(geometry: &GeometryVars) -> Vec<(String, String)> {
         menu_css_vars(geometry, MenuVariant::Menubar)
     }
 
+    pub fn css_vars_with_prefix(geometry: &GeometryVars, prefix: &str) -> Vec<(String, String)> {
+        ui_sdk::menubar::state::MenubarState::css_vars_with_prefix(geometry, prefix)
+    }
+
     pub fn root_attrs(&self) -> MenubarRootAttributes {
-        MenubarRootAttributes::new(self.relationships.root_id().to_owned(), self.direction)
+        self.0.root_attrs().into()
     }
 
     pub fn trigger_attrs(
@@ -322,16 +228,45 @@ impl MenubarState {
         content_id: &str,
         disabled: bool,
     ) -> MenubarTriggerAttributes {
-        let open = self.active_value.as_deref() == Some(value);
-        let highlighted = !disabled && (open || self.highlighted_value.as_deref() == Some(value));
-        let tabstop = !disabled && self.is_tabstop(value);
-        MenubarTriggerAttributes::from_parts(
-            trigger_id,
-            content_id,
-            open,
-            disabled,
-            highlighted,
-            tabstop,
-        )
+        self.0
+            .trigger_attrs(value, trigger_id, content_id, disabled)
+            .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::foundation::{
+        overlay::{FloatingLayer, PlacementSide, Rect, Size},
+        shared::ScopeHandle,
+    };
+
+    use super::*;
+    use crate::menubar::types::{
+        MENUBAR_PARTS, MENUBAR_RADIX_ANCHOR_LABEL, MENUBAR_RADIX_COMPATIBILITY_PREFIX,
+    };
+
+    #[test]
+    fn menubar_compat_emits_monoxus_attrs_and_radix_css_vars() {
+        let rel = MenubarRelationships::new(ScopeHandle::root("menubar").child("mb-1"));
+        let mut state = MenubarState::new(rel);
+        state.register_menu(MenubarMenuEntry::new("file", "t-file", "c-file", false, 0));
+
+        let root = state.root_attrs();
+        assert_eq!(root.role, "menubar");
+        assert_eq!(root.aria_orientation, "horizontal");
+        assert_eq!(root.part_attr, "data-monoxus-menubar-root");
+
+        let trigger = state.trigger_attrs("file", "t-file".into(), "c-file", false);
+        assert_eq!(trigger.part_attr, "data-monoxus-menubar-trigger");
+        assert_eq!(MENUBAR_PARTS.len(), 20);
+        assert_eq!(MENUBAR_RADIX_COMPATIBILITY_PREFIX, "radix-menubar");
+        assert_eq!(MENUBAR_RADIX_ANCHOR_LABEL, "trigger");
+
+        let layer = FloatingLayer::new(PlacementSide::Bottom).with_namespace("menubar");
+        let geometry = layer.geometry_vars(Rect::new(0.0, 0.0, 60.0, 28.0), Size::new(160.0, 96.0));
+        let vars = MenubarState::css_vars(&geometry);
+        assert!(vars.iter().any(|(k, _)| k == "--monoxus-menubar-anchor-width"));
+        assert!(vars.iter().any(|(k, _)| k == "--radix-menubar-trigger-width"));
     }
 }

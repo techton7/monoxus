@@ -1,9 +1,9 @@
+// [KEEP-MONOXUS-BRAND] Compat `ContextMenu` attribute aliases and `ContextMenuTriggerAttributes` emitting `data-monoxus-*`.
 use crate::foundation::{
     compose::{Slottable, project_as_child},
-    shared::data_disabled_attr,
     state::DataState,
 };
-use crate::menu::{MenuPart, MenuVariant};
+use crate::menu::attrs::rewrite_part_attr_to_monoxus;
 
 pub use crate::menu::{
     MenuArrowAttributes as ContextMenuArrowAttributes,
@@ -19,9 +19,9 @@ pub use crate::menu::{
     MenuSubTriggerAttributes as ContextMenuSubTriggerAttributes,
 };
 
-pub const CONTEXT_MENU_TOUCH_CALLOUT_STYLE: &str = "-webkit-touch-callout: none;";
+pub use ui_sdk::context_menu::attrs::CONTEXT_MENU_TOUCH_CALLOUT_STYLE;
 
-/// Attributes for `ContextMenu.Trigger` region wrapper (`CM-1`, `CM-5`).
+/// Attributes for `ContextMenu.Trigger` region wrapper.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ContextMenuTriggerAttributes {
     pub id: String,
@@ -34,22 +34,43 @@ pub struct ContextMenuTriggerAttributes {
 
 impl ContextMenuTriggerAttributes {
     pub fn from_parts(id: String, open: bool, disabled: bool) -> Self {
-        Self {
-            id,
-            style: CONTEXT_MENU_TOUCH_CALLOUT_STYLE,
-            disabled,
-            data_state: if open {
-                DataState::Open
-            } else {
-                DataState::Closed
-            },
-            data_disabled: data_disabled_attr(disabled),
-            part_attr: MenuPart::Trigger.data_attr_name(MenuVariant::ContextMenu),
-        }
+        Self::from(ui_sdk::context_menu::attrs::ContextMenuTriggerAttributes::from_parts(
+            id, open, disabled,
+        ))
     }
 
     pub fn project_as_child<T, C>(&self, target: T, content: Slottable<C>) -> (T, Self, C) {
         let (target, content) = project_as_child(target, content);
         (target, self.clone(), content)
+    }
+}
+
+impl From<ui_sdk::context_menu::attrs::ContextMenuTriggerAttributes>
+    for ContextMenuTriggerAttributes
+{
+    fn from(attrs: ui_sdk::context_menu::attrs::ContextMenuTriggerAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            style: attrs.style,
+            disabled: attrs.disabled,
+            data_state: attrs.data_state,
+            data_disabled: attrs.data_disabled,
+            part_attr: rewrite_part_attr_to_monoxus(attrs.part_attr),
+        }
+    }
+}
+
+impl From<ContextMenuTriggerAttributes>
+    for ui_sdk::context_menu::attrs::ContextMenuTriggerAttributes
+{
+    fn from(attrs: ContextMenuTriggerAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            style: attrs.style,
+            disabled: attrs.disabled,
+            data_state: attrs.data_state,
+            data_disabled: attrs.data_disabled,
+            part_attr: attrs.part_attr,
+        }
     }
 }
