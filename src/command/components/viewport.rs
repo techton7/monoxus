@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{ResizeObserverBox, use_element_size_with_mount},
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     state::sync_signal,
 };
 
@@ -12,31 +12,15 @@ use super::super::{
 };
 
 #[derive(Clone, PartialEq, Props)]
-pub struct CommandViewportRenderProps {
-    pub id: String,
-    pub data_command_viewport: &'static str,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    pub on_mounted: EventHandler<MountedEvent>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-#[derive(Clone, PartialEq, Props)]
 pub struct CommandViewportProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CommandViewportRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -64,44 +48,34 @@ pub fn CommandViewport(props: CommandViewportProps) -> Element {
 
     let attrs = CommandViewportAttrs::new(resolved_id);
     let is_grid = ctx.columns.read().is_some();
-    let merged_style = merge_flex_column_style(props.style.as_deref(), is_grid);
-    let consumer_mounted = props.on_mounted;
-    let handle_mounted = EventHandler::new(move |evt: MountedEvent| {
+    let base_style = merge_flex_column_style(None, is_grid);
+    let base_mounted = EventHandler::new(move |_evt: MountedEvent| {
         let next = mount_rev.peek().wrapping_add(1);
         mount_rev.set(next);
-        if let Some(handler) = consumer_mounted {
-            handler.call(evt);
-        }
     });
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(CommandViewportRenderProps {
-                id: attrs.id,
-                data_command_viewport: attrs.data_command_viewport,
-                class: props.class,
-                style: merged_style,
-                on_mounted: handle_mounted,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-    }
+    let mut base = Vec::with_capacity(4);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new(
+        "data-command-viewport",
+        attrs.data_command_viewport,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "style", base_style);
+    push_event_handler(&mut base, "onmounted", Some(base_mounted));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        merged_style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            "data-command-viewport": attrs.data_command_viewport,
-            class: merged.class,
-            style: merged.style,
-            onmounted: move |evt| handle_mounted.call(evt),
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

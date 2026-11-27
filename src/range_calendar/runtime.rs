@@ -8,9 +8,12 @@ use crate::{
         runtime::CalendarBaseRuntime,
         types::CalendarSelectOption,
     },
-    foundation::date_time::{
-        CalendarDate, CalendarMonth, CalendarNavKey, DateRange, MonthFormat, YearFormat,
-        compute_highlighted_range,
+    foundation::{
+        date_time::{
+            CalendarDate, CalendarMonth, CalendarNavKey, DateRange, MonthFormat, YearFormat,
+            compute_highlighted_range,
+        },
+        state::ControllableSignal,
     },
 };
 
@@ -30,8 +33,11 @@ pub struct RangeCalendarRuntime {
     pub base: CalendarBaseRuntime,
     pub def: Signal<RangeCalendarDefinition>,
     pub value: Signal<DateRange>,
+    pub(crate) value_ctl: ControllableSignal<DateRange>,
     pub start_value: Signal<Option<CalendarDate>>,
+    pub(crate) start_ctl: ControllableSignal<Option<CalendarDate>>,
     pub end_value: Signal<Option<CalendarDate>>,
+    pub(crate) end_ctl: ControllableSignal<Option<CalendarDate>>,
     pub last_pressed: Signal<Option<CalendarDate>>,
     pub focused_value: Signal<Option<CalendarDate>>,
     pub on_value_change: CopyValue<Option<EventHandler<DateRange>>>,
@@ -109,47 +115,53 @@ impl RangeCalendarRuntime {
         let prev_end = *self.end_value.peek();
         let prev_val = *self.value.peek();
 
-        if *self.last_pressed.peek() != update.last_pressed {
+        let start_controlled = self.value_ctl.is_controlled() || self.start_ctl.is_controlled();
+        let end_controlled = self.value_ctl.is_controlled() || self.end_ctl.is_controlled();
+        let any_controlled = start_controlled || end_controlled;
+
+        if !any_controlled && *self.last_pressed.peek() != update.last_pressed {
             self.last_pressed.set(update.last_pressed);
         }
-        if prev_start != update.start_value {
-            self.start_value.set(update.start_value);
-            if let Some(handler) = self
+        if !start_controlled {
+            self.start_ctl.set(update.start_value);
+        } else if prev_start != update.start_value
+            && let Some(handler) = self
                 .on_start_value_change
                 .try_read()
                 .ok()
                 .and_then(|slot| *slot)
-            {
-                handler.call(update.start_value);
-            }
+        {
+            handler.call(update.start_value);
         }
-        if prev_end != update.end_value {
-            self.end_value.set(update.end_value);
-            if let Some(handler) = self
+        if !end_controlled {
+            self.end_ctl.set(update.end_value);
+        } else if prev_end != update.end_value
+            && let Some(handler) = self
                 .on_end_value_change
                 .try_read()
                 .ok()
                 .and_then(|slot| *slot)
-            {
-                handler.call(update.end_value);
-            }
+        {
+            handler.call(update.end_value);
         }
-        if prev_val != update.value {
-            self.value.set(update.value);
-            if let Some(handler) = self
+        if !any_controlled {
+            self.value_ctl.set(update.value);
+        } else if prev_val != update.value
+            && let Some(handler) = self
                 .on_value_change
                 .try_read()
                 .ok()
                 .and_then(|slot| *slot)
-            {
-                handler.call(update.value);
+        {
+            handler.call(update.value);
+        }
+        if !any_controlled {
+            if let Some(next_ph) = update.placeholder {
+                self.set_placeholder(next_ph);
             }
-        }
-        if let Some(next_ph) = update.placeholder {
-            self.set_placeholder(next_ph);
-        }
-        if let Some(text) = update.announcement {
-            self.announcement.set(text);
+            if let Some(text) = update.announcement {
+                self.announcement.set(text);
+            }
         }
         if let Some(completed) = update.range_completed
             && let Some(handler) = self

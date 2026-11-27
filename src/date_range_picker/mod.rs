@@ -15,7 +15,7 @@ pub use crate::popover::components::{
 };
 pub use crate::popover::types::{
     CloseAutoFocusEvent, EscapeKeyDownEvent, InteractOutsideEvent, OpenAutoFocusEvent,
-    PopoverPreventableEvent,
+    PointerDownOutsideEvent, PopoverPreventableEvent,
 };
 
 pub use crate::date_range_field::{
@@ -23,10 +23,8 @@ pub use crate::date_range_field::{
     DateRangeFieldInputProps as DateRangePickerInputProps,
     DateRangeFieldLabel as DateRangePickerLabel,
     DateRangeFieldLabelProps as DateRangePickerLabelProps,
-    DateRangeFieldLabelRenderProps as DateRangePickerLabelRenderProps,
     DateRangeFieldSegment as DateRangePickerSegment,
     DateRangeFieldSegmentProps as DateRangePickerSegmentProps,
-    DateRangeFieldSegmentRenderProps as DateRangePickerSegmentRenderProps,
 };
 
 pub use crate::calendar::{
@@ -34,27 +32,19 @@ pub use crate::calendar::{
     CalendarGridHead as DateRangePickerGridHead, CalendarGridProps as DateRangePickerGridProps,
     CalendarGridRow as DateRangePickerGridRow, CalendarHeadCell as DateRangePickerHeadCell,
     CalendarHeader as DateRangePickerHeader, CalendarHeaderProps as DateRangePickerHeaderProps,
-    CalendarHeaderRenderProps as DateRangePickerHeaderRenderProps,
     CalendarHeading as DateRangePickerHeading,
     CalendarHeadingProps as DateRangePickerHeadingProps,
-    CalendarHeadingRenderProps as DateRangePickerHeadingRenderProps,
     CalendarMonthSelect as DateRangePickerMonthSelect,
     CalendarMonthSelectProps as DateRangePickerMonthSelectProps,
-    CalendarMonthSelectRenderProps as DateRangePickerMonthSelectRenderProps,
     CalendarNavButtonProps as DateRangePickerNavButtonProps,
-    CalendarNavButtonRenderProps as DateRangePickerNavButtonRenderProps,
     CalendarNextButton as DateRangePickerNextButton,
     CalendarPrevButton as DateRangePickerPrevButton,
-    CalendarSelectRenderProps as DateRangePickerSelectRenderProps,
     CalendarSubpartProps as DateRangePickerSubpartProps,
     CalendarYearSelect as DateRangePickerYearSelect,
     CalendarYearSelectProps as DateRangePickerYearSelectProps,
-    CalendarYearSelectRenderProps as DateRangePickerYearSelectRenderProps,
 };
 
 pub use crate::range_calendar::{
     RangeCalendarCell as DateRangePickerCell, RangeCalendarCellProps as DateRangePickerCellProps,
-    RangeCalendarCellRenderProps as DateRangePickerCellRenderProps,
     RangeCalendarDay as DateRangePickerDay, RangeCalendarDayProps as DateRangePickerDayProps,
-    RangeCalendarDayRenderProps as DateRangePickerDayRenderProps,
 };

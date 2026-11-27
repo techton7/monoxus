@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use crate::foundation::{compose::merge_global_attributes, shared::use_stable_id};
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props, push_event_handler},
+    shared::use_stable_id,
+};
 
 use super::super::{
     attrs::CommandSeparatorAttrs,
@@ -9,34 +12,17 @@ use super::super::{
 };
 
 #[derive(Clone, PartialEq, Props)]
-pub struct CommandSeparatorRenderProps {
-    pub id: String,
-    pub aria_hidden: &'static str,
-    pub data_command_separator: &'static str,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-}
-
-#[derive(Clone, PartialEq, Props)]
 pub struct CommandSeparatorProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CommandSeparatorRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -58,39 +44,32 @@ pub fn CommandSeparator(props: CommandSeparatorProps) -> Element {
         .unwrap_or_else(|| ctx.relationships.peek().separator_id(&fallback_key));
     let attrs = CommandSeparatorAttrs::new(sep_id);
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(CommandSeparatorRenderProps {
-                id: attrs.id,
-                aria_hidden: attrs.aria_hidden,
-                data_command_separator: attrs.data_command_separator,
-                class: props.class,
-                style: props.style,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-            });
-        }
-    }
+    let mut base = Vec::with_capacity(3);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new(
+        "aria-hidden",
+        attrs.aria_hidden,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-command-separator",
+        attrs.data_command_separator,
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            aria_hidden: "{attrs.aria_hidden}",
-            "data-command-separator": attrs.data_command_separator,
-            class: merged.class,
-            style: merged.style,
-            onmounted: move |evt| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
         }
     }
 }

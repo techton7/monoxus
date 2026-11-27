@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     shared::use_stable_id,
     state::sync_signal,
 };
@@ -17,39 +17,19 @@ use super::super::{
 };
 
 #[derive(Clone, PartialEq, Props)]
-pub struct CommandGroupRenderProps {
-    pub id: String,
-    pub role: &'static str,
-    pub hidden: bool,
-    pub data_command_group: &'static str,
-    pub data_value: String,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-#[derive(Clone, PartialEq, Props)]
 pub struct CommandGroupProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub value: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CommandGroupRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -109,79 +89,50 @@ pub fn CommandGroup(props: CommandGroupProps) -> Element {
 
     let should_render = ctx.should_render_group_value(&resolved_value, props.force_mount);
     let visual_order = ctx.group_visual_order(&resolved_value);
-    let rendered_style = merge_ranked_item_style(should_render, visual_order, props.style.as_deref());
+    let base_style = merge_ranked_item_style(should_render, visual_order, None);
     let attrs = CommandGroupAttrs::new(group_id, resolved_value, should_render);
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(CommandGroupRenderProps {
-                id: attrs.id,
-                role: attrs.role,
-                hidden: attrs.hidden,
-                data_command_group: attrs.data_command_group,
-                data_value: attrs.data_value,
-                class: props.class,
-                style: rendered_style,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    if attrs.hidden {
+        base.push(Attribute::new("hidden", true, None, false));
     }
+    base.push(Attribute::new(
+        "data-command-group",
+        attrs.data_command_group,
+        None,
+        false,
+    ));
+    base.push(Attribute::new("data-value", attrs.data_value, None, false));
+    push_attr_opt(&mut base, "style", base_style);
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        rendered_style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            role: "{attrs.role}",
-            hidden: attrs.hidden,
-            "data-command-group": attrs.data_command_group,
-            "data-value": "{attrs.data_value}",
-            class: merged.class,
-            style: merged.style,
-            onmounted: move |evt| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
 }
 
 #[derive(Clone, PartialEq, Props)]
-pub struct CommandGroupHeadingRenderProps {
-    pub id: String,
-    pub data_command_group_heading: &'static str,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-#[derive(Clone, PartialEq, Props)]
 pub struct CommandGroupHeadingProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CommandGroupHeadingRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -231,73 +182,41 @@ pub fn CommandGroupHeading(props: CommandGroupHeadingProps) -> Element {
 
     let attrs = CommandGroupHeadingAttrs::new(heading_id);
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(CommandGroupHeadingRenderProps {
-                id: attrs.id,
-                data_command_group_heading: attrs.data_command_group_heading,
-                class: props.class,
-                style: props.style,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-    }
+    let mut base = Vec::with_capacity(2);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new(
+        "data-command-group-heading",
+        attrs.data_command_group_heading,
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            "data-command-group-heading": attrs.data_command_group_heading,
-            class: merged.class,
-            style: merged.style,
-            onmounted: move |evt| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
 }
 
 #[derive(Clone, PartialEq, Props)]
-pub struct CommandGroupItemsRenderProps {
-    pub id: String,
-    pub role: &'static str,
-    #[props(default)]
-    pub aria_labelledby: Option<String>,
-    pub data_command_group_items: &'static str,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-#[derive(Clone, PartialEq, Props)]
 pub struct CommandGroupItemsProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CommandGroupItemsRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -316,45 +235,32 @@ pub fn CommandGroupItems(props: CommandGroupItemsProps) -> Element {
     });
     let heading_id = group_ctx.heading_id.read().clone();
     let is_grid = ctx.columns.read().is_some();
-    let merged_style = merge_flex_column_style(props.style.as_deref(), is_grid);
+    let base_style = merge_flex_column_style(None, is_grid);
     let attrs = CommandGroupItemsAttrs::new(items_id, heading_id);
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(CommandGroupItemsRenderProps {
-                id: attrs.id,
-                role: attrs.role,
-                aria_labelledby: attrs.aria_labelledby,
-                data_command_group_items: attrs.data_command_group_items,
-                class: props.class,
-                style: merged_style,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-    }
+    let mut base = Vec::with_capacity(5);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    push_attr_opt(&mut base, "aria-labelledby", attrs.aria_labelledby);
+    base.push(Attribute::new(
+        "data-command-group-items",
+        attrs.data_command_group_items,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "style", base_style);
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        merged_style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            role: "{attrs.role}",
-            aria_labelledby: attrs.aria_labelledby.as_deref(),
-            "data-command-group-items": attrs.data_command_group_items,
-            class: merged.class,
-            style: merged.style,
-            onmounted: move |evt| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

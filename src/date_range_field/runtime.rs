@@ -11,7 +11,7 @@ use crate::{
     foundation::{
         browser::focus_element_by_id,
         date_time::{CalendarDate, ChronoRange, FieldInvalidEvent, FieldInvalidReason},
-        state::{ControlledBinding, sync_signal},
+        state::{ControllableSignal, sync_signal},
     },
 };
 
@@ -31,12 +31,13 @@ pub struct RangeFieldRuntime<P: RangeFieldPolicy + SegmentFieldUiPolicy> {
     pub start_runtime: Rc<RefCell<Option<SegmentFieldRuntime<P>>>>,
     pub end_runtime: Rc<RefCell<Option<SegmentFieldRuntime<P>>>>,
     pub default_value: CopyValue<ChronoRange<P::Value>>,
-    pub(crate) controlled_value: CopyValue<ControlledBinding<ChronoRange<P::Value>>>,
-    pub(crate) controlled_placeholder: CopyValue<ControlledBinding<P::Value>>,
+    pub(crate) value_ctl: ControllableSignal<ChronoRange<P::Value>>,
+    pub(crate) start_ctl: ControllableSignal<Option<P::Value>>,
+    pub(crate) end_ctl: ControllableSignal<Option<P::Value>>,
+    pub(crate) placeholder_ctl: ControllableSignal<P::Value>,
     pub on_value_change: CopyValue<Option<EventHandler<ChronoRange<P::Value>>>>,
     pub on_start_value_change: CopyValue<Option<EventHandler<Option<P::Value>>>>,
     pub on_end_value_change: CopyValue<Option<EventHandler<Option<P::Value>>>>,
-    pub on_placeholder_change: CopyValue<Option<EventHandler<P::Value>>>,
     pub is_date_unavailable: CopyValue<Option<Callback<CalendarDate, bool>>>,
     pub validate: CopyValue<Option<Callback<ChronoRange<P::Value>, Option<Vec<String>>>>>,
     pub on_invalid: CopyValue<Option<EventHandler<FieldInvalidEvent>>>,
@@ -59,12 +60,13 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> Clone for RangeFieldRuntime<P> 
             start_runtime: Rc::clone(&self.start_runtime),
             end_runtime: Rc::clone(&self.end_runtime),
             default_value: self.default_value,
-            controlled_value: self.controlled_value,
-            controlled_placeholder: self.controlled_placeholder,
+            value_ctl: self.value_ctl,
+            start_ctl: self.start_ctl,
+            end_ctl: self.end_ctl,
+            placeholder_ctl: self.placeholder_ctl,
             on_value_change: self.on_value_change,
             on_start_value_change: self.on_start_value_change,
             on_end_value_change: self.on_end_value_change,
-            on_placeholder_change: self.on_placeholder_change,
             is_date_unavailable: self.is_date_unavailable,
             validate: self.validate,
             on_invalid: self.on_invalid,
@@ -388,19 +390,35 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
             return;
         }
 
-        let val_binding = self
-            .controlled_value
-            .try_read()
-            .map(|slot| *slot)
-            .unwrap_or(ControlledBinding::Uncontrolled);
-
         let mut next_range = prev_range;
         match kind {
             FieldRangeEndpoint::Start => next_range.start = next,
             FieldRangeEndpoint::End => next_range.end = next,
         }
 
-        if val_binding.is_read_only() {
+        let start_controlled = self.value_ctl.is_controlled() || self.start_ctl.is_controlled();
+        let end_controlled = self.value_ctl.is_controlled() || self.end_ctl.is_controlled();
+        let part_controlled = match kind {
+            FieldRangeEndpoint::Start => start_controlled,
+            FieldRangeEndpoint::End => end_controlled,
+        };
+
+        if !part_controlled {
+            self.state.write().set_part_value(kind, next);
+            match kind {
+                FieldRangeEndpoint::Start => {
+                    self.start_ctl.set(next);
+                }
+                FieldRangeEndpoint::End => {
+                    self.end_ctl.set(next);
+                }
+            }
+            if !self.value_ctl.is_controlled() {
+                self.value_ctl.set(next_range);
+            } else if let Some(cb) = self.on_value_change.try_read().ok().and_then(|slot| *slot) {
+                cb.call(next_range);
+            }
+        } else {
             match kind {
                 FieldRangeEndpoint::Start => {
                     if let Some(cb) = self
@@ -426,56 +444,6 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
             if let Some(cb) = self.on_value_change.try_read().ok().and_then(|slot| *slot) {
                 cb.call(next_range);
             }
-            if let Some(accepted) = val_binding.peek_cloned()
-                && self.state.peek().value() != accepted
-            {
-                self.state.write().set_value(accepted);
-                if *self.start_value.peek() != accepted.start {
-                    self.start_value.set(accepted.start);
-                }
-                if *self.end_value.peek() != accepted.end {
-                    self.end_value.set(accepted.end);
-                }
-            }
-            self.sync_validation_and_notify();
-            return;
-        }
-
-        self.state.write().set_part_value(kind, next);
-        let next_range = self.state.peek().value();
-
-        match kind {
-            FieldRangeEndpoint::Start => {
-                if *self.start_value.peek() != next {
-                    self.start_value.set(next);
-                }
-                if let Some(cb) = self
-                    .on_start_value_change
-                    .try_read()
-                    .ok()
-                    .and_then(|slot| *slot)
-                {
-                    cb.call(next);
-                }
-            }
-            FieldRangeEndpoint::End => {
-                if *self.end_value.peek() != next {
-                    self.end_value.set(next);
-                }
-                if let Some(cb) = self
-                    .on_end_value_change
-                    .try_read()
-                    .ok()
-                    .and_then(|slot| *slot)
-                {
-                    cb.call(next);
-                }
-            }
-        }
-
-        val_binding.try_write_two_way(next_range);
-        if let Some(cb) = self.on_value_change.try_read().ok().and_then(|slot| *slot) {
-            cb.call(next_range);
         }
 
         self.sync_validation_and_notify();
@@ -485,62 +453,39 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
         if *self.placeholder.peek() == next {
             return;
         }
-        let ph_binding = self
-            .controlled_placeholder
-            .try_read()
-            .map(|slot| *slot)
-            .unwrap_or(ControlledBinding::Uncontrolled);
-        if ph_binding.is_read_only() {
-            if let Some(cb) = self
-                .on_placeholder_change
-                .try_read()
-                .ok()
-                .and_then(|slot| *slot)
-            {
-                cb.call(next);
-            }
-            if let Some(accepted_ph) = ph_binding.peek_cloned()
-                && *self.placeholder.peek() != accepted_ph
-            {
-                self.placeholder.set(accepted_ph);
-                self.state.write().set_placeholder(accepted_ph);
-            }
-            return;
+        if !self.placeholder_ctl.is_controlled() {
+            self.state.write().set_placeholder(next);
         }
-        self.placeholder.set(next);
-        self.state.write().set_placeholder(next);
-        ph_binding.try_write_two_way(next);
-        if let Some(cb) = self
-            .on_placeholder_change
-            .try_read()
-            .ok()
-            .and_then(|slot| *slot)
-        {
-            cb.call(next);
-        }
+        self.placeholder_ctl.set(next);
     }
 
     pub fn reconcile_external_state(
         &mut self,
         external_value: Option<ChronoRange<P::Value>>,
+        external_start: Option<Option<P::Value>>,
+        external_end: Option<Option<P::Value>>,
         external_placeholder: Option<P::Value>,
         is_invalid_override: Option<bool>,
     ) {
-        if let Some(val) = external_value
-            && self.state.peek().value() != val
-        {
-            self.state.write().set_value(val);
-            if *self.start_value.peek() != val.start {
-                self.start_value.set(val.start);
+        let mut target_val = external_value.unwrap_or_else(|| self.state.peek().value());
+        if let Some(s) = external_start {
+            target_val.start = s;
+        }
+        if let Some(e) = external_end {
+            target_val.end = e;
+        }
+        if self.state.peek().value() != target_val {
+            self.state.write().set_value(target_val);
+            if *self.start_value.peek() != target_val.start {
+                self.start_value.set(target_val.start);
             }
-            if *self.end_value.peek() != val.end {
-                self.end_value.set(val.end);
+            if *self.end_value.peek() != target_val.end {
+                self.end_value.set(target_val.end);
             }
         }
         if let Some(ph) = external_placeholder
-            && *self.placeholder.peek() != ph
+            && self.state.peek().placeholder() != ph
         {
-            self.placeholder.set(ph);
             self.state.write().set_placeholder(ph);
         }
         if let Some(inv) = is_invalid_override

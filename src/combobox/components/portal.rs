@@ -22,7 +22,7 @@ pub fn ComboboxPortal(props: ComboboxPortalProps) -> Element {
     let resolved_host = if props.disabled {
         PortalHost::inline()
     } else {
-        props.host.unwrap_or_else(|| ctx.runtime.portal_host())
+        props.host.unwrap_or_default()
     };
 
     use_context_provider(|| ComboboxPortalContext {

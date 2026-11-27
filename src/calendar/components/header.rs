@@ -1,35 +1,21 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::merge_global_attributes;
+use crate::foundation::compose::{
+    collect_user_attrs, merge_props, push_attr_opt, push_event_handler,
+};
 
-use super::super::{attrs::CalendarHeaderAttrs, runtime::use_calendar_shared_context};
-
-#[derive(Clone, PartialEq, Props)]
-pub struct CalendarHeaderRenderProps {
-    pub attrs: CalendarHeaderAttrs,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
+use super::super::runtime::use_calendar_shared_context;
 
 #[derive(Clone, PartialEq, Props)]
 pub struct CalendarHeaderProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CalendarHeaderRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -39,45 +25,43 @@ pub struct CalendarHeaderProps {
 
 #[component]
 pub fn CalendarHeader(props: CalendarHeaderProps) -> Element {
+    let CalendarHeaderProps {
+        id,
+        class,
+        style,
+        child,
+        on_mounted,
+        attributes,
+        children,
+    } = props;
+
     let ctx = use_calendar_shared_context();
-    let attrs = ctx.runtime.header_attrs(props.id.clone());
+    let attrs = ctx.runtime.header_attrs(id);
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(CalendarHeaderRenderProps {
-            attrs,
-            class: props.class,
-            style: props.style,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: props.children,
-        });
-    }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
+    let mut base = Vec::with_capacity(5);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    push_attr_opt(&mut base, "data-calendar-header", attrs.data_calendar_header);
+    push_attr_opt(
+        &mut base,
+        "data-range-calendar-header",
+        attrs.data_range_calendar_header,
     );
-    let on_mounted = props.on_mounted;
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+
+    let mut user = collect_user_attrs(class, style, attributes);
+    push_event_handler(&mut user, "onmounted", on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         header {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-calendar-header": attrs.data_calendar_header,
-            "data-range-calendar-header": attrs.data_range_calendar_header,
-            "data-disabled": attrs.data_disabled,
-            "data-readonly": attrs.data_readonly,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
-            {props.children}
+            ..merged,
+            {children}
         }
     }
 }

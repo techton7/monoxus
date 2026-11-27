@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 use futures_timer::Delay;
 
 use crate::foundation::browser::{get_element_scroll_metrics, set_element_scroll_position};
-use crate::foundation::compose::merge_global_attributes;
+use crate::foundation::compose::{collect_user_attrs, merge_props, push_event_handler};
 
 use crate::combobox::{
     attrs::ComboboxScrollButtonAttrs,
@@ -40,32 +40,16 @@ fn step_viewport_scroll(rt: &ComboboxRuntime, direction: ScrollDirection) -> boo
     moved
 }
 
-#[derive(Clone, PartialEq)]
-pub struct ComboboxScrollButtonRenderProps {
-    pub attrs: ComboboxScrollButtonAttrs,
-    pub class: Option<String>,
-    pub style: String,
-    pub on_mouse_down: EventHandler<MouseEvent>,
-    pub on_pointer_down: EventHandler<PointerEvent>,
-    pub on_pointer_move: EventHandler<PointerEvent>,
-    pub on_pointer_leave: EventHandler<PointerEvent>,
-    pub on_pointer_up: EventHandler<PointerEvent>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 #[derive(Props, Clone, PartialEq)]
 pub struct ComboboxScrollButtonProps {
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<ComboboxScrollButtonRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -114,10 +98,6 @@ fn render_scroll_button(
     }
 
     let attrs = ComboboxScrollButtonAttrs::new();
-    let combined_style = match props.style {
-        Some(ref s) if !s.is_empty() => format!("flex-shrink: 0; {s}"),
-        _ => "flex-shrink: 0;".to_string(),
-    };
 
     let start_auto_scroll = {
         let rt = ctx.runtime.clone();
@@ -177,60 +157,27 @@ fn render_scroll_button(
         pu_stop();
     });
 
-    if props.as_child {
-        if let Some(ref render_child) = props.render_child {
-            return render_child.call(ComboboxScrollButtonRenderProps {
-                attrs,
-                class: props.class,
-                style: combined_style,
-                on_mouse_down,
-                on_pointer_down,
-                on_pointer_move,
-                on_pointer_leave,
-                on_pointer_up,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
+    let mut base = Vec::with_capacity(8);
+    base.push(Attribute::new("aria-hidden", attrs.aria_hidden(), None, false));
+    base.push(Attribute::new(data_attr, "", None, false));
+    base.push(Attribute::new("style", "flex-shrink: 0;", None, false));
+    push_event_handler(&mut base, "onmousedown", Some(on_mouse_down));
+    push_event_handler(&mut base, "onpointerdown", Some(on_pointer_down));
+    push_event_handler(&mut base, "onpointermove", Some(on_pointer_move));
+    push_event_handler(&mut base, "onpointerleave", Some(on_pointer_leave));
+    push_event_handler(&mut base, "onpointerup", Some(on_pointer_up));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        Some(combined_style.as_str()),
-        props.attributes,
-    );
-
-    if data_attr == "data-combobox-scroll-up-button" {
-        rsx! {
-            div {
-                "aria-hidden": "{attrs.aria_hidden()}",
-                "data-combobox-scroll-up-button": "",
-                class: merged.class.as_deref(),
-                style: merged.style.as_deref(),
-                onmousedown: move |evt| on_mouse_down.call(evt),
-                onpointerdown: move |evt| on_pointer_down.call(evt),
-                onpointermove: move |evt| on_pointer_move.call(evt),
-                onpointerleave: move |evt| on_pointer_leave.call(evt),
-                onpointerup: move |evt| on_pointer_up.call(evt),
-                ..merged.rest,
-                {props.children}
-            }
-        }
-    } else {
-        rsx! {
-            div {
-                "aria-hidden": "{attrs.aria_hidden()}",
-                "data-combobox-scroll-down-button": "",
-                class: merged.class.as_deref(),
-                style: merged.style.as_deref(),
-                onmousedown: move |evt| on_mouse_down.call(evt),
-                onpointerdown: move |evt| on_pointer_down.call(evt),
-                onpointermove: move |evt| on_pointer_move.call(evt),
-                onpointerleave: move |evt| on_pointer_leave.call(evt),
-                onpointerup: move |evt| on_pointer_up.call(evt),
-                ..merged.rest,
-                {props.children}
-            }
+    rsx! {
+        div {
+            ..merged,
+            {props.children}
         }
     }
 }

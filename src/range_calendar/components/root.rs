@@ -5,13 +5,12 @@ use dioxus::prelude::*;
 
 use crate::{
     calendar::{
-        attrs::CalendarRootAttrs,
         components::root::render_calendar_internal_children,
         runtime::{CalendarSharedContext, use_calendar_base_runtime},
         types::CalendarKind,
     },
     foundation::{
-        compose::merge_global_attributes,
+        compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
         date_time::{
             CalendarDate, CalendarLocale, DateRange, MonthFormat, Weekday, WeekdayFormat,
             YearFormat,
@@ -19,7 +18,7 @@ use crate::{
         keyboard::is_ime_composing_key,
         overlay::OverlayEscapeGuardContext,
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-        state::sync_signal,
+        state::{sync_signal, use_controllable_signal},
     },
 };
 
@@ -31,42 +30,25 @@ use super::super::{
 };
 
 #[derive(Clone, PartialEq, Props)]
-pub struct RangeCalendarRootRenderProps {
-    pub attrs: CalendarRootAttrs,
-    pub snapshot: RangeCalendarSnapshot,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_key_down: Option<EventHandler<KeyboardEvent>>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-#[derive(Clone, PartialEq, Props)]
 pub struct RangeCalendarRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
-    pub value: Option<Signal<DateRange>>,
+    pub value: Option<DateRange>,
     #[props(default)]
     pub default_value: Option<DateRange>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<DateRange>>,
     #[props(default)]
-    pub start_value: Option<Signal<Option<CalendarDate>>>,
+    pub start_value: Option<Option<CalendarDate>>,
     #[props(default)]
     pub on_start_value_change: Option<EventHandler<Option<CalendarDate>>>,
     #[props(default)]
-    pub end_value: Option<Signal<Option<CalendarDate>>>,
+    pub end_value: Option<Option<CalendarDate>>,
     #[props(default)]
     pub on_end_value_change: Option<EventHandler<Option<CalendarDate>>>,
     #[props(default)]
@@ -78,7 +60,7 @@ pub struct RangeCalendarRootProps {
     #[props(default = false)]
     pub exclude_disabled: bool,
     #[props(default)]
-    pub placeholder: Option<Signal<CalendarDate>>,
+    pub placeholder: Option<CalendarDate>,
     #[props(default)]
     pub default_placeholder: Option<CalendarDate>,
     #[props(default)]
@@ -107,9 +89,9 @@ pub struct RangeCalendarRootProps {
     pub month_format: MonthFormat,
     #[props(default)]
     pub year_format: YearFormat,
-    #[props(default)]
+    #[props(default, into)]
     pub locale: CalendarLocale,
-    #[props(default = String::from("Event"))]
+    #[props(default = String::from("Event"), into)]
     pub calendar_label: String,
     #[props(default)]
     pub dir: Option<Direction>,
@@ -121,10 +103,8 @@ pub struct RangeCalendarRootProps {
     pub is_date_disabled: Option<Callback<CalendarDate, bool>>,
     #[props(default)]
     pub is_date_unavailable: Option<Callback<CalendarDate, bool>>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<RangeCalendarRootRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub render_children: Option<Callback<RangeCalendarSnapshot, Element>>,
     #[props(default)]
@@ -140,85 +120,139 @@ pub struct RangeCalendarRootProps {
 /// Plain Rust render surface for `RangeCalendarRoot` and `DateRangePickerCalendar` (zero nested
 /// `#[component]` taking `Option<Callback|EventHandler>` per `Dioxus #5894`).
 pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Element {
-    let resolved_dir = use_direction_context(props.dir);
-    let stable_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
+    let RangeCalendarRootProps {
+        id,
+        class,
+        style,
+        value,
+        default_value,
+        on_value_change,
+        start_value,
+        on_start_value_change,
+        end_value,
+        on_end_value_change,
+        on_range_select,
+        min_days,
+        max_days,
+        exclude_disabled,
+        placeholder,
+        default_placeholder,
+        on_placeholder_change,
+        min_value,
+        max_value,
+        disabled,
+        read_only,
+        prevent_deselect,
+        paged_navigation,
+        fixed_weeks,
+        number_of_months,
+        week_starts_on,
+        weekday_format,
+        month_format,
+        year_format,
+        locale,
+        calendar_label,
+        dir,
+        disable_days_outside_month,
+        initial_focus,
+        is_date_disabled,
+        is_date_unavailable,
+        child,
+        render_children,
+        on_key_down,
+        on_mounted,
+        attributes,
+        children,
+    } = props;
+
+    let resolved_dir = use_direction_context(dir);
+    let stable_id = use_stable_id(id.clone().map(Cow::Owned)).into_owned();
     let scope = use_hook(|| ScopeHandle::root("range-calendar").child(stable_id.clone()));
     let rels = use_hook(|| RangeCalendarRelationships::new(scope.clone()));
-    let dom_root_id = props.id.clone().unwrap_or_else(|| rels.root_id().to_string());
+    let dom_root_id = id.unwrap_or_else(|| rels.root_id().to_string());
 
-    let initial_range = props
-        .value
-        .map(|s| *s.peek())
-        .or(props.default_value)
-        .unwrap_or_default();
-    let initial_start = props
-        .start_value
-        .and_then(|s| *s.peek())
-        .or(initial_range.start);
-    let initial_end = props
-        .end_value
-        .and_then(|s| *s.peek())
-        .or(initial_range.end);
-
-    let fallback_value = use_signal(|| DateRange {
+    let default_range = default_value.unwrap_or_default();
+    let initial_start = start_value
+        .unwrap_or_else(|| value.map_or(default_range.start, |v| v.start));
+    let initial_end = end_value
+        .unwrap_or_else(|| value.map_or(default_range.end, |v| v.end));
+    let initial_range = DateRange {
         start: initial_start,
         end: initial_end,
-    });
-    let value_sig = props.value.unwrap_or(fallback_value);
+    };
 
-    let fallback_start = use_signal(|| initial_start);
-    let start_sig = props.start_value.unwrap_or(fallback_start);
+    let value_ctl = use_controllable_signal(value, initial_range, on_value_change);
+    let mut value_sig = value_ctl.signal();
 
-    let fallback_end = use_signal(|| initial_end);
-    let end_sig = props.end_value.unwrap_or(fallback_end);
+    let start_ctl = use_controllable_signal(start_value, initial_start, on_start_value_change);
+    let mut start_sig = start_ctl.signal();
+
+    let end_ctl = use_controllable_signal(end_value, initial_end, on_end_value_change);
+    let mut end_sig = end_ctl.signal();
+
+    // Synchronize uncontrolled endpoints/aggregate with controlled counterpart synchronously.
+    if let Some(ext_val) = value {
+        if !start_ctl.is_controlled() {
+            sync_signal(&mut start_sig, ext_val.start);
+        }
+        if !end_ctl.is_controlled() {
+            sync_signal(&mut end_sig, ext_val.end);
+        }
+    } else if start_ctl.is_controlled() || end_ctl.is_controlled() {
+        let merged_range = DateRange {
+            start: *start_sig.peek(),
+            end: *end_sig.peek(),
+        };
+        sync_signal(&mut value_sig, merged_range);
+    }
 
     let def = RangeCalendarDefinition::new(scope.clone())
-        .with_min_value(props.min_value)
-        .with_max_value(props.max_value)
-        .with_disabled(props.disabled)
-        .with_read_only(props.read_only)
-        .with_prevent_deselect(props.prevent_deselect)
-        .with_paged_navigation(props.paged_navigation)
-        .with_fixed_weeks(props.fixed_weeks)
-        .with_number_of_months(props.number_of_months)
-        .with_week_starts_on(props.week_starts_on)
-        .with_weekday_format(props.weekday_format)
-        .with_month_format(props.month_format)
-        .with_year_format(props.year_format)
-        .with_locale(props.locale.clone())
-        .with_calendar_label(props.calendar_label.clone())
+        .with_min_value(min_value)
+        .with_max_value(max_value)
+        .with_disabled(disabled)
+        .with_read_only(read_only)
+        .with_prevent_deselect(prevent_deselect)
+        .with_paged_navigation(paged_navigation)
+        .with_fixed_weeks(fixed_weeks)
+        .with_number_of_months(number_of_months)
+        .with_week_starts_on(week_starts_on)
+        .with_weekday_format(weekday_format)
+        .with_month_format(month_format)
+        .with_year_format(year_format)
+        .with_locale(locale)
+        .with_calendar_label(calendar_label)
         .with_direction(resolved_dir)
-        .with_disable_days_outside_month(props.disable_days_outside_month)
-        .with_min_days(props.min_days)
-        .with_max_days(props.max_days)
-        .with_exclude_disabled(props.exclude_disabled);
+        .with_disable_days_outside_month(disable_days_outside_month)
+        .with_min_days(min_days)
+        .with_max_days(max_days)
+        .with_exclude_disabled(exclude_disabled);
 
     let base = use_calendar_base_runtime(
         CalendarKind::RangeCalendar,
         rels.clone(),
         dom_root_id,
         def.config.clone(),
-        props.placeholder,
-        props.default_placeholder,
+        placeholder,
+        default_placeholder,
         initial_start,
-        props.initial_focus,
-        props.is_date_disabled,
-        props.is_date_unavailable,
-        props.on_placeholder_change,
+        initial_focus,
+        is_date_disabled,
+        is_date_unavailable,
+        on_placeholder_change,
     );
 
     let mut def_sig = use_signal(|| def.clone());
     let last_pressed_sig = use_signal(|| None::<CalendarDate>);
     let focused_value_sig = use_signal(|| None::<CalendarDate>);
 
-    let mut on_value_change = use_hook(|| CopyValue::new(props.on_value_change));
-    let mut on_start_value_change = use_hook(|| CopyValue::new(props.on_start_value_change));
-    let mut on_end_value_change = use_hook(|| CopyValue::new(props.on_end_value_change));
-    let mut on_range_select = use_hook(|| CopyValue::new(props.on_range_select));
-    on_value_change.set(props.on_value_change);
-    on_start_value_change.set(props.on_start_value_change);
-    on_end_value_change.set(props.on_end_value_change);
-    on_range_select.set(props.on_range_select);
+    let mut on_value_change_slot = use_hook(|| CopyValue::new(on_value_change));
+    let mut on_start_value_change_slot = use_hook(|| CopyValue::new(on_start_value_change));
+    let mut on_end_value_change_slot = use_hook(|| CopyValue::new(on_end_value_change));
+    let mut on_range_select_slot = use_hook(|| CopyValue::new(on_range_select));
+    on_value_change_slot.set(on_value_change);
+    on_start_value_change_slot.set(on_start_value_change);
+    on_end_value_change_slot.set(on_end_value_change);
+    on_range_select_slot.set(on_range_select);
 
     use_effect(use_reactive(&def, move |next_def| {
         sync_signal(&mut def_sig, next_def);
@@ -228,17 +262,20 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         base: base.clone(),
         def: def_sig,
         value: value_sig,
+        value_ctl,
         start_value: start_sig,
+        start_ctl,
         end_value: end_sig,
+        end_ctl,
         last_pressed: last_pressed_sig,
         focused_value: focused_value_sig,
-        on_value_change,
-        on_start_value_change,
-        on_end_value_change,
-        on_range_select,
+        on_value_change: on_value_change_slot,
+        on_start_value_change: on_start_value_change_slot,
+        on_end_value_change: on_end_value_change_slot,
+        on_range_select: on_range_select_slot,
     };
 
-    // Sync external value/placeholder Signal updates and reconcile exclude_disabled.
+    // Sync external value/placeholder updates and reconcile exclude_disabled.
     let mut last_value_seen = use_hook(|| CopyValue::new(initial_range));
     {
         let mut rt = runtime.clone();
@@ -247,10 +284,10 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
             let current = *rt.value.read();
             if *last_value_seen.read() != current {
                 last_value_seen.set(current);
-                if *rt.start_value.peek() != current.start {
+                if !rt.start_ctl.is_controlled() && *rt.start_value.peek() != current.start {
                     rt.start_value.set(current.start);
                 }
-                if *rt.end_value.peek() != current.end {
+                if !rt.end_ctl.is_controlled() && *rt.end_value.peek() != current.end {
                     rt.end_value.set(current.end);
                 }
                 if let Some(start) = current.start
@@ -305,10 +342,10 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
     let snapshot = runtime.snapshot();
     let root_attrs = runtime.root_attrs(None);
     let announcement_text = (runtime.announcement)();
-    let body = if let Some(ref render_children) = props.render_children {
+    let body = if let Some(ref render_children) = render_children {
         render_children.call(snapshot.clone())
     } else {
-        props.children
+        children
     };
     let internal_children = render_calendar_internal_children(
         rels.accessible_heading_id(),
@@ -318,19 +355,10 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         body,
     );
 
-    let mut consumer_on_key_down_slot = use_hook(|| CopyValue::new(props.on_key_down));
-    consumer_on_key_down_slot.set(props.on_key_down);
-    let composed_on_key_down = use_hook(|| {
+    let base_on_key_down = use_hook(|| {
         let mut rt_for_key = runtime.clone();
         let consumed_flag = Rc::clone(&guard_consumed_escape);
         EventHandler::new(move |evt: KeyboardEvent| {
-            if let Some(handler) = consumer_on_key_down_slot
-                .try_read()
-                .ok()
-                .and_then(|slot| *slot)
-            {
-                handler.call(evt.clone());
-            }
             if evt.default_action_enabled()
                 && !is_ime_composing_key(&evt)
                 && evt.key() == Key::Named(NamedKey::Escape)
@@ -344,51 +372,34 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         })
     });
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(RangeCalendarRootRenderProps {
-                attrs: root_attrs,
-                snapshot,
-                class: props.class,
-                style: props.style,
-                on_key_down: Some(composed_on_key_down),
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-                children: internal_children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::RangeCalendarRoot: as_child requires render_child; rendering the default div"
-        );
-    }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
+    let mut base_attrs = Vec::with_capacity(9);
+    base_attrs.push(Attribute::new("id", root_attrs.id, None, false));
+    base_attrs.push(Attribute::new("role", root_attrs.role, None, false));
+    base_attrs.push(Attribute::new("aria-label", root_attrs.aria_label, None, false));
+    base_attrs.push(Attribute::new("dir", root_attrs.dir, None, false));
+    push_attr_opt(
+        &mut base_attrs,
+        "data-range-calendar-root",
+        root_attrs.data_range_calendar_root,
     );
-    let on_mounted = props.on_mounted;
+    push_attr_opt(&mut base_attrs, "data-invalid", root_attrs.data_invalid);
+    push_attr_opt(&mut base_attrs, "data-disabled", root_attrs.data_disabled);
+    push_attr_opt(&mut base_attrs, "data-readonly", root_attrs.data_readonly);
+    push_event_handler(&mut base_attrs, "onkeydown", Some(base_on_key_down));
+
+    let mut user = collect_user_attrs(class, style, attributes);
+    push_event_handler(&mut user, "onkeydown", on_key_down);
+    push_event_handler(&mut user, "onmounted", on_mounted);
+
+    let merged = merge_props(base_attrs, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{root_attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            role: root_attrs.role,
-            aria_label: "{root_attrs.aria_label}",
-            dir: root_attrs.dir,
-            "data-range-calendar-root": root_attrs.data_range_calendar_root,
-            "data-invalid": root_attrs.data_invalid,
-            "data-disabled": root_attrs.data_disabled,
-            "data-readonly": root_attrs.data_readonly,
-            onkeydown: move |evt: KeyboardEvent| composed_on_key_down.call(evt),
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {internal_children}
         }
     }

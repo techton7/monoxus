@@ -2,20 +2,25 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
-use crate::foundation::{compose::merge_global_attributes, shared::use_stable_id};
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
+    shared::use_stable_id,
+};
 
 use super::super::{runtime::use_calendar_shared_context, types::CalendarPart};
 
 #[derive(Clone, PartialEq, Props)]
 pub struct CalendarGridProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default)]
     pub month_idx: Option<usize>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -25,10 +30,21 @@ pub struct CalendarGridProps {
 
 #[component]
 pub fn CalendarGrid(props: CalendarGridProps) -> Element {
+    let CalendarGridProps {
+        id,
+        month_idx,
+        class,
+        style,
+        child,
+        on_mounted,
+        attributes,
+        children,
+    } = props;
+
     let ctx = use_calendar_shared_context();
-    let stable_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
-    let custom_or_stable = props.id.clone().or_else(|| {
-        if props.month_idx.is_some() {
+    let stable_id = use_stable_id(id.clone().map(Cow::Owned)).into_owned();
+    let custom_or_stable = id.or_else(|| {
+        if month_idx.is_some() {
             None
         } else {
             Some(stable_id)
@@ -36,46 +52,50 @@ pub fn CalendarGrid(props: CalendarGridProps) -> Element {
     });
     let attrs = ctx
         .runtime
-        .grid_attrs(props.month_idx.unwrap_or(0), custom_or_stable);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
+        .grid_attrs(month_idx.unwrap_or(0), custom_or_stable);
+
+    let mut base = Vec::with_capacity(9);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("tabindex", attrs.tabindex, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new("aria-readonly", attrs.aria_readonly, None, false));
+    base.push(Attribute::new("aria-disabled", attrs.aria_disabled, None, false));
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-calendar-grid", attrs.data_calendar_grid);
+    push_attr_opt(
+        &mut base,
+        "data-range-calendar-grid",
+        attrs.data_range_calendar_grid,
     );
-    let on_mounted = props.on_mounted;
+
+    let mut user = collect_user_attrs(class, style, attributes);
+    push_event_handler(&mut user, "onmounted", on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         table {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            tabindex: "{attrs.tabindex}",
-            role: attrs.role,
-            "aria-readonly": attrs.aria_readonly,
-            aria_disabled: attrs.aria_disabled,
-            "data-readonly": attrs.data_readonly,
-            "data-disabled": attrs.data_disabled,
-            "data-calendar-grid": attrs.data_calendar_grid,
-            "data-range-calendar-grid": attrs.data_range_calendar_grid,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
-            {props.children}
+            ..merged,
+            {children}
         }
     }
 }
 
 #[derive(Clone, PartialEq, Props)]
 pub struct CalendarSubpartProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -83,35 +103,51 @@ pub struct CalendarSubpartProps {
     pub children: Element,
 }
 
+fn build_subpart_merged(
+    part: CalendarPart,
+    cal_attr_name: &'static str,
+    range_attr_name: &'static str,
+    id: Option<String>,
+    class: Option<String>,
+    style: Option<String>,
+    on_mounted: Option<EventHandler<MountedEvent>>,
+    attributes: Vec<Attribute>,
+) -> Vec<Attribute> {
+    let ctx = use_calendar_shared_context();
+    let stable_id = use_stable_id(id.clone().map(Cow::Owned)).into_owned();
+    let attrs = ctx.runtime.subpart_attrs(part, stable_id, id);
+
+    let mut base = Vec::with_capacity(5);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    push_attr_opt(&mut base, cal_attr_name, attrs.data_calendar_part);
+    push_attr_opt(&mut base, range_attr_name, attrs.data_range_calendar_part);
+
+    let mut user = collect_user_attrs(class, style, attributes);
+    push_event_handler(&mut user, "onmounted", on_mounted);
+
+    merge_props(base, user)
+}
+
 #[component]
 pub fn CalendarGridHead(props: CalendarSubpartProps) -> Element {
-    let ctx = use_calendar_shared_context();
-    let stable_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
-    let attrs = ctx
-        .runtime
-        .subpart_attrs(CalendarPart::GridHead, stable_id, props.id);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
+    let merged = build_subpart_merged(
+        CalendarPart::GridHead,
+        "data-calendar-grid-head",
+        "data-range-calendar-grid-head",
+        props.id,
+        props.class,
+        props.style,
+        props.on_mounted,
         props.attributes,
     );
-    let on_mounted = props.on_mounted;
-
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
     rsx! {
         thead {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-disabled": attrs.data_disabled,
-            "data-readonly": attrs.data_readonly,
-            "data-calendar-grid-head": attrs.data_calendar_part,
-            "data-range-calendar-grid-head": attrs.data_range_calendar_part,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -119,33 +155,22 @@ pub fn CalendarGridHead(props: CalendarSubpartProps) -> Element {
 
 #[component]
 pub fn CalendarGridBody(props: CalendarSubpartProps) -> Element {
-    let ctx = use_calendar_shared_context();
-    let stable_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
-    let attrs = ctx
-        .runtime
-        .subpart_attrs(CalendarPart::GridBody, stable_id, props.id);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
+    let merged = build_subpart_merged(
+        CalendarPart::GridBody,
+        "data-calendar-grid-body",
+        "data-range-calendar-grid-body",
+        props.id,
+        props.class,
+        props.style,
+        props.on_mounted,
         props.attributes,
     );
-    let on_mounted = props.on_mounted;
-
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
     rsx! {
         tbody {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-disabled": attrs.data_disabled,
-            "data-readonly": attrs.data_readonly,
-            "data-calendar-grid-body": attrs.data_calendar_part,
-            "data-range-calendar-grid-body": attrs.data_range_calendar_part,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -153,33 +178,22 @@ pub fn CalendarGridBody(props: CalendarSubpartProps) -> Element {
 
 #[component]
 pub fn CalendarGridRow(props: CalendarSubpartProps) -> Element {
-    let ctx = use_calendar_shared_context();
-    let stable_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
-    let attrs = ctx
-        .runtime
-        .subpart_attrs(CalendarPart::GridRow, stable_id, props.id);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
+    let merged = build_subpart_merged(
+        CalendarPart::GridRow,
+        "data-calendar-grid-row",
+        "data-range-calendar-grid-row",
+        props.id,
+        props.class,
+        props.style,
+        props.on_mounted,
         props.attributes,
     );
-    let on_mounted = props.on_mounted;
-
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
     rsx! {
         tr {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-disabled": attrs.data_disabled,
-            "data-readonly": attrs.data_readonly,
-            "data-calendar-grid-row": attrs.data_calendar_part,
-            "data-range-calendar-grid-row": attrs.data_range_calendar_part,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -187,33 +201,22 @@ pub fn CalendarGridRow(props: CalendarSubpartProps) -> Element {
 
 #[component]
 pub fn CalendarHeadCell(props: CalendarSubpartProps) -> Element {
-    let ctx = use_calendar_shared_context();
-    let stable_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
-    let attrs = ctx
-        .runtime
-        .subpart_attrs(CalendarPart::HeadCell, stable_id, props.id);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
+    let merged = build_subpart_merged(
+        CalendarPart::HeadCell,
+        "data-calendar-head-cell",
+        "data-range-calendar-head-cell",
+        props.id,
+        props.class,
+        props.style,
+        props.on_mounted,
         props.attributes,
     );
-    let on_mounted = props.on_mounted;
-
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
     rsx! {
         th {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-disabled": attrs.data_disabled,
-            "data-readonly": attrs.data_readonly,
-            "data-calendar-head-cell": attrs.data_calendar_part,
-            "data-range-calendar-head-cell": attrs.data_range_calendar_part,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

@@ -854,6 +854,7 @@ impl DialogRuntime {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn notify_open_change(
         &self,
         next: bool,

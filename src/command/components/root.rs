@@ -4,9 +4,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     shared::{ScopeHandle, use_stable_id},
-    state::sync_signal,
+    state::{sync_signal, use_controllable_signal},
 };
 use crate::visually_hidden::VisuallyHiddenState;
 
@@ -19,38 +19,18 @@ use super::super::{
 };
 
 #[derive(Clone, PartialEq, Props)]
-pub struct CommandRootRenderProps {
-    pub id: String,
-    pub role: &'static str,
-    pub tabindex: &'static str,
-    #[props(default)]
-    pub aria_label: Option<String>,
-    pub data_command_root: &'static str,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    pub on_keydown: EventHandler<KeyboardEvent>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-#[derive(Clone, PartialEq, Props)]
 pub struct CommandRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
-    pub value: Option<Signal<String>>,
-    #[props(default)]
+    #[props(default, into)]
+    pub value: Option<String>,
+    #[props(default, into)]
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
     #[props(default)]
     pub on_state_change: Option<EventHandler<CommandStateSnapshot>>,
-    #[props(default)]
+    #[props(default, into)]
     pub label: String,
     #[props(default = true)]
     pub should_filter: bool,
@@ -66,16 +46,14 @@ pub struct CommandRootProps {
     pub disable_initial_scroll: bool,
     #[props(default)]
     pub columns: Option<usize>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CommandRootRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
-    pub on_keydown: Option<EventHandler<KeyboardEvent>>,
+    pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -97,11 +75,13 @@ pub fn CommandRoot(props: CommandRootProps) -> Element {
     });
     let registry = use_signal(CommandRegistry::new);
     let search = use_signal(String::new);
-    let fallback_value = use_signal(|| props.default_value.clone().unwrap_or_default());
-    let value_sig = props.value.unwrap_or(fallback_value);
+    let value_ctl = use_controllable_signal(
+        props.value,
+        props.default_value.unwrap_or_default(),
+        props.on_value_change,
+    );
+    let value_sig = value_ctl.signal();
 
-    let mut on_value_change = use_hook(|| CopyValue::new(props.on_value_change));
-    on_value_change.set(props.on_value_change);
     let mut on_state_change = use_hook(|| CopyValue::new(props.on_state_change));
     on_state_change.set(props.on_state_change);
 
@@ -144,7 +124,7 @@ pub fn CommandRoot(props: CommandRootProps) -> Element {
         registry,
         search,
         value: value_sig,
-        on_value_change,
+        value_ctl,
         on_state_change,
         should_filter,
         filter,
@@ -190,69 +170,45 @@ pub fn CommandRoot(props: CommandRootProps) -> Element {
     let label_attrs = CommandInputLabelAttrs::new(label_id.read().clone(), input_id.read().clone());
     let vh_attrs = VisuallyHiddenState::new().attributes();
 
-    let mut consumer_keydown = use_hook(|| CopyValue::new(props.on_keydown));
-    consumer_keydown.set(props.on_keydown);
     let mut ctx_for_key = ctx;
-    let handle_keydown = EventHandler::new(move |evt: KeyboardEvent| {
-        if let Some(handler) = consumer_keydown.try_read().ok().and_then(|s| *s) {
-            handler.call(evt.clone());
-        }
+    let base_keydown = EventHandler::new(move |evt: KeyboardEvent| {
         ctx_for_key.handle_keydown(&evt);
     });
 
-    let inner = rsx! {
-        label {
-            id: "{label_attrs.id}",
-            r#for: "{label_attrs.r#for}",
-            style: "{vh_attrs.style}",
-            "data-command-input-label": label_attrs.data_command_input_label,
-            "data-visually-hidden-root": vh_attrs.data_visually_hidden_root,
-            "{props.label}"
-        }
-        {props.children}
-    };
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new("tabindex", attrs.tabindex, None, false));
+    push_attr_opt(&mut base, "aria-label", attrs.aria_label);
+    base.push(Attribute::new(
+        "data-command-root",
+        attrs.data_command_root,
+        None,
+        false,
+    ));
+    push_event_handler(&mut base, "onkeydown", Some(base_keydown));
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(CommandRootRenderProps {
-            id: attrs.id,
-            role: attrs.role,
-            tabindex: attrs.tabindex,
-            aria_label: attrs.aria_label,
-            data_command_root: attrs.data_command_root,
-            class: props.class,
-            style: props.style,
-            on_keydown: handle_keydown,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: inner,
-        });
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            role: "{attrs.role}",
-            tabindex: "{attrs.tabindex}",
-            aria_label: attrs.aria_label.as_deref(),
-            "data-command-root": attrs.data_command_root,
-            class: merged.class,
-            style: merged.style,
-            onkeydown: move |evt| handle_keydown.call(evt),
-            onmounted: move |evt| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
-            {inner}
+            ..merged,
+            label {
+                id: "{label_attrs.id}",
+                r#for: "{label_attrs.r#for}",
+                style: "{vh_attrs.style}",
+                "data-command-input-label": label_attrs.data_command_input_label,
+                "data-visually-hidden-root": vh_attrs.data_visually_hidden_root,
+                "{props.label}"
+            }
+            {props.children}
         }
     }
 }

@@ -4,11 +4,14 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::{join_styles, merge_global_attributes},
+    compose::{
+        FloatingContentChildProps, collect_user_attrs, join_styles, merge_props, push_attr_opt,
+        push_event_handler,
+    },
     keyboard::{is_escape_key, is_ime_composing_key},
     overlay::{
-        FloatingReadiness, OverlayBranchContext, PlacementAlign, PlacementSide, PresenceState,
-        is_modal_pointer_lock_active, use_overlay_branch_provider,
+        DismissBehavior, FloatingReadiness, OverlayBranchContext, PlacementAlign, PlacementSide,
+        PresenceState, StickyStrategy, is_modal_pointer_lock_active, use_overlay_branch_provider,
         use_register_parent_overlay_branches,
     },
     shared::EscapeKeyDownEvent,
@@ -16,36 +19,14 @@ use crate::foundation::{
 };
 
 use crate::combobox::{
-    attrs::ComboboxContentAttrs,
     monitors::ComboboxInteractOutsideEvent,
     runtime::use_combobox_context,
     types::ComboboxContext,
 };
 
-#[derive(Clone, PartialEq)]
-pub struct ComboboxContentRenderProps {
-    pub attrs: ComboboxContentAttrs,
-    pub class: Option<String>,
-    pub style: String,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub on_mounted: EventHandler<MountedEvent>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-#[derive(Clone, PartialEq)]
-pub struct ComboboxContentStaticRenderProps {
-    pub attrs: ComboboxContentAttrs,
-    pub class: Option<String>,
-    pub style: String,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-pub(crate) enum ComboboxAsChildRenderer {
-    Floating(Callback<ComboboxContentRenderProps, Element>),
-    Static(Callback<ComboboxContentStaticRenderProps, Element>),
+pub(crate) enum ComboboxChildRenderer {
+    Floating(Callback<FloatingContentChildProps, Element>),
+    Static(Callback<Vec<Attribute>, Element>),
 }
 
 /// Plain Rust specification for [`render_combobox_surface`] shared by `ComboboxContent` and
@@ -56,9 +37,10 @@ pub(crate) struct ComboboxSurfaceSpec {
     pub is_floating: bool,
     pub same_width: bool,
     pub force_mount: bool,
+    pub keep_mounted: bool,
     pub class: Option<String>,
     pub style: Option<String>,
-    pub as_child: Option<ComboboxAsChildRenderer>,
+    pub child: Option<ComboboxChildRenderer>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
 }
@@ -69,10 +51,12 @@ pub(crate) fn render_combobox_surface(spec: ComboboxSurfaceSpec) -> Element {
     let ctx = spec.ctx;
     ctx.runtime.set_is_static_content(!spec.is_floating);
     ctx.runtime.set_content_id(spec.content_id.clone());
+    ctx.runtime.set_keep_mounted(spec.keep_mounted);
 
     let is_open = ctx.runtime.is_open();
     let is_suspended = ctx.runtime.presence_state() == PresenceState::Suspended;
     let should_render = ctx.runtime.should_render_content() || spec.force_mount;
+    let is_hidden = !spec.force_mount && ctx.runtime.is_hidden();
     let content_id = spec.content_id;
     let wrapper_id = format!("{content_id}-floating-wrapper");
     let portal_id = format!("{content_id}-portal-root");
@@ -107,6 +91,7 @@ pub(crate) fn render_combobox_surface(spec: ComboboxSurfaceSpec) -> Element {
         let is_floating = spec.is_floating;
         use_drop(move || {
             rt.set_content_mounted(false);
+            rt.set_keep_mounted(false);
             if is_floating {
                 rt.clear_content_z_index();
             }
@@ -157,6 +142,15 @@ pub(crate) fn render_combobox_surface(spec: ComboboxSurfaceSpec) -> Element {
         }
     });
 
+    let focus_in_rt = ctx.runtime.clone();
+    let on_focus_in = EventHandler::new(move |evt: FocusEvent| {
+        focus_in_rt.notify_composite_focus_in(evt);
+    });
+    let focus_out_rt = ctx.runtime.clone();
+    let on_focus_out = EventHandler::new(move |evt: FocusEvent| {
+        focus_out_rt.notify_composite_focus_out(evt);
+    });
+
     if !spec.is_floating {
         let attrs = ctx.runtime.content_attributes(
             content_id,
@@ -179,42 +173,49 @@ pub(crate) fn render_combobox_surface(spec: ComboboxSurfaceSpec) -> Element {
             "display: flex; flex-direction: column; box-sizing: border-box; outline: none;",
             force_mount_style,
             pointer_events_style,
-            spec.style.as_deref().unwrap_or_default(),
         ]);
-        let merged = merge_global_attributes(
-            spec.class.as_deref(),
-            base_style.as_deref(),
-            spec.attributes,
+
+        let id_str = attrs.id().to_owned();
+        let role_str = attrs.role();
+        let tabindex_str = attrs.tabindex();
+        let aria_multiselectable = attrs.aria_multiselectable();
+        let data_state_str = attrs.data_state_str();
+
+        let mut base = Vec::with_capacity(14);
+        base.push(Attribute::new("id", id_str, None, false));
+        base.push(Attribute::new("role", role_str, None, false));
+        base.push(Attribute::new("tabindex", tabindex_str, None, false));
+        push_attr_opt(&mut base, "aria-multiselectable", aria_multiselectable);
+        base.push(Attribute::new("data-combobox-content", "", None, false));
+        base.push(Attribute::new("data-state", data_state_str, None, false));
+        push_attr_opt(
+            &mut base,
+            "data-starting-style",
+            ctx.runtime.data_starting_style(),
         );
-
-        if let Some(ComboboxAsChildRenderer::Static(render_child)) = spec.as_child {
-            return render_child.call(ComboboxContentStaticRenderProps {
-                attrs,
-                class: merged.class,
-                style: merged.style.unwrap_or_default(),
-                on_key_down,
-                attributes: merged.rest,
-                children: spec.children,
-            });
+        push_attr_opt(
+            &mut base,
+            "data-ending-style",
+            ctx.runtime.data_ending_style(),
+        );
+        if is_hidden {
+            base.push(Attribute::new("hidden", true, None, false));
         }
+        push_attr_opt(&mut base, "style", base_style);
+        push_event_handler(&mut base, "onkeydown", Some(on_key_down));
+        push_event_handler(&mut base, "onfocusin", Some(on_focus_in));
+        push_event_handler(&mut base, "onfocusout", Some(on_focus_out));
 
-        let focus_in_rt = ctx.runtime.clone();
-        let focus_out_rt = ctx.runtime.clone();
+        let user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+        let merged = merge_props(base, user);
+
+        if let Some(ComboboxChildRenderer::Static(child)) = spec.child {
+            return child.call(merged);
+        }
 
         return rsx! {
             div {
-                id: "{attrs.id()}",
-                role: "{attrs.role()}",
-                tabindex: "{attrs.tabindex()}",
-                "aria-multiselectable": attrs.aria_multiselectable(),
-                "data-combobox-content": "",
-                "data-state": "{attrs.data_state_str()}",
-                class: merged.class.as_deref(),
-                style: merged.style.as_deref(),
-                onkeydown: move |evt| on_key_down.call(evt),
-                onfocusin: move |evt| focus_in_rt.notify_composite_focus_in(evt),
-                onfocusout: move |evt| focus_out_rt.notify_composite_focus_out(evt),
-                ..merged.rest,
+                ..merged,
                 {spec.children}
             }
         };
@@ -275,65 +276,82 @@ pub(crate) fn render_combobox_surface(spec: ComboboxSurfaceSpec) -> Element {
         css_vars.as_str(),
         force_mount_style,
         pointer_events_style,
-        spec.style.as_deref().unwrap_or_default(),
     ]);
-    let merged = merge_global_attributes(
-        spec.class.as_deref(),
-        base_inner_style.as_deref(),
-        spec.attributes,
-    );
 
     let mount_rt = ctx.runtime.clone();
     let on_mounted = EventHandler::new(move |evt: MountedEvent| {
         mount_rt.capture_content_mount(evt.data());
     });
 
-    if let Some(ComboboxAsChildRenderer::Floating(render_child)) = spec.as_child {
-        let child = render_child.call(ComboboxContentRenderProps {
-            attrs,
-            class: merged.class,
-            style: merged.style.unwrap_or_default(),
-            on_key_down,
-            on_mounted,
-            attributes: merged.rest,
-            children: spec.children,
-        });
-        return rsx! {
-            div {
-                id: "{wrapper_id}",
-                "data-monoxus-floating-content-wrapper": "",
-                style: "{wrapper_style}",
-                "data-reference-hidden": "{ref_hidden_str}",
-                {child}
-            }
-        };
+    let mut wrapper_props = Vec::with_capacity(5);
+    wrapper_props.push(Attribute::new("id", wrapper_id, None, false));
+    wrapper_props.push(Attribute::new(
+        "data-monoxus-floating-content-wrapper",
+        "",
+        None,
+        false,
+    ));
+    if !wrapper_style.is_empty() {
+        wrapper_props.push(Attribute::new("style", wrapper_style, None, false));
+    }
+    wrapper_props.push(Attribute::new(
+        "data-reference-hidden",
+        ref_hidden_str,
+        None,
+        false,
+    ));
+    if is_hidden {
+        wrapper_props.push(Attribute::new("hidden", true, None, false));
     }
 
-    let focus_in_rt = ctx.runtime.clone();
-    let focus_out_rt = ctx.runtime.clone();
+    let id_str = attrs.id().to_owned();
+    let role_str = attrs.role();
+    let tabindex_str = attrs.tabindex();
+    let aria_multiselectable = attrs.aria_multiselectable();
+    let data_state_str = attrs.data_state_str();
+    let data_side_str = attrs.data_side_str();
+    let data_align_str = attrs.data_align_str();
+
+    let mut base = Vec::with_capacity(17);
+    base.push(Attribute::new("id", id_str, None, false));
+    base.push(Attribute::new("role", role_str, None, false));
+    base.push(Attribute::new("tabindex", tabindex_str, None, false));
+    push_attr_opt(&mut base, "aria-multiselectable", aria_multiselectable);
+    base.push(Attribute::new("data-combobox-content", "", None, false));
+    base.push(Attribute::new("data-state", data_state_str, None, false));
+    base.push(Attribute::new("data-side", data_side_str, None, false));
+    base.push(Attribute::new("data-align", data_align_str, None, false));
+    push_attr_opt(
+        &mut base,
+        "data-starting-style",
+        ctx.runtime.data_starting_style(),
+    );
+    push_attr_opt(
+        &mut base,
+        "data-ending-style",
+        ctx.runtime.data_ending_style(),
+    );
+    if is_hidden {
+        base.push(Attribute::new("hidden", true, None, false));
+    }
+    push_attr_opt(&mut base, "style", base_inner_style);
+    push_event_handler(&mut base, "onkeydown", Some(on_key_down));
+    push_event_handler(&mut base, "onfocusin", Some(on_focus_in));
+    push_event_handler(&mut base, "onfocusout", Some(on_focus_out));
+    push_event_handler(&mut base, "onmounted", Some(on_mounted));
+
+    let user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(ComboboxChildRenderer::Floating(child)) = spec.child {
+        return child.call(FloatingContentChildProps::new(wrapper_props, merged));
+    }
 
     rsx! {
         div {
-            id: "{wrapper_id}",
-            "data-monoxus-floating-content-wrapper": "",
-            style: "{wrapper_style}",
-            "data-reference-hidden": "{ref_hidden_str}",
+            ..wrapper_props,
             div {
-                id: "{attrs.id()}",
-                role: "{attrs.role()}",
-                tabindex: "{attrs.tabindex()}",
-                "aria-multiselectable": attrs.aria_multiselectable(),
-                "data-combobox-content": "",
-                "data-state": "{attrs.data_state_str()}",
-                "data-side": "{attrs.data_side_str()}",
-                "data-align": "{attrs.data_align_str()}",
-                class: merged.class.as_deref(),
-                style: merged.style.as_deref(),
-                onkeydown: move |evt| on_key_down.call(evt),
-                onfocusin: move |evt| focus_in_rt.notify_composite_focus_in(evt),
-                onfocusout: move |evt| focus_out_rt.notify_composite_focus_out(evt),
-                onmounted: move |evt| on_mounted.call(evt),
-                ..merged.rest,
+                ..merged,
                 {spec.children}
             }
         }
@@ -342,11 +360,11 @@ pub(crate) fn render_combobox_surface(spec: ComboboxSurfaceSpec) -> Element {
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ComboboxContentProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = PlacementSide::Bottom)]
     pub side: PlacementSide,
@@ -358,30 +376,34 @@ pub struct ComboboxContentProps {
     pub align_offset: f32,
     #[props(default = true)]
     pub avoid_collisions: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub collision_boundary: Option<String>,
     #[props(default = 0.0)]
     pub collision_padding: f32,
     #[props(default = 0.0)]
     pub arrow_padding: f32,
     #[props(default)]
-    pub sticky: Option<String>,
+    pub sticky: Option<StickyStrategy>,
     #[props(default = false)]
     pub hide_when_detached: bool,
     #[props(default = false)]
     pub same_width: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub custom_anchor: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
+    #[props(default = false)]
+    pub keep_mounted: bool,
+    #[props(default)]
+    pub escape_key_down_behavior: Option<DismissBehavior>,
+    #[props(default)]
+    pub interact_outside_behavior: Option<DismissBehavior>,
     #[props(default)]
     pub on_interact_outside: Option<EventHandler<ComboboxInteractOutsideEvent>>,
     #[props(default)]
     pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<ComboboxContentRenderProps, Element>>,
+    pub child: Option<Callback<FloatingContentChildProps, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -416,22 +438,20 @@ pub fn ComboboxContent(props: ComboboxContentProps) -> Element {
         let mut hwd = ctx.runtime.state.hide_when_detached;
         sync_signal(&mut hwd, props.hide_when_detached);
         let mut st = ctx.runtime.state.sticky;
-        sync_signal(&mut st, props.sticky.clone());
+        sync_signal(&mut st, props.sticky);
         let mut ca = ctx.runtime.state.custom_anchor;
         sync_signal(&mut ca, props.custom_anchor.clone());
         let mut fm = ctx.runtime.state.force_mount;
         sync_signal(&mut fm, props.force_mount);
+        let mut ekb = ctx.runtime.state.escape_key_down_behavior;
+        sync_signal(&mut ekb, props.escape_key_down_behavior);
+        let mut iob = ctx.runtime.state.interact_outside_behavior;
+        sync_signal(&mut iob, props.interact_outside_behavior);
         let mut oio = ctx.runtime.state.on_interact_outside;
         oio.set(props.on_interact_outside);
         let mut oek = ctx.runtime.state.on_escape_key_down;
         oek.set(props.on_escape_key_down);
     }
-
-    let as_child = if props.as_child {
-        props.render_child.map(ComboboxAsChildRenderer::Floating)
-    } else {
-        None
-    };
 
     render_combobox_surface(ComboboxSurfaceSpec {
         ctx,
@@ -439,9 +459,10 @@ pub fn ComboboxContent(props: ComboboxContentProps) -> Element {
         is_floating: true,
         same_width: props.same_width,
         force_mount: props.force_mount,
+        keep_mounted: props.keep_mounted,
         class: props.class,
         style: props.style,
-        as_child,
+        child: props.child.map(ComboboxChildRenderer::Floating),
         attributes: props.attributes,
         children: props.children,
     })

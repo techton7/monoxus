@@ -1,37 +1,21 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::merge_global_attributes;
+use crate::foundation::compose::{
+    collect_user_attrs, merge_props, push_attr_opt, push_event_handler,
+};
 
-use super::super::{attrs::CalendarHeadingAttrs, runtime::use_calendar_shared_context};
-
-#[derive(Clone, PartialEq, Props)]
-pub struct CalendarHeadingRenderProps {
-    pub attrs: CalendarHeadingAttrs,
-    pub heading_value: String,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    #[props(default)]
-    pub children: Option<Element>,
-}
+use super::super::runtime::use_calendar_shared_context;
 
 #[derive(Clone, PartialEq, Props)]
 pub struct CalendarHeadingProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CalendarHeadingRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -42,48 +26,45 @@ pub struct CalendarHeadingProps {
 
 #[component]
 pub fn CalendarHeading(props: CalendarHeadingProps) -> Element {
+    let CalendarHeadingProps {
+        id,
+        class,
+        style,
+        child,
+        on_mounted,
+        attributes,
+        children,
+    } = props;
+
     let ctx = use_calendar_shared_context();
-    let attrs = ctx.runtime.heading_attrs(props.id.clone());
+    let attrs = ctx.runtime.heading_attrs(id);
     let heading_value = ctx.runtime.heading_value();
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(CalendarHeadingRenderProps {
-            attrs,
-            heading_value,
-            class: props.class,
-            style: props.style,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: props.children,
-        });
-    }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("aria-hidden", attrs.aria_hidden, None, false));
+    push_attr_opt(&mut base, "data-calendar-heading", attrs.data_calendar_heading);
+    push_attr_opt(
+        &mut base,
+        "data-range-calendar-heading",
+        attrs.data_range_calendar_heading,
     );
-    let on_mounted = props.on_mounted;
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+
+    let mut user = collect_user_attrs(class, style, attributes);
+    push_event_handler(&mut user, "onmounted", on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "aria-hidden": attrs.aria_hidden,
-            "data-calendar-heading": attrs.data_calendar_heading,
-            "data-range-calendar-heading": attrs.data_range_calendar_heading,
-            "data-disabled": attrs.data_disabled,
-            "data-readonly": attrs.data_readonly,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
-            if let Some(children) = props.children {
+            ..merged,
+            if let Some(children) = children {
                 {children}
             } else {
                 "{heading_value}"

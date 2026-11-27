@@ -11,7 +11,7 @@ use crate::foundation::{
         ensure_non_disabled_placeholder, is_next_page_disabled, is_prev_page_disabled,
         resolve_grid_navigation, resolve_tabbable_date, visible_weekday_headers,
     },
-    state::sync_signal,
+    state::{ControllableSignal, sync_signal, use_controllable_signal},
 };
 
 use super::{
@@ -73,6 +73,7 @@ pub struct CalendarBaseRuntime {
     pub rels: CalendarRelationships,
     pub root_dom_id: Signal<String>,
     pub placeholder: Signal<CalendarDate>,
+    pub(crate) placeholder_ctl: ControllableSignal<CalendarDate>,
     pub months: Signal<Vec<CalendarMonth>>,
     pub announcement: Signal<String>,
     pub today_date: Signal<CalendarDate>,
@@ -80,7 +81,6 @@ pub struct CalendarBaseRuntime {
     pub is_date_disabled_cb: CopyValue<Option<Callback<CalendarDate, bool>>>,
     pub is_date_unavailable_cb: CopyValue<Option<Callback<CalendarDate, bool>>>,
     pub predicate_rev: Signal<u64>,
-    pub on_placeholder_change: CopyValue<Option<EventHandler<CalendarDate>>>,
     pub day_id_overrides: Rc<RefCell<HashMap<(usize, CalendarDate), String>>>,
     pub(crate) pending_focus_target: Rc<RefCell<Option<(usize, CalendarDate)>>>,
     pub(crate) pending_focus_rev: Signal<u64>,
@@ -95,7 +95,7 @@ pub(crate) fn use_calendar_base_runtime(
     rels: CalendarRelationships,
     dom_root_id: String,
     config: CalendarConfig,
-    placeholder_prop: Option<Signal<CalendarDate>>,
+    placeholder_prop: Option<CalendarDate>,
     default_placeholder: Option<CalendarDate>,
     initial_default_from_value: Option<CalendarDate>,
     initial_focus: bool,
@@ -118,7 +118,7 @@ pub(crate) fn use_calendar_base_runtime(
     // and zero per-render `Vec<CalendarMonth>` cloning.
     let (initial_placeholder, months_sig) = use_hook(|| {
         let raw_ph = if let Some(ext_ph) = placeholder_prop {
-            *ext_ph.peek()
+            ext_ph
         } else if let Some(def_ph) = default_placeholder {
             def_ph.clamp(config.min_value, config.max_value)
         } else {
@@ -146,8 +146,9 @@ pub(crate) fn use_calendar_base_runtime(
         (resolved_ph, Signal::new(months))
     });
 
-    let fallback_placeholder = use_signal(|| initial_placeholder);
-    let placeholder_sig = placeholder_prop.unwrap_or(fallback_placeholder);
+    let placeholder_ctl =
+        use_controllable_signal(placeholder_prop, initial_placeholder, on_placeholder_change);
+    let placeholder_sig = placeholder_ctl.signal();
     let initial_placeholder_year = initial_placeholder.year;
 
     let config_sig = use_signal(|| config.clone());
@@ -156,10 +157,8 @@ pub(crate) fn use_calendar_base_runtime(
 
     let mut is_date_disabled_cb = use_hook(|| CopyValue::new(is_date_disabled));
     let mut is_date_unavailable_cb = use_hook(|| CopyValue::new(is_date_unavailable));
-    let mut on_placeholder_change_cb = use_hook(|| CopyValue::new(on_placeholder_change));
     is_date_disabled_cb.set(is_date_disabled);
     is_date_unavailable_cb.set(is_date_unavailable);
-    on_placeholder_change_cb.set(on_placeholder_change);
     let mut predicate_rev = use_signal(|| 0_u64);
     let has_pred = is_date_disabled.is_some() || is_date_unavailable.is_some();
     let mut pred_initialized = use_hook(|| CopyValue::new(false));
@@ -193,6 +192,7 @@ pub(crate) fn use_calendar_base_runtime(
         rels,
         root_dom_id: root_dom_id_sig,
         placeholder: placeholder_sig,
+        placeholder_ctl,
         months: months_sig,
         announcement: announcement_sig,
         today_date: today_sig,
@@ -200,7 +200,6 @@ pub(crate) fn use_calendar_base_runtime(
         is_date_disabled_cb,
         is_date_unavailable_cb,
         predicate_rev,
-        on_placeholder_change: on_placeholder_change_cb,
         day_id_overrides,
         pending_focus_target,
         pending_focus_rev,
@@ -436,19 +435,8 @@ impl CalendarBaseRuntime {
         next: CalendarDate,
         rebuild_if_outside: bool,
     ) {
-        let prev = *self.placeholder.peek();
-        if prev != next {
-            self.placeholder.set(next);
-            if let Some(handler) = self
-                .on_placeholder_change
-                .try_read()
-                .ok()
-                .and_then(|slot| *slot)
-            {
-                handler.call(next);
-            }
-        }
-        if rebuild_if_outside {
+        self.placeholder_ctl.set(next);
+        if !self.placeholder_ctl.is_controlled() && rebuild_if_outside {
             let in_view = self
                 .months
                 .peek()
@@ -480,7 +468,9 @@ impl CalendarBaseRuntime {
             .first()
             .map_or(*self.placeholder.peek(), |m| m.value);
         let new_first = first.add_months_clamped(step * sign.signum());
-        self.rebuild_months_from(new_first);
+        if !self.placeholder_ctl.is_controlled() {
+            self.rebuild_months_from(new_first);
+        }
         self.set_placeholder_internal(new_first, false);
     }
 
@@ -529,7 +519,8 @@ impl CalendarBaseRuntime {
             |d| self.is_date_disabled(d),
         )?;
 
-        if nav.paged
+        if !self.placeholder_ctl.is_controlled()
+            && nav.paged
             && let Some(view_start) = nav.next_view_start
         {
             self.rebuild_months_from(view_start);
@@ -644,9 +635,9 @@ pub struct CalendarRuntime {
     pub base: CalendarBaseRuntime,
     pub def: Signal<CalendarDefinition>,
     pub value: Signal<Option<CalendarDate>>,
+    pub(crate) value_ctl: ControllableSignal<Option<CalendarDate>>,
     pub values: Signal<Vec<CalendarDate>>,
-    pub on_value_change: CopyValue<Option<EventHandler<Option<CalendarDate>>>>,
-    pub on_values_change: CopyValue<Option<EventHandler<Vec<CalendarDate>>>>,
+    pub(crate) values_ctl: ControllableSignal<Vec<CalendarDate>>,
     pub on_date_select: CopyValue<Option<EventHandler<CalendarDate>>>,
 }
 
@@ -723,21 +714,13 @@ impl CalendarRuntime {
                 ) else {
                     return;
                 };
-                if *self.value.peek() != update.next_value {
-                    self.value.set(update.next_value);
-                    if let Some(handler) = self
-                        .on_value_change
-                        .try_read()
-                        .ok()
-                        .and_then(|slot| *slot)
-                    {
-                        handler.call(update.next_value);
+                self.value_ctl.set(update.next_value);
+                if !self.value_ctl.is_controlled() {
+                    if let Some(next_ph) = update.next_placeholder {
+                        self.set_placeholder(next_ph);
                     }
+                    self.announcement.set(update.announcement);
                 }
-                if let Some(next_ph) = update.next_placeholder {
-                    self.set_placeholder(next_ph);
-                }
-                self.announcement.set(update.announcement);
                 if let Some(selected) = update.date_selected
                     && let Some(handler) = self
                         .on_date_select
@@ -761,18 +744,10 @@ impl CalendarRuntime {
                 ) else {
                     return;
                 };
-                if *self.values.peek() != update.next_values {
-                    self.values.set(update.next_values.clone());
-                    if let Some(handler) = self
-                        .on_values_change
-                        .try_read()
-                        .ok()
-                        .and_then(|slot| *slot)
-                    {
-                        handler.call(update.next_values);
-                    }
-                }
-                if let Some(next_ph) = update.next_placeholder {
+                self.values_ctl.set(update.next_values);
+                if !self.values_ctl.is_controlled()
+                    && let Some(next_ph) = update.next_placeholder
+                {
                     self.set_placeholder(next_ph);
                 }
             }

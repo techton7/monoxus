@@ -4,18 +4,17 @@ use dioxus::prelude::*;
 
 use crate::{
     foundation::{
-        compose::merge_global_attributes,
+        compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
         date_time::{
             CalendarDate, CalendarLocale, MonthFormat, Weekday, WeekdayFormat, YearFormat,
         },
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-        state::sync_signal,
+        state::{sync_signal, use_controllable_signal},
     },
     visually_hidden::VisuallyHidden,
 };
 
 use super::super::{
-    attrs::CalendarRootAttrs,
     relationships::CalendarRelationships,
     runtime::{
         CalendarContext, CalendarRuntime, CalendarSharedContext, use_calendar_base_runtime,
@@ -25,40 +24,23 @@ use super::super::{
 };
 
 #[derive(Clone, PartialEq, Props)]
-pub struct CalendarRootRenderProps {
-    pub attrs: CalendarRootAttrs,
-    pub snapshot: CalendarSnapshot,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_key_down: Option<EventHandler<KeyboardEvent>>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-#[derive(Clone, PartialEq, Props)]
 pub struct CalendarRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub mode: CalendarMode,
     #[props(default)]
-    pub value: Option<Signal<Option<CalendarDate>>>,
+    pub value: Option<Option<CalendarDate>>,
     #[props(default)]
     pub default_value: Option<CalendarDate>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<Option<CalendarDate>>>,
     #[props(default)]
-    pub values: Option<Signal<Vec<CalendarDate>>>,
+    pub values: Option<Vec<CalendarDate>>,
     #[props(default)]
     pub default_values: Option<Vec<CalendarDate>>,
     #[props(default)]
@@ -68,7 +50,7 @@ pub struct CalendarRootProps {
     #[props(default)]
     pub max_days: Option<usize>,
     #[props(default)]
-    pub placeholder: Option<Signal<CalendarDate>>,
+    pub placeholder: Option<CalendarDate>,
     #[props(default)]
     pub default_placeholder: Option<CalendarDate>,
     #[props(default)]
@@ -97,9 +79,9 @@ pub struct CalendarRootProps {
     pub month_format: MonthFormat,
     #[props(default)]
     pub year_format: YearFormat,
-    #[props(default)]
+    #[props(default, into)]
     pub locale: CalendarLocale,
-    #[props(default = String::from("Event"))]
+    #[props(default = String::from("Event"), into)]
     pub calendar_label: String,
     #[props(default)]
     pub dir: Option<Direction>,
@@ -111,10 +93,8 @@ pub struct CalendarRootProps {
     pub is_date_disabled: Option<Callback<CalendarDate, bool>>,
     #[props(default)]
     pub is_date_unavailable: Option<Callback<CalendarDate, bool>>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CalendarRootRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub render_children: Option<Callback<CalendarSnapshot, Element>>,
     #[props(default)]
@@ -156,74 +136,106 @@ pub(crate) fn render_calendar_internal_children(
 /// Plain Rust render surface for `CalendarRoot` and `DatePickerCalendar` (zero nested
 /// `#[component]` taking `Option<Callback|EventHandler>` per `Dioxus #5894`).
 pub(crate) fn render_calendar_root(props: CalendarRootProps) -> Element {
-    let resolved_dir = use_direction_context(props.dir);
-    let stable_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
+    let CalendarRootProps {
+        id,
+        class,
+        style,
+        mode,
+        value,
+        default_value,
+        on_value_change,
+        values,
+        default_values,
+        on_values_change,
+        on_date_select,
+        max_days,
+        placeholder,
+        default_placeholder,
+        on_placeholder_change,
+        min_value,
+        max_value,
+        disabled,
+        read_only,
+        prevent_deselect,
+        paged_navigation,
+        fixed_weeks,
+        number_of_months,
+        week_starts_on,
+        weekday_format,
+        month_format,
+        year_format,
+        locale,
+        calendar_label,
+        dir,
+        disable_days_outside_month,
+        initial_focus,
+        is_date_disabled,
+        is_date_unavailable,
+        child,
+        render_children,
+        on_key_down,
+        on_mounted,
+        attributes,
+        children,
+    } = props;
+
+    let resolved_dir = use_direction_context(dir);
+    let stable_id = use_stable_id(id.clone().map(Cow::Owned)).into_owned();
     let scope = use_hook(|| ScopeHandle::root("calendar").child(stable_id.clone()));
     let rels = use_hook(|| CalendarRelationships::new(scope.clone()));
-    let dom_root_id = props.id.clone().unwrap_or_else(|| rels.root_id().to_string());
+    let dom_root_id = id.unwrap_or_else(|| rels.root_id().to_string());
 
-    let initial_single = props
-        .value
-        .and_then(|s| *s.peek())
-        .or(props.default_value);
-    let initial_multiple = props
-        .values
-        .map(|s| s.peek().clone())
-        .or_else(|| props.default_values.clone())
-        .unwrap_or_default();
+    let value_ctl = use_controllable_signal(value, default_value, on_value_change);
+    let value_sig = value_ctl.signal();
 
-    let fallback_value = use_signal(|| initial_single);
-    let value_sig = props.value.unwrap_or(fallback_value);
+    let values_ctl =
+        use_controllable_signal(values, default_values.unwrap_or_default(), on_values_change);
+    let values_sig = values_ctl.signal();
 
-    let fallback_values = use_signal(|| initial_multiple.clone());
-    let values_sig = props.values.unwrap_or(fallback_values);
-
-    let initial_default_from_value = match props.mode {
+    let initial_single = *value_sig.peek();
+    let initial_multiple = values_sig.peek().clone();
+    let initial_default_from_value = match mode {
         CalendarMode::Single => initial_single,
         CalendarMode::Multiple => initial_multiple.last().copied(),
     };
 
     let def = CalendarDefinition::new(scope.clone())
-        .with_mode(props.mode)
-        .with_min_value(props.min_value)
-        .with_max_value(props.max_value)
-        .with_disabled(props.disabled)
-        .with_read_only(props.read_only)
-        .with_prevent_deselect(props.prevent_deselect)
-        .with_paged_navigation(props.paged_navigation)
-        .with_fixed_weeks(props.fixed_weeks)
-        .with_number_of_months(props.number_of_months)
-        .with_week_starts_on(props.week_starts_on)
-        .with_weekday_format(props.weekday_format)
-        .with_month_format(props.month_format)
-        .with_year_format(props.year_format)
-        .with_locale(props.locale.clone())
-        .with_calendar_label(props.calendar_label.clone())
+        .with_mode(mode)
+        .with_min_value(min_value)
+        .with_max_value(max_value)
+        .with_disabled(disabled)
+        .with_read_only(read_only)
+        .with_prevent_deselect(prevent_deselect)
+        .with_paged_navigation(paged_navigation)
+        .with_fixed_weeks(fixed_weeks)
+        .with_number_of_months(number_of_months)
+        .with_week_starts_on(week_starts_on)
+        .with_weekday_format(weekday_format)
+        .with_month_format(month_format)
+        .with_year_format(year_format)
+        .with_locale(locale)
+        .with_calendar_label(calendar_label)
         .with_direction(resolved_dir)
-        .with_disable_days_outside_month(props.disable_days_outside_month)
-        .with_max_days(props.max_days);
+        .with_disable_days_outside_month(disable_days_outside_month)
+        .with_max_days(max_days);
 
     let base = use_calendar_base_runtime(
         CalendarKind::Calendar,
         rels.clone(),
         dom_root_id,
         def.config.clone(),
-        props.placeholder,
-        props.default_placeholder,
+        placeholder,
+        default_placeholder,
         initial_default_from_value,
-        props.initial_focus,
-        props.is_date_disabled,
-        props.is_date_unavailable,
-        props.on_placeholder_change,
+        initial_focus,
+        is_date_disabled,
+        is_date_unavailable,
+        on_placeholder_change,
     );
 
     let mut def_sig = use_signal(|| def.clone());
-    let mut on_value_change = use_hook(|| CopyValue::new(props.on_value_change));
-    let mut on_values_change = use_hook(|| CopyValue::new(props.on_values_change));
-    let mut on_date_select = use_hook(|| CopyValue::new(props.on_date_select));
-    on_value_change.set(props.on_value_change);
-    on_values_change.set(props.on_values_change);
-    on_date_select.set(props.on_date_select);
+    let mut on_date_select_slot = use_hook(|| CopyValue::new(on_date_select));
+    on_date_select_slot.set(on_date_select);
 
     use_effect(use_reactive(&def, move |next_def| {
         sync_signal(&mut def_sig, next_def);
@@ -233,13 +245,13 @@ pub(crate) fn render_calendar_root(props: CalendarRootProps) -> Element {
         base: base.clone(),
         def: def_sig,
         value: value_sig,
+        value_ctl,
         values: values_sig,
-        on_value_change,
-        on_values_change,
-        on_date_select,
+        values_ctl,
+        on_date_select: on_date_select_slot,
     };
 
-    // Sync external value/placeholder Signal updates.
+    // Sync external value/placeholder updates.
     let mut last_single_seen = use_hook(|| CopyValue::new(initial_single));
     let mut last_multiple_seen = use_hook(|| CopyValue::new(initial_multiple));
     {
@@ -286,10 +298,10 @@ pub(crate) fn render_calendar_root(props: CalendarRootProps) -> Element {
     let snapshot = runtime.snapshot();
     let root_attrs = runtime.root_attrs(None);
     let announcement_text = (runtime.announcement)();
-    let body = if let Some(ref render_children) = props.render_children {
+    let body = if let Some(ref render_children) = render_children {
         render_children.call(snapshot.clone())
     } else {
-        props.children
+        children
     };
     let internal_children = render_calendar_internal_children(
         rels.accessible_heading_id(),
@@ -299,56 +311,33 @@ pub(crate) fn render_calendar_root(props: CalendarRootProps) -> Element {
         body,
     );
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(CalendarRootRenderProps {
-                attrs: root_attrs,
-                snapshot,
-                class: props.class,
-                style: props.style,
-                on_key_down: props.on_key_down,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-                children: internal_children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::CalendarRoot: as_child requires render_child; rendering the default div"
-        );
-    }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
+    let mut base_attrs = Vec::with_capacity(8);
+    base_attrs.push(Attribute::new("id", root_attrs.id, None, false));
+    base_attrs.push(Attribute::new("role", root_attrs.role, None, false));
+    base_attrs.push(Attribute::new("aria-label", root_attrs.aria_label, None, false));
+    base_attrs.push(Attribute::new("dir", root_attrs.dir, None, false));
+    push_attr_opt(
+        &mut base_attrs,
+        "data-calendar-root",
+        root_attrs.data_calendar_root,
     );
-    let on_key_down = props.on_key_down;
-    let on_mounted = props.on_mounted;
+    push_attr_opt(&mut base_attrs, "data-invalid", root_attrs.data_invalid);
+    push_attr_opt(&mut base_attrs, "data-disabled", root_attrs.data_disabled);
+    push_attr_opt(&mut base_attrs, "data-readonly", root_attrs.data_readonly);
+
+    let mut user = collect_user_attrs(class, style, attributes);
+    push_event_handler(&mut user, "onkeydown", on_key_down);
+    push_event_handler(&mut user, "onmounted", on_mounted);
+
+    let merged = merge_props(base_attrs, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{root_attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            role: root_attrs.role,
-            aria_label: "{root_attrs.aria_label}",
-            dir: root_attrs.dir,
-            "data-calendar-root": root_attrs.data_calendar_root,
-            "data-invalid": root_attrs.data_invalid,
-            "data-disabled": root_attrs.data_disabled,
-            "data-readonly": root_attrs.data_readonly,
-            onkeydown: move |evt| {
-                if let Some(handler) = on_key_down {
-                    handler.call(evt);
-                }
-            },
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {internal_children}
         }
     }

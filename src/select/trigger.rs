@@ -7,15 +7,16 @@ use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
     browser::focus::use_composite_focus_out,
     compose::{
-        extract_aria_invalid_and_describedby, merge_global_attributes,
-        resolve_invalid_and_describedby,
+        collect_user_attrs, extract_aria_invalid_and_describedby, merge_props, push_attr_opt,
+        push_bool_data_attr, push_event_handler, resolve_invalid_and_describedby,
     },
-    shared::{ScopeHandle, use_stable_id},
+    shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
+    state::use_controllable_signal,
 };
 
 use super::{
     hidden_input::SelectHiddenInput,
-    runtime::{SelectRuntime, use_select_runtime_full},
+    runtime::use_select_runtime_controllable,
     state::Select,
     types::{SelectContext, SelectItemData, SelectMode},
 };
@@ -53,28 +54,22 @@ fn extract_aria_labelledby(attrs: Vec<Attribute>) -> (Option<String>, Vec<Attrib
 
 #[derive(Clone, PartialEq, Props)]
 pub struct SelectRootProps {
-    #[props(default)]
-    pub runtime: Option<SelectRuntime>,
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub mode: Option<SelectMode>,
-    #[props(default = false)]
-    pub multiple: bool,
-    #[props(default)]
+    pub mode: SelectMode,
+    #[props(default, into)]
     pub value: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub default_value: Option<String>,
     #[props(default)]
     pub values: Option<Vec<String>>,
     #[props(default)]
     pub default_values: Option<Vec<String>>,
+    #[props(default)]
+    pub open: Option<bool>,
     #[props(default = false)]
-    pub open: bool,
+    pub default_open: bool,
     #[props(default)]
     pub on_value_change: Option<EventHandler<Option<String>>>,
     #[props(default)]
@@ -93,37 +88,32 @@ pub struct SelectRootProps {
     pub required: bool,
     #[props(default)]
     pub invalid: Option<bool>,
-    #[props(default)]
+    #[props(default, into)]
     pub name: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub form: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub autocomplete: Option<String>,
     #[props(default)]
     pub items: Option<Vec<SelectItemData>>,
     #[props(default = false)]
     pub loop_selection: bool,
     #[props(default)]
-    pub dir: Option<crate::foundation::shared::Direction>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
+    pub dir: Option<Direction>,
     pub children: Element,
 }
 
 #[component]
 pub fn SelectRoot(props: SelectRootProps) -> Element {
     let SelectRootProps {
-        runtime,
         id,
-        class,
-        style,
         mode,
-        multiple,
         value,
         default_value,
         values,
         default_values,
         open,
+        default_open,
         on_value_change,
         on_values_change,
         on_open_change,
@@ -139,7 +129,6 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
         items,
         loop_selection,
         dir,
-        attributes,
         children,
     } = props;
 
@@ -147,75 +136,85 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
     let effective_name = name.clone().or_else(|| field_ctx.and_then(|f| f.name()));
     let effective_disabled = disabled || field_ctx.is_some_and(|f| f.is_disabled());
     let effective_required = required || field_ctx.is_some_and(|f| f.is_required());
+    let effective_read_only = field_ctx.is_some_and(|f| f.is_read_only());
 
-    let extracted_root = extract_aria_invalid_and_describedby(attributes);
-    let root_invalid_override = invalid.or(extracted_root.aria_invalid);
+    let root_invalid_override = invalid;
     let effective_root_invalid = root_invalid_override
         .or_else(|| field_ctx.map(|f| f.is_invalid()))
         .unwrap_or(false);
 
-    let fallback_scope_id = use_stable_id(id.clone().map(Cow::Owned));
+    let resolved_mode = match mode {
+        SelectMode::Single {
+            allow_deselect: mode_deselect,
+        } => SelectMode::Single {
+            allow_deselect: mode_deselect || allow_deselect,
+        },
+        SelectMode::Multiple => SelectMode::Multiple,
+    };
+
+    let value_ctl = use_controllable_signal(
+        value.clone().map(Some),
+        default_value.clone(),
+        on_value_change,
+    );
+    let values_ctl = use_controllable_signal(
+        values.clone(),
+        default_values.clone().unwrap_or_default(),
+        on_values_change,
+    );
+    let open_ctl = use_controllable_signal(open, default_open, on_open_change);
+
+    let scope_id = use_stable_id(id.clone().map(Cow::Owned));
     let is_value_controlled = value.is_some();
     let is_values_controlled = values.is_some();
-    let fallback_val = value.clone().or(default_value.clone());
+    let current_val = value_ctl.get();
+    let current_vals = values_ctl.get();
+    let current_open = open_ctl.get();
 
-    let mut fallback_select = Select::new(ScopeHandle::root("select").child(fallback_scope_id))
+    let mut select_def = Select::new(ScopeHandle::root("select").child(scope_id))
+        .with_mode(resolved_mode)
         .with_value_controlled(is_value_controlled)
         .with_values_controlled(is_values_controlled)
-        .with_value(fallback_val)
+        .with_value(current_val)
         .with_default_value(default_value)
-        .with_open(open)
-        .with_allow_deselect(allow_deselect)
+        .with_values(current_vals)
+        .with_open(current_open)
         .with_disabled(effective_disabled)
         .with_required(effective_required)
         .with_loop(loop_selection);
 
-    if let Some(m) = mode {
-        fallback_select = fallback_select.with_mode(m);
-    } else if multiple {
-        fallback_select = fallback_select.with_multiple(true);
-    }
-
-    if let Some(vals) = values.clone() {
-        fallback_select = fallback_select.with_values(vals);
-    }
     if let Some(dvals) = default_values {
-        fallback_select = fallback_select.with_default_values(dvals);
+        select_def = select_def.with_default_values(dvals);
     }
     if let Some(n) = effective_name.clone() {
-        fallback_select = fallback_select.with_name(n);
+        select_def = select_def.with_name(n);
     }
     if let Some(f) = form.clone() {
-        fallback_select = fallback_select.with_form(f);
+        select_def = select_def.with_form(f);
     }
     if let Some(ac) = autocomplete.clone() {
-        fallback_select = fallback_select.with_autocomplete(ac);
+        select_def = select_def.with_autocomplete(ac);
     }
     if let Some(it) = items {
-        fallback_select = fallback_select.with_items(it);
+        select_def = select_def.with_items(it);
     }
 
-    let val_change = on_value_change.map(|h| move |v| h.call(v));
-    let vals_change = on_values_change.map(|h| move |v| h.call(v));
-    let open_change = on_open_change.map(|h| move |o| h.call(o));
-    let open_complete_change = on_open_change_complete.map(|h| move |o| h.call(o));
-
-    let default_runtime = use_select_runtime_full(
-        fallback_select,
-        val_change,
-        vals_change,
-        open_change,
-        open_complete_change,
+    let resolved_dir = use_direction_context(dir);
+    let runtime = use_select_runtime_controllable(
+        select_def,
+        value_ctl,
+        values_ctl,
+        open_ctl,
+        on_open_change_complete,
+        resolved_dir,
     );
-
-    let runtime = runtime.unwrap_or(default_runtime);
     runtime.set_root_invalid_override(root_invalid_override);
     runtime.set_invalid(effective_root_invalid);
 
     let (handle_focus_in, handle_focus_out) = use_composite_focus_out(
         vec![
             runtime.current_trigger_id(),
-            runtime.relationships().content_id().to_owned(),
+            runtime.current_content_id(),
         ],
         on_focus_out,
     );
@@ -226,39 +225,24 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
         name: effective_name.clone(),
     });
 
-    let attrs = runtime.root_attributes();
-    let resolved_dir = crate::foundation::shared::use_direction_context(dir);
     let eff_req = runtime.select().is_required() || effective_required;
     let eff_form = form.or_else(|| runtime.select().form().map(str::to_owned));
     let eff_auto = autocomplete.or_else(|| runtime.select().autocomplete().map(str::to_owned));
 
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), extracted_root.rest);
-
     rsx! {
-        div {
-            id: "{attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            dir: "{resolved_dir.as_str()}",
-            "data-state": "{attrs.data_state_str()}",
-            "data-disabled": attrs.data_disabled(),
-            "data-invalid": attrs.data_invalid(),
-            onfocusin: handle_focus_in,
-            onfocusout: handle_focus_out,
-            ..merged.rest,
-            {children}
-            if let Some(input_name) = effective_name.or_else(|| runtime.select().name().map(str::to_owned)) {
-                SelectHiddenInput {
-                    name: input_name,
-                    value: runtime.value(),
-                    values: if runtime.select().is_multiple() { Some(runtime.values()) } else { None },
-                    disabled: runtime.is_disabled() || effective_disabled,
-                    required: eff_req,
-                    form: eff_form,
-                    autocomplete: eff_auto,
-                    focus_target_id: Some(runtime.current_trigger_id()),
-                    reset_epoch: runtime.reset_epoch(),
-                }
+        {children}
+        if let Some(input_name) = effective_name.or_else(|| runtime.select().name().map(str::to_owned)) {
+            SelectHiddenInput {
+                name: input_name,
+                value: runtime.value(),
+                values: if runtime.select().is_multiple() { Some(runtime.values()) } else { None },
+                disabled: runtime.is_disabled() || effective_disabled,
+                required: eff_req,
+                read_only: effective_read_only,
+                form: eff_form,
+                autocomplete: eff_auto,
+                focus_target_id: Some(runtime.current_trigger_id()),
+                reset_epoch: runtime.reset_epoch(),
             }
         }
     }
@@ -266,22 +250,26 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct SelectTriggerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
+    #[props(default = false)]
+    pub disabled: bool,
     #[props(default)]
     pub invalid: Option<bool>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_describedby: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_labelledby: Option<String>,
     #[props(default)]
     pub on_blur: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub on_focus: Option<EventHandler<FocusEvent>>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -291,6 +279,7 @@ pub struct SelectTriggerProps {
 pub fn SelectTrigger(props: SelectTriggerProps) -> Element {
     let SelectTriggerProps {
         id,
+        disabled,
         invalid,
         aria_describedby,
         aria_labelledby,
@@ -298,6 +287,7 @@ pub fn SelectTrigger(props: SelectTriggerProps) -> Element {
         on_focus,
         class,
         style,
+        child,
         attributes,
         children,
     } = props;
@@ -362,6 +352,7 @@ pub fn SelectTrigger(props: SelectTriggerProps) -> Element {
     } else {
         field_ctx.and_then(|f| f.aria_labelledby())
     };
+    let field_read_only = field_ctx.is_some_and(|f| f.is_read_only());
 
     let fallback_invalid = ctx
         .runtime
@@ -392,67 +383,149 @@ pub fn SelectTrigger(props: SelectTriggerProps) -> Element {
         .with_invalid(effective_invalid)
         .with_aria_describedby(effective_describedby)
         .with_aria_labelledby(effective_labelledby);
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), rest_attrs);
+
+    let is_dis = disabled || attrs.is_disabled();
+    let trigger_id = attrs.id().to_owned();
+    let role_str = attrs.role();
+    let aria_haspopup = attrs.aria_haspopup();
+    let aria_expanded = attrs.aria_expanded();
+    let aria_controls = attrs.aria_controls().map(str::to_owned);
+    let aria_required = attrs.aria_required();
+    let aria_invalid = attrs.aria_invalid();
+    let aria_describedby_val = attrs.aria_describedby().map(str::to_owned);
+    let aria_labelledby_val = attrs.aria_labelledby().map(str::to_owned);
+    let data_state_str = attrs.data_state_str();
+    let data_invalid = attrs.data_invalid();
+    let data_placeholder_str = attrs.data_placeholder_str();
+    let tabindex_str = if is_dis { "-1" } else { "0" };
+
+    let mut base = Vec::with_capacity(24);
+    base.push(Attribute::new("type", "button", None, false));
+    base.push(Attribute::new("id", trigger_id, None, false));
+    base.push(Attribute::new("role", role_str, None, false));
+    base.push(Attribute::new("aria-haspopup", aria_haspopup, None, false));
+    base.push(Attribute::new("aria-expanded", aria_expanded, None, false));
+    push_attr_opt(&mut base, "aria-controls", aria_controls);
+    push_attr_opt(&mut base, "aria-disabled", is_dis.then_some("true"));
+    push_attr_opt(&mut base, "aria-required", aria_required);
+    push_attr_opt(&mut base, "aria-invalid", aria_invalid);
+    push_attr_opt(
+        &mut base,
+        "aria-readonly",
+        field_read_only.then_some("true"),
+    );
+    push_attr_opt(&mut base, "aria-describedby", aria_describedby_val);
+    push_attr_opt(&mut base, "aria-labelledby", aria_labelledby_val);
+    base.push(Attribute::new("tabindex", tabindex_str, None, false));
+    if is_dis {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    base.push(Attribute::new("data-state", data_state_str, None, false));
+    push_bool_data_attr(&mut base, "data-disabled", is_dis);
+    push_attr_opt(&mut base, "data-invalid", data_invalid);
+    push_bool_data_attr(&mut base, "data-readonly", field_read_only);
+    base.push(Attribute::new(
+        "data-placeholder",
+        data_placeholder_str,
+        None,
+        false,
+    ));
+
+    push_event_handler(
+        &mut base,
+        "onpointerdown",
+        Some(EventHandler::new({
+            let runtime = ctx.runtime.clone();
+            move |_evt: PointerEvent| {
+                if !is_dis && runtime.is_open() {
+                    runtime.mark_pointer_dismiss();
+                }
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onclick",
+        Some(EventHandler::new({
+            let runtime = ctx.runtime.clone();
+            move |_evt: MouseEvent| {
+                if !is_dis {
+                    runtime.toggle_open();
+                }
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onkeydown",
+        Some(EventHandler::new({
+            let runtime = ctx.runtime.clone();
+            move |evt: KeyboardEvent| {
+                if !is_dis {
+                    runtime.handle_trigger_keydown(&evt);
+                }
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onfocus",
+        Some(EventHandler::new(move |evt: FocusEvent| {
+            if let Some(handler) = on_focus_slot.try_read().ok().and_then(|s| *s) {
+                handler.call(evt);
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onblur",
+        Some(EventHandler::new(move |evt: FocusEvent| {
+            if let Some(handler) = on_blur_slot.try_read().ok().and_then(|s| *s) {
+                handler.call(evt);
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onfocusin",
+        Some(EventHandler::new({
+            let runtime = ctx.runtime.clone();
+            move |evt: FocusEvent| {
+                runtime.notify_composite_focus_in(evt);
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onfocusout",
+        Some(EventHandler::new({
+            let runtime = ctx.runtime.clone();
+            move |evt: FocusEvent| {
+                runtime.notify_composite_focus_out(evt);
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onmounted",
+        Some(EventHandler::new({
+            let runtime = ctx.runtime.clone();
+            move |evt: MountedEvent| {
+                runtime.capture_trigger_mount(evt.data());
+            }
+        })),
+    );
+
+    let user = collect_user_attrs(class, style, rest_attrs);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         button {
-            r#type: "button",
-            id: "{attrs.id()}",
-            role: "{attrs.role()}",
-            aria_haspopup: "{attrs.aria_haspopup()}",
-            aria_expanded: "{attrs.aria_expanded()}",
-            aria_controls: attrs.aria_controls(),
-            aria_disabled: attrs.aria_disabled(),
-            aria_required: attrs.aria_required(),
-            aria_invalid: attrs.aria_invalid(),
-            aria_describedby: attrs.aria_describedby(),
-            aria_labelledby: attrs.aria_labelledby(),
-            tabindex: "{attrs.tabindex()}",
-            disabled: attrs.is_disabled(),
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-state": "{attrs.data_state_str()}",
-            "data-disabled": attrs.data_disabled(),
-            "data-invalid": attrs.data_invalid(),
-            "data-placeholder": attrs.data_placeholder_str(),
-            onpointerdown: {
-                let runtime = ctx.runtime.clone();
-                let is_dis = attrs.is_disabled();
-                move |_| {
-                    if !is_dis && runtime.is_open() {
-                        runtime.mark_pointer_dismiss();
-                    }
-                }
-            },
-            onclick: {
-                let runtime = ctx.runtime.clone();
-                move |_| {
-                    runtime.toggle_open();
-                }
-            },
-            onkeydown: {
-                let runtime = ctx.runtime.clone();
-                move |evt| {
-                    runtime.handle_trigger_keydown(&evt);
-                }
-            },
-            onfocus: move |evt| {
-                if let Some(handler) = on_focus_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt);
-                }
-            },
-            onblur: move |evt| {
-                if let Some(handler) = on_blur_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt);
-                }
-            },
-            onmounted: {
-                let runtime = ctx.runtime.clone();
-                move |evt: Event<MountedData>| {
-                    runtime.capture_trigger_mount(evt.data());
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {children}
         }
     }
@@ -484,12 +557,16 @@ pub fn humanize_label(val: &str) -> String {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct SelectValueProps {
-    #[props(default)]
+    #[props(default, into)]
+    pub id: Option<String>,
+    #[props(default, into)]
     pub placeholder: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -499,9 +576,11 @@ pub struct SelectValueProps {
 #[component]
 pub fn SelectValue(props: SelectValueProps) -> Element {
     let SelectValueProps {
+        id,
         placeholder,
         class,
         style,
+        child,
         attributes,
         children,
     } = props;
@@ -547,15 +626,26 @@ pub fn SelectValue(props: SelectValueProps) -> Element {
         text_content
     };
 
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+    let mut base = Vec::with_capacity(2);
+    push_attr_opt(&mut base, "id", id);
+    base.push(Attribute::new(
+        "data-placeholder",
+        if is_empty { "true" } else { "false" },
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(class, style, attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     if let Some(c) = children {
         return rsx! {
             span {
-                class: merged.class.as_deref(),
-                style: merged.style.as_deref(),
-                "data-placeholder": if is_empty { "true" } else { "false" },
-                ..merged.rest,
+                ..merged,
                 {c}
             }
         };
@@ -563,10 +653,7 @@ pub fn SelectValue(props: SelectValueProps) -> Element {
 
     rsx! {
         span {
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-placeholder": if is_empty { "true" } else { "false" },
-            ..merged.rest,
+            ..merged,
             "{display_text}"
         }
     }
@@ -574,10 +661,14 @@ pub fn SelectValue(props: SelectValueProps) -> Element {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct SelectIconProps {
-    #[props(default)]
+    #[props(default, into)]
+    pub id: Option<String>,
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -587,20 +678,28 @@ pub struct SelectIconProps {
 #[component]
 pub fn SelectIcon(props: SelectIconProps) -> Element {
     let SelectIconProps {
+        id,
         class,
         style,
+        child,
         attributes,
         children,
     } = props;
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+    let mut base = Vec::with_capacity(2);
+    push_attr_opt(&mut base, "id", id);
+    base.push(Attribute::new("aria-hidden", "true", None, false));
+
+    let user = collect_user_attrs(class, style, attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     if let Some(c) = children {
         return rsx! {
             span {
-                class: merged.class.as_deref(),
-                style: merged.style.as_deref(),
-                aria_hidden: "true",
-                ..merged.rest,
+                ..merged,
                 {c}
             }
         };
@@ -608,10 +707,7 @@ pub fn SelectIcon(props: SelectIconProps) -> Element {
 
     rsx! {
         span {
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            aria_hidden: "true",
-            ..merged.rest,
+            ..merged,
             "▼"
         }
     }

@@ -12,62 +12,42 @@ use crate::{
             TimeRange, TimeValue,
         },
         shared::Direction,
-        state::ControlledBinding,
     },
-    time_field::{TimeFieldInputRenderProps, TimeFieldSegmentItem, default_time_field_placeholder},
+    time_field::{TimeFieldSegmentItem, default_time_field_placeholder},
 };
 
-use super::{
-    attrs::{TimeRangeFieldLabelAttrs, TimeRangeFieldRootAttrs},
-    types::RangeFieldInputKind,
-};
+use super::types::RangeFieldInputKind;
 
 pub use crate::time_field::{
     TimeFieldSegment as TimeRangeFieldSegment,
     TimeFieldSegmentProps as TimeRangeFieldSegmentProps,
-    TimeFieldSegmentRenderProps as TimeRangeFieldSegmentRenderProps,
 };
-
-/// Render props passed to `as_child` for [`TimeRangeFieldRoot`].
-#[derive(Clone, PartialEq, Props)]
-pub struct TimeRangeFieldRootRenderProps {
-    pub attrs: TimeRangeFieldRootAttrs,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
 
 /// Props for [`TimeRangeFieldRoot`].
 #[derive(Clone, PartialEq, Props)]
 pub struct TimeRangeFieldRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
-    pub value: Option<Signal<TimeRange>>,
+    pub value: Option<TimeRange>,
     #[props(default)]
-    pub controlled_value: Option<ReadSignal<TimeRange>>,
-    #[props(default)]
-    pub default_value: TimeRange,
+    pub default_value: Option<TimeRange>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<TimeRange>>,
     #[props(default)]
+    pub start_value: Option<Option<TimeValue>>,
+    #[props(default)]
     pub on_start_value_change: Option<EventHandler<Option<TimeValue>>>,
+    #[props(default)]
+    pub end_value: Option<Option<TimeValue>>,
     #[props(default)]
     pub on_end_value_change: Option<EventHandler<Option<TimeValue>>>,
     #[props(default)]
-    pub placeholder: Option<Signal<TimeValue>>,
-    #[props(default)]
-    pub controlled_placeholder: Option<ReadSignal<TimeValue>>,
+    pub placeholder: Option<TimeValue>,
     #[props(default)]
     pub default_placeholder: Option<TimeValue>,
     #[props(default)]
@@ -78,7 +58,7 @@ pub struct TimeRangeFieldRootProps {
     pub granularity: TimeGranularity,
     #[props(default)]
     pub hour_cycle: Option<HourCycle>,
-    #[props(default)]
+    #[props(default, into)]
     pub locale: CalendarLocale,
     #[props(default)]
     pub min_value: Option<TimeValue>,
@@ -91,21 +71,17 @@ pub struct TimeRangeFieldRootProps {
     #[props(default = false)]
     pub required: bool,
     #[props(default)]
-    pub readonly_segments: Vec<EditableSegmentKind>,
+    pub read_only_segments: Vec<EditableSegmentKind>,
     #[props(default)]
     pub validate: Option<Callback<TimeRange, Option<Vec<String>>>>,
     #[props(default)]
     pub on_invalid: Option<EventHandler<FieldInvalidEvent>>,
-    #[props(default)]
+    #[props(default, into)]
     pub error_message_id: Option<String>,
     #[props(default)]
     pub dir: Option<Direction>,
     #[props(default)]
-    pub is_invalid_override: Option<bool>,
-    #[props(default = false)]
-    pub as_child: bool,
-    #[props(default)]
-    pub render_child: Option<Callback<TimeRangeFieldRootRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -117,35 +93,37 @@ pub struct TimeRangeFieldRootProps {
 /// Root group container (`<div role="group">`) for segmented time range fields.
 #[component]
 pub fn TimeRangeFieldRoot(props: TimeRangeFieldRootProps) -> Element {
-    let value_binding = ControlledBinding::from_props(props.value, props.controlled_value);
-    let placeholder_binding =
-        ControlledBinding::from_props(props.placeholder, props.controlled_placeholder);
-    let initial_value = value_binding.initial_or(props.default_value);
-    let initial_placeholder = placeholder_binding
-        .peek_cloned()
+    let default_range = props.default_value.unwrap_or_default();
+    let initial_start = props
+        .start_value
+        .unwrap_or_else(|| props.value.map_or(default_range.start, |v| v.start));
+    let initial_end = props
+        .end_value
+        .unwrap_or_else(|| props.value.map_or(default_range.end, |v| v.end));
+    let initial_placeholder = props
+        .placeholder
         .or(props.default_placeholder)
         .unwrap_or_else(|| {
             default_time_field_placeholder(
-                initial_value.start.or(initial_value.end),
+                initial_start.or(initial_end),
                 props.min_value,
                 props.max_value,
             )
         });
 
-    let render_child = props.render_child;
-    render_range_field_root::<TimeFieldPolicy, _>(
+    render_range_field_root::<TimeFieldPolicy>(
         RangeFieldRootSpec {
             id: props.id,
             class: props.class,
             style: props.style,
             value: props.value,
-            controlled_value: props.controlled_value,
             default_value: props.default_value,
             on_value_change: props.on_value_change,
+            start_value: props.start_value,
             on_start_value_change: props.on_start_value_change,
+            end_value: props.end_value,
             on_end_value_change: props.on_end_value_change,
             placeholder: props.placeholder,
-            controlled_placeholder: props.controlled_placeholder,
             on_placeholder_change: props.on_placeholder_change,
             on_focus_out: props.on_focus_out,
             granularity: props.granularity,
@@ -157,32 +135,19 @@ pub fn TimeRangeFieldRoot(props: TimeRangeFieldRootProps) -> Element {
             disabled: props.disabled,
             read_only: props.read_only,
             required: props.required,
-            readonly_segments: props.readonly_segments,
+            read_only_segments: props.read_only_segments,
             is_date_unavailable: None,
             validate: props.validate,
             on_invalid: props.on_invalid,
             error_message_id: props.error_message_id,
             dir: props.dir,
-            is_invalid_override: props.is_invalid_override,
-            as_child: props.as_child,
+            is_invalid_override: None,
+            child: props.child,
             on_mounted: props.on_mounted,
             attributes: props.attributes,
             children: props.children,
-            debug_name: "TimeRangeFieldRoot",
         },
         initial_placeholder,
-        move |view| {
-            render_child.map(|cb| {
-                cb.call(TimeRangeFieldRootRenderProps {
-                    attrs: view.attrs,
-                    class: view.class,
-                    style: view.style,
-                    on_mounted: view.on_mounted,
-                    attributes: view.attributes,
-                    children: view.children,
-                })
-            })
-        },
     )
 }
 
@@ -192,20 +157,18 @@ pub use TimeRangeFieldRoot as TimeRangeField;
 #[derive(Clone, PartialEq, Props)]
 pub struct TimeRangeFieldInputProps {
     pub kind: RangeFieldInputKind,
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub name: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub form: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<TimeFieldInputRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub render_children: Option<Callback<Vec<TimeFieldSegmentItem>, Element>>,
     #[props(default)]
@@ -219,67 +182,32 @@ pub struct TimeRangeFieldInputProps {
 /// Endpoint input (`Start` or `End`) inside a `TimeRangeFieldRoot`.
 #[component]
 pub fn TimeRangeFieldInput(props: TimeRangeFieldInputProps) -> Element {
-    let render_child = props.render_child;
-    render_range_field_input::<TimeFieldPolicy, _>(
-        RangeFieldInputSpec {
-            kind: props.kind,
-            id: props.id,
-            class: props.class,
-            style: props.style,
-            name: props.name,
-            form: props.form,
-            as_child: props.as_child,
-            render_children: props.render_children,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: props.children,
-            debug_name: "TimeRangeFieldInput",
-        },
-        move |view| {
-            render_child.map(|cb| {
-                cb.call(TimeFieldInputRenderProps {
-                    attrs: view.attrs,
-                    segments: view.segments,
-                    class: view.class,
-                    style: view.style,
-                    on_mounted: view.on_mounted,
-                    attributes: view.attributes,
-                    children: view.children,
-                })
-            })
-        },
-    )
-}
-
-/// Render props passed to `as_child` for [`TimeRangeFieldLabel`].
-#[derive(Clone, PartialEq, Props)]
-pub struct TimeRangeFieldLabelRenderProps {
-    pub attrs: TimeRangeFieldLabelAttrs,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    pub on_click: EventHandler<MouseEvent>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
+    render_range_field_input::<TimeFieldPolicy>(RangeFieldInputSpec {
+        kind: props.kind,
+        id: props.id,
+        class: props.class,
+        style: props.style,
+        name: props.name,
+        form: props.form,
+        child: props.child,
+        render_children: props.render_children,
+        on_mounted: props.on_mounted,
+        attributes: props.attributes,
+        children: props.children,
+    })
 }
 
 /// Props for [`TimeRangeFieldLabel`].
 #[derive(Clone, PartialEq, Props)]
 pub struct TimeRangeFieldLabelProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<TimeRangeFieldLabelRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
@@ -293,31 +221,14 @@ pub struct TimeRangeFieldLabelProps {
 /// Accessible label (`<span>`) for `TimeRangeField`; clicking focuses the first interactive segment.
 #[component]
 pub fn TimeRangeFieldLabel(props: TimeRangeFieldLabelProps) -> Element {
-    let render_child = props.render_child;
-    render_range_field_label::<TimeFieldPolicy, _>(
-        RangeFieldLabelSpec {
-            id: props.id,
-            class: props.class,
-            style: props.style,
-            as_child: props.as_child,
-            on_click: props.on_click,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: props.children,
-            debug_name: "TimeRangeFieldLabel",
-        },
-        move |view| {
-            render_child.map(|cb| {
-                cb.call(TimeRangeFieldLabelRenderProps {
-                    attrs: view.attrs,
-                    class: view.class,
-                    style: view.style,
-                    on_click: view.on_click,
-                    on_mounted: view.on_mounted,
-                    attributes: view.attributes,
-                    children: view.children,
-                })
-            })
-        },
-    )
+    render_range_field_label::<TimeFieldPolicy>(RangeFieldLabelSpec {
+        id: props.id,
+        class: props.class,
+        style: props.style,
+        child: props.child,
+        on_click: props.on_click,
+        on_mounted: props.on_mounted,
+        attributes: props.attributes,
+        children: props.children,
+    })
 }

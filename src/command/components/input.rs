@@ -2,71 +2,34 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{FocusOptions, focus_element_sync_or_defer},
-    compose::merge_global_attributes,
-    state::sync_signal,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
+    state::{sync_signal, use_controllable_signal},
 };
 
 use super::super::{attrs::CommandInputAttrs, runtime::CommandContext};
 
 #[derive(Clone, PartialEq, Props)]
-pub struct CommandInputRenderProps {
-    pub id: String,
-    pub r#type: &'static str,
-    pub role: &'static str,
-    pub aria_autocomplete: &'static str,
-    pub aria_expanded: &'static str,
-    #[props(default)]
-    pub aria_controls: Option<String>,
-    #[props(default)]
-    pub aria_labelledby: Option<String>,
-    #[props(default)]
-    pub aria_activedescendant: Option<String>,
-    pub autocomplete: &'static str,
-    pub autocorrect: &'static str,
-    pub spellcheck: &'static str,
-    pub data_command_input: &'static str,
-    pub value: String,
-    #[props(default)]
-    pub placeholder: Option<String>,
-    #[props(default = false)]
-    pub disabled: bool,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    pub on_input: EventHandler<FormEvent>,
-    pub on_compositionstart: EventHandler<CompositionEvent>,
-    pub on_compositionend: EventHandler<CompositionEvent>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-}
-
-#[derive(Clone, PartialEq, Props)]
 pub struct CommandInputProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
-    pub value: Option<Signal<String>>,
-    #[props(default)]
+    #[props(default, into)]
+    pub value: Option<String>,
+    #[props(default, into)]
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
-    #[props(default)]
+    #[props(default, into)]
     pub placeholder: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default = false)]
-    pub autofocus: bool,
-    #[props(default)]
+    pub auto_focus: bool,
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CommandInputRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_input: Option<EventHandler<FormEvent>>,
     #[props(default)]
@@ -84,8 +47,12 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
         .unwrap_or_else(|| ctx.relationships.peek().input_id());
     sync_signal(&mut ctx.input_id, resolved_id.clone());
 
-    let fallback_val = use_signal(|| props.default_value.clone().unwrap_or_default());
-    let mut val_sig = props.value.unwrap_or(fallback_val);
+    let value_ctl = use_controllable_signal(
+        props.value,
+        props.default_value.unwrap_or_default(),
+        props.on_value_change,
+    );
+    let val_sig = value_ctl.signal();
 
     // Sync controlled or seeded input value into command root search via effect (not mid-render).
     let current_val = val_sig();
@@ -105,11 +72,11 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
         }
     });
 
-    let autofocus_id = resolved_id.clone();
-    let autofocus = props.autofocus;
+    let auto_focus_id = resolved_id.clone();
+    let auto_focus = props.auto_focus;
     use_effect(move || {
-        if autofocus {
-            focus_element_sync_or_defer(&autofocus_id, FocusOptions::new(false));
+        if auto_focus {
+            focus_element_sync_or_defer(&auto_focus_id, FocusOptions::new(false));
         }
     });
 
@@ -121,96 +88,88 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
         active_descendant,
     );
 
-    let on_value_change = props.on_value_change;
-    let on_input_prop = props.on_input;
-    let is_controlled = props.value.is_some();
     let mut ctx_for_input = ctx;
-    let handle_input = EventHandler::new(move |evt: FormEvent| {
+    let base_input = EventHandler::new(move |evt: FormEvent| {
         let next = evt.value();
+        let is_controlled = value_ctl.is_controlled();
+        value_ctl.set(next.clone());
         if !is_controlled {
-            val_sig.set(next.clone());
-        }
-        ctx_for_input.set_search(next.clone());
-        if let Some(cb) = on_value_change {
-            cb.call(next);
-        }
-        if let Some(handler) = on_input_prop {
-            handler.call(evt);
+            ctx_for_input.set_search(next);
         }
     });
 
     let mut ctx_for_comp_start = ctx;
-    let handle_compositionstart = EventHandler::new(move |_evt: CompositionEvent| {
+    let base_compositionstart = EventHandler::new(move |_evt: CompositionEvent| {
         ctx_for_comp_start.set_composing(true);
     });
     let mut ctx_for_comp_end = ctx;
-    let handle_compositionend = EventHandler::new(move |_evt: CompositionEvent| {
+    let base_compositionend = EventHandler::new(move |_evt: CompositionEvent| {
         ctx_for_comp_end.set_composing(false);
     });
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(CommandInputRenderProps {
-                id: attrs.id,
-                r#type: attrs.r#type,
-                role: attrs.role,
-                aria_autocomplete: attrs.aria_autocomplete,
-                aria_expanded: attrs.aria_expanded,
-                aria_controls: attrs.aria_controls,
-                aria_labelledby: attrs.aria_labelledby,
-                aria_activedescendant: attrs.aria_activedescendant,
-                autocomplete: attrs.autocomplete,
-                autocorrect: attrs.autocorrect,
-                spellcheck: attrs.spellcheck,
-                data_command_input: attrs.data_command_input,
-                value: current_val,
-                placeholder: props.placeholder,
-                disabled: props.disabled,
-                class: props.class,
-                style: props.style,
-                on_input: handle_input,
-                on_compositionstart: handle_compositionstart,
-                on_compositionend: handle_compositionend,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-            });
-        }
-    }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
+    let mut base = Vec::with_capacity(18);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("type", attrs.r#type, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new(
+        "aria-autocomplete",
+        attrs.aria_autocomplete,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-expanded",
+        attrs.aria_expanded,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "aria-controls", attrs.aria_controls);
+    push_attr_opt(&mut base, "aria-labelledby", attrs.aria_labelledby);
+    push_attr_opt(
+        &mut base,
+        "aria-activedescendant",
+        attrs.aria_activedescendant,
     );
+    base.push(Attribute::new(
+        "autocomplete",
+        attrs.autocomplete,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "autocorrect",
+        attrs.autocorrect,
+        None,
+        false,
+    ));
+    base.push(Attribute::new("spellcheck", attrs.spellcheck, None, false));
+    base.push(Attribute::new(
+        "data-command-input",
+        attrs.data_command_input,
+        None,
+        false,
+    ));
+    base.push(Attribute::new("value", current_val, None, false));
+    push_attr_opt(&mut base, "placeholder", props.placeholder);
+    if props.disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    push_event_handler(&mut base, "oninput", Some(base_input));
+    push_event_handler(&mut base, "oncompositionstart", Some(base_compositionstart));
+    push_event_handler(&mut base, "oncompositionend", Some(base_compositionend));
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "oninput", props.on_input);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         input {
-            id: "{attrs.id}",
-            r#type: "{attrs.r#type}",
-            role: "{attrs.role}",
-            aria_autocomplete: "{attrs.aria_autocomplete}",
-            aria_expanded: "{attrs.aria_expanded}",
-            aria_controls: attrs.aria_controls.as_deref(),
-            aria_labelledby: attrs.aria_labelledby.as_deref(),
-            aria_activedescendant: attrs.aria_activedescendant.as_deref(),
-            autocomplete: "{attrs.autocomplete}",
-            "autocorrect": "{attrs.autocorrect}",
-            spellcheck: "{attrs.spellcheck}",
-            "data-command-input": attrs.data_command_input,
-            value: "{current_val}",
-            placeholder: props.placeholder.as_deref(),
-            disabled: props.disabled,
-            class: merged.class,
-            style: merged.style,
-            oninput: move |evt| handle_input.call(evt),
-            oncompositionstart: move |evt| handle_compositionstart.call(evt),
-            oncompositionend: move |evt| handle_compositionend.call(evt),
-            onmounted: move |evt| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
         }
     }
 }

@@ -11,13 +11,25 @@ pub struct SelectPortalContext {
     pub force_mount: bool,
 }
 
+#[derive(Clone, PartialEq, Props)]
+pub struct SelectPortalProps {
+    #[props(default)]
+    pub host: Option<PortalHost>,
+    #[props(default = false)]
+    pub disabled: bool,
+    #[props(default = false)]
+    pub force_mount: bool,
+    pub children: Element,
+}
+
 #[component]
-pub fn SelectPortal(
-    #[props(default)] host: Option<PortalHost>,
-    #[props(default = false)] disabled: bool,
-    #[props(default = false)] force_mount: bool,
-    children: Element,
-) -> Element {
+pub fn SelectPortal(props: SelectPortalProps) -> Element {
+    let SelectPortalProps {
+        host,
+        disabled,
+        force_mount,
+        children,
+    } = props;
     let ctx = use_context::<SelectContext>();
 
     let resolved_host = if disabled {

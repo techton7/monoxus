@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 use crate::foundation::{
     browser::{click_element_by_id, scroll_element_into_view_nearest},
     keyboard::{NavKey, is_enter_key, is_ime_composing_key, translate_nav_key},
-    state::sync_signal,
+    state::{ControllableSignal, sync_signal},
 };
 
 use super::{
@@ -28,7 +28,7 @@ pub struct CommandContext {
     pub registry: Signal<CommandRegistry>,
     pub search: Signal<String>,
     pub value: Signal<String>,
-    pub on_value_change: CopyValue<Option<EventHandler<String>>>,
+    pub value_ctl: ControllableSignal<String>,
     pub on_state_change: CopyValue<Option<EventHandler<CommandStateSnapshot>>>,
     pub should_filter: Signal<bool>,
     pub filter: CopyValue<Option<CommandFilterCallback>>,
@@ -126,12 +126,8 @@ impl CommandContext {
     }
 
     pub fn set_value(&mut self, next: String, prevent_scroll: bool) {
-        let changed = *self.value.peek() != next;
+        let changed = self.value_ctl.set(next.clone());
         if changed {
-            self.value.set(next.clone());
-            if let Some(handler) = self.on_value_change.try_read().ok().and_then(|s| *s) {
-                handler.call(next.clone());
-            }
             self.emit_state_change();
         }
 
@@ -275,12 +271,7 @@ impl CommandContext {
                 None
             };
             if let Some(next) = next_selection {
-                if let Ok(mut val_sig) = self.value.try_write() {
-                    *val_sig = next.clone();
-                }
-                if let Some(handler) = self.on_value_change.try_read().ok().and_then(|s| *s) {
-                    handler.call(next);
-                }
+                self.value_ctl.set(next);
             }
         }
     }

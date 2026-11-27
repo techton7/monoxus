@@ -2,44 +2,28 @@ use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
-use crate::combobox::{attrs::ComboboxTriggerAttrs, runtime::use_combobox_context};
+use crate::combobox::runtime::use_combobox_context;
 use crate::field::try_use_field_context;
 use crate::foundation::{
     compose::{
-        extract_aria_invalid_and_describedby, merge_aria_describedby, merge_global_attributes,
-        resolve_invalid_and_describedby,
+        collect_user_attrs, extract_aria_invalid_and_describedby, merge_aria_describedby,
+        merge_props, push_attr_opt, push_event_handler, resolve_invalid_and_describedby,
     },
     keyboard::is_ime_composing_key,
 };
 
-#[derive(Clone, PartialEq)]
-pub struct ComboboxTriggerRenderProps {
-    pub attrs: ComboboxTriggerAttrs,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub on_mouse_down: EventHandler<MouseEvent>,
-    pub on_pointer_down: EventHandler<PointerEvent>,
-    pub on_pointer_up: EventHandler<PointerEvent>,
-    pub on_click: EventHandler<MouseEvent>,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 #[derive(Props, Clone, PartialEq)]
 pub struct ComboboxTriggerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<ComboboxTriggerRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -161,57 +145,60 @@ pub fn ComboboxTrigger(props: ComboboxTriggerProps) -> Element {
         }
     });
 
-    if props.as_child {
-        if let Some(ref render_child) = props.render_child {
-            return render_child.call(ComboboxTriggerRenderProps {
-                attrs,
-                class: props.class,
-                style: props.style,
-                on_mouse_down,
-                on_pointer_down,
-                on_pointer_up,
-                on_click,
-                on_key_down,
-                attributes: extracted.rest,
-                children: props.children,
-            });
-        }
-    }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        extracted.rest,
-    );
-
     let focus_in_rt = ctx.runtime.clone();
+    let on_focus_in = EventHandler::new(move |evt: FocusEvent| {
+        focus_in_rt.notify_composite_focus_in(evt);
+    });
     let focus_out_rt = ctx.runtime.clone();
+    let on_focus_out = EventHandler::new(move |evt: FocusEvent| {
+        focus_out_rt.notify_composite_focus_out(evt);
+    });
+
+    let id_str = attrs.id().to_owned();
+    let aria_haspopup = attrs.aria_haspopup();
+    let aria_expanded = attrs.aria_expanded();
+    let aria_controls = attrs.aria_controls().map(str::to_owned);
+    let aria_invalid = attrs.aria_invalid();
+    let aria_describedby = attrs.aria_describedby().map(str::to_owned);
+    let aria_required = attrs.aria_required();
+    let data_state = attrs.data_state_str();
+    let data_disabled = attrs.data_disabled();
+    let data_invalid = attrs.data_invalid();
+
+    let mut base = Vec::with_capacity(20);
+    base.push(Attribute::new("id", id_str, None, false));
+    base.push(Attribute::new("type", "button", None, false));
+    base.push(Attribute::new("aria-haspopup", aria_haspopup, None, false));
+    base.push(Attribute::new("aria-expanded", aria_expanded, None, false));
+    push_attr_opt(&mut base, "aria-controls", aria_controls);
+    push_attr_opt(&mut base, "aria-invalid", aria_invalid);
+    push_attr_opt(&mut base, "aria-describedby", aria_describedby);
+    push_attr_opt(&mut base, "aria-required", aria_required);
+    if is_disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    base.push(Attribute::new("data-combobox-trigger", "", None, false));
+    base.push(Attribute::new("data-state", data_state, None, false));
+    push_attr_opt(&mut base, "data-disabled", data_disabled);
+    push_attr_opt(&mut base, "data-invalid", data_invalid);
+    push_event_handler(&mut base, "onmousedown", Some(on_mouse_down));
+    push_event_handler(&mut base, "onpointerdown", Some(on_pointer_down));
+    push_event_handler(&mut base, "onpointerup", Some(on_pointer_up));
+    push_event_handler(&mut base, "onclick", Some(on_click));
+    push_event_handler(&mut base, "onkeydown", Some(on_key_down));
+    push_event_handler(&mut base, "onfocusin", Some(on_focus_in));
+    push_event_handler(&mut base, "onfocusout", Some(on_focus_out));
+
+    let user = collect_user_attrs(props.class, props.style, extracted.rest);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         button {
-            id: "{attrs.id()}",
-            r#type: "button",
-            "aria-haspopup": "{attrs.aria_haspopup()}",
-            "aria-expanded": "{attrs.aria_expanded()}",
-            "aria-controls": attrs.aria_controls(),
-            "aria-invalid": attrs.aria_invalid(),
-            "aria-describedby": attrs.aria_describedby(),
-            "aria-required": attrs.aria_required(),
-            disabled: is_disabled,
-            "data-combobox-trigger": "",
-            "data-state": "{attrs.data_state_str()}",
-            "data-disabled": attrs.data_disabled(),
-            "data-invalid": attrs.data_invalid(),
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            onmousedown: move |evt| on_mouse_down.call(evt),
-            onpointerdown: move |evt| on_pointer_down.call(evt),
-            onpointerup: move |evt| on_pointer_up.call(evt),
-            onclick: move |evt| on_click.call(evt),
-            onkeydown: move |evt| on_key_down.call(evt),
-            onfocusin: move |evt| focus_in_rt.notify_composite_focus_in(evt),
-            onfocusout: move |evt| focus_out_rt.notify_composite_focus_out(evt),
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

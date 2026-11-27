@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::merge_global_attributes;
+use crate::foundation::compose::{collect_user_attrs, merge_props, push_event_handler};
 
 use super::super::{
     attrs::CommandEmptyAttrs,
@@ -9,35 +9,17 @@ use super::super::{
 };
 
 #[derive(Clone, PartialEq, Props)]
-pub struct CommandEmptyRenderProps {
-    pub id: String,
-    pub role: &'static str,
-    pub data_command_empty: &'static str,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-#[derive(Clone, PartialEq, Props)]
 pub struct CommandEmptyProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CommandEmptyRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -62,40 +44,27 @@ pub fn CommandEmpty(props: CommandEmptyProps) -> Element {
         .unwrap_or_else(|| ctx.relationships.peek().empty_id());
     let attrs = CommandEmptyAttrs::new(resolved_id);
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(CommandEmptyRenderProps {
-                id: attrs.id,
-                role: attrs.role,
-                data_command_empty: attrs.data_command_empty,
-                class: props.class,
-                style: props.style,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-    }
+    let mut base = Vec::with_capacity(3);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new(
+        "data-command-empty",
+        attrs.data_command_empty,
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            role: "{attrs.role}",
-            "data-command-empty": attrs.data_command_empty,
-            class: merged.class,
-            style: merged.style,
-            onmounted: move |evt| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

@@ -6,7 +6,7 @@ use ui_sdk::date_picker::{PickerPolicy, PickerRelationships, PickerState};
 use crate::foundation::{
     date_time::{CalendarConfig, CalendarDate, DateValue},
     shared::ScopeHandle,
-    state::{ControlledBinding, sync_signal},
+    state::{ControllableSignal, sync_signal},
 };
 
 use super::state::DatePickerPolicy;
@@ -38,12 +38,9 @@ pub struct PickerRuntimeCore<P: PickerPolicy> {
     pub open: Signal<bool>,
     pub(crate) trigger_dom_id: Signal<Option<String>>,
     pub(crate) content_dom_id: Signal<Option<String>>,
-    pub(crate) controlled_value: CopyValue<ControlledBinding<P::Value>>,
-    pub(crate) controlled_placeholder: CopyValue<ControlledBinding<DateValue>>,
-    pub(crate) controlled_open: CopyValue<ControlledBinding<bool>>,
-    pub on_value_change: CopyValue<Option<EventHandler<P::Value>>>,
-    pub on_placeholder_change: CopyValue<Option<EventHandler<DateValue>>>,
-    pub on_open_change: CopyValue<Option<EventHandler<bool>>>,
+    pub(crate) value_ctl: ControllableSignal<P::Value>,
+    pub(crate) placeholder_ctl: ControllableSignal<DateValue>,
+    pub(crate) open_ctl: ControllableSignal<bool>,
     pub(crate) on_composite_focus_in: CopyValue<Option<EventHandler<FocusEvent>>>,
     pub(crate) on_composite_focus_out: CopyValue<Option<EventHandler<FocusEvent>>>,
     pub is_date_disabled: Signal<Option<Callback<CalendarDate, bool>>>,
@@ -63,12 +60,9 @@ impl<P: PickerPolicy> Clone for PickerRuntimeCore<P> {
             open: self.open,
             trigger_dom_id: self.trigger_dom_id,
             content_dom_id: self.content_dom_id,
-            controlled_value: self.controlled_value,
-            controlled_placeholder: self.controlled_placeholder,
-            controlled_open: self.controlled_open,
-            on_value_change: self.on_value_change,
-            on_placeholder_change: self.on_placeholder_change,
-            on_open_change: self.on_open_change,
+            value_ctl: self.value_ctl,
+            placeholder_ctl: self.placeholder_ctl,
+            open_ctl: self.open_ctl,
             on_composite_focus_in: self.on_composite_focus_in,
             on_composite_focus_out: self.on_composite_focus_out,
             is_date_disabled: self.is_date_disabled,
@@ -146,27 +140,6 @@ impl<P: PickerPolicy> PickerRuntimeCore<P> {
         }
     }
 
-    pub(crate) fn value_binding(&self) -> ControlledBinding<P::Value> {
-        self.controlled_value
-            .try_read()
-            .map(|s| *s)
-            .unwrap_or(ControlledBinding::Uncontrolled)
-    }
-
-    pub(crate) fn placeholder_binding(&self) -> ControlledBinding<DateValue> {
-        self.controlled_placeholder
-            .try_read()
-            .map(|s| *s)
-            .unwrap_or(ControlledBinding::Uncontrolled)
-    }
-
-    pub(crate) fn open_binding(&self) -> ControlledBinding<bool> {
-        self.controlled_open
-            .try_read()
-            .map(|s| *s)
-            .unwrap_or(ControlledBinding::Uncontrolled)
-    }
-
     pub(crate) fn sync_signals_from_state(&mut self) {
         let (val, cal_val, ph, cal_ph, open) = {
             let st = self.state.peek();
@@ -195,48 +168,20 @@ impl<P: PickerPolicy> PickerRuntimeCore<P> {
         }
     }
 
-    pub(crate) fn notify_value_change(&self, next: P::Value) {
-        self.value_binding().try_write_two_way(next);
-        if let Some(cb) = self.on_value_change.try_read().ok().and_then(|s| *s) {
-            cb.call(next);
-        }
-    }
-
-    pub(crate) fn notify_placeholder_change(&self, next: DateValue) {
-        self.placeholder_binding().try_write_two_way(next);
-        if let Some(cb) = self.on_placeholder_change.try_read().ok().and_then(|s| *s) {
-            cb.call(next);
-        }
-    }
-
-    pub(crate) fn notify_open_change(&self, next: bool) {
-        self.open_binding().try_write_two_way(next);
-        if let Some(cb) = self.on_open_change.try_read().ok().and_then(|s| *s) {
-            cb.call(next);
-        }
-    }
-
     pub fn set_open(&mut self, next: bool) {
         let prev = self.state.peek().is_open();
-        let open_binding = self.open_binding();
-        if open_binding.is_read_only() {
+        if self.open_ctl.is_controlled() {
             let mut candidate = self.state.peek().clone();
             let effective = candidate.set_open(next);
             if effective != prev {
-                self.notify_open_change(effective);
+                self.open_ctl.set(effective);
             }
-            if let Some(accepted) = open_binding.peek_cloned()
-                && self.state.peek().is_open() != accepted
-            {
-                self.state.write().set_open(accepted);
-            }
-            self.sync_signals_from_state();
             return;
         }
         let effective = self.state.write().set_open(next);
         self.sync_signals_from_state();
         if effective != prev {
-            self.notify_open_change(effective);
+            self.open_ctl.set(effective);
         }
     }
 
@@ -248,43 +193,29 @@ impl<P: PickerPolicy> PickerRuntimeCore<P> {
         if self.state.peek().placeholder() == next {
             return;
         }
-        let ph_binding = self.placeholder_binding();
-        if ph_binding.is_read_only() {
-            self.notify_placeholder_change(next);
-            if let Some(accepted) = ph_binding.peek_cloned()
-                && self.state.peek().placeholder() != accepted
-            {
-                self.state.write().set_placeholder(accepted);
-            }
-            self.sync_signals_from_state();
+        if self.placeholder_ctl.is_controlled() {
+            self.placeholder_ctl.set(next);
             return;
         }
         self.state.write().set_placeholder(next);
         self.sync_signals_from_state();
-        self.notify_placeholder_change(next);
+        self.placeholder_ctl.set(next);
     }
 
     pub fn handle_calendar_placeholder_change(&mut self, next_date: CalendarDate) {
         let prev_ph = self.state.peek().placeholder();
-        let ph_binding = self.placeholder_binding();
-        if ph_binding.is_read_only() {
+        if self.placeholder_ctl.is_controlled() {
             let mut candidate = self.state.peek().clone();
             let next_ph = candidate.set_calendar_placeholder(next_date);
             if next_ph != prev_ph {
-                self.notify_placeholder_change(next_ph);
+                self.placeholder_ctl.set(next_ph);
             }
-            if let Some(accepted) = ph_binding.peek_cloned()
-                && self.state.peek().placeholder() != accepted
-            {
-                self.state.write().set_placeholder(accepted);
-            }
-            self.sync_signals_from_state();
             return;
         }
         let next_ph = self.state.write().set_calendar_placeholder(next_date);
         self.sync_signals_from_state();
         if next_ph != prev_ph {
-            self.notify_placeholder_change(next_ph);
+            self.placeholder_ctl.set(next_ph);
         }
     }
 }
@@ -327,39 +258,21 @@ impl DatePickerRuntime {
         if prev_val == next {
             return;
         }
-        let val_binding = self.value_binding();
-        let ph_binding = self.placeholder_binding();
 
-        if val_binding.is_read_only() {
-            self.notify_value_change(next);
-            if let Some(accepted) = val_binding.peek_cloned()
-                && self.state.peek().value() != accepted
-            {
-                self.state.write().set_field_value(accepted);
-                if ph_binding.is_read_only() {
-                    self.state.write().set_placeholder(prev_ph);
-                }
-            }
-            self.sync_signals_from_state();
+        if self.value_ctl.is_controlled() {
+            self.value_ctl.set(next);
             return;
         }
 
         self.state.write().set_field_value(next);
         let next_ph = self.state.peek().placeholder();
-        if ph_binding.is_read_only() && next_ph != prev_ph {
+        if self.placeholder_ctl.is_controlled() && next_ph != prev_ph {
             self.state.write().set_placeholder(prev_ph);
         }
         self.sync_signals_from_state();
-        self.notify_value_change(next);
+        self.value_ctl.set(next);
         if next_ph != prev_ph {
-            self.notify_placeholder_change(next_ph);
-            if ph_binding.is_read_only()
-                && let Some(accepted_ph) = ph_binding.peek_cloned()
-                && self.state.peek().placeholder() != accepted_ph
-            {
-                self.state.write().set_placeholder(accepted_ph);
-                self.sync_signals_from_state();
-            }
+            self.placeholder_ctl.set(next_ph);
         }
     }
 
@@ -368,46 +281,27 @@ impl DatePickerRuntime {
             let st = self.state.peek();
             (st.value(), st.placeholder())
         };
-        let val_binding = self.value_binding();
-        let ph_binding = self.placeholder_binding();
 
         let mut candidate = self.state.peek().clone();
         let outcome = candidate.apply_calendar_value(next);
 
-        if !val_binding.is_read_only() && outcome.next_value != prev_val {
+        if !self.value_ctl.is_controlled() && outcome.next_value != prev_val {
             self.state.write().set_field_value(outcome.next_value);
         }
-        if !ph_binding.is_read_only() && outcome.next_placeholder != prev_ph {
+        if !self.placeholder_ctl.is_controlled() && outcome.next_placeholder != prev_ph {
             self.state.write().set_placeholder(outcome.next_placeholder);
-        } else if ph_binding.is_read_only() && self.state.peek().placeholder() != prev_ph {
+        } else if self.placeholder_ctl.is_controlled() && self.state.peek().placeholder() != prev_ph
+        {
             self.state.write().set_placeholder(prev_ph);
         }
 
         self.sync_signals_from_state();
         if outcome.next_value != prev_val {
-            self.notify_value_change(outcome.next_value);
-            if val_binding.is_read_only()
-                && let Some(accepted) = val_binding.peek_cloned()
-                && self.state.peek().value() != accepted
-            {
-                self.state.write().set_field_value(accepted);
-                if ph_binding.is_read_only() {
-                    self.state.write().set_placeholder(prev_ph);
-                }
-            }
+            self.value_ctl.set(outcome.next_value);
         }
-        if outcome.next_placeholder != prev_ph
-            && (!val_binding.is_read_only() || self.state.peek().value() == outcome.next_value)
-        {
-            self.notify_placeholder_change(outcome.next_placeholder);
-            if ph_binding.is_read_only()
-                && let Some(accepted_ph) = ph_binding.peek_cloned()
-                && self.state.peek().placeholder() != accepted_ph
-            {
-                self.state.write().set_placeholder(accepted_ph);
-            }
+        if outcome.next_placeholder != prev_ph && !self.value_ctl.is_controlled() {
+            self.placeholder_ctl.set(outcome.next_placeholder);
         }
-        self.sync_signals_from_state();
     }
 
     pub fn handle_calendar_date_select(&mut self, selected: CalendarDate) {
@@ -415,60 +309,34 @@ impl DatePickerRuntime {
             let st = self.state.peek();
             (st.value(), st.placeholder(), st.is_open())
         };
-        let val_binding = self.value_binding();
-        let ph_binding = self.placeholder_binding();
-        let open_binding = self.open_binding();
 
         let mut candidate = self.state.peek().clone();
         let outcome = candidate.commit_calendar_date_select(selected);
         let next_open = candidate.is_open();
 
-        if !val_binding.is_read_only() && outcome.next_value != prev_val {
+        if !self.value_ctl.is_controlled() && outcome.next_value != prev_val {
             self.state.write().set_field_value(outcome.next_value);
         }
-        if !ph_binding.is_read_only() && outcome.next_placeholder != prev_ph {
+        if !self.placeholder_ctl.is_controlled() && outcome.next_placeholder != prev_ph {
             self.state.write().set_placeholder(outcome.next_placeholder);
-        } else if ph_binding.is_read_only() && self.state.peek().placeholder() != prev_ph {
+        } else if self.placeholder_ctl.is_controlled() && self.state.peek().placeholder() != prev_ph
+        {
             self.state.write().set_placeholder(prev_ph);
         }
-        if !open_binding.is_read_only() && next_open != prev_open {
+        if !self.open_ctl.is_controlled() && next_open != prev_open {
             self.state.write().set_open(next_open);
         }
 
         self.sync_signals_from_state();
         if outcome.next_value != prev_val {
-            self.notify_value_change(outcome.next_value);
-            if val_binding.is_read_only()
-                && let Some(accepted) = val_binding.peek_cloned()
-                && self.state.peek().value() != accepted
-            {
-                self.state.write().set_field_value(accepted);
-                if ph_binding.is_read_only() {
-                    self.state.write().set_placeholder(prev_ph);
-                }
-            }
+            self.value_ctl.set(outcome.next_value);
         }
-        if outcome.next_placeholder != prev_ph
-            && (!val_binding.is_read_only() || self.state.peek().value() == outcome.next_value)
-        {
-            self.notify_placeholder_change(outcome.next_placeholder);
-            if ph_binding.is_read_only()
-                && let Some(accepted_ph) = ph_binding.peek_cloned()
-                && self.state.peek().placeholder() != accepted_ph
-            {
-                self.state.write().set_placeholder(accepted_ph);
-            }
+        if outcome.next_placeholder != prev_ph && !self.value_ctl.is_controlled() {
+            self.placeholder_ctl.set(outcome.next_placeholder);
         }
         if next_open != prev_open {
-            self.notify_open_change(next_open);
-            if open_binding.is_read_only()
-                && let Some(accepted_open) = open_binding.peek_cloned()
-                && self.state.peek().is_open() != accepted_open
-            {
-                self.state.write().set_open(accepted_open);
-            }
+            self.open_ctl.set(next_open);
         }
-        self.sync_signals_from_state();
     }
 
     pub fn reconcile_external_state(

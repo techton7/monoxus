@@ -4,7 +4,10 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::foundation::{compose::merge_global_attributes, shared::use_stable_id};
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props, push_attr_opt},
+    shared::use_stable_id,
+};
 
 use crate::combobox::{
     attrs::{ComboboxGroupAttrs, ComboboxGroupHeadingAttrs},
@@ -12,29 +15,18 @@ use crate::combobox::{
     types::ComboboxGroupContext,
 };
 
-#[derive(Clone, PartialEq)]
-pub struct ComboboxGroupRenderProps {
-    pub attrs: ComboboxGroupAttrs,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 #[derive(Props, Clone, PartialEq)]
 pub struct ComboboxGroupProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub group_key: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<ComboboxGroupRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -56,60 +48,41 @@ pub fn ComboboxGroup(props: ComboboxGroupProps) -> Element {
     });
 
     let attrs = ComboboxGroupAttrs::new(group_id, heading_id.read().clone());
+    let id_str = attrs.id().to_owned();
+    let role_str = attrs.role();
+    let aria_labelledby = attrs.aria_labelledby().map(str::to_owned);
 
-    if props.as_child {
-        if let Some(ref render_child) = props.render_child {
-            return render_child.call(ComboboxGroupRenderProps {
-                attrs,
-                class: props.class,
-                style: props.style,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
+    let mut base = Vec::with_capacity(4);
+    base.push(Attribute::new("id", id_str, None, false));
+    base.push(Attribute::new("role", role_str, None, false));
+    push_attr_opt(&mut base, "aria-labelledby", aria_labelledby);
+    base.push(Attribute::new("data-combobox-group", "", None, false));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
 
     rsx! {
         div {
-            id: "{attrs.id()}",
-            role: "{attrs.role()}",
-            "aria-labelledby": attrs.aria_labelledby(),
-            "data-combobox-group": "",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
 }
 
-#[derive(Clone, PartialEq)]
-pub struct ComboboxGroupHeadingRenderProps {
-    pub attrs: ComboboxGroupHeadingAttrs,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 #[derive(Props, Clone, PartialEq)]
 pub struct ComboboxGroupHeadingProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<ComboboxGroupHeadingRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -159,85 +132,62 @@ pub fn ComboboxGroupHeading(props: ComboboxGroupHeadingProps) -> Element {
     }
 
     let attrs = ComboboxGroupHeadingAttrs::new(heading_id);
+    let id_str = attrs.id().to_owned();
 
-    if props.as_child {
-        if let Some(ref render_child) = props.render_child {
-            return render_child.call(ComboboxGroupHeadingRenderProps {
-                attrs,
-                class: props.class,
-                style: props.style,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
+    let mut base = Vec::with_capacity(3);
+    base.push(Attribute::new("id", id_str, None, false));
+    base.push(Attribute::new("data-combobox-group-label", "", None, false));
+    base.push(Attribute::new(
+        "data-combobox-group-heading",
+        "",
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
 
     rsx! {
         div {
-            id: "{attrs.id()}",
-            "data-combobox-group-label": "",
-            "data-combobox-group-heading": "",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
 }
 
-#[derive(Clone, PartialEq)]
-pub struct ComboboxSeparatorRenderProps {
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-}
-
 #[derive(Props, Clone, PartialEq)]
 pub struct ComboboxSeparatorProps {
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<ComboboxSeparatorRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
 }
 
 #[component]
 pub fn ComboboxSeparator(props: ComboboxSeparatorProps) -> Element {
-    if props.as_child {
-        if let Some(ref render_child) = props.render_child {
-            return render_child.call(ComboboxSeparatorRenderProps {
-                class: props.class,
-                style: props.style,
-                attributes: props.attributes,
-            });
-        }
-    }
+    let mut base = Vec::with_capacity(3);
+    base.push(Attribute::new("role", "presentation", None, false));
+    base.push(Attribute::new("aria-hidden", "true", None, false));
+    base.push(Attribute::new("data-combobox-separator", "", None, false));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            role: "presentation",
-            "aria-hidden": "true",
-            "data-combobox-separator": "",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            ..merged.rest,
+            ..merged,
         }
     }
 }

@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::is_element_focused_by_id,
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     shared::use_stable_id,
 };
 
@@ -10,40 +10,12 @@ use super::super::{
     attrs::{CommandItemAttrs, merge_ranked_item_style},
     runtime::{CommandContext, CommandGroupContext},
 };
-use super::link_item::CommandLinkItemRenderProps;
-
-#[derive(Clone, PartialEq, Props)]
-pub struct CommandItemRenderProps {
-    pub id: String,
-    pub role: &'static str,
-    pub aria_disabled: &'static str,
-    pub aria_selected: &'static str,
-    pub data_command_item: &'static str,
-    pub data_value: String,
-    #[props(default)]
-    pub data_group: Option<String>,
-    #[props(default)]
-    pub data_disabled: Option<&'static str>,
-    #[props(default)]
-    pub data_selected: Option<&'static str>,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    pub on_mousedown: EventHandler<MouseEvent>,
-    pub on_pointer_move: EventHandler<PointerEvent>,
-    pub on_click: EventHandler<MouseEvent>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
 
 #[derive(Clone, PartialEq, Props)]
 pub struct CommandItemProps {
+    #[props(into)]
     pub value: String,
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
@@ -53,14 +25,12 @@ pub struct CommandItemProps {
     pub keywords: Vec<String>,
     #[props(default)]
     pub on_select: Option<EventHandler<()>>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CommandItemRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
@@ -74,14 +44,11 @@ pub struct CommandItemProps {
 }
 
 pub(crate) enum CommandItemKind {
-    Div {
-        render_child: Option<Callback<CommandItemRenderProps, Element>>,
-    },
+    Div,
     Link {
         href: Option<String>,
         target: Option<String>,
         rel: Option<String>,
-        render_child: Option<Callback<CommandLinkItemRenderProps, Element>>,
     },
 }
 
@@ -94,7 +61,7 @@ pub(crate) struct CommandItemSurfaceSpec {
     pub on_select: Option<EventHandler<()>>,
     pub class: Option<String>,
     pub style: Option<String>,
-    pub as_child: bool,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub on_click: Option<EventHandler<MouseEvent>>,
     pub on_pointer_move: Option<EventHandler<PointerEvent>>,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
@@ -157,8 +124,7 @@ pub(crate) fn render_command_item_surface(spec: CommandItemSurfaceSpec) -> Eleme
         group_force_mount,
     );
     let visual_order = ctx.item_visual_order(&normalized_value);
-    let rendered_style =
-        merge_ranked_item_style(should_render, visual_order, spec.style.as_deref());
+    let base_style = merge_ranked_item_style(should_render, visual_order, None);
 
     let is_selected =
         should_render && !normalized_value.is_empty() && *ctx.value.read() == normalized_value;
@@ -176,10 +142,6 @@ pub(crate) fn render_command_item_surface(spec: CommandItemSurfaceSpec) -> Eleme
     on_select_slot.set(spec.on_select);
     let mut on_click_slot = use_hook(|| CopyValue::new(spec.on_click));
     on_click_slot.set(spec.on_click);
-    let mut on_pointer_move_slot = use_hook(|| CopyValue::new(spec.on_pointer_move));
-    on_pointer_move_slot.set(spec.on_pointer_move);
-    let mut on_mounted_slot = use_hook(|| CopyValue::new(spec.on_mounted));
-    on_mounted_slot.set(spec.on_mounted);
     let mut val_slot = use_hook(|| CopyValue::new(normalized_value.clone()));
     if val_slot
         .try_read()
@@ -199,10 +161,7 @@ pub(crate) fn render_command_item_surface(spec: CommandItemSurfaceSpec) -> Eleme
     });
 
     let mut ctx_for_move = ctx;
-    let handle_pointer_move = EventHandler::new(move |evt: PointerEvent| {
-        if let Some(handler) = on_pointer_move_slot.try_read().ok().and_then(|s| *s) {
-            handler.call(evt);
-        }
+    let handle_pointer_move = EventHandler::new(move |_evt: PointerEvent| {
         let disabled = disabled_slot.try_read().map(|d| *d).unwrap_or(false);
         if disabled || *ctx_for_move.disable_pointer_selection.peek() {
             return;
@@ -232,142 +191,76 @@ pub(crate) fn render_command_item_surface(spec: CommandItemSurfaceSpec) -> Eleme
         }
     });
 
+    let mut base = Vec::with_capacity(18);
+    if should_render {
+        base.push(Attribute::new("id", attrs.id, None, false));
+        base.push(Attribute::new("role", attrs.role, None, false));
+        base.push(Attribute::new(
+            "aria-disabled",
+            attrs.aria_disabled,
+            None,
+            false,
+        ));
+        base.push(Attribute::new(
+            "aria-selected",
+            attrs.aria_selected,
+            None,
+            false,
+        ));
+        base.push(Attribute::new(
+            "data-command-item",
+            attrs.data_command_item,
+            None,
+            false,
+        ));
+        base.push(Attribute::new("data-value", attrs.data_value, None, false));
+        push_attr_opt(&mut base, "data-group", attrs.data_group);
+        push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+        push_attr_opt(&mut base, "data-selected", attrs.data_selected);
+    } else {
+        base.push(Attribute::new("hidden", true, None, false));
+        base.push(Attribute::new("aria-hidden", "true", None, false));
+    }
+    push_attr_opt(&mut base, "style", base_style);
+    if let CommandItemKind::Link {
+        ref href,
+        ref target,
+        ref rel,
+    } = spec.kind
+    {
+        push_attr_opt(&mut base, "href", href.clone());
+        push_attr_opt(&mut base, "target", target.clone());
+        push_attr_opt(&mut base, "rel", rel.clone());
+    }
+    push_event_handler(&mut base, "onmousedown", Some(handle_mousedown));
+    push_event_handler(&mut base, "onpointermove", Some(handle_pointer_move));
+    push_event_handler(&mut base, "onclick", Some(handle_click));
+
+    let mut user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+    push_event_handler(&mut user, "onpointermove", spec.on_pointer_move);
+    push_event_handler(&mut user, "onmounted", spec.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = spec.child {
+        if !should_render {
+            return rsx! {};
+        }
+        return child.call(merged);
+    }
+
     match spec.kind {
-        CommandItemKind::Div { render_child } => {
-            if spec.as_child {
-                if !should_render {
-                    return rsx! {};
-                }
-                if let Some(render_child) = render_child.as_ref() {
-                    return render_child.call(CommandItemRenderProps {
-                        id: attrs.id,
-                        role: attrs.role,
-                        aria_disabled: attrs.aria_disabled,
-                        aria_selected: attrs.aria_selected,
-                        data_command_item: attrs.data_command_item,
-                        data_value: attrs.data_value,
-                        data_group: attrs.data_group,
-                        data_disabled: attrs.data_disabled,
-                        data_selected: attrs.data_selected,
-                        class: spec.class,
-                        style: rendered_style,
-                        on_mousedown: handle_mousedown,
-                        on_pointer_move: handle_pointer_move,
-                        on_click: handle_click,
-                        on_mounted: spec.on_mounted,
-                        attributes: spec.attributes,
-                        children: spec.children,
-                    });
-                }
+        CommandItemKind::Div => rsx! {
+            div {
+                ..merged,
+                {spec.children}
             }
-
-            let merged = merge_global_attributes(
-                spec.class.as_deref(),
-                rendered_style.as_deref(),
-                spec.attributes,
-            );
-
-            rsx! {
-                div {
-                    id: should_render.then_some(attrs.id),
-                    role: should_render.then_some(attrs.role),
-                    hidden: !should_render,
-                    aria_hidden: (!should_render).then_some("true"),
-                    aria_disabled: should_render.then_some(attrs.aria_disabled),
-                    aria_selected: should_render.then_some(attrs.aria_selected),
-                    "data-command-item": should_render.then_some(attrs.data_command_item),
-                    "data-value": should_render.then_some(attrs.data_value),
-                    "data-group": if should_render { attrs.data_group.as_deref() } else { None },
-                    "data-disabled": if should_render { attrs.data_disabled } else { None },
-                    "data-selected": if should_render { attrs.data_selected } else { None },
-                    class: merged.class,
-                    style: merged.style,
-                    onmousedown: move |evt| handle_mousedown.call(evt),
-                    onpointermove: move |evt| handle_pointer_move.call(evt),
-                    onclick: move |evt| handle_click.call(evt),
-                    onmounted: move |evt| {
-                        if let Some(handler) = on_mounted_slot.try_read().ok().and_then(|s| *s) {
-                            handler.call(evt);
-                        }
-                    },
-                    ..merged.rest,
-                    {spec.children}
-                }
+        },
+        CommandItemKind::Link { .. } => rsx! {
+            a {
+                ..merged,
+                {spec.children}
             }
-        }
-        CommandItemKind::Link {
-            href,
-            target,
-            rel,
-            render_child,
-        } => {
-            if spec.as_child {
-                if !should_render {
-                    return rsx! {};
-                }
-                if let Some(render_child) = render_child.as_ref() {
-                    return render_child.call(CommandLinkItemRenderProps {
-                        id: attrs.id,
-                        role: attrs.role,
-                        aria_disabled: attrs.aria_disabled,
-                        aria_selected: attrs.aria_selected,
-                        data_command_item: attrs.data_command_item,
-                        data_value: attrs.data_value,
-                        data_group: attrs.data_group,
-                        data_disabled: attrs.data_disabled,
-                        data_selected: attrs.data_selected,
-                        href,
-                        target,
-                        rel,
-                        class: spec.class,
-                        style: rendered_style,
-                        on_mousedown: handle_mousedown,
-                        on_pointer_move: handle_pointer_move,
-                        on_click: handle_click,
-                        on_mounted: spec.on_mounted,
-                        attributes: spec.attributes,
-                        children: spec.children,
-                    });
-                }
-            }
-
-            let merged = merge_global_attributes(
-                spec.class.as_deref(),
-                rendered_style.as_deref(),
-                spec.attributes,
-            );
-
-            rsx! {
-                a {
-                    id: should_render.then_some(attrs.id),
-                    role: should_render.then_some(attrs.role),
-                    hidden: !should_render,
-                    aria_hidden: (!should_render).then_some("true"),
-                    aria_disabled: should_render.then_some(attrs.aria_disabled),
-                    aria_selected: should_render.then_some(attrs.aria_selected),
-                    "data-command-item": should_render.then_some(attrs.data_command_item),
-                    "data-value": should_render.then_some(attrs.data_value),
-                    "data-group": if should_render { attrs.data_group.as_deref() } else { None },
-                    "data-disabled": if should_render { attrs.data_disabled } else { None },
-                    "data-selected": if should_render { attrs.data_selected } else { None },
-                    href: href.as_deref(),
-                    target: target.as_deref(),
-                    rel: rel.as_deref(),
-                    class: merged.class,
-                    style: merged.style,
-                    onmousedown: move |evt| handle_mousedown.call(evt),
-                    onpointermove: move |evt| handle_pointer_move.call(evt),
-                    onclick: move |evt| handle_click.call(evt),
-                    onmounted: move |evt| {
-                        if let Some(handler) = on_mounted_slot.try_read().ok().and_then(|s| *s) {
-                            handler.call(evt);
-                        }
-                    },
-                    ..merged.rest,
-                    {spec.children}
-                }
-            }
-        }
+        },
     }
 }
 
@@ -382,14 +275,12 @@ pub fn CommandItem(props: CommandItemProps) -> Element {
         on_select: props.on_select,
         class: props.class,
         style: props.style,
-        as_child: props.as_child,
+        child: props.child,
         on_click: props.on_click,
         on_pointer_move: props.on_pointer_move,
         on_mounted: props.on_mounted,
         attributes: props.attributes,
         children: props.children,
-        kind: CommandItemKind::Div {
-            render_child: props.render_child,
-        },
+        kind: CommandItemKind::Div,
     })
 }

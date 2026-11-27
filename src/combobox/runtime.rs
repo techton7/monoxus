@@ -13,13 +13,13 @@ use crate::foundation::{
     compose::MountedHandle,
     keyboard::is_ime_composing_key,
     overlay::{
-        DismissLayerHandle, FloatingHandle, FloatingPlacement, FloatingReadiness, GeometryVars,
-        PlacementAlign, PlacementSide, PortalHost, PresenceHandle, PresenceState,
-        ensure_active_overlay_layer, is_overlay_escape_consumed, is_topmost_overlay_layer,
-        mark_overlay_escape_consumed, unregister_active_overlay_layer,
+        DismissBehavior, DismissLayerHandle, FloatingHandle, FloatingPlacement, FloatingReadiness,
+        GeometryVars, PlacementAlign, PlacementSide, PortalHost, PresenceHandle, PresenceState,
+        StickyStrategy, ensure_active_overlay_layer, is_overlay_escape_consumed,
+        is_topmost_overlay_layer, mark_overlay_escape_consumed, unregister_active_overlay_layer,
     },
     shared::{EscapeKeyDownEvent, PreventableEvent},
-    state::{ControlledBinding, sync_signal},
+    state::{ControllableSignal, sync_signal},
 };
 
 use super::{
@@ -66,30 +66,24 @@ pub struct ComboboxRuntimeState {
     pub loop_focus: Signal<bool>,
     pub scroll_alignment: Signal<ComboboxScrollAlignment>,
     pub allow_deselect: Signal<bool>,
-    pub root_clear_on_deselect: Signal<bool>,
-    pub input_clear_on_deselect: Signal<Option<bool>>,
+    pub clear_on_deselect: Signal<bool>,
     pub name: Signal<Option<String>>,
     pub form: Signal<Option<String>>,
-    pub portal_host: Signal<PortalHost>,
 
     // Non-reactive ComboboxRoot callbacks (`Dioxus #5894`)
-    pub on_open_change: CopyValue<Option<EventHandler<bool>>>,
     pub on_open_change_complete: CopyValue<Option<EventHandler<bool>>>,
-    pub on_value_change: CopyValue<Option<EventHandler<Option<String>>>>,
-    pub on_values_change: CopyValue<Option<EventHandler<Vec<String>>>>,
-    pub on_input_value_change: CopyValue<Option<EventHandler<String>>>,
     pub on_composite_focus_in: CopyValue<Option<EventHandler<FocusEvent>>>,
     pub on_composite_focus_out: CopyValue<Option<EventHandler<FocusEvent>>>,
 
     // Value / open / highlight state
     pub open: Signal<bool>,
-    pub(crate) controlled_open: Signal<ControlledBinding<bool>>,
+    pub open_ctl: ControllableSignal<bool>,
     pub value: Signal<Option<String>>,
-    pub(crate) controlled_value: Signal<ControlledBinding<Option<String>>>,
+    pub value_ctl: ControllableSignal<Option<String>>,
     pub values: Signal<Vec<String>>,
-    pub(crate) controlled_values: Signal<ControlledBinding<Vec<String>>>,
+    pub values_ctl: ControllableSignal<Vec<String>>,
     pub input_value: Signal<String>,
-    pub(crate) controlled_input_value: Signal<ControlledBinding<String>>,
+    pub input_value_ctl: ControllableSignal<String>,
     pub highlighted_value: Signal<Option<String>>,
     pub pending_open_highlight: Signal<Option<ComboboxPendingHighlight>>,
     pub pending_input_reconcile: Signal<u64>,
@@ -121,9 +115,12 @@ pub struct ComboboxRuntimeState {
     pub collision_padding: Signal<f32>,
     pub arrow_padding: Signal<f32>,
     pub hide_when_detached: Signal<bool>,
-    pub sticky: Signal<Option<String>>,
+    pub sticky: Signal<Option<StickyStrategy>>,
     pub custom_anchor: Signal<Option<String>>,
     pub force_mount: Signal<bool>,
+    pub keep_mounted: Signal<bool>,
+    pub escape_key_down_behavior: Signal<Option<DismissBehavior>>,
+    pub interact_outside_behavior: Signal<Option<DismissBehavior>>,
 
     pub can_scroll_up: Signal<bool>,
     pub can_scroll_down: Signal<bool>,
@@ -164,7 +161,7 @@ impl ComboboxRuntime {
             .with_clear_on_deselect(self.clear_on_deselect())
             .with_name(self.name_untracked())
             .with_form(self.form_untracked())
-            .with_portal_host(self.portal_host_untracked())
+            .with_portal_host(PortalHost::default())
     }
 
     pub fn mode(&self) -> ComboboxMode {
@@ -283,36 +280,16 @@ impl ComboboxRuntime {
         self.state.form.try_peek().ok().and_then(|g| g.clone())
     }
 
-    pub fn portal_host(&self) -> PortalHost {
-        self.state.portal_host.read().clone()
-    }
-
-    pub fn portal_host_untracked(&self) -> PortalHost {
-        self.state
-            .portal_host
-            .try_peek()
-            .map(|g| g.clone())
-            .unwrap_or_default()
-    }
-
     pub fn clear_on_deselect(&self) -> bool {
-        if let Ok(Some(override_val)) = self.state.input_clear_on_deselect.try_peek().map(|g| *g) {
-            override_val
-        } else {
-            self.state
-                .root_clear_on_deselect
-                .try_peek()
-                .map(|g| *g)
-                .unwrap_or(false)
-        }
+        self.state
+            .clear_on_deselect
+            .try_peek()
+            .map(|g| *g)
+            .unwrap_or(false)
     }
 
     pub fn set_clear_on_deselect(&self, clear: bool) {
-        self.set_input_clear_on_deselect(Some(clear));
-    }
-
-    pub fn set_input_clear_on_deselect(&self, clear: Option<bool>) {
-        let mut sig = self.state.input_clear_on_deselect;
+        let mut sig = self.state.clear_on_deselect;
         sync_signal(&mut sig, clear);
     }
 
@@ -358,6 +335,24 @@ impl ComboboxRuntime {
 
     pub fn should_render_content(&self) -> bool {
         self.state.presence.should_render()
+    }
+
+    pub fn data_starting_style(&self) -> Option<&'static str> {
+        self.state.presence.data_starting_style()
+    }
+
+    pub fn data_ending_style(&self) -> Option<&'static str> {
+        self.state.presence.data_ending_style()
+    }
+
+    pub fn is_hidden(&self) -> bool {
+        self.state.presence.is_hidden()
+    }
+
+    pub fn set_keep_mounted(&self, keep_mounted: bool) {
+        let mut sig = self.state.keep_mounted;
+        sync_signal(&mut sig, keep_mounted);
+        self.state.presence.sync_keep_mounted(keep_mounted);
     }
 
     pub fn presence_state(&self) -> PresenceState {
@@ -510,22 +505,11 @@ impl ComboboxRuntime {
     }
 
     pub fn is_open(&self) -> bool {
-        let binding = *self.state.controlled_open.read();
-        binding
-            .read_cloned()
-            .unwrap_or_else(|| *self.state.open.read())
+        *self.state.open.read()
     }
 
     pub fn is_open_untracked(&self) -> bool {
-        let binding = self
-            .state
-            .controlled_open
-            .try_peek()
-            .map(|g| *g)
-            .unwrap_or(ControlledBinding::Uncontrolled);
-        binding
-            .peek_cloned()
-            .unwrap_or_else(|| self.state.open.try_peek().map(|g| *g).unwrap_or(false))
+        self.state.open.try_peek().map(|g| *g).unwrap_or(false)
     }
 
     pub fn set_open(&self, next: bool) {
@@ -536,68 +520,25 @@ impl ComboboxRuntime {
         if current == next {
             return;
         }
-        let binding = self
-            .state
-            .controlled_open
-            .try_peek()
-            .map(|g| *g)
-            .unwrap_or(ControlledBinding::Uncontrolled);
-
-        if binding.is_read_only() {
-            if let Some(cb) = self.state.on_open_change.try_read().ok().and_then(|s| *s) {
-                cb.call(next);
-            }
-            if binding.peek_cloned() != Some(next) {
-                return;
-            }
-            let cid = self.current_content_id_untracked();
-            if !next {
-                let mut pending = self.state.pending_open_highlight;
-                let _ = pending.try_write().map(|mut w| *w = None);
-                self.set_user_has_scrolled(false);
-                self.set_highlighted(None, false);
-                self.stop_dismiss_monitor();
-                unregister_active_overlay_layer(&cid);
-                self.state.presence.sync(false, &cid);
-            } else {
-                self.set_user_has_scrolled(false);
-                ensure_active_overlay_layer(&cid);
-                self.start_dismiss_monitor();
-                self.state.presence.sync(true, &cid);
-            }
+        let is_controlled = self.state.open_ctl.is_controlled();
+        self.state.open_ctl.set(next);
+        if is_controlled {
             return;
-        }
-
-        if binding.is_two_way() {
-            binding.write_if_two_way(next);
-        } else {
-            let mut open_sig = self.state.open;
-            let _ = open_sig.try_write().map(|mut w| *w = next);
         }
 
         let cid = self.current_content_id_untracked();
         if !next {
-            // Immediately clear highlight/pending state, stop dismiss monitor, unregister LIFO layer,
-            // fire `on_open_change(false)`, and do NOT touch input focus. Retain DOM & floating
-            // placement while `PresenceState::Suspended`; defer `floating.clear()` &
-            // `on_open_change_complete(false)` to close completion (`B10`, `FM-OVL-6`).
             let mut pending = self.state.pending_open_highlight;
             let _ = pending.try_write().map(|mut w| *w = None);
             self.set_user_has_scrolled(false);
             self.set_highlighted(None, false);
             self.stop_dismiss_monitor();
             unregister_active_overlay_layer(&cid);
-            if let Some(cb) = self.state.on_open_change.try_read().ok().and_then(|s| *s) {
-                cb.call(false);
-            }
             self.state.presence.sync(false, &cid);
         } else {
             self.set_user_has_scrolled(false);
             ensure_active_overlay_layer(&cid);
             self.start_dismiss_monitor();
-            if let Some(cb) = self.state.on_open_change.try_read().ok().and_then(|s| *s) {
-                cb.call(true);
-            }
             self.state.presence.sync(true, &cid);
         }
     }
@@ -615,89 +556,31 @@ impl ComboboxRuntime {
     }
 
     pub fn value(&self) -> Option<String> {
-        let binding = *self.state.controlled_value.read();
-        binding
-            .read_cloned()
-            .unwrap_or_else(|| self.state.value.read().clone())
+        self.state.value.read().clone()
     }
 
     pub fn value_untracked(&self) -> Option<String> {
-        let binding = self
-            .state
-            .controlled_value
-            .try_peek()
-            .map(|g| *g)
-            .unwrap_or(ControlledBinding::Uncontrolled);
-        binding
-            .peek_cloned()
-            .unwrap_or_else(|| self.state.value.try_peek().ok().and_then(|g| g.clone()))
+        self.state.value.try_peek().ok().and_then(|g| g.clone())
     }
 
     pub fn set_value(&self, next: Option<String>) {
-        let binding = self
-            .state
-            .controlled_value
-            .try_peek()
-            .map(|g| *g)
-            .unwrap_or(ControlledBinding::Uncontrolled);
-        match binding {
-            ControlledBinding::TwoWay(_) => {
-                binding.write_if_two_way(next.clone());
-            }
-            ControlledBinding::Uncontrolled => {
-                let mut sig = self.state.value;
-                let _ = sig.try_write().map(|mut w| *w = next.clone());
-            }
-            ControlledBinding::ReadOnly(_) => {}
-        }
-        if let Some(cb) = self.state.on_value_change.try_read().ok().and_then(|s| *s) {
-            cb.call(next);
-        }
+        self.state.value_ctl.set(next);
     }
 
     pub fn values(&self) -> Vec<String> {
-        let binding = *self.state.controlled_values.read();
-        binding
-            .read_cloned()
-            .unwrap_or_else(|| self.state.values.read().clone())
+        self.state.values.read().clone()
     }
 
     pub fn values_untracked(&self) -> Vec<String> {
-        let binding = self
-            .state
-            .controlled_values
+        self.state
+            .values
             .try_peek()
-            .map(|g| *g)
-            .unwrap_or(ControlledBinding::Uncontrolled);
-        binding.peek_cloned().unwrap_or_else(|| {
-            self.state
-                .values
-                .try_peek()
-                .map(|g| g.clone())
-                .unwrap_or_default()
-        })
+            .map(|g| g.clone())
+            .unwrap_or_default()
     }
 
     pub fn set_values(&self, next: Vec<String>) {
-        let binding = self
-            .state
-            .controlled_values
-            .try_peek()
-            .map(|g| *g)
-            .unwrap_or(ControlledBinding::Uncontrolled);
-        match binding {
-            ControlledBinding::TwoWay(_) => {
-                binding.write_if_two_way(next.clone());
-            }
-            ControlledBinding::Uncontrolled => {
-                let mut sig = self.state.values;
-                let _ = sig.try_write().map(|mut w| *w = next.clone());
-            }
-            ControlledBinding::ReadOnly(_) => {}
-        }
-        if let Some(cb) = self.state.on_values_change.try_read().ok().and_then(|s| *s) {
-            cb.call(next);
-        }
+        self.state.values_ctl.set(next);
     }
 
     pub fn is_selected(&self, val: &str) -> bool {
@@ -708,95 +591,33 @@ impl ComboboxRuntime {
     }
 
     pub fn input_value(&self) -> String {
-        let binding = *self.state.controlled_input_value.read();
-        binding
-            .read_cloned()
-            .unwrap_or_else(|| self.state.input_value.read().clone())
+        self.state.input_value.read().clone()
     }
 
     pub fn input_value_untracked(&self) -> String {
-        let binding = self
-            .state
-            .controlled_input_value
+        self.state
+            .input_value
             .try_peek()
-            .map(|g| *g)
-            .unwrap_or(ControlledBinding::Uncontrolled);
-        binding.peek_cloned().unwrap_or_else(|| {
-            self.state
-                .input_value
-                .try_peek()
-                .map(|g| g.clone())
-                .unwrap_or_default()
-        })
+            .map(|g| g.clone())
+            .unwrap_or_default()
     }
 
     pub fn set_input_value(&self, next: String, sync_dom: bool) {
-        let changed = self.input_value_untracked() != next;
-        let binding = self
-            .state
-            .controlled_input_value
-            .try_peek()
-            .map(|g| *g)
-            .unwrap_or(ControlledBinding::Uncontrolled);
-        match binding {
-            ControlledBinding::TwoWay(_) => {
-                binding.write_if_two_way(next.clone());
-                if sync_dom {
-                    let iid = self.current_input_id_untracked();
-                    set_input_value_by_id(&iid, &next);
-                    let utf16_len = next.encode_utf16().count();
-                    set_input_selection_range(&iid, utf16_len, utf16_len);
-                }
-                if changed
-                    && let Some(cb) = self
-                        .state
-                        .on_input_value_change
-                        .try_read()
-                        .ok()
-                        .and_then(|s| *s)
-                {
-                    cb.call(next);
-                }
+        let is_controlled = self.state.input_value_ctl.is_controlled();
+        self.state.input_value_ctl.set(next.clone());
+        let effective = self.input_value_untracked();
+        if is_controlled {
+            if effective != next || sync_dom {
+                let iid = self.current_input_id_untracked();
+                set_input_value_by_id(&iid, &effective);
+                let utf16_len = effective.encode_utf16().count();
+                set_input_selection_range(&iid, utf16_len, utf16_len);
             }
-            ControlledBinding::Uncontrolled => {
-                let mut sig = self.state.input_value;
-                let _ = sig.try_write().map(|mut w| *w = next.clone());
-                if sync_dom {
-                    let iid = self.current_input_id_untracked();
-                    set_input_value_by_id(&iid, &next);
-                    let utf16_len = next.encode_utf16().count();
-                    set_input_selection_range(&iid, utf16_len, utf16_len);
-                }
-                if changed
-                    && let Some(cb) = self
-                        .state
-                        .on_input_value_change
-                        .try_read()
-                        .ok()
-                        .and_then(|s| *s)
-                {
-                    cb.call(next);
-                }
-            }
-            ControlledBinding::ReadOnly(_) => {
-                if changed
-                    && let Some(cb) = self
-                        .state
-                        .on_input_value_change
-                        .try_read()
-                        .ok()
-                        .and_then(|s| *s)
-                {
-                    cb.call(next.clone());
-                }
-                let effective = self.input_value_untracked();
-                if effective != next || sync_dom {
-                    let iid = self.current_input_id_untracked();
-                    set_input_value_by_id(&iid, &effective);
-                    let utf16_len = effective.encode_utf16().count();
-                    set_input_selection_range(&iid, utf16_len, utf16_len);
-                }
-            }
+        } else if sync_dom {
+            let iid = self.current_input_id_untracked();
+            set_input_value_by_id(&iid, &next);
+            let utf16_len = next.encode_utf16().count();
+            set_input_selection_range(&iid, utf16_len, utf16_len);
         }
     }
 
@@ -1099,11 +920,7 @@ impl ComboboxRuntime {
         match self.mode_untracked() {
             ComboboxMode::Single => {
                 let current = self.value_untracked();
-                let is_val_ro = self
-                    .state
-                    .controlled_value
-                    .try_peek()
-                    .is_ok_and(|b| b.is_read_only());
+                let is_val_controlled = self.state.value_ctl.is_controlled();
                 let outcome = apply_single_toggle(
                     current.as_deref(),
                     target_value,
@@ -1115,7 +932,7 @@ impl ComboboxRuntime {
                     self.set_value(outcome.next_value.clone());
                 }
                 let accepted =
-                    !outcome.changed || !is_val_ro || self.value_untracked() == outcome.next_value;
+                    !outcome.changed || !is_val_controlled || self.value_untracked() == outcome.next_value;
                 if accepted && let Some(next_input) = outcome.next_input_value {
                     self.set_input_value(next_input, true);
                 }
@@ -1125,11 +942,7 @@ impl ComboboxRuntime {
             }
             ComboboxMode::Multiple => {
                 let current = self.values_untracked();
-                let is_vals_ro = self
-                    .state
-                    .controlled_values
-                    .try_peek()
-                    .is_ok_and(|b| b.is_read_only());
+                let is_vals_controlled = self.state.values_ctl.is_controlled();
                 let outcome = apply_multiple_toggle(
                     &current,
                     target_value,
@@ -1140,7 +953,7 @@ impl ComboboxRuntime {
                     self.set_values(outcome.next_values.clone());
                 }
                 let accepted = !outcome.changed
-                    || !is_vals_ro
+                    || !is_vals_controlled
                     || self.values_untracked() == outcome.next_values;
                 if accepted && let Some(next_input) = outcome.next_input_value {
                     self.set_input_value(next_input, true);
@@ -1156,6 +969,16 @@ impl ComboboxRuntime {
             return false;
         }
         if !self.is_open_untracked() {
+            return false;
+        }
+        let escape_behavior = self
+            .state
+            .escape_key_down_behavior
+            .try_peek()
+            .ok()
+            .and_then(|g| *g)
+            .unwrap_or(DismissBehavior::Close);
+        if !escape_behavior.dismisses() {
             return false;
         }
         let cid = self.current_content_id_untracked();
@@ -1306,11 +1129,7 @@ impl ComboboxRuntime {
     pub fn handle_form_reset(&self) {
         let accepted = match self.mode_untracked() {
             ComboboxMode::Single => {
-                let is_val_ro = self
-                    .state
-                    .controlled_value
-                    .try_peek()
-                    .is_ok_and(|b| b.is_read_only());
+                let is_val_controlled = self.state.value_ctl.is_controlled();
                 let default_val = self
                     .state
                     .default_value_initial
@@ -1318,14 +1137,10 @@ impl ComboboxRuntime {
                     .ok()
                     .and_then(|g| g.clone());
                 self.set_value(default_val.clone());
-                !is_val_ro || self.value_untracked() == default_val
+                !is_val_controlled || self.value_untracked() == default_val
             }
             ComboboxMode::Multiple => {
-                let is_vals_ro = self
-                    .state
-                    .controlled_values
-                    .try_peek()
-                    .is_ok_and(|b| b.is_read_only());
+                let is_vals_controlled = self.state.values_ctl.is_controlled();
                 let default_vals = self
                     .state
                     .default_values_initial
@@ -1333,7 +1148,7 @@ impl ComboboxRuntime {
                     .map(|g| g.clone())
                     .unwrap_or_default();
                 self.set_values(default_vals.clone());
-                !is_vals_ro || self.values_untracked() == default_vals
+                !is_vals_controlled || self.values_untracked() == default_vals
             }
         };
         if accepted {
@@ -1536,12 +1351,8 @@ impl ComboboxRuntime {
             .unwrap_or(false)
     }
 
-    pub fn sticky(&self) -> Option<String> {
-        self.state
-            .sticky
-            .try_peek()
-            .ok()
-            .and_then(|g| g.clone())
+    pub fn sticky(&self) -> Option<StickyStrategy> {
+        self.state.sticky.try_peek().ok().and_then(|g| *g)
     }
 
     pub fn custom_anchor(&self) -> Option<String> {

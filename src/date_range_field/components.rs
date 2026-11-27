@@ -8,11 +8,10 @@ use ui_sdk::foundation::date_time::field_policy::{
 
 use crate::{
     date_field::{
-        DateFieldInputRenderProps, DateFieldSegmentItem,
+        DateFieldSegmentItem,
         components::{
-            SegmentFieldInputSpec, SegmentFieldInputView, SegmentFieldRootSpec,
-            render_segment_field_chrome, render_segment_field_input_with_runtime,
-            use_segment_field_runtime,
+            SegmentFieldInputSpec, SegmentFieldRootSpec, render_segment_field_chrome,
+            render_segment_field_input_with_runtime, use_segment_field_runtime,
         },
         default_date_field_placeholder,
         runtime::SegmentFieldUiPolicy,
@@ -21,23 +20,19 @@ use crate::{
     foundation::{
         browser::{focus::use_composite_focus_out, local_today},
         compose::{
-            extract_aria_invalid_and_describedby, merge_attributes_with_part,
-            merge_global_attributes, resolve_invalid_and_describedby,
+            collect_user_attrs, extract_aria_invalid_and_describedby, merge_props, push_attr_opt,
+            push_event_handler, resolve_invalid_and_describedby,
         },
         date_time::{
             CalendarDate, CalendarLocale, ChronoRange, DateValue, DateValueRange,
             EditableSegmentKind, FieldInvalidEvent, Granularity, HourCycle,
         },
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-        state::ControlledBinding,
+        state::{sync_signal, use_controllable_signal},
     },
 };
 
 use super::{
-    attrs::{
-        DateRangeFieldLabelAttrs, DateRangeFieldRootAttrs, RangeFieldLabelAttrs,
-        RangeFieldRootAttrs,
-    },
     runtime::{RangeFieldContext, RangeFieldRuntime, use_range_field_context},
     types::RangeFieldInputKind,
 };
@@ -45,7 +40,6 @@ use super::{
 pub use crate::date_field::{
     DateFieldSegment as DateRangeFieldSegment,
     DateFieldSegmentProps as DateRangeFieldSegmentProps,
-    DateFieldSegmentRenderProps as DateRangeFieldSegmentRenderProps,
 };
 
 /// Plain Rust specification for [`render_range_field_root`].
@@ -53,14 +47,14 @@ pub(crate) struct RangeFieldRootSpec<P: RangeFieldPolicy + SegmentFieldUiPolicy>
     pub id: Option<String>,
     pub class: Option<String>,
     pub style: Option<String>,
-    pub value: Option<Signal<ChronoRange<P::Value>>>,
-    pub controlled_value: Option<ReadSignal<ChronoRange<P::Value>>>,
-    pub default_value: ChronoRange<P::Value>,
+    pub value: Option<ChronoRange<P::Value>>,
+    pub default_value: Option<ChronoRange<P::Value>>,
     pub on_value_change: Option<EventHandler<ChronoRange<P::Value>>>,
+    pub start_value: Option<Option<P::Value>>,
     pub on_start_value_change: Option<EventHandler<Option<P::Value>>>,
+    pub end_value: Option<Option<P::Value>>,
     pub on_end_value_change: Option<EventHandler<Option<P::Value>>>,
-    pub placeholder: Option<Signal<P::Value>>,
-    pub controlled_placeholder: Option<ReadSignal<P::Value>>,
+    pub placeholder: Option<P::Value>,
     pub on_placeholder_change: Option<EventHandler<P::Value>>,
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
     pub granularity: P::GranularityProp,
@@ -72,25 +66,14 @@ pub(crate) struct RangeFieldRootSpec<P: RangeFieldPolicy + SegmentFieldUiPolicy>
     pub disabled: bool,
     pub read_only: bool,
     pub required: bool,
-    pub readonly_segments: Vec<EditableSegmentKind>,
+    pub read_only_segments: Vec<EditableSegmentKind>,
     pub is_date_unavailable: Option<Callback<CalendarDate, bool>>,
     pub validate: Option<Callback<ChronoRange<P::Value>, Option<Vec<String>>>>,
     pub on_invalid: Option<EventHandler<FieldInvalidEvent>>,
     pub error_message_id: Option<String>,
     pub dir: Option<Direction>,
     pub is_invalid_override: Option<bool>,
-    pub as_child: bool,
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-    pub debug_name: &'static str,
-}
-
-/// View passed to `render_as_child` inside [`render_range_field_root`].
-pub(crate) struct RangeFieldRootView {
-    pub attrs: RangeFieldRootAttrs,
-    pub class: Option<String>,
-    pub style: Option<String>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -118,11 +101,28 @@ where
     let scope = use_hook(|| ScopeHandle::root(P::RANGE_SCOPE_PREFIX).child(stable_id.clone()));
     let rels = use_hook(|| RangeFieldRelationships::new(scope.clone()));
 
-    let value_binding = ControlledBinding::from_props(spec.value, spec.controlled_value);
-    let placeholder_binding =
-        ControlledBinding::from_props(spec.placeholder, spec.controlled_placeholder);
+    let default_range = spec.default_value.unwrap_or_default();
+    let initial_start = spec
+        .start_value
+        .unwrap_or_else(|| spec.value.map_or(default_range.start, |v| v.start));
+    let initial_end = spec
+        .end_value
+        .unwrap_or_else(|| spec.value.map_or(default_range.end, |v| v.end));
+    let initial_value = ChronoRange {
+        start: initial_start,
+        end: initial_end,
+    };
 
-    let initial_value = value_binding.initial_or(spec.default_value);
+    let value_ctl = use_controllable_signal(spec.value, initial_value, spec.on_value_change);
+    let start_ctl =
+        use_controllable_signal(spec.start_value, initial_start, spec.on_start_value_change);
+    let end_ctl = use_controllable_signal(spec.end_value, initial_end, spec.on_end_value_change);
+    let placeholder_ctl =
+        use_controllable_signal(spec.placeholder, initial_placeholder, spec.on_placeholder_change);
+
+    let mut start_value = start_ctl.signal();
+    let mut end_value = end_ctl.signal();
+    let placeholder = placeholder_ctl.signal();
 
     let def = RangeFieldDefinition::<P>::new()
         .with_locale(spec.locale.clone())
@@ -134,7 +134,7 @@ where
         .with_disabled(effective_disabled)
         .with_read_only(effective_read_only)
         .with_required(effective_required)
-        .with_readonly_segments(spec.readonly_segments.clone())
+        .with_readonly_segments(spec.read_only_segments.clone())
         .with_error_message_id(spec.error_message_id.clone())
         .with_dir(resolved_dir);
 
@@ -147,9 +147,6 @@ where
     });
 
     let root_dom_id = use_signal(|| rels.root_id().to_string());
-    let start_value = use_signal(|| initial_value.start);
-    let end_value = use_signal(|| initial_value.end);
-    let placeholder = use_signal(|| initial_placeholder);
     let custom_label_id = use_signal(|| None::<String>);
     let last_invalid_reason = use_signal(|| None);
     let trailing_trigger_id = use_signal(|| None::<String>);
@@ -160,12 +157,6 @@ where
     // Freeze mount-time reset baseline (`use_hook`) from controlled-or-default.
     let default_value = use_hook(|| CopyValue::new(initial_value));
 
-    let mut controlled_value = use_hook(|| CopyValue::new(value_binding));
-    controlled_value.set(value_binding);
-
-    let mut controlled_placeholder = use_hook(|| CopyValue::new(placeholder_binding));
-    controlled_placeholder.set(placeholder_binding);
-
     let mut on_value_change = use_hook(|| CopyValue::new(spec.on_value_change));
     on_value_change.set(spec.on_value_change);
 
@@ -174,9 +165,6 @@ where
 
     let mut on_end_value_change = use_hook(|| CopyValue::new(spec.on_end_value_change));
     on_end_value_change.set(spec.on_end_value_change);
-
-    let mut on_placeholder_change = use_hook(|| CopyValue::new(spec.on_placeholder_change));
-    on_placeholder_change.set(spec.on_placeholder_change);
 
     let mut is_date_unavailable = use_hook(|| CopyValue::new(spec.is_date_unavailable));
     is_date_unavailable.set(spec.is_date_unavailable);
@@ -203,12 +191,13 @@ where
         start_runtime,
         end_runtime,
         default_value,
-        controlled_value,
-        controlled_placeholder,
+        value_ctl,
+        start_ctl,
+        end_ctl,
+        placeholder_ctl,
         on_value_change,
         on_start_value_change,
         on_end_value_change,
-        on_placeholder_change,
         is_date_unavailable,
         validate,
         on_invalid,
@@ -216,28 +205,30 @@ where
         parent_focus_out,
     };
 
-    // Synchronous render-time reconciliation for external controlled signals & invalid override.
+    // Synchronous render-time reconciliation for external controlled props & invalid override.
     {
-        let ext_val_now = value_binding.read_cloned();
-        let ext_ph_now = placeholder_binding.read_cloned();
-        let ext_inv_now = effective_invalid_override.unwrap_or(false);
-        if let Some(val) = ext_val_now
-            && runtime.state.peek().value() != val
-        {
-            runtime.state.write().set_value(val);
-            if *runtime.start_value.peek() != val.start {
-                runtime.start_value.set(val.start);
-            }
-            if *runtime.end_value.peek() != val.end {
-                runtime.end_value.set(val.end);
-            }
+        let mut target_val = spec.value.unwrap_or_else(|| runtime.state.peek().value());
+        if let Some(s) = spec.start_value {
+            target_val.start = s;
         }
-        if let Some(ph) = ext_ph_now
-            && *runtime.placeholder.peek() != ph
+        if let Some(e) = spec.end_value {
+            target_val.end = e;
+        }
+        if runtime.state.peek().value() != target_val {
+            runtime.state.write().set_value(target_val);
+        }
+        if !start_ctl.is_controlled() && *start_value.peek() != target_val.start {
+            sync_signal(&mut start_value, target_val.start);
+        }
+        if !end_ctl.is_controlled() && *end_value.peek() != target_val.end {
+            sync_signal(&mut end_value, target_val.end);
+        }
+        if let Some(ph) = spec.placeholder
+            && runtime.state.peek().placeholder() != ph
         {
-            runtime.placeholder.set(ph);
             runtime.state.write().set_placeholder(ph);
         }
+        let ext_inv_now = effective_invalid_override.unwrap_or(false);
         if runtime.state.peek().external_invalid() != ext_inv_now {
             runtime.state.write().set_external_invalid(ext_inv_now);
         }
@@ -253,7 +244,7 @@ where
         if has_pred || had_pred {
             let next_rev = predicate_rev.try_peek().ok().map(|cur| cur.wrapping_add(1));
             if let Some(next_rev) = next_rev {
-                crate::foundation::state::sync_signal(&mut predicate_rev, next_rev);
+                sync_signal(&mut predicate_rev, next_rev);
             }
         }
     } else {
@@ -261,7 +252,7 @@ where
     }
 
     // DEF-5C-09 & B5: Reconcile definition, predicates (`validate`, `is_date_unavailable`),
-    // controlled signals, and validation inside guarded effects for BOTH DateRangeField and TimeRangeField.
+    // controlled props, and validation inside guarded effects for BOTH DateRangeField and TimeRangeField.
     use_effect(use_reactive(
         (&def, &spec.is_date_unavailable, &spec.validate),
         {
@@ -278,13 +269,17 @@ where
 
     let eff_inv_bool = effective_invalid_override.unwrap_or(false);
     use_effect(use_reactive(
-        (&value_binding, &placeholder_binding, &eff_inv_bool),
+        (
+            &spec.value,
+            &spec.start_value,
+            &spec.end_value,
+            &spec.placeholder,
+            &eff_inv_bool,
+        ),
         {
             let mut rt = runtime.clone();
-            move |(val_bind, ph_bind, inv_override)| {
-                let ext_val = val_bind.read_cloned();
-                let ext_ph = ph_bind.read_cloned();
-                rt.reconcile_external_state(ext_val, ext_ph, Some(inv_override));
+            move |(ext_val, ext_start, ext_end, ext_ph, inv_override)| {
+                rt.reconcile_external_state(ext_val, ext_start, ext_end, ext_ph, Some(inv_override));
             }
         },
     ));
@@ -294,18 +289,16 @@ where
 }
 
 /// Renders the root group container for a pre-initialized [`RangeFieldRuntime<P>`].
-pub(crate) fn render_range_field_root_with_runtime<P, F>(
+pub(crate) fn render_range_field_root_with_runtime<P>(
     runtime: RangeFieldRuntime<P>,
     spec: RangeFieldRootSpec<P>,
-    render_as_child: F,
 ) -> Element
 where
     P: RangeFieldPolicy + SegmentFieldUiPolicy,
-    F: FnOnce(RangeFieldRootView) -> Option<Element>,
 {
     let field_ctx = try_use_field_context();
     let extracted = extract_aria_invalid_and_describedby(spec.attributes);
-    let raw_attrs = runtime.root_attrs(spec.id.clone());
+    let raw_attrs = runtime.root_attrs(spec.id);
     runtime.set_root_dom_id(raw_attrs.id.clone());
 
     let field_describedby = field_ctx.and_then(|f| f.aria_describedby(None));
@@ -325,61 +318,53 @@ where
     let (handle_focus_in, handle_focus_out) =
         use_composite_focus_out(vec![attrs.id.clone()], spec.on_focus_out);
 
-    if spec.as_child {
-        let view = RangeFieldRootView {
-            attrs: attrs.clone(),
-            class: spec.class.clone(),
-            style: spec.style.clone(),
-            on_mounted: spec.on_mounted,
-            attributes: extracted.rest.clone(),
-            children: spec.children.clone(),
-        };
-        if let Some(el) = render_as_child(view) {
-            return el;
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::{}: as_child requires render_child; rendering the default div",
-            spec.debug_name
-        );
-    }
-
-    let attrs_with_part = merge_attributes_with_part(extracted.rest, P::RANGE_ROOT_DATA_ATTR);
-    let merged = merge_global_attributes(
-        spec.class.as_deref(),
-        spec.style.as_deref(),
-        attrs_with_part,
-    );
-    let on_mounted = spec.on_mounted;
     let parent_fi_rt = runtime.clone();
     let parent_fo_rt = runtime;
 
+    let mut base = Vec::with_capacity(12);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new(
+        "aria-labelledby",
+        attrs.aria_labelledby,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "aria-describedby", attrs.aria_describedby);
+    push_attr_opt(&mut base, "aria-invalid", attrs.aria_invalid);
+    base.push(Attribute::new("dir", attrs.dir, None, false));
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    base.push(Attribute::new(P::RANGE_ROOT_DATA_ATTR, "", None, false));
+    push_event_handler(
+        &mut base,
+        "onfocusin",
+        Some(EventHandler::new(move |evt: FocusEvent| {
+            handle_focus_in.call(evt.clone());
+            parent_fi_rt.notify_parent_focus_in(evt);
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onfocusout",
+        Some(EventHandler::new(move |evt: FocusEvent| {
+            handle_focus_out.call(evt.clone());
+            parent_fo_rt.notify_parent_focus_out(evt);
+        })),
+    );
+
+    let mut user = collect_user_attrs(spec.class, spec.style, extracted.rest);
+    push_event_handler(&mut user, "onmounted", spec.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = spec.child {
+        return child.call(merged);
+    }
+
     rsx! {
         div {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            role: attrs.role,
-            "aria-labelledby": "{attrs.aria_labelledby}",
-            "aria-describedby": attrs.aria_describedby,
-            "aria-invalid": attrs.aria_invalid,
-            dir: attrs.dir,
-            "data-invalid": attrs.data_invalid,
-            "data-disabled": attrs.data_disabled,
-            onfocusin: move |evt| {
-                handle_focus_in.call(evt.clone());
-                parent_fi_rt.notify_parent_focus_in(evt);
-            },
-            onfocusout: move |evt| {
-                handle_focus_out.call(evt.clone());
-                parent_fo_rt.notify_parent_focus_out(evt);
-            },
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {spec.children}
         }
     }
@@ -387,17 +372,15 @@ where
 
 /// Monomorphized plain-fn root renderer shared by `DateRangeFieldRoot` and `TimeRangeFieldRoot`
 /// (fixes `B5` by including `&spec.validate` in `use_reactive` for both policies).
-pub(crate) fn render_range_field_root<P, F>(
+pub(crate) fn render_range_field_root<P>(
     spec: RangeFieldRootSpec<P>,
     initial_placeholder: P::Value,
-    render_as_child: F,
 ) -> Element
 where
     P: RangeFieldPolicy + SegmentFieldUiPolicy,
-    F: FnOnce(RangeFieldRootView) -> Option<Element>,
 {
     let runtime = use_range_field_runtime::<P>(&spec, initial_placeholder);
-    render_range_field_root_with_runtime(runtime, spec, render_as_child)
+    render_range_field_root_with_runtime(runtime, spec)
 }
 
 /// Specification for [`render_range_field_input`].
@@ -408,24 +391,19 @@ pub(crate) struct RangeFieldInputSpec {
     pub style: Option<String>,
     pub name: Option<String>,
     pub form: Option<String>,
-    pub as_child: bool,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub render_children: Option<Callback<Vec<FieldSegmentItem>, Element>>,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
-    pub debug_name: &'static str,
 }
 
 /// Monomorphized plain-fn range endpoint input renderer shared by `DateRangeFieldInput` and
 /// `TimeRangeFieldInput` (zero nested `#[component]` forwarding `Option<Callback>` per `#5894`,
 /// zero `*RangePartBridge` wrapper).
-pub(crate) fn render_range_field_input<P, F>(
-    spec: RangeFieldInputSpec,
-    render_as_child: F,
-) -> Element
+pub(crate) fn render_range_field_input<P>(spec: RangeFieldInputSpec) -> Element
 where
     P: RangeFieldPolicy + SegmentFieldUiPolicy,
-    F: FnOnce(SegmentFieldInputView) -> Option<Element>,
 {
     let range_rt = use_range_field_context::<P>();
     let part_invalid = range_rt.is_part_invalid(spec.kind);
@@ -455,14 +433,12 @@ where
 
     let root_spec = SegmentFieldRootSpec::<P> {
         id: Some(part_scope_id),
-        value: None,
-        controlled_value: Some(part_value_sig.into()),
+        value: Some((part_value_sig)()),
         default_value: part_default_value,
         on_value_change: Some(EventHandler::new(move |next| {
             rt_for_change.update_part_value(kind, next);
         })),
-        placeholder: None,
-        controlled_placeholder: Some(range_rt.placeholder.into()),
+        placeholder: Some((range_rt.placeholder)()),
         on_placeholder_change: Some(EventHandler::new(move |ph| {
             rt_for_ph.update_placeholder(ph);
         })),
@@ -476,7 +452,7 @@ where
         disabled: def.disabled,
         read_only: def.read_only,
         required: def.required,
-        readonly_segments: def.readonly_segments,
+        read_only_segments: def.readonly_segments,
         is_date_unavailable: None,
         validate: None,
         on_invalid: None,
@@ -522,15 +498,13 @@ where
             style: spec.style,
             name: spec.name,
             form: spec.form,
-            as_child: spec.as_child,
+            child: spec.child,
             render_children: spec.render_children,
             on_focus_out: None,
             on_mounted: spec.on_mounted,
             attributes: spec.attributes,
             children: spec.children,
-            debug_name: spec.debug_name,
         },
-        render_as_child,
     );
 
     render_segment_field_chrome(&field_rt, input_el)
@@ -541,20 +515,8 @@ pub(crate) struct RangeFieldLabelSpec {
     pub id: Option<String>,
     pub class: Option<String>,
     pub style: Option<String>,
-    pub as_child: bool,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub on_click: Option<EventHandler<MouseEvent>>,
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-    pub debug_name: &'static str,
-}
-
-/// View passed to `render_as_child` inside [`render_range_field_label`].
-pub(crate) struct RangeFieldLabelView {
-    pub attrs: RangeFieldLabelAttrs,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub on_click: EventHandler<MouseEvent>,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -562,13 +524,9 @@ pub(crate) struct RangeFieldLabelView {
 
 /// Monomorphized plain-fn label renderer shared by `DateRangeFieldLabel` and `TimeRangeFieldLabel`,
 /// with equality-guarded `custom_label_id` drop cleanup preventing keyed swap clobber.
-pub(crate) fn render_range_field_label<P, F>(
-    spec: RangeFieldLabelSpec,
-    render_as_child: F,
-) -> Element
+pub(crate) fn render_range_field_label<P>(spec: RangeFieldLabelSpec) -> Element
 where
     P: RangeFieldPolicy + SegmentFieldUiPolicy,
-    F: FnOnce(RangeFieldLabelView) -> Option<Element>,
 {
     let mut runtime = use_range_field_context::<P>();
     let normalized_id = spec.id.clone().filter(|s| !s.is_empty());
@@ -598,107 +556,66 @@ where
         });
     }
 
-    let attrs = runtime.label_attrs(spec.id.clone());
-    let on_click = {
-        let rt = runtime.clone();
-        let user_cb = spec.on_click;
-        EventHandler::new(move |evt: MouseEvent| {
+    let attrs = runtime.label_attrs(spec.id);
+    let base_on_click = {
+        let rt = runtime;
+        EventHandler::new(move |_: MouseEvent| {
             if rt.state.try_peek().is_ok_and(|st| !st.def().disabled) {
                 rt.focus_first_segment();
-            }
-            if let Some(cb) = user_cb {
-                cb.call(evt);
             }
         })
     };
 
-    if spec.as_child {
-        let view = RangeFieldLabelView {
-            attrs: attrs.clone(),
-            class: spec.class.clone(),
-            style: spec.style.clone(),
-            on_click,
-            on_mounted: spec.on_mounted,
-            attributes: spec.attributes.clone(),
-            children: spec.children.clone(),
-        };
-        if let Some(el) = render_as_child(view) {
-            return el;
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::{}: as_child requires render_child; rendering the default span",
-            spec.debug_name
-        );
-    }
+    let mut base = Vec::with_capacity(5);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    base.push(Attribute::new(P::RANGE_LABEL_DATA_ATTR, "", None, false));
+    push_event_handler(&mut base, "onclick", Some(base_on_click));
 
-    let attrs_with_part = merge_attributes_with_part(spec.attributes, P::RANGE_LABEL_DATA_ATTR);
-    let merged = merge_global_attributes(
-        spec.class.as_deref(),
-        spec.style.as_deref(),
-        attrs_with_part,
-    );
-    let on_mounted = spec.on_mounted;
+    let mut user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+    push_event_handler(&mut user, "onclick", spec.on_click);
+    push_event_handler(&mut user, "onmounted", spec.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = spec.child {
+        return child.call(merged);
+    }
 
     rsx! {
         span {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-invalid": attrs.data_invalid,
-            "data-disabled": attrs.data_disabled,
-            onclick: move |evt| on_click.call(evt),
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {spec.children}
         }
     }
 }
 
-/// Render props passed to `as_child` for [`DateRangeFieldRoot`].
-#[derive(Clone, PartialEq, Props)]
-pub struct DateRangeFieldRootRenderProps {
-    pub attrs: DateRangeFieldRootAttrs,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 /// Props for [`DateRangeFieldRoot`].
 #[derive(Clone, PartialEq, Props)]
 pub struct DateRangeFieldRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
-    pub value: Option<Signal<DateValueRange>>,
+    pub value: Option<DateValueRange>,
     #[props(default)]
-    pub controlled_value: Option<ReadSignal<DateValueRange>>,
-    #[props(default)]
-    pub default_value: DateValueRange,
+    pub default_value: Option<DateValueRange>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<DateValueRange>>,
     #[props(default)]
+    pub start_value: Option<Option<DateValue>>,
+    #[props(default)]
     pub on_start_value_change: Option<EventHandler<Option<DateValue>>>,
+    #[props(default)]
+    pub end_value: Option<Option<DateValue>>,
     #[props(default)]
     pub on_end_value_change: Option<EventHandler<Option<DateValue>>>,
     #[props(default)]
-    pub placeholder: Option<Signal<DateValue>>,
-    #[props(default)]
-    pub controlled_placeholder: Option<ReadSignal<DateValue>>,
+    pub placeholder: Option<DateValue>,
     #[props(default)]
     pub default_placeholder: Option<DateValue>,
     #[props(default)]
@@ -709,7 +626,7 @@ pub struct DateRangeFieldRootProps {
     pub granularity: Option<Granularity>,
     #[props(default)]
     pub hour_cycle: Option<HourCycle>,
-    #[props(default)]
+    #[props(default, into)]
     pub locale: CalendarLocale,
     #[props(default = false)]
     pub hide_time_zone: bool,
@@ -724,23 +641,19 @@ pub struct DateRangeFieldRootProps {
     #[props(default = false)]
     pub required: bool,
     #[props(default)]
-    pub readonly_segments: Vec<EditableSegmentKind>,
+    pub read_only_segments: Vec<EditableSegmentKind>,
     #[props(default)]
     pub is_date_unavailable: Option<Callback<CalendarDate, bool>>,
     #[props(default)]
     pub validate: Option<Callback<DateValueRange, Option<Vec<String>>>>,
     #[props(default)]
     pub on_invalid: Option<EventHandler<FieldInvalidEvent>>,
-    #[props(default)]
+    #[props(default, into)]
     pub error_message_id: Option<String>,
     #[props(default)]
     pub dir: Option<Direction>,
     #[props(default)]
-    pub is_invalid_override: Option<bool>,
-    #[props(default = false)]
-    pub as_child: bool,
-    #[props(default)]
-    pub render_child: Option<Callback<DateRangeFieldRootRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -753,16 +666,19 @@ pub struct DateRangeFieldRootProps {
 #[component]
 pub fn DateRangeFieldRoot(props: DateRangeFieldRootProps) -> Element {
     let today = use_hook(local_today);
-    let value_binding = ControlledBinding::from_props(props.value, props.controlled_value);
-    let placeholder_binding =
-        ControlledBinding::from_props(props.placeholder, props.controlled_placeholder);
-    let initial_value = value_binding.initial_or(props.default_value);
-    let initial_placeholder = placeholder_binding
-        .peek_cloned()
+    let default_range = props.default_value.unwrap_or_default();
+    let initial_start = props
+        .start_value
+        .unwrap_or_else(|| props.value.map_or(default_range.start, |v| v.start));
+    let initial_end = props
+        .end_value
+        .unwrap_or_else(|| props.value.map_or(default_range.end, |v| v.end));
+    let initial_placeholder = props
+        .placeholder
         .or(props.default_placeholder)
         .unwrap_or_else(|| {
             default_date_field_placeholder(
-                initial_value.start.or(initial_value.end),
+                initial_start.or(initial_end),
                 props.granularity,
                 props.min_value,
                 props.max_value,
@@ -770,20 +686,19 @@ pub fn DateRangeFieldRoot(props: DateRangeFieldRootProps) -> Element {
             )
         });
 
-    let render_child = props.render_child;
-    render_range_field_root::<DateFieldPolicy, _>(
+    render_range_field_root::<DateFieldPolicy>(
         RangeFieldRootSpec {
             id: props.id,
             class: props.class,
             style: props.style,
             value: props.value,
-            controlled_value: props.controlled_value,
             default_value: props.default_value,
             on_value_change: props.on_value_change,
+            start_value: props.start_value,
             on_start_value_change: props.on_start_value_change,
+            end_value: props.end_value,
             on_end_value_change: props.on_end_value_change,
             placeholder: props.placeholder,
-            controlled_placeholder: props.controlled_placeholder,
             on_placeholder_change: props.on_placeholder_change,
             on_focus_out: props.on_focus_out,
             granularity: props.granularity,
@@ -795,32 +710,19 @@ pub fn DateRangeFieldRoot(props: DateRangeFieldRootProps) -> Element {
             disabled: props.disabled,
             read_only: props.read_only,
             required: props.required,
-            readonly_segments: props.readonly_segments,
+            read_only_segments: props.read_only_segments,
             is_date_unavailable: props.is_date_unavailable,
             validate: props.validate,
             on_invalid: props.on_invalid,
             error_message_id: props.error_message_id,
             dir: props.dir,
-            is_invalid_override: props.is_invalid_override,
-            as_child: props.as_child,
+            is_invalid_override: None,
+            child: props.child,
             on_mounted: props.on_mounted,
             attributes: props.attributes,
             children: props.children,
-            debug_name: "DateRangeFieldRoot",
         },
         initial_placeholder,
-        move |view| {
-            render_child.map(|cb| {
-                cb.call(DateRangeFieldRootRenderProps {
-                    attrs: view.attrs,
-                    class: view.class,
-                    style: view.style,
-                    on_mounted: view.on_mounted,
-                    attributes: view.attributes,
-                    children: view.children,
-                })
-            })
-        },
     )
 }
 
@@ -830,20 +732,18 @@ pub use DateRangeFieldRoot as DateRangeField;
 #[derive(Clone, PartialEq, Props)]
 pub struct DateRangeFieldInputProps {
     pub kind: RangeFieldInputKind,
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub name: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub form: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<DateFieldInputRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub render_children: Option<Callback<Vec<DateFieldSegmentItem>, Element>>,
     #[props(default)]
@@ -857,67 +757,32 @@ pub struct DateRangeFieldInputProps {
 /// Endpoint input (`Start` or `End`) inside a `DateRangeFieldRoot`.
 #[component]
 pub fn DateRangeFieldInput(props: DateRangeFieldInputProps) -> Element {
-    let render_child = props.render_child;
-    render_range_field_input::<DateFieldPolicy, _>(
-        RangeFieldInputSpec {
-            kind: props.kind,
-            id: props.id,
-            class: props.class,
-            style: props.style,
-            name: props.name,
-            form: props.form,
-            as_child: props.as_child,
-            render_children: props.render_children,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: props.children,
-            debug_name: "DateRangeFieldInput",
-        },
-        move |view| {
-            render_child.map(|cb| {
-                cb.call(DateFieldInputRenderProps {
-                    attrs: view.attrs,
-                    segments: view.segments,
-                    class: view.class,
-                    style: view.style,
-                    on_mounted: view.on_mounted,
-                    attributes: view.attributes,
-                    children: view.children,
-                })
-            })
-        },
-    )
-}
-
-/// Render props passed to `as_child` for [`DateRangeFieldLabel`].
-#[derive(Clone, PartialEq, Props)]
-pub struct DateRangeFieldLabelRenderProps {
-    pub attrs: DateRangeFieldLabelAttrs,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    pub on_click: EventHandler<MouseEvent>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
+    render_range_field_input::<DateFieldPolicy>(RangeFieldInputSpec {
+        kind: props.kind,
+        id: props.id,
+        class: props.class,
+        style: props.style,
+        name: props.name,
+        form: props.form,
+        child: props.child,
+        render_children: props.render_children,
+        on_mounted: props.on_mounted,
+        attributes: props.attributes,
+        children: props.children,
+    })
 }
 
 /// Props for [`DateRangeFieldLabel`].
 #[derive(Clone, PartialEq, Props)]
 pub struct DateRangeFieldLabelProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<DateRangeFieldLabelRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
@@ -931,31 +796,14 @@ pub struct DateRangeFieldLabelProps {
 /// Accessible label (`<span>`) for `DateRangeField`; clicking focuses the first interactive segment.
 #[component]
 pub fn DateRangeFieldLabel(props: DateRangeFieldLabelProps) -> Element {
-    let render_child = props.render_child;
-    render_range_field_label::<DateFieldPolicy, _>(
-        RangeFieldLabelSpec {
-            id: props.id,
-            class: props.class,
-            style: props.style,
-            as_child: props.as_child,
-            on_click: props.on_click,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: props.children,
-            debug_name: "DateRangeFieldLabel",
-        },
-        move |view| {
-            render_child.map(|cb| {
-                cb.call(DateRangeFieldLabelRenderProps {
-                    attrs: view.attrs,
-                    class: view.class,
-                    style: view.style,
-                    on_click: view.on_click,
-                    on_mounted: view.on_mounted,
-                    attributes: view.attributes,
-                    children: view.children,
-                })
-            })
-        },
-    )
+    render_range_field_label::<DateFieldPolicy>(RangeFieldLabelSpec {
+        id: props.id,
+        class: props.class,
+        style: props.style,
+        child: props.child,
+        on_click: props.on_click,
+        on_mounted: props.on_mounted,
+        attributes: props.attributes,
+        children: props.children,
+    })
 }

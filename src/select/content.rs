@@ -1,12 +1,15 @@
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::{join_styles, merge_global_attributes},
+    compose::{
+        FloatingContentChildProps, collect_user_attrs, join_styles, merge_props, push_attr_opt,
+        push_event_handler,
+    },
     keyboard::{is_escape_key, is_ime_composing_key},
     overlay::{
-        FloatingReadiness, OverlayBranchContext, PlacementAlign, PlacementSide, PresenceState,
-        is_modal_pointer_lock_active, is_overlay_escape_consumed, is_topmost_overlay_layer,
-        mark_overlay_escape_consumed, use_overlay_branch_provider,
+        DismissBehavior, FloatingReadiness, OverlayBranchContext, PlacementAlign, PlacementSide,
+        PresenceState, StickyStrategy, is_modal_pointer_lock_active, is_overlay_escape_consumed,
+        is_topmost_overlay_layer, mark_overlay_escape_consumed, use_overlay_branch_provider,
         use_register_parent_overlay_branches,
     },
     shared::{EscapeKeyDownEvent, PointerDownOutsideEvent, PreventableEvent},
@@ -15,20 +18,27 @@ use crate::foundation::{
 
 use super::types::SelectContext;
 
+pub(crate) enum SelectSurfaceChild {
+    Floating(Option<Callback<FloatingContentChildProps, Element>>),
+    Static(Option<Callback<Vec<Attribute>, Element>>),
+}
+
 /// Plain Rust specification for [`render_select_surface`] shared by `SelectContent` and
 /// `SelectContentStatic` (zero internal `#[component]`, `Dioxus #5894`).
 pub(crate) struct SelectSurfaceSpec {
     pub ctx: SelectContext,
+    pub id: Option<String>,
     pub is_floating: bool,
     pub class: Option<String>,
     pub style: Option<String>,
     pub same_width: bool,
     pub arrow_padding: f32,
-    pub sticky: Option<String>,
+    pub sticky: Option<StickyStrategy>,
     pub prevent_scroll: bool,
     pub prevent_overflow_text_selection: bool,
     pub force_mount: bool,
     pub custom_anchor: Option<String>,
+    pub child: SelectSurfaceChild,
     pub attributes: Vec<Attribute>,
     pub children: Element,
 }
@@ -41,12 +51,19 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
 
     let is_open = ctx.runtime.is_open();
     let rels = ctx.runtime.relationships();
-    let content_id = rels.content_id().to_owned();
+    let default_content_id = rels.content_id().to_owned();
+    let content_id = spec
+        .id
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| default_content_id.clone());
+    ctx.runtime.set_content_id(content_id.clone());
+
     let wrapper_id = format!("{content_id}-wrapper");
-    let portal_id = format!("{content_id}-portal-root");
+    let portal_id = format!("{default_content_id}-portal-root");
 
     let is_suspended = ctx.runtime.presence_state() == PresenceState::Suspended;
     let should_render = ctx.runtime.should_render_content() || spec.force_mount;
+    let is_hidden = !spec.force_mount && ctx.runtime.is_hidden();
 
     // Register with enclosing OverlayBranchContext (e.g. Dialog) & provide child branch forwarding (`B7`).
     let parent_branch = try_consume_context::<OverlayBranchContext>();
@@ -103,7 +120,7 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
                 crate::foundation::browser::restore_focus_element_by_id(&focus_cid);
                 if let Some(ref v) = scroll_runtime.highlighted_value_untracked() {
                     let item_id = scroll_runtime.relationships().item_id(v);
-                    let vp_id = scroll_runtime.relationships().viewport_id();
+                    let vp_id = scroll_runtime.current_viewport_id();
                     super::viewport::scroll_item_within_container(&vp_id, &focus_cid, &item_id);
                 }
             }
@@ -132,8 +149,14 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
 
     {
         let drop_runtime = ctx.runtime.clone();
+        let drop_cid = content_id.clone();
+        let drop_default_cid = default_content_id;
         use_drop(move || {
             drop_runtime.clear_content_z_index();
+            drop_runtime.set_keep_mounted(false);
+            if drop_runtime.current_content_id() == drop_cid {
+                drop_runtime.set_content_id(drop_default_cid);
+            }
             if is_floating {
                 crate::foundation::browser::restore_body_user_select();
             }
@@ -148,12 +171,18 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
     let activedescendant = hl.as_ref().map(|v| rels.item_id(v));
 
     let kd_runtime = ctx.runtime.clone();
-    let kd_cid = content_id;
-    let on_key_down = move |evt: KeyboardEvent| {
+    let kd_cid = content_id.clone();
+    let on_key_down = EventHandler::new(move |evt: KeyboardEvent| {
         if is_ime_composing_key(&evt) {
             return;
         }
         if is_escape_key(&evt.key()) {
+            let esc_behavior = kd_runtime
+                .escape_key_down_behavior()
+                .unwrap_or(DismissBehavior::Close);
+            if !esc_behavior.dismisses() {
+                return;
+            }
             if !kd_runtime.is_open() {
                 evt.prevent_default();
                 evt.stop_propagation();
@@ -189,10 +218,16 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
 
         let now_ms = oxidase::time::monotonic_now_ms();
         kd_runtime.handle_content_keydown(&evt, now_ms);
-    };
+    });
 
     if !spec.is_floating {
         let attrs = ctx.runtime.content_attributes(activedescendant);
+        let role_str = attrs.role();
+        let tabindex_str = attrs.tabindex().to_string();
+        let data_side_str = attrs.data_side_str();
+        let data_align_str = attrs.data_align_str();
+        let aria_activedescendant = attrs.aria_activedescendant().map(str::to_owned);
+
         let pointer_events_style = if !is_open {
             "pointer-events: none;"
         } else if is_modal_pointer_lock_active() {
@@ -209,32 +244,64 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
             "display: flex; flex-direction: column; box-sizing: border-box; outline: none;",
             force_mount_style,
             pointer_events_style,
-            spec.style.as_deref().unwrap_or_default(),
         ]);
-        let merged = merge_global_attributes(
-            spec.class.as_deref(),
-            base_style.as_deref(),
-            spec.attributes,
-        );
 
         let focus_in_rt = ctx.runtime.clone();
         let focus_out_rt = ctx.runtime.clone();
 
+        let mut base = Vec::with_capacity(14);
+        base.push(Attribute::new("id", content_id, None, false));
+        base.push(Attribute::new("role", role_str, None, false));
+        base.push(Attribute::new("tabindex", tabindex_str, None, false));
+        push_attr_opt(&mut base, "aria-activedescendant", aria_activedescendant);
+        push_attr_opt(&mut base, "style", base_style);
+        base.push(Attribute::new(
+            "data-state",
+            if is_open { "open" } else { "closed" },
+            None,
+            false,
+        ));
+        base.push(Attribute::new("data-side", data_side_str, None, false));
+        base.push(Attribute::new("data-align", data_align_str, None, false));
+        push_attr_opt(
+            &mut base,
+            "data-starting-style",
+            ctx.runtime.data_starting_style(),
+        );
+        push_attr_opt(
+            &mut base,
+            "data-ending-style",
+            ctx.runtime.data_ending_style(),
+        );
+        if is_hidden {
+            base.push(Attribute::new("hidden", true, None, false));
+        }
+        push_event_handler(&mut base, "onkeydown", Some(on_key_down));
+        push_event_handler(
+            &mut base,
+            "onfocusin",
+            Some(EventHandler::new(move |evt: FocusEvent| {
+                focus_in_rt.notify_composite_focus_in(evt);
+            })),
+        );
+        push_event_handler(
+            &mut base,
+            "onfocusout",
+            Some(EventHandler::new(move |evt: FocusEvent| {
+                focus_out_rt.notify_composite_focus_out(evt);
+            })),
+        );
+
+        let user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+        let merged = merge_props(base, user);
+
+        if let SelectSurfaceChild::Static(Some(child)) = spec.child {
+            return child.call(merged);
+        }
+
         return rsx! {
             div {
-                id: "{attrs.id()}",
-                role: "{attrs.role()}",
-                tabindex: "{attrs.tabindex()}",
-                aria_activedescendant: attrs.aria_activedescendant(),
-                class: merged.class.as_deref(),
-                style: merged.style.as_deref(),
-                "data-state": if is_open { "open" } else { "closed" },
-                "data-side": "{attrs.data_side_str()}",
-                "data-align": "{attrs.data_align_str()}",
-                onkeydown: on_key_down,
-                onfocusin: move |evt| focus_in_rt.notify_composite_focus_in(evt),
-                onfocusout: move |evt| focus_out_rt.notify_composite_focus_out(evt),
-                ..merged.rest,
+                ..merged,
                 {spec.children}
             }
         };
@@ -245,6 +312,11 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
     let attrs =
         ctx.runtime
             .content_attributes_with_side_and_align(activedescendant, eff_side, eff_align);
+    let role_str = attrs.role();
+    let tabindex_str = attrs.tabindex().to_string();
+    let data_side_str = attrs.data_side_str();
+    let data_align_str = attrs.data_align_str();
+    let aria_activedescendant = attrs.aria_activedescendant().map(str::to_owned);
 
     let placement_opt = ctx.runtime.placement();
     let readiness = ctx.runtime.content_readiness();
@@ -285,7 +357,10 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
     } else {
         ""
     };
-    let arrow_pad_style = format!("--bits-select-arrow-padding: {}px;", spec.arrow_padding);
+    let arrow_pad_style = format!(
+        "--monoxus-select-arrow-padding: {}px; --bits-select-arrow-padding: {}px;",
+        spec.arrow_padding, spec.arrow_padding
+    );
     let pointer_events_style = if !is_open {
         "pointer-events: none;"
     } else if spec.prevent_scroll || is_modal_pointer_lock_active() {
@@ -301,48 +376,131 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
         arrow_pad_style.as_str(),
         force_mount_style,
         pointer_events_style,
-        spec.style.as_deref().unwrap_or_default(),
     ]);
-    let merged = merge_global_attributes(
-        spec.class.as_deref(),
-        base_inner_style.as_deref(),
-        spec.attributes,
-    );
+
+    let sticky_attr = match spec.sticky {
+        Some(StickyStrategy::Always) => "always",
+        Some(StickyStrategy::Partial) => "partial",
+        None => "false",
+    };
+
+    let mut wrapper_props = Vec::with_capacity(5);
+    wrapper_props.push(Attribute::new("id", wrapper_id, None, false));
+    wrapper_props.push(Attribute::new(
+        "data-monoxus-floating-content-wrapper",
+        "",
+        None,
+        false,
+    ));
+    if !wrapper_style.is_empty() {
+        wrapper_props.push(Attribute::new("style", wrapper_style, None, false));
+    }
+    wrapper_props.push(Attribute::new(
+        "data-reference-hidden",
+        ref_hidden_str,
+        None,
+        false,
+    ));
+    if is_hidden {
+        wrapper_props.push(Attribute::new("hidden", true, None, false));
+    }
 
     let mount_runtime = ctx.runtime.clone();
     let focus_in_rt = ctx.runtime.clone();
     let focus_out_rt = ctx.runtime.clone();
 
+    let mut base = Vec::with_capacity(21);
+    base.push(Attribute::new("id", content_id, None, false));
+    base.push(Attribute::new("role", role_str, None, false));
+    base.push(Attribute::new("tabindex", tabindex_str, None, false));
+    push_attr_opt(&mut base, "aria-activedescendant", aria_activedescendant);
+    push_attr_opt(&mut base, "style", base_inner_style);
+    base.push(Attribute::new(
+        "data-state",
+        if is_open { "open" } else { "closed" },
+        None,
+        false,
+    ));
+    base.push(Attribute::new("data-side", data_side_str, None, false));
+    base.push(Attribute::new("data-align", data_align_str, None, false));
+    push_attr_opt(
+        &mut base,
+        "data-starting-style",
+        ctx.runtime.data_starting_style(),
+    );
+    push_attr_opt(
+        &mut base,
+        "data-ending-style",
+        ctx.runtime.data_ending_style(),
+    );
+    if is_hidden {
+        base.push(Attribute::new("hidden", true, None, false));
+    }
+    base.push(Attribute::new(
+        "data-positioning-state",
+        ctx.runtime.content_positioning_state(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new("data-sticky", sticky_attr, None, false));
+    base.push(Attribute::new(
+        "data-prevent-scroll",
+        if spec.prevent_scroll { "true" } else { "false" },
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-prevent-overflow-text-selection",
+        if spec.prevent_overflow_text_selection {
+            "true"
+        } else {
+            "false"
+        },
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-force-mount",
+        if spec.force_mount { "true" } else { "false" },
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-custom-anchor", spec.custom_anchor);
+    push_event_handler(&mut base, "onkeydown", Some(on_key_down));
+    push_event_handler(
+        &mut base,
+        "onfocusin",
+        Some(EventHandler::new(move |evt: FocusEvent| {
+            focus_in_rt.notify_composite_focus_in(evt);
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onfocusout",
+        Some(EventHandler::new(move |evt: FocusEvent| {
+            focus_out_rt.notify_composite_focus_out(evt);
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onmounted",
+        Some(EventHandler::new(move |evt: MountedEvent| {
+            mount_runtime.capture_content_mount(evt.data());
+        })),
+    );
+
+    let user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+    let merged = merge_props(base, user);
+
+    if let SelectSurfaceChild::Floating(Some(child)) = spec.child {
+        return child.call(FloatingContentChildProps::new(wrapper_props, merged));
+    }
+
     rsx! {
         div {
-            id: "{wrapper_id}",
-            "data-monoxus-floating-content-wrapper": "",
-            style: "{wrapper_style}",
-            "data-reference-hidden": "{ref_hidden_str}",
-
+            ..wrapper_props,
             div {
-                id: "{attrs.id()}",
-                role: "{attrs.role()}",
-                tabindex: "{attrs.tabindex()}",
-                aria_activedescendant: attrs.aria_activedescendant(),
-                class: merged.class.as_deref(),
-                style: merged.style.as_deref(),
-                "data-state": if is_open { "open" } else { "closed" },
-                "data-side": "{attrs.data_side_str()}",
-                "data-align": "{attrs.data_align_str()}",
-                "data-positioning-state": ctx.runtime.content_positioning_state(),
-                "data-sticky": spec.sticky.as_deref().unwrap_or("false"),
-                "data-prevent-scroll": if spec.prevent_scroll { "true" } else { "false" },
-                "data-prevent-overflow-text-selection": if spec.prevent_overflow_text_selection { "true" } else { "false" },
-                "data-force-mount": if spec.force_mount { "true" } else { "false" },
-                "data-custom-anchor": spec.custom_anchor.as_deref().unwrap_or(""),
-                onkeydown: on_key_down,
-                onfocusin: move |evt| focus_in_rt.notify_composite_focus_in(evt),
-                onfocusout: move |evt| focus_out_rt.notify_composite_focus_out(evt),
-                onmounted: move |evt: Event<MountedData>| {
-                    mount_runtime.capture_content_mount(evt.data());
-                },
-                ..merged.rest,
+                ..merged,
                 {spec.children}
             }
         }
@@ -351,9 +509,11 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
 
 #[derive(Props, Clone, PartialEq)]
 pub struct SelectContentProps {
-    #[props(default)]
+    #[props(default, into)]
+    pub id: Option<String>,
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = PlacementSide::Bottom)]
     pub side: PlacementSide,
@@ -365,19 +525,19 @@ pub struct SelectContentProps {
     pub align_offset: f32,
     #[props(default = true)]
     pub avoid_collisions: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub collision_boundary: Option<String>,
     #[props(default = 0.0)]
     pub collision_padding: f32,
     #[props(default = 0.0)]
     pub arrow_padding: f32,
     #[props(default)]
-    pub sticky: Option<String>,
+    pub sticky: Option<StickyStrategy>,
     #[props(default = false)]
     pub hide_when_detached: bool,
     #[props(default = false)]
     pub same_width: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub custom_anchor: Option<String>,
     #[props(default = false)]
     pub prevent_scroll: bool,
@@ -385,12 +545,20 @@ pub struct SelectContentProps {
     pub prevent_overflow_text_selection: bool,
     #[props(default = false)]
     pub force_mount: bool,
+    #[props(default = false)]
+    pub keep_mounted: bool,
+    #[props(default)]
+    pub escape_key_down_behavior: Option<DismissBehavior>,
+    #[props(default)]
+    pub interact_outside_behavior: Option<DismissBehavior>,
     #[props(default)]
     pub on_pointer_down_outside: Option<EventHandler<PointerDownOutsideEvent>>,
     #[props(default)]
     pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
     #[props(default)]
     pub on_close_auto_focus: Option<EventHandler<()>>,
+    #[props(default)]
+    pub child: Option<Callback<FloatingContentChildProps, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -398,42 +566,78 @@ pub struct SelectContentProps {
 
 #[component]
 pub fn SelectContent(props: SelectContentProps) -> Element {
+    let SelectContentProps {
+        id,
+        class,
+        style,
+        side,
+        side_offset,
+        align,
+        align_offset,
+        avoid_collisions,
+        collision_boundary,
+        collision_padding,
+        arrow_padding,
+        sticky,
+        hide_when_detached,
+        same_width,
+        custom_anchor,
+        prevent_scroll,
+        prevent_overflow_text_selection,
+        force_mount,
+        keep_mounted,
+        escape_key_down_behavior,
+        interact_outside_behavior,
+        on_pointer_down_outside,
+        on_escape_key_down,
+        on_close_auto_focus,
+        child,
+        attributes,
+        children,
+    } = props;
     let ctx = use_context::<SelectContext>();
 
     // Sync placement props and non-reactive callbacks to runtime state
-    ctx.runtime.set_side(props.side);
-    ctx.runtime.set_align(props.align);
-    ctx.runtime.set_side_offset(props.side_offset);
-    ctx.runtime.set_align_offset(props.align_offset);
-    ctx.runtime.set_avoid_collisions(props.avoid_collisions);
-    ctx.runtime.set_hide_when_detached(props.hide_when_detached);
-    ctx.runtime.set_custom_anchor(props.custom_anchor.clone());
-    ctx.runtime.set_prevent_scroll(props.prevent_scroll);
+    ctx.runtime.set_side(side);
+    ctx.runtime.set_align(align);
+    ctx.runtime.set_side_offset(side_offset);
+    ctx.runtime.set_align_offset(align_offset);
+    ctx.runtime.set_avoid_collisions(avoid_collisions);
+    ctx.runtime.set_hide_when_detached(hide_when_detached);
+    ctx.runtime.set_custom_anchor(custom_anchor.clone());
+    ctx.runtime.set_prevent_scroll(prevent_scroll);
     ctx.runtime
-        .set_prevent_overflow_text_selection(props.prevent_overflow_text_selection);
-    ctx.runtime.set_force_mount(props.force_mount);
-    ctx.runtime.set_collision_boundary(props.collision_boundary);
-    ctx.runtime.set_collision_padding(props.collision_padding);
-    ctx.runtime.set_arrow_padding(props.arrow_padding);
-    ctx.runtime.set_sticky(props.sticky.clone());
+        .set_prevent_overflow_text_selection(prevent_overflow_text_selection);
+    ctx.runtime.set_force_mount(force_mount);
+    ctx.runtime.set_keep_mounted(keep_mounted);
+    ctx.runtime.set_collision_boundary(collision_boundary);
+    ctx.runtime.set_collision_padding(collision_padding);
+    ctx.runtime.set_arrow_padding(arrow_padding);
+    ctx.runtime.set_sticky(sticky);
     ctx.runtime
-        .set_on_pointer_down_outside(props.on_pointer_down_outside);
-    ctx.runtime.set_on_escape_key_down(props.on_escape_key_down);
-    ctx.runtime.set_on_close_auto_focus(props.on_close_auto_focus);
+        .set_escape_key_down_behavior(escape_key_down_behavior);
+    ctx.runtime
+        .set_interact_outside_behavior(interact_outside_behavior);
+    ctx.runtime
+        .set_on_pointer_down_outside(on_pointer_down_outside);
+    ctx.runtime.set_on_escape_key_down(on_escape_key_down);
+    ctx.runtime.set_on_close_auto_focus(on_close_auto_focus);
 
     render_select_surface(SelectSurfaceSpec {
         ctx,
+        id,
         is_floating: true,
-        class: props.class,
-        style: props.style,
-        same_width: props.same_width,
-        arrow_padding: props.arrow_padding,
-        sticky: props.sticky,
-        prevent_scroll: props.prevent_scroll,
-        prevent_overflow_text_selection: props.prevent_overflow_text_selection,
-        force_mount: props.force_mount,
-        custom_anchor: props.custom_anchor,
-        attributes: props.attributes,
-        children: props.children,
+        class,
+        style,
+        same_width,
+        arrow_padding,
+        sticky,
+        prevent_scroll,
+        prevent_overflow_text_selection,
+        force_mount,
+        custom_anchor,
+        child: SelectSurfaceChild::Floating(child),
+        attributes,
+        children,
     })
 }

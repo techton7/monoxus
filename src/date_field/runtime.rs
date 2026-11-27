@@ -17,7 +17,7 @@ use crate::foundation::{
     },
     keyboard::is_ime_composing_key,
     shared::Direction,
-    state::{ControlledBinding, sync_signal},
+    state::{ControllableSignal, sync_signal},
 };
 
 use super::attrs::{SegmentFieldInputAttrs, SegmentFieldLabelAttrs, SegmentFieldSegmentAttrs};
@@ -138,11 +138,9 @@ pub struct SegmentFieldRuntime<P: SegmentFieldUiPolicy> {
     pub segment_dom_ids: Rc<RefCell<BTreeMap<usize, String>>>,
     pub announcement: Signal<String>,
     pub last_invalid_reason: Signal<Option<FieldInvalidReason>>,
-    pub(crate) controlled_value: CopyValue<ControlledBinding<Option<P::Value>>>,
-    pub(crate) controlled_placeholder: CopyValue<ControlledBinding<P::Value>>,
+    pub(crate) value_ctl: ControllableSignal<Option<P::Value>>,
+    pub(crate) placeholder_ctl: ControllableSignal<P::Value>,
     pub default_value: CopyValue<Option<P::Value>>,
-    pub on_value_change: CopyValue<Option<EventHandler<Option<P::Value>>>>,
-    pub on_placeholder_change: CopyValue<Option<EventHandler<P::Value>>>,
     pub is_date_unavailable: CopyValue<Option<Callback<CalendarDate, bool>>>,
     pub validate: CopyValue<Option<Callback<P::Value, Option<Vec<String>>>>>,
     pub on_invalid: CopyValue<Option<EventHandler<FieldInvalidEvent>>>,
@@ -166,11 +164,9 @@ impl<P: SegmentFieldUiPolicy> Clone for SegmentFieldRuntime<P> {
             segment_dom_ids: Rc::clone(&self.segment_dom_ids),
             announcement: self.announcement,
             last_invalid_reason: self.last_invalid_reason,
-            controlled_value: self.controlled_value,
-            controlled_placeholder: self.controlled_placeholder,
+            value_ctl: self.value_ctl,
+            placeholder_ctl: self.placeholder_ctl,
             default_value: self.default_value,
-            on_value_change: self.on_value_change,
-            on_placeholder_change: self.on_placeholder_change,
             is_date_unavailable: self.is_date_unavailable,
             validate: self.validate,
             on_invalid: self.on_invalid,
@@ -458,70 +454,28 @@ impl<P: SegmentFieldUiPolicy> SegmentFieldRuntime<P> {
             (st.value(), st.placeholder())
         };
 
-        let val_binding = self
-            .controlled_value
-            .try_read()
-            .map(|slot| *slot)
-            .unwrap_or(ControlledBinding::Uncontrolled);
-        let ph_binding = self
-            .controlled_placeholder
-            .try_read()
-            .map(|slot| *slot)
-            .unwrap_or(ControlledBinding::Uncontrolled);
+        let val_controlled = self.value_ctl.is_controlled();
+        let ph_controlled = self.placeholder_ctl.is_controlled();
 
         // Partial-segment invariant: only when a complete value transition occurs (`next_value != prev_value`)
-        // under `ReadOnly` do we propose `next_value` via `on_value_change` and restore `prev_value`
-        // if the parent rejected. Calling `on_value_change` BEFORE checking acceptance preserves
-        // active multi-digit typing state (`edit_states`) when the parent accepts synchronously!
+        // under controlled mode do we revert `state` to `prev_value` (zero 1-frame flash on veto)
+        // and propose `next_value` via `value_ctl.set(next_value)`.
         if next_value != prev_value {
-            if val_binding.is_read_only() {
-                if let Some(handler) = self.on_value_change.try_read().ok().and_then(|slot| *slot) {
-                    handler.call(next_value);
-                }
-                let accepted = val_binding.peek_cloned();
-                if accepted != Some(next_value) {
-                    let target = accepted.unwrap_or(prev_value);
-                    self.state.write().reset_value(target);
-                    if next_placeholder != prev_placeholder {
-                        self.state.write().set_placeholder(prev_placeholder);
-                    }
-                }
-            } else {
-                val_binding.try_write_two_way(next_value);
-                if let Some(handler) = self.on_value_change.try_read().ok().and_then(|slot| *slot) {
-                    handler.call(next_value);
+            if val_controlled {
+                self.state.write().reset_value(prev_value);
+                if next_placeholder != prev_placeholder {
+                    self.state.write().set_placeholder(prev_placeholder);
                 }
             }
+            self.value_ctl.set(next_value);
         }
 
         if next_placeholder != prev_placeholder {
-            if ph_binding.is_read_only() {
-                if !val_binding.is_read_only() || self.state.peek().value() == next_value {
-                    if let Some(handler) = self
-                        .on_placeholder_change
-                        .try_read()
-                        .ok()
-                        .and_then(|slot| *slot)
-                    {
-                        handler.call(next_placeholder);
-                    }
-                }
-                let accepted_ph = ph_binding.peek_cloned();
-                if accepted_ph != Some(next_placeholder) {
-                    self.state
-                        .write()
-                        .set_placeholder(accepted_ph.unwrap_or(prev_placeholder));
-                }
-            } else if !val_binding.is_read_only() || self.state.peek().value() == next_value {
-                ph_binding.try_write_two_way(next_placeholder);
-                if let Some(handler) = self
-                    .on_placeholder_change
-                    .try_read()
-                    .ok()
-                    .and_then(|slot| *slot)
-                {
-                    handler.call(next_placeholder);
-                }
+            if ph_controlled {
+                self.state.write().set_placeholder(prev_placeholder);
+            }
+            if !val_controlled || next_value == prev_value {
+                self.placeholder_ctl.set(next_placeholder);
             }
         }
     }
@@ -655,21 +609,9 @@ impl<P: SegmentFieldUiPolicy> SegmentFieldRuntime<P> {
             (st.value(), st.placeholder())
         };
         let default_val = self.default_value.try_read().ok().and_then(|v| *v);
-        let val_binding = self
-            .controlled_value
-            .try_read()
-            .map(|slot| *slot)
-            .unwrap_or(ControlledBinding::Uncontrolled);
-        if val_binding.is_read_only() {
+        if self.value_ctl.is_controlled() {
             if default_val != prev_val {
-                if let Some(handler) = self.on_value_change.try_read().ok().and_then(|slot| *slot) {
-                    handler.call(default_val);
-                }
-                if let Some(accepted) = val_binding.peek_cloned()
-                    && self.state.peek().value() != accepted
-                {
-                    self.state.write().reset_value(accepted);
-                }
+                self.value_ctl.set(default_val);
             }
             self.sync_validation_and_notify();
             return;

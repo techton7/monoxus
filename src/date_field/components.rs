@@ -11,8 +11,8 @@ use crate::{
     foundation::{
         browser::{focus::use_composite_focus_out, local_today},
         compose::{
-            extract_aria_invalid_and_describedby, merge_aria_describedby,
-            merge_attributes_with_part, merge_global_attributes, resolve_invalid_and_describedby,
+            collect_user_attrs, extract_aria_invalid_and_describedby, merge_aria_describedby,
+            merge_props, push_attr_opt, push_event_handler, resolve_invalid_and_describedby,
         },
         date_time::{
             CalendarDate, CalendarLocale, DateValue, EditableSegmentKind, FieldInvalidEvent,
@@ -20,33 +20,27 @@ use crate::{
         },
         form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-        state::ControlledBinding,
+        state::{sync_signal, use_controllable_signal},
     },
     visually_hidden::VisuallyHidden,
 };
 
 use super::{
-    attrs::{
-        DateFieldInputAttrs, DateFieldLabelAttrs, DateFieldSegmentAttrs, SegmentFieldInputAttrs,
-        SegmentFieldLabelAttrs, SegmentFieldSegmentAttrs,
-    },
     runtime::{
         SegmentFieldContext, SegmentFieldRuntime, SegmentFieldUiPolicy, use_segment_field_context,
     },
     state::default_date_field_placeholder,
-    types::{DateFieldRangeRole, DateFieldSegmentItem},
+    types::DateFieldSegmentItem,
 };
 
 /// Plain Rust specification for [`use_segment_field_runtime`] and [`render_segment_field_root`]
 /// (zero internal `#[component]` taking `Option<Callback|EventHandler>` per `Dioxus #5894`).
 pub(crate) struct SegmentFieldRootSpec<P: SegmentFieldUiPolicy> {
     pub id: Option<String>,
-    pub value: Option<Signal<Option<P::Value>>>,
-    pub controlled_value: Option<ReadSignal<Option<P::Value>>>,
+    pub value: Option<Option<P::Value>>,
     pub default_value: Option<P::Value>,
     pub on_value_change: Option<EventHandler<Option<P::Value>>>,
-    pub placeholder: Option<Signal<P::Value>>,
-    pub controlled_placeholder: Option<ReadSignal<P::Value>>,
+    pub placeholder: Option<P::Value>,
     pub on_placeholder_change: Option<EventHandler<P::Value>>,
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
     pub granularity: P::GranularityProp,
@@ -58,7 +52,7 @@ pub(crate) struct SegmentFieldRootSpec<P: SegmentFieldUiPolicy> {
     pub disabled: bool,
     pub read_only: bool,
     pub required: bool,
-    pub readonly_segments: Vec<EditableSegmentKind>,
+    pub read_only_segments: Vec<EditableSegmentKind>,
     pub is_date_unavailable: Option<Callback<CalendarDate, bool>>,
     pub validate: Option<Callback<P::Value, Option<Vec<String>>>>,
     pub on_invalid: Option<EventHandler<FieldInvalidEvent>>,
@@ -91,11 +85,11 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
     let scope = use_hook(|| ScopeHandle::root(P::SCOPE_PREFIX).child(stable_id.clone()));
     let rels = use_hook(|| FieldRelationships::new(scope.clone()));
 
-    let value_binding = ControlledBinding::from_props(spec.value, spec.controlled_value);
-    let placeholder_binding =
-        ControlledBinding::from_props(spec.placeholder, spec.controlled_placeholder);
+    let value_ctl = use_controllable_signal(spec.value, spec.default_value, spec.on_value_change);
+    let placeholder_ctl =
+        use_controllable_signal(spec.placeholder, initial_placeholder, spec.on_placeholder_change);
 
-    let initial_value = value_binding.initial_or(spec.default_value);
+    let initial_value = value_ctl.peek();
 
     let def = SegmentFieldDefinition::<P>::new()
         .with_locale(spec.locale.clone())
@@ -107,7 +101,7 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
         .with_disabled(effective_disabled)
         .with_read_only(effective_read_only)
         .with_required(effective_required)
-        .with_readonly_segments(spec.readonly_segments.clone())
+        .with_readonly_segments(spec.read_only_segments.clone())
         .with_error_message_id(spec.error_message_id.clone())
         .with_dir(resolved_dir);
 
@@ -131,18 +125,6 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
 
     // Freeze mount-time reset baseline (`use_hook`) from controlled-or-default.
     let default_value = use_hook(|| CopyValue::new(initial_value));
-
-    let mut controlled_value = use_hook(|| CopyValue::new(value_binding));
-    controlled_value.set(value_binding);
-
-    let mut controlled_placeholder = use_hook(|| CopyValue::new(placeholder_binding));
-    controlled_placeholder.set(placeholder_binding);
-
-    let mut on_value_change = use_hook(|| CopyValue::new(spec.on_value_change));
-    on_value_change.set(spec.on_value_change);
-
-    let mut on_placeholder_change = use_hook(|| CopyValue::new(spec.on_placeholder_change));
-    on_placeholder_change.set(spec.on_placeholder_change);
 
     let mut is_date_unavailable = use_hook(|| CopyValue::new(spec.is_date_unavailable));
     is_date_unavailable.set(spec.is_date_unavailable);
@@ -178,11 +160,9 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
         segment_dom_ids,
         announcement,
         last_invalid_reason,
-        controlled_value,
-        controlled_placeholder,
+        value_ctl,
+        placeholder_ctl,
         default_value,
-        on_value_change,
-        on_placeholder_change,
         is_date_unavailable,
         validate,
         on_invalid,
@@ -193,22 +173,20 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
         parent_focus_out,
     };
 
-    // Synchronous render-time reconciliation for external controlled signals & invalid override.
+    // Synchronous render-time reconciliation for external controlled props & invalid override.
     // Preserves partial segment drafts because `set_value` only fires when `state.value() != val`.
     {
-        let ext_val_now = value_binding.read_cloned();
-        let ext_ph_now = placeholder_binding.read_cloned();
-        let ext_inv_now = effective_invalid_override.unwrap_or(false);
-        if let Some(val) = ext_val_now
+        if let Some(val) = spec.value
             && runtime.state.peek().value() != val
         {
             runtime.state.write().set_value(val);
         }
-        if let Some(ph) = ext_ph_now
+        if let Some(ph) = spec.placeholder
             && runtime.state.peek().placeholder() != ph
         {
             runtime.state.write().set_placeholder(ph);
         }
+        let ext_inv_now = effective_invalid_override.unwrap_or(false);
         if runtime.state.peek().external_invalid() != ext_inv_now {
             runtime.state.write().set_external_invalid(ext_inv_now);
         }
@@ -224,7 +202,7 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
         if has_pred || had_pred {
             let next_rev = predicate_rev.try_peek().ok().map(|cur| cur.wrapping_add(1));
             if let Some(next_rev) = next_rev {
-                crate::foundation::state::sync_signal(&mut predicate_rev, next_rev);
+                sync_signal(&mut predicate_rev, next_rev);
             }
         }
     } else {
@@ -232,7 +210,7 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
     }
 
     // DEF-5C-09 & B5: Reconcile definition, predicates (`validate`, `is_date_unavailable`),
-    // controlled signals, and validation inside guarded effects for BOTH DateField and TimeField.
+    // controlled props, and validation inside guarded effects for BOTH DateField and TimeField.
     use_effect(use_reactive(
         (
             &def,
@@ -257,12 +235,10 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
 
     let eff_inv_bool = effective_invalid_override.unwrap_or(false);
     use_effect(use_reactive(
-        (&value_binding, &placeholder_binding, &eff_inv_bool),
+        (&spec.value, &spec.placeholder, &eff_inv_bool),
         {
             let mut rt = runtime.clone();
-            move |(val_bind, ph_bind, inv_override)| {
-                let ext_val = val_bind.read_cloned();
-                let ext_ph = ph_bind.read_cloned();
+            move |(ext_val, ext_ph, inv_override)| {
                 rt.reconcile_external_state(ext_val, ext_ph, Some(inv_override));
             }
         },
@@ -316,21 +292,9 @@ pub(crate) struct SegmentFieldInputSpec {
     pub style: Option<String>,
     pub name: Option<String>,
     pub form: Option<String>,
-    pub as_child: bool,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub render_children: Option<Callback<Vec<FieldSegmentItem>, Element>>,
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-    pub debug_name: &'static str,
-}
-
-/// View passed to `render_as_child` inside [`render_segment_field_input_with_runtime`].
-pub(crate) struct SegmentFieldInputView {
-    pub attrs: SegmentFieldInputAttrs,
-    pub segments: Vec<FieldSegmentItem>,
-    pub class: Option<String>,
-    pub style: Option<String>,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -338,15 +302,10 @@ pub(crate) struct SegmentFieldInputView {
 
 /// Monomorphized plain-fn input renderer taking an explicit [`SegmentFieldRuntime<P>`]
 /// (used by both standalone `*FieldInput` and range endpoint `*RangeFieldInput`).
-pub(crate) fn render_segment_field_input_with_runtime<P, F>(
+pub(crate) fn render_segment_field_input_with_runtime<P: SegmentFieldUiPolicy>(
     runtime: SegmentFieldRuntime<P>,
     spec: SegmentFieldInputSpec,
-    render_as_child: F,
-) -> Element
-where
-    P: SegmentFieldUiPolicy,
-    F: FnOnce(SegmentFieldInputView) -> Option<Element>,
-{
+) -> Element {
     let field_ctx = try_use_field_context();
     let snap = runtime.snapshot();
     let extracted = extract_aria_invalid_and_describedby(spec.attributes);
@@ -423,82 +382,63 @@ where
         }
     };
 
-    if spec.as_child {
-        let view = SegmentFieldInputView {
-            attrs: attrs.clone(),
-            segments: snap.segments,
-            class: spec.class.clone(),
-            style: spec.style.clone(),
-            on_mounted: spec.on_mounted,
-            attributes: extracted.rest.clone(),
-            children: inner.clone(),
-        };
-        if let Some(el) = render_as_child(view) {
-            return el;
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::{}: as_child requires render_child; rendering the default div",
-            spec.debug_name
-        );
-    }
-
-    let attrs_with_part = merge_attributes_with_part(extracted.rest, P::INPUT_DATA_ATTR);
-    let merged = merge_global_attributes(
-        spec.class.as_deref(),
-        spec.style.as_deref(),
-        attrs_with_part,
-    );
-    let on_mounted = spec.on_mounted;
     let parent_fi_rt = runtime.clone();
     let parent_fo_rt = runtime;
 
+    let mut base = Vec::with_capacity(16);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    push_attr_opt(&mut base, "aria-labelledby", attrs.aria_labelledby);
+    push_attr_opt(&mut base, "aria-describedby", attrs.aria_describedby);
+    push_attr_opt(&mut base, "aria-invalid", attrs.aria_invalid);
+    base.push(Attribute::new("aria-disabled", attrs.aria_disabled, None, false));
+    push_attr_opt(&mut base, "aria-required", attrs.aria_required);
+    base.push(Attribute::new("dir", attrs.dir, None, false));
+    push_attr_opt(&mut base, "data-range-field-part", attrs.data_range_field_part);
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-required", attrs.data_required);
+    base.push(Attribute::new(P::INPUT_DATA_ATTR, "", None, false));
+    push_event_handler(
+        &mut base,
+        "onfocusin",
+        Some(EventHandler::new(move |evt: FocusEvent| {
+            handle_focus_in.call(evt.clone());
+            parent_fi_rt.notify_parent_focus_in(evt);
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onfocusout",
+        Some(EventHandler::new(move |evt: FocusEvent| {
+            handle_focus_out.call(evt.clone());
+            parent_fo_rt.notify_parent_focus_out(evt);
+        })),
+    );
+
+    let mut user = collect_user_attrs(spec.class, spec.style, extracted.rest);
+    push_event_handler(&mut user, "onmounted", spec.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = spec.child {
+        return child.call(merged);
+    }
+
     rsx! {
         div {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            role: attrs.role,
-            "aria-labelledby": attrs.aria_labelledby,
-            "aria-describedby": attrs.aria_describedby,
-            "aria-invalid": attrs.aria_invalid,
-            "aria-disabled": attrs.aria_disabled,
-            "aria-required": attrs.aria_required,
-            dir: attrs.dir,
-            "data-range-field-part": attrs.data_range_field_part,
-            "data-invalid": attrs.data_invalid,
-            "data-disabled": attrs.data_disabled,
-            "data-required": attrs.data_required,
-            onfocusin: move |evt| {
-                handle_focus_in.call(evt.clone());
-                parent_fi_rt.notify_parent_focus_in(evt);
-            },
-            onfocusout: move |evt| {
-                handle_focus_out.call(evt.clone());
-                parent_fo_rt.notify_parent_focus_out(evt);
-            },
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {inner}
         }
     }
 }
 
 /// Monomorphized plain-fn input renderer consuming [`SegmentFieldContext<P>`].
-pub(crate) fn render_segment_field_input<P, F>(
+pub(crate) fn render_segment_field_input<P: SegmentFieldUiPolicy>(
     spec: SegmentFieldInputSpec,
-    render_as_child: F,
-) -> Element
-where
-    P: SegmentFieldUiPolicy,
-    F: FnOnce(SegmentFieldInputView) -> Option<Element>,
-{
+) -> Element {
     let runtime = use_segment_field_context::<P>();
-    render_segment_field_input_with_runtime(runtime, spec, render_as_child)
+    render_segment_field_input_with_runtime(runtime, spec)
 }
 
 /// Specification for [`render_segment_field_segment`].
@@ -508,7 +448,7 @@ pub(crate) struct SegmentFieldSegmentSpec {
     pub id: Option<String>,
     pub class: Option<String>,
     pub style: Option<String>,
-    pub as_child: bool,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     pub on_focus: Option<EventHandler<FocusEvent>>,
     pub on_blur: Option<EventHandler<FocusEvent>>,
@@ -516,33 +456,12 @@ pub(crate) struct SegmentFieldSegmentSpec {
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     pub attributes: Vec<Attribute>,
     pub children: Option<Element>,
-    pub debug_name: &'static str,
-}
-
-/// View passed to `render_as_child` inside [`render_segment_field_segment`].
-pub(crate) struct SegmentFieldSegmentView {
-    pub attrs: SegmentFieldSegmentAttrs,
-    pub segment: FieldSegmentItem,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub on_focus: EventHandler<FocusEvent>,
-    pub on_blur: EventHandler<FocusEvent>,
-    pub on_paste: EventHandler<ClipboardEvent>,
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
 }
 
 /// Monomorphized plain-fn segment renderer shared by `DateFieldSegment` and `TimeFieldSegment`.
-pub(crate) fn render_segment_field_segment<P, F>(
+pub(crate) fn render_segment_field_segment<P: SegmentFieldUiPolicy>(
     spec: SegmentFieldSegmentSpec,
-    render_as_child: F,
-) -> Element
-where
-    P: SegmentFieldUiPolicy,
-    F: FnOnce(SegmentFieldSegmentView) -> Option<Element>,
-{
+) -> Element {
     let runtime = use_segment_field_context::<P>();
     let segments = runtime.segments();
 
@@ -566,59 +485,38 @@ where
             },
         });
 
-    let attrs = runtime.segment_attrs(&item, spec.id.clone());
+    let attrs = runtime.segment_attrs(&item, spec.id);
     runtime.register_segment_dom_id(item.index, attrs.id.clone());
     let seg_index = item.index;
     let seg_kind = item.kind();
     let is_interactive = item.is_interactive();
 
-    let on_key_down = {
+    let base_on_key_down = {
         let mut rt = runtime.clone();
-        let user_cb = spec.on_key_down;
         EventHandler::new(move |evt: KeyboardEvent| {
             if is_interactive {
                 rt.handle_segment_keydown(seg_index, seg_kind, &evt);
             }
-            if let Some(cb) = user_cb {
-                cb.call(evt);
-            }
         })
     };
 
-    let on_focus = {
-        let user_cb = spec.on_focus;
-        EventHandler::new(move |evt: FocusEvent| {
-            if let Some(cb) = user_cb {
-                cb.call(evt);
-            }
-        })
-    };
-
-    let on_blur = {
+    let base_on_blur = {
         let mut rt = runtime.clone();
-        let user_cb = spec.on_blur;
-        EventHandler::new(move |evt: FocusEvent| {
+        EventHandler::new(move |_: FocusEvent| {
             if is_interactive {
                 rt.handle_segment_blur(seg_kind);
             }
-            if let Some(cb) = user_cb {
-                cb.call(evt);
-            }
         })
     };
 
-    let on_paste = {
-        let mut rt = runtime.clone();
-        let user_cb = spec.on_paste;
+    let base_on_paste = {
+        let mut rt = runtime;
         EventHandler::new(move |evt: ClipboardEvent| {
             if is_interactive
                 && let Some(text) = evt.data().data_transfer().get_as_text()
                 && rt.handle_segment_paste(seg_kind, &text)
             {
                 evt.prevent_default();
-            }
-            if let Some(cb) = user_cb {
-                cb.call(evt);
             }
         })
     };
@@ -628,72 +526,48 @@ where
         None => rsx! { "{item.segment.value}" },
     };
 
-    if spec.as_child {
-        let view = SegmentFieldSegmentView {
-            attrs: attrs.clone(),
-            segment: item,
-            class: spec.class.clone(),
-            style: spec.style.clone(),
-            on_key_down,
-            on_focus,
-            on_blur,
-            on_paste,
-            on_mounted: spec.on_mounted,
-            attributes: spec.attributes.clone(),
-            children: rendered_children.clone(),
-        };
-        if let Some(el) = render_as_child(view) {
-            return el;
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::{}: as_child requires render_child; rendering the default span",
-            spec.debug_name
-        );
-    }
+    let mut base = Vec::with_capacity(24);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    push_attr_opt(&mut base, "role", attrs.role);
+    push_attr_opt(&mut base, "tabindex", attrs.tabindex);
+    push_attr_opt(&mut base, "inputmode", attrs.inputmode);
+    push_attr_opt(&mut base, "aria-label", attrs.aria_label);
+    push_attr_opt(&mut base, "aria-labelledby", attrs.aria_labelledby);
+    push_attr_opt(&mut base, "aria-describedby", attrs.aria_describedby);
+    push_attr_opt(&mut base, "aria-valuemin", attrs.aria_valuemin);
+    push_attr_opt(&mut base, "aria-valuemax", attrs.aria_valuemax);
+    push_attr_opt(&mut base, "aria-valuenow", attrs.aria_valuenow);
+    push_attr_opt(&mut base, "aria-valuetext", attrs.aria_valuetext);
+    push_attr_opt(&mut base, "aria-invalid", attrs.aria_invalid);
+    base.push(Attribute::new("aria-disabled", attrs.aria_disabled, None, false));
+    push_attr_opt(&mut base, "aria-readonly", attrs.aria_readonly);
+    push_attr_opt(&mut base, "aria-hidden", attrs.aria_hidden);
+    base.push(Attribute::new("data-segment", attrs.data_segment, None, false));
+    push_attr_opt(&mut base, "data-placeholder", attrs.data_placeholder);
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    base.push(Attribute::new(P::SEGMENT_DATA_ATTR, "", None, false));
+    push_event_handler(&mut base, "onkeydown", Some(base_on_key_down));
+    push_event_handler(&mut base, "onblur", Some(base_on_blur));
+    push_event_handler(&mut base, "onpaste", Some(base_on_paste));
 
-    let attrs_with_part = merge_attributes_with_part(spec.attributes, P::SEGMENT_DATA_ATTR);
-    let merged = merge_global_attributes(
-        spec.class.as_deref(),
-        spec.style.as_deref(),
-        attrs_with_part,
-    );
-    let on_mounted = spec.on_mounted;
+    let mut user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+    push_event_handler(&mut user, "onkeydown", spec.on_key_down);
+    push_event_handler(&mut user, "onfocus", spec.on_focus);
+    push_event_handler(&mut user, "onblur", spec.on_blur);
+    push_event_handler(&mut user, "onpaste", spec.on_paste);
+    push_event_handler(&mut user, "onmounted", spec.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = spec.child {
+        return child.call(merged);
+    }
 
     rsx! {
         span {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            role: attrs.role,
-            tabindex: attrs.tabindex,
-            inputmode: attrs.inputmode,
-            "aria-label": attrs.aria_label,
-            "aria-labelledby": attrs.aria_labelledby,
-            "aria-describedby": attrs.aria_describedby,
-            "aria-valuemin": attrs.aria_valuemin,
-            "aria-valuemax": attrs.aria_valuemax,
-            "aria-valuenow": attrs.aria_valuenow,
-            "aria-valuetext": attrs.aria_valuetext,
-            "aria-invalid": attrs.aria_invalid,
-            "aria-disabled": attrs.aria_disabled,
-            "aria-readonly": attrs.aria_readonly,
-            "aria-hidden": attrs.aria_hidden,
-            "data-segment": attrs.data_segment,
-            "data-placeholder": attrs.data_placeholder,
-            "data-invalid": attrs.data_invalid,
-            "data-disabled": attrs.data_disabled,
-            "data-readonly": attrs.data_readonly,
-            onkeydown: move |evt| on_key_down.call(evt),
-            onfocus: move |evt| on_focus.call(evt),
-            onblur: move |evt| on_blur.call(evt),
-            onpaste: move |evt| on_paste.call(evt),
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {rendered_children}
         }
     }
@@ -704,20 +578,8 @@ pub(crate) struct SegmentFieldLabelSpec {
     pub id: Option<String>,
     pub class: Option<String>,
     pub style: Option<String>,
-    pub as_child: bool,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub on_click: Option<EventHandler<MouseEvent>>,
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-    pub debug_name: &'static str,
-}
-
-/// View passed to `render_as_child` inside [`render_segment_field_label`].
-pub(crate) struct SegmentFieldLabelView {
-    pub attrs: SegmentFieldLabelAttrs,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub on_click: EventHandler<MouseEvent>,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -725,14 +587,9 @@ pub(crate) struct SegmentFieldLabelView {
 
 /// Monomorphized plain-fn label renderer shared by `DateFieldLabel` and `TimeFieldLabel`,
 /// with equality-guarded `custom_label_id` drop cleanup preventing keyed swap clobber.
-pub(crate) fn render_segment_field_label<P, F>(
+pub(crate) fn render_segment_field_label<P: SegmentFieldUiPolicy>(
     spec: SegmentFieldLabelSpec,
-    render_as_child: F,
-) -> Element
-where
-    P: SegmentFieldUiPolicy,
-    F: FnOnce(SegmentFieldLabelView) -> Option<Element>,
-{
+) -> Element {
     let mut runtime = use_segment_field_context::<P>();
     let normalized_id = spec.id.clone().filter(|s| !s.is_empty());
     let latest_label_id = use_hook(|| Rc::new(RefCell::new(normalized_id.clone())));
@@ -761,62 +618,36 @@ where
         });
     }
 
-    let attrs = runtime.label_attrs(spec.id.clone());
-    let on_click = {
-        let rt = runtime.clone();
-        let user_cb = spec.on_click;
-        EventHandler::new(move |evt: MouseEvent| {
+    let attrs = runtime.label_attrs(spec.id);
+    let base_on_click = {
+        let rt = runtime;
+        EventHandler::new(move |_: MouseEvent| {
             if rt.state.try_peek().is_ok_and(|st| !st.def().disabled) {
                 rt.focus_first_segment();
-            }
-            if let Some(cb) = user_cb {
-                cb.call(evt);
             }
         })
     };
 
-    if spec.as_child {
-        let view = SegmentFieldLabelView {
-            attrs: attrs.clone(),
-            class: spec.class.clone(),
-            style: spec.style.clone(),
-            on_click,
-            on_mounted: spec.on_mounted,
-            attributes: spec.attributes.clone(),
-            children: spec.children.clone(),
-        };
-        if let Some(el) = render_as_child(view) {
-            return el;
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::{}: as_child requires render_child; rendering the default div",
-            spec.debug_name
-        );
-    }
+    let mut base = Vec::with_capacity(5);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    base.push(Attribute::new(P::LABEL_DATA_ATTR, "", None, false));
+    push_event_handler(&mut base, "onclick", Some(base_on_click));
 
-    let attrs_with_part = merge_attributes_with_part(spec.attributes, P::LABEL_DATA_ATTR);
-    let merged = merge_global_attributes(
-        spec.class.as_deref(),
-        spec.style.as_deref(),
-        attrs_with_part,
-    );
-    let on_mounted = spec.on_mounted;
+    let mut user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+    push_event_handler(&mut user, "onclick", spec.on_click);
+    push_event_handler(&mut user, "onmounted", spec.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = spec.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-invalid": attrs.data_invalid,
-            "data-disabled": attrs.data_disabled,
-            onclick: move |evt| on_click.call(evt),
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {spec.children}
         }
     }
@@ -825,20 +656,16 @@ where
 /// Props for [`DateFieldRoot`].
 #[derive(Clone, PartialEq, Props)]
 pub struct DateFieldRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default)]
-    pub value: Option<Signal<Option<DateValue>>>,
-    #[props(default)]
-    pub controlled_value: Option<ReadSignal<Option<DateValue>>>,
+    pub value: Option<Option<DateValue>>,
     #[props(default)]
     pub default_value: Option<DateValue>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<Option<DateValue>>>,
     #[props(default)]
-    pub placeholder: Option<Signal<DateValue>>,
-    #[props(default)]
-    pub controlled_placeholder: Option<ReadSignal<DateValue>>,
+    pub placeholder: Option<DateValue>,
     #[props(default)]
     pub default_placeholder: Option<DateValue>,
     #[props(default)]
@@ -849,7 +676,7 @@ pub struct DateFieldRootProps {
     pub granularity: Option<Granularity>,
     #[props(default)]
     pub hour_cycle: Option<HourCycle>,
-    #[props(default)]
+    #[props(default, into)]
     pub locale: CalendarLocale,
     #[props(default = false)]
     pub hide_time_zone: bool,
@@ -864,32 +691,17 @@ pub struct DateFieldRootProps {
     #[props(default = false)]
     pub required: bool,
     #[props(default)]
-    pub readonly_segments: Vec<EditableSegmentKind>,
+    pub read_only_segments: Vec<EditableSegmentKind>,
     #[props(default)]
     pub is_date_unavailable: Option<Callback<CalendarDate, bool>>,
     #[props(default)]
     pub validate: Option<Callback<DateValue, Option<Vec<String>>>>,
     #[props(default)]
     pub on_invalid: Option<EventHandler<FieldInvalidEvent>>,
-    #[props(default)]
+    #[props(default, into)]
     pub error_message_id: Option<String>,
     #[props(default)]
     pub dir: Option<Direction>,
-    /// External invalid override (e.g., propagated by `DateRangeField` on `RangeOrder`).
-    #[props(default)]
-    pub is_invalid_override: Option<bool>,
-    /// Standalone vs range endpoint role (used by `DateRangeField`).
-    #[props(default)]
-    pub range_role: DateFieldRangeRole,
-    /// Optional external label ID (used by `DateRangeField` to share its `DateRangeFieldLabel`).
-    #[props(default)]
-    pub label_id_override: Option<String>,
-    /// Cross-field boundary callback fired when navigating before the first interactive segment.
-    #[props(default)]
-    pub on_prev_boundary: Option<EventHandler<()>>,
-    /// Cross-field boundary callback fired when navigating past the last interactive segment.
-    #[props(default)]
-    pub on_next_boundary: Option<EventHandler<()>>,
     #[props(default)]
     pub children: Element,
 }
@@ -898,12 +710,9 @@ pub struct DateFieldRootProps {
 #[component]
 pub fn DateFieldRoot(props: DateFieldRootProps) -> Element {
     let today = use_hook(local_today);
-    let value_binding = ControlledBinding::from_props(props.value, props.controlled_value);
-    let placeholder_binding =
-        ControlledBinding::from_props(props.placeholder, props.controlled_placeholder);
-    let initial_value = value_binding.initial_or(props.default_value);
-    let initial_placeholder = placeholder_binding
-        .peek_cloned()
+    let initial_value = props.value.unwrap_or(props.default_value);
+    let initial_placeholder = props
+        .placeholder
         .or(props.default_placeholder)
         .unwrap_or_else(|| {
             default_date_field_placeholder(
@@ -919,11 +728,9 @@ pub fn DateFieldRoot(props: DateFieldRootProps) -> Element {
         SegmentFieldRootSpec {
             id: props.id,
             value: props.value,
-            controlled_value: props.controlled_value,
             default_value: props.default_value,
             on_value_change: props.on_value_change,
             placeholder: props.placeholder,
-            controlled_placeholder: props.controlled_placeholder,
             on_placeholder_change: props.on_placeholder_change,
             on_focus_out: props.on_focus_out,
             granularity: props.granularity,
@@ -935,17 +742,17 @@ pub fn DateFieldRoot(props: DateFieldRootProps) -> Element {
             disabled: props.disabled,
             read_only: props.read_only,
             required: props.required,
-            readonly_segments: props.readonly_segments,
+            read_only_segments: props.read_only_segments,
             is_date_unavailable: props.is_date_unavailable,
             validate: props.validate,
             on_invalid: props.on_invalid,
             error_message_id: props.error_message_id,
             dir: props.dir,
-            is_invalid_override: props.is_invalid_override,
-            range_role: props.range_role,
-            label_id_override: props.label_id_override,
-            on_prev_boundary: props.on_prev_boundary,
-            on_next_boundary: props.on_next_boundary,
+            is_invalid_override: None,
+            range_role: FieldRangeRole::Standalone,
+            label_id_override: None,
+            on_prev_boundary: None,
+            on_next_boundary: None,
             children: props.children,
         },
         initial_placeholder,
@@ -954,39 +761,21 @@ pub fn DateFieldRoot(props: DateFieldRootProps) -> Element {
 
 pub use DateFieldRoot as DateField;
 
-/// Render props passed to `as_child` for [`DateFieldInput`].
-#[derive(Clone, PartialEq, Props)]
-pub struct DateFieldInputRenderProps {
-    pub attrs: DateFieldInputAttrs,
-    pub segments: Vec<DateFieldSegmentItem>,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 /// Props for [`DateFieldInput`].
 #[derive(Clone, PartialEq, Props)]
 pub struct DateFieldInputProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub name: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub form: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<DateFieldInputRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub render_children: Option<Callback<Vec<DateFieldSegmentItem>, Element>>,
     #[props(default)]
@@ -1002,56 +791,19 @@ pub struct DateFieldInputProps {
 /// Container for `DateField` segments and automatic hidden `<input>` form synchronization.
 #[component]
 pub fn DateFieldInput(props: DateFieldInputProps) -> Element {
-    let render_child = props.render_child;
-    render_segment_field_input::<DateFieldPolicy, _>(
-        SegmentFieldInputSpec {
-            id: props.id,
-            class: props.class,
-            style: props.style,
-            name: props.name,
-            form: props.form,
-            as_child: props.as_child,
-            render_children: props.render_children,
-            on_focus_out: props.on_focus_out,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: props.children,
-            debug_name: "DateFieldInput",
-        },
-        move |view| {
-            render_child.map(|cb| {
-                cb.call(DateFieldInputRenderProps {
-                    attrs: view.attrs,
-                    segments: view.segments,
-                    class: view.class,
-                    style: view.style,
-                    on_mounted: view.on_mounted,
-                    attributes: view.attributes,
-                    children: view.children,
-                })
-            })
-        },
-    )
-}
-
-/// Render props passed to `as_child` for [`DateFieldSegment`].
-#[derive(Clone, PartialEq, Props)]
-pub struct DateFieldSegmentRenderProps {
-    pub attrs: DateFieldSegmentAttrs,
-    pub segment: DateFieldSegmentItem,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub on_focus: EventHandler<FocusEvent>,
-    pub on_blur: EventHandler<FocusEvent>,
-    pub on_paste: EventHandler<ClipboardEvent>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
+    render_segment_field_input::<DateFieldPolicy>(SegmentFieldInputSpec {
+        id: props.id,
+        class: props.class,
+        style: props.style,
+        name: props.name,
+        form: props.form,
+        child: props.child,
+        render_children: props.render_children,
+        on_focus_out: props.on_focus_out,
+        on_mounted: props.on_mounted,
+        attributes: props.attributes,
+        children: props.children,
+    })
 }
 
 /// Props for [`DateFieldSegment`].
@@ -1060,16 +812,14 @@ pub struct DateFieldSegmentProps {
     pub part: SegmentKind,
     #[props(default)]
     pub index: Option<usize>,
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<DateFieldSegmentRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default)]
@@ -1089,73 +839,34 @@ pub struct DateFieldSegmentProps {
 /// Individual spinbutton or literal segment inside a `DateFieldInput`.
 #[component]
 pub fn DateFieldSegment(props: DateFieldSegmentProps) -> Element {
-    let render_child = props.render_child;
-    render_segment_field_segment::<DateFieldPolicy, _>(
-        SegmentFieldSegmentSpec {
-            part: props.part,
-            index: props.index,
-            id: props.id,
-            class: props.class,
-            style: props.style,
-            as_child: props.as_child,
-            on_key_down: props.on_key_down,
-            on_focus: props.on_focus,
-            on_blur: props.on_blur,
-            on_paste: props.on_paste,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: props.children,
-            debug_name: "DateFieldSegment",
-        },
-        move |view| {
-            render_child.map(|cb| {
-                cb.call(DateFieldSegmentRenderProps {
-                    attrs: view.attrs,
-                    segment: view.segment,
-                    class: view.class,
-                    style: view.style,
-                    on_key_down: view.on_key_down,
-                    on_focus: view.on_focus,
-                    on_blur: view.on_blur,
-                    on_paste: view.on_paste,
-                    on_mounted: view.on_mounted,
-                    attributes: view.attributes,
-                    children: view.children,
-                })
-            })
-        },
-    )
-}
-
-/// Render props passed to `as_child` for [`DateFieldLabel`].
-#[derive(Clone, PartialEq, Props)]
-pub struct DateFieldLabelRenderProps {
-    pub attrs: DateFieldLabelAttrs,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    pub on_click: EventHandler<MouseEvent>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
+    render_segment_field_segment::<DateFieldPolicy>(SegmentFieldSegmentSpec {
+        part: props.part,
+        index: props.index,
+        id: props.id,
+        class: props.class,
+        style: props.style,
+        child: props.child,
+        on_key_down: props.on_key_down,
+        on_focus: props.on_focus,
+        on_blur: props.on_blur,
+        on_paste: props.on_paste,
+        on_mounted: props.on_mounted,
+        attributes: props.attributes,
+        children: props.children,
+    })
 }
 
 /// Props for [`DateFieldLabel`].
 #[derive(Clone, PartialEq, Props)]
 pub struct DateFieldLabelProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<DateFieldLabelRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
@@ -1169,31 +880,14 @@ pub struct DateFieldLabelProps {
 /// Accessible label for `DateField`; clicking focuses the first interactive segment.
 #[component]
 pub fn DateFieldLabel(props: DateFieldLabelProps) -> Element {
-    let render_child = props.render_child;
-    render_segment_field_label::<DateFieldPolicy, _>(
-        SegmentFieldLabelSpec {
-            id: props.id,
-            class: props.class,
-            style: props.style,
-            as_child: props.as_child,
-            on_click: props.on_click,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: props.children,
-            debug_name: "DateFieldLabel",
-        },
-        move |view| {
-            render_child.map(|cb| {
-                cb.call(DateFieldLabelRenderProps {
-                    attrs: view.attrs,
-                    class: view.class,
-                    style: view.style,
-                    on_click: view.on_click,
-                    on_mounted: view.on_mounted,
-                    attributes: view.attributes,
-                    children: view.children,
-                })
-            })
-        },
-    )
+    render_segment_field_label::<DateFieldPolicy>(SegmentFieldLabelSpec {
+        id: props.id,
+        class: props.class,
+        style: props.style,
+        child: props.child,
+        on_click: props.on_click,
+        on_mounted: props.on_mounted,
+        attributes: props.attributes,
+        children: props.children,
+    })
 }

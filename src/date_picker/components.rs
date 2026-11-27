@@ -5,10 +5,7 @@ use dioxus::prelude::*;
 use ui_sdk::foundation::date_time::field_policy::{DateFieldPolicy, FieldRangeRole};
 
 use crate::{
-    calendar::{
-        CalendarMode, CalendarRootProps, CalendarRootRenderProps, CalendarSnapshot,
-        components::render_calendar_root,
-    },
+    calendar::{CalendarMode, CalendarRootProps, CalendarSnapshot, components::render_calendar_root},
     date_field::{
         components::{
             SegmentFieldRootSpec, render_segment_field_chrome, use_segment_field_runtime,
@@ -18,29 +15,32 @@ use crate::{
     field::try_use_field_context,
     foundation::{
         browser::{focus::use_composite_focus_out_tracked, local_today},
+        compose::{
+            FloatingContentChildProps, collect_user_attrs, join_styles, merge_props, push_attr_opt,
+            push_bool_data_attr, push_event_handler,
+        },
         date_time::{
             CalendarConfig, CalendarDate, CalendarLocale, DateValue, EditableSegmentKind,
             FieldInvalidEvent, Granularity, HourCycle, MonthFormat, Weekday, WeekdayFormat,
             YearFormat,
         },
         keyboard::is_ime_composing_key,
-        overlay::{PlacementAlign, PlacementSide, PortalHost},
+        overlay::{
+            DismissBehavior, OverlayBranchContext, OverlayEscapeGuardContext, OverlayEscapeGuardFn,
+            PlacementAlign, PlacementSide, StickyStrategy, use_overlay_branch_provider,
+            use_register_parent_overlay_branches,
+        },
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-        state::ControlledBinding,
+        state::{DataState, sync_signal, use_controllable_signal},
     },
     popover::{
         CloseAutoFocusEvent, EscapeKeyDownEvent, InteractOutsideEvent, OpenAutoFocusEvent,
-        PopoverCloseFocusPolicy, PopoverContext, PopoverOpenFocusPolicy,
+        PointerDownOutsideEvent, PopoverCloseFocusPolicy, PopoverContext, PopoverOpenFocusPolicy,
         PopoverOutsideInteractionPolicy, PopoverRoot, PopoverScrollLockPolicy,
-        components::{
-            content::{PopoverContentSurfaceSpec, render_popover_content_surface},
-            trigger::{PopoverTriggerSurfaceSpec, render_popover_trigger_surface},
-        },
     },
 };
 
 use super::{
-    attrs::{DatePickerContentAttrs, DatePickerTriggerAttrs, PickerContentAttrs, PickerTriggerAttrs},
     relationships::{DATE_PICKER_OPEN_FOCUS_SELECTOR, DatePickerRelationships},
     runtime::{
         DatePickerCalendarConfig, DatePickerContext, DatePickerRuntime, PickerRuntimeCore,
@@ -49,247 +49,508 @@ use super::{
     state::{DatePickerDefinition, DatePickerState},
 };
 
-/// Shared plain-fn trigger surface composing `render_popover_trigger_surface` with
-/// `data-segment="trigger"`, equality-guarded `trailing_trigger_id` registration, and
-/// RTL-aware `ArrowLeft`/`ArrowRight` -> `focus_last_segment()` handoff.
+/// Shared plain-fn trigger surface composing `PopoverContext` with `data-segment="trigger"`,
+/// equality-guarded `trailing_trigger_id` registration, RTL-aware `ArrowLeft`/`ArrowRight` ->
+/// `focus_last_segment()` handoff, and unified `merge_props` + `child`.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn render_picker_trigger_surface<FReg, FUnreg, FUnregDrop, FFocus, FChild>(
+pub(crate) fn render_picker_trigger_surface<FReg, FUnreg, FUnregDrop, FFocus>(
     id: Option<String>,
     class: Option<String>,
     style: Option<String>,
     effective_disabled: bool,
     dir: Direction,
-    as_child: bool,
+    child: Option<Callback<Vec<Attribute>, Element>>,
     on_click: Option<EventHandler<MouseEvent>>,
     on_key_down: Option<EventHandler<KeyboardEvent>>,
     on_blur: Option<EventHandler<FocusEvent>>,
     on_focus_in: Option<EventHandler<FocusEvent>>,
     on_focus_out: Option<EventHandler<FocusEvent>>,
     on_mounted: Option<EventHandler<MountedEvent>>,
-    mut attributes: Vec<Attribute>,
+    attributes: Vec<Attribute>,
     children: Element,
     mut register_trigger: FReg,
     mut unregister_trigger: FUnreg,
     mut unregister_trigger_drop: FUnregDrop,
     focus_last_segment: FFocus,
-    render_as_child: FChild,
 ) -> Element
 where
     FReg: FnMut(Option<String>),
     FUnreg: FnMut(&str),
     FUnregDrop: FnMut(&str) + 'static,
     FFocus: Fn() + 'static,
-    FChild: FnOnce(
-        PickerTriggerAttrs,
-        Option<String>,
-        Option<String>,
-        EventHandler<MouseEvent>,
-        EventHandler<PointerEvent>,
-        EventHandler<KeyboardEvent>,
-        EventHandler<MountedEvent>,
-        Vec<Attribute>,
-        Element,
-    ) -> Option<Element>,
 {
     let popover_ctx = use_context::<PopoverContext>();
-    let trigger_id = id.unwrap_or_else(|| popover_ctx.runtime.read().trigger().id().to_string());
+    let runtime = popover_ctx.runtime.read().clone();
+    let trigger = runtime.trigger();
+    let trigger_id = id.unwrap_or_else(|| trigger.id().to_string());
 
     let latest_tid = use_hook(|| Rc::new(RefCell::new(trigger_id.clone())));
     {
         let mut prev = latest_tid.borrow_mut();
         if *prev != trigger_id {
+            runtime.unregister_trigger_id(&prev);
             unregister_trigger(&prev);
             *prev = trigger_id.clone();
         }
     }
+    runtime.register_trigger_id(&trigger_id);
     if effective_disabled {
         unregister_trigger(&trigger_id);
     } else {
         register_trigger(Some(trigger_id.clone()));
     }
     let tid_for_drop = Rc::clone(&latest_tid);
+    let runtime_for_drop = runtime.clone();
     use_drop(move || {
         let current = tid_for_drop.borrow().clone();
+        runtime_for_drop.unregister_trigger_id(&current);
         unregister_trigger_drop(&current);
     });
 
-    if !as_child {
-        attributes.insert(0, Attribute::new("data-segment", "trigger", None, false));
+    let disabled = effective_disabled;
+    let tabindex = (!disabled).then_some("0");
+    let data_state = match trigger.data_state() {
+        DataState::Open => "open",
+        _ => "closed",
+    };
+    let aria_expanded = if trigger.aria_expanded() {
+        "true"
+    } else {
+        "false"
+    };
+    let aria_controls = trigger.aria_controls().map(str::to_owned);
+
+    let mut mount_cb = runtime.mount_trigger();
+    let mut pd_cb = runtime.trigger_pointer_down();
+    let mut click_cb = runtime.trigger_click();
+
+    let mut base = Vec::with_capacity(17);
+    base.push(Attribute::new("id", trigger_id, None, false));
+    base.push(Attribute::new("type", "button", None, false));
+    if disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    push_attr_opt(&mut base, "tabindex", tabindex);
+    base.push(Attribute::new("aria-haspopup", "dialog", None, false));
+    base.push(Attribute::new("aria-expanded", aria_expanded, None, false));
+    push_attr_opt(&mut base, "aria-controls", aria_controls);
+    base.push(Attribute::new("data-state", data_state, None, false));
+    push_bool_data_attr(&mut base, "data-disabled", disabled);
+    base.push(Attribute::new("data-segment", "trigger", None, false));
+    push_event_handler(
+        &mut base,
+        "onmounted",
+        Some(EventHandler::new(move |evt: MountedEvent| mount_cb(evt))),
+    );
+    push_event_handler(
+        &mut base,
+        "onpointerdown",
+        Some(EventHandler::new(move |evt: PointerEvent| {
+            if !disabled {
+                pd_cb(evt);
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onclick",
+        Some(EventHandler::new(move |evt: MouseEvent| {
+            if disabled {
+                evt.prevent_default();
+                return;
+            }
+            if evt.default_action_enabled() {
+                click_cb(evt);
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onkeydown",
+        Some(EventHandler::new(move |evt: KeyboardEvent| {
+            if !disabled && !is_ime_composing_key(&evt) && evt.default_action_enabled() {
+                let move_to_prev = match evt.key() {
+                    Key::Named(NamedKey::ArrowLeft) => dir == Direction::Ltr,
+                    Key::Named(NamedKey::ArrowRight) => dir == Direction::Rtl,
+                    _ => false,
+                };
+                if move_to_prev {
+                    evt.prevent_default();
+                    focus_last_segment();
+                }
+            }
+        })),
+    );
+    push_event_handler(&mut base, "onfocusin", on_focus_in);
+    push_event_handler(&mut base, "onfocusout", on_focus_out);
+
+    let mut user = collect_user_attrs(class, style, attributes);
+    push_event_handler(&mut user, "onmounted", on_mounted);
+    if !disabled {
+        push_event_handler(&mut user, "onclick", on_click);
+    }
+    push_event_handler(&mut user, "onkeydown", on_key_down);
+    push_event_handler(&mut user, "onblur", on_blur);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
     }
 
-    let composed_key_down = Some(EventHandler::new(move |evt: KeyboardEvent| {
-        if !effective_disabled && !is_ime_composing_key(&evt) {
-            let move_to_prev = match evt.key() {
-                Key::Named(NamedKey::ArrowLeft) => dir == Direction::Ltr,
-                Key::Named(NamedKey::ArrowRight) => dir == Direction::Rtl,
-                _ => false,
-            };
-            if move_to_prev {
-                evt.prevent_default();
-                focus_last_segment();
-            }
+    rsx! {
+        button {
+            ..merged,
+            {children}
         }
-        if let Some(cb) = on_key_down {
-            cb.call(evt);
-        }
-    }));
-
-    render_popover_trigger_surface(
-        PopoverTriggerSurfaceSpec {
-            id: Some(trigger_id),
-            class,
-            style,
-            disabled: effective_disabled,
-            as_child,
-            extra_data_attr: None,
-            on_click,
-            on_key_down: composed_key_down,
-            on_blur,
-            on_focus_in,
-            on_focus_out,
-            on_mounted,
-            attributes,
-            children,
-        },
-        move |view| {
-            let attrs = PickerTriggerAttrs::new(
-                view.id,
-                view.aria_controls.unwrap_or_default(),
-                view.is_open,
-                view.disabled,
-            );
-            render_as_child(
-                attrs,
-                view.class,
-                view.style,
-                view.on_click,
-                view.on_pointer_down,
-                view.on_key_down,
-                view.on_mounted,
-                view.attributes,
-                view.children,
-            )
-        },
-    )
+    }
 }
 
-/// Shared plain-fn content surface delegating floating & static picker popovers directly to
-/// `render_popover_content_surface` (fixing `B4` z-index drop cleanup and inheriting
-/// `OverlayEscapeGuardContext`, `bits#2219`, `radix#4105`, and `merge_global_attributes`).
-pub(crate) fn render_picker_content_surface<F>(
-    props: DatePickerContentProps,
-    floating: bool,
-    extra_data_attr: &'static str,
-    on_focus_in: Option<EventHandler<FocusEvent>>,
-    on_focus_out: Option<EventHandler<FocusEvent>>,
-    mut register_content_id: impl FnMut(String),
-    render_as_child: F,
-) -> Element
-where
-    F: FnOnce(
-        PickerContentAttrs,
-        Option<String>,
-        Option<String>,
-        String,
-        bool,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        String,
-        EventHandler<MountedEvent>,
-        EventHandler<KeyboardEvent>,
-        EventHandler<MouseEvent>,
-        Vec<Attribute>,
-        Element,
-    ) -> Option<Element>,
-{
-    let popover_ctx = use_context::<PopoverContext>();
-    let resolved_content_id = props
-        .id
-        .clone()
-        .unwrap_or_else(|| popover_ctx.runtime.read().content().id().to_string());
-    register_content_id(resolved_content_id);
+/// Internal specification for [`render_picker_content_surface`].
+pub(crate) struct PickerContentSurfaceSpec {
+    pub id: Option<String>,
+    pub class: Option<String>,
+    pub style: Option<String>,
+    pub role: Option<String>,
+    pub aria_labelledby: Option<String>,
+    pub aria_describedby: Option<String>,
+    pub force_mount: bool,
+    pub keep_mounted: bool,
+    pub floating: bool,
+    pub side: Option<PlacementSide>,
+    pub align: Option<PlacementAlign>,
+    pub side_offset: Option<f32>,
+    pub align_offset: Option<f32>,
+    pub avoid_collisions: Option<bool>,
+    pub collision_boundary: Option<String>,
+    pub collision_padding: Option<f32>,
+    pub arrow_padding: Option<f32>,
+    pub sticky: Option<StickyStrategy>,
+    pub hide_when_detached: Option<bool>,
+    pub custom_anchor: Option<String>,
+    pub open_focus: Option<PopoverOpenFocusPolicy>,
+    pub close_focus: Option<PopoverCloseFocusPolicy>,
+    pub scroll_lock: Option<PopoverScrollLockPolicy>,
+    pub outside_interaction: Option<PopoverOutsideInteractionPolicy>,
+    pub prevent_body_pointer_events: Option<bool>,
+    pub escape_key_down_behavior: Option<DismissBehavior>,
+    pub interact_outside_behavior: Option<DismissBehavior>,
+    pub on_open_auto_focus: Option<EventHandler<OpenAutoFocusEvent>>,
+    pub on_close_auto_focus: Option<EventHandler<CloseAutoFocusEvent>>,
+    pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
+    pub on_pointer_down_outside: Option<EventHandler<PointerDownOutsideEvent>>,
+    pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
+    pub default_open_focus_selector: &'static str,
+    pub extra_data_attr: &'static str,
+    pub on_focus_in: Option<EventHandler<FocusEvent>>,
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
+    pub floating_child: Option<Callback<FloatingContentChildProps, Element>>,
+    pub static_child: Option<Callback<Vec<Attribute>, Element>>,
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
 
-    render_popover_content_surface(
-        PopoverContentSurfaceSpec {
-            id: props.id,
-            class: props.class,
-            style: props.style,
-            role: props.role,
-            aria_labelledby: props.aria_labelledby,
-            aria_describedby: props.aria_describedby,
-            force_mount: props.force_mount,
-            floating,
-            side: props.side,
-            align: props.align,
-            side_offset: props.side_offset,
-            align_offset: props.align_offset,
-            avoid_collisions: props.avoid_collisions,
-            collision_padding: props.collision_padding,
-            sticky: props.sticky,
-            on_open_auto_focus: props.on_open_auto_focus,
-            on_close_auto_focus: props.on_close_auto_focus,
-            on_escape_key_down: props.on_escape_key_down,
-            on_interact_outside: props.on_interact_outside,
-            on_focus_in,
-            on_focus_out,
-            extra_data_attr: Some(extra_data_attr),
-            as_child: props.as_child,
-            attributes: props.attributes,
-            children: props.children,
+/// Shared plain-fn content surface for floating and static `DatePickerContent*` /
+/// `DateRangePickerContent*`, wiring `keep_mounted`, `TransitionStatus`, 4-way `DismissBehavior`,
+/// placement/policy overrides, z-index cleanup, `OverlayEscapeGuardContext`, and `merge_props`.
+pub(crate) fn render_picker_content_surface(
+    spec: PickerContentSurfaceSpec,
+    mut register_content_id: impl FnMut(String),
+) -> Element {
+    let mut ctx = use_context::<PopoverContext>();
+    let runtime = ctx.runtime.read().clone();
+
+    runtime.set_keep_mounted(spec.keep_mounted);
+    if spec.floating {
+        runtime.set_content_placement_overrides(
+            spec.side,
+            spec.align,
+            spec.side_offset,
+            spec.align_offset,
+            spec.avoid_collisions,
+            spec.collision_boundary,
+            spec.collision_padding,
+            spec.arrow_padding,
+            spec.sticky,
+            spec.hide_when_detached,
+            spec.custom_anchor,
+        );
+    }
+    let resolved_open_focus = Some(spec.open_focus.unwrap_or_else(|| {
+        PopoverOpenFocusPolicy::Selector(spec.default_open_focus_selector.to_string())
+    }));
+    let resolved_close_focus = Some(spec.close_focus.unwrap_or(PopoverCloseFocusPolicy::Trigger));
+    runtime.set_content_policy_overrides(
+        resolved_open_focus,
+        resolved_close_focus,
+        spec.scroll_lock,
+        spec.outside_interaction,
+        spec.prevent_body_pointer_events,
+        spec.escape_key_down_behavior,
+        spec.interact_outside_behavior,
+    );
+    runtime.set_content_event_handlers(
+        spec.on_open_auto_focus,
+        spec.on_close_auto_focus,
+        spec.on_escape_key_down,
+        spec.on_pointer_down_outside,
+        spec.on_interact_outside,
+    );
+
+    let should_render = spec.force_mount || runtime.should_render_content();
+    let is_open = runtime.is_open();
+
+    let content = runtime.content();
+    let content_id = spec.id.unwrap_or_else(|| content.id().to_string());
+    register_content_id(content_id.clone());
+    let wrapper_id = format!("{content_id}-wrapper");
+    let portal_id = runtime.relationships().scope().qualify("portal");
+
+    let parent_branch = try_consume_context::<OverlayBranchContext>();
+    let branch_ids = if spec.floating {
+        vec![content_id.clone(), wrapper_id.clone(), portal_id]
+    } else {
+        vec![content_id.clone(), portal_id]
+    };
+    use_register_parent_overlay_branches(parent_branch, is_open, branch_ids);
+
+    let latest_cid = use_hook(|| Rc::new(RefCell::new(content_id.clone())));
+    {
+        let mut prev = latest_cid.borrow_mut();
+        if *prev != content_id {
+            if ctx.content_id.peek().as_deref() == Some(prev.as_str()) {
+                ctx.content_id.set(None);
+            }
+            runtime.unregister_content_id(&prev);
+            *prev = content_id.clone();
+        }
+    }
+
+    if should_render {
+        if ctx.content_id.peek().as_deref() != Some(content_id.as_str()) {
+            ctx.content_id.set(Some(content_id.clone()));
+        }
+        runtime.register_content_id(&content_id);
+    } else {
+        if ctx.content_id.peek().as_deref() == Some(content_id.as_str()) {
+            ctx.content_id.set(None);
+        }
+        runtime.unregister_content_id(&content_id);
+    }
+
+    let cid_for_drop = Rc::clone(&latest_cid);
+    let mut cid_sig_drop = ctx.content_id;
+    let runtime_for_drop = runtime.clone();
+    use_drop(move || {
+        let current_cid = cid_for_drop.borrow().clone();
+        if let Ok(mut sig) = cid_sig_drop.try_write()
+            && sig.as_deref() == Some(current_cid.as_str())
+        {
+            *sig = None;
+        }
+        runtime_for_drop.unregister_content_id(&current_cid);
+        runtime_for_drop.clear_content_z_index();
+        runtime_for_drop.set_keep_mounted(false);
+        runtime_for_drop.set_content_placement_overrides(
+            None, None, None, None, None, None, None, None, None, None, None,
+        );
+        runtime_for_drop.set_content_policy_overrides(None, None, None, None, None, None, None);
+        runtime_for_drop.set_content_event_handlers(None, None, None, None, None);
+    });
+
+    let effect_wrapper_id = wrapper_id.clone();
+    let runtime_for_shield = runtime.clone();
+    let is_floating = spec.floating;
+    use_effect(use_reactive(
+        (&should_render, &is_floating, &effect_wrapper_id),
+        move |(render_val, floating_val, wid)| {
+            if render_val && floating_val {
+                runtime_for_shield.sync_modal_shield_with_wrapper(Some(&wid));
+            } else {
+                runtime_for_shield.sync_modal_shield_with_wrapper(None);
+            }
         },
-        move |view| {
-            let attrs = PickerContentAttrs::new(
-                view.id,
-                view.is_open,
-                floating.then_some(view.data_side),
-                floating.then_some(view.data_align),
-            );
-            render_as_child(
-                attrs,
-                view.wrapper_id,
-                view.wrapper_style,
-                view.role,
-                view.aria_modal,
-                view.aria_labelledby,
-                view.aria_describedby,
-                view.class,
-                view.style,
-                view.on_mounted,
-                view.on_key_down,
-                view.on_click,
-                view.attributes,
-                view.children,
-            )
-        },
-    )
+    ));
+
+    let rt_reg_branch = runtime.clone();
+    let rt_unreg_branch = runtime.clone();
+    use_overlay_branch_provider(
+        move |branch: String| rt_reg_branch.register_branch(branch),
+        move |branch: String| rt_unreg_branch.unregister_branch(&branch),
+    );
+
+    let runtime_for_escape_guard = runtime.clone();
+    use_context_provider(|| {
+        let rt_reg = runtime_for_escape_guard.clone();
+        let rt_unreg = runtime_for_escape_guard.clone();
+        OverlayEscapeGuardContext::new(
+            move |id: String, guard: OverlayEscapeGuardFn| {
+                rt_reg.register_escape_guard(id, guard);
+            },
+            move |id: String| {
+                rt_unreg.unregister_escape_guard(&id);
+            },
+        )
+    });
+
+    if !should_render {
+        return rsx! {};
+    }
+
+    let wrapper_style = spec.floating.then(|| runtime.wrapper_style());
+    let css_vars = if spec.floating {
+        runtime.content_css_custom_properties()
+    } else {
+        String::new()
+    };
+
+    let title_id = (ctx.title_id)();
+    let desc_id = (ctx.description_id)();
+    let labelledby = spec.aria_labelledby.or(title_id);
+    let describedby = spec.aria_describedby.or(desc_id);
+    let resolved_role = spec.role.unwrap_or_else(|| content.role().to_string());
+    let aria_modal = if content.aria_modal() {
+        "true"
+    } else {
+        "false"
+    };
+    let data_state = match content.data_state() {
+        DataState::Open => "open",
+        _ => "closed",
+    };
+    let data_side = content.data_side();
+    let data_align = content.data_align();
+    let is_closed_state = *content.data_state() == DataState::Closed;
+    let is_hidden = !spec.force_mount && runtime.is_hidden();
+
+    let mut style_parts: Vec<&str> = Vec::with_capacity(2);
+    if !css_vars.trim().is_empty() {
+        style_parts.push(css_vars.as_str());
+    }
+    let has_pointer_events = spec
+        .style
+        .as_deref()
+        .is_some_and(|s| s.contains("pointer-events:"));
+    if !is_open || is_closed_state {
+        style_parts.push("pointer-events: none;");
+    } else if runtime.should_force_pointer_events_auto() && !has_pointer_events {
+        style_parts.push("pointer-events: auto;");
+    }
+    let base_style = join_styles(style_parts);
+
+    let mut mount_cb = runtime.mount_content();
+    let mut keydown_cb = runtime.escape_keydown();
+
+    let mut base = Vec::with_capacity(20);
+    base.push(Attribute::new("id", content_id, None, false));
+    base.push(Attribute::new("role", resolved_role, None, false));
+    base.push(Attribute::new("aria-modal", aria_modal, None, false));
+    push_attr_opt(&mut base, "aria-labelledby", labelledby);
+    push_attr_opt(&mut base, "aria-describedby", describedby);
+    push_attr_opt(&mut base, "style", base_style);
+    base.push(Attribute::new("data-state", data_state, None, false));
+    if spec.floating {
+        base.push(Attribute::new("data-side", data_side, None, false));
+        base.push(Attribute::new("data-align", data_align, None, false));
+    }
+    push_attr_opt(
+        &mut base,
+        "data-starting-style",
+        runtime.data_starting_style(),
+    );
+    push_attr_opt(&mut base, "data-ending-style", runtime.data_ending_style());
+    if is_hidden {
+        base.push(Attribute::new("hidden", true, None, false));
+    }
+    base.push(Attribute::new("tabindex", "-1", None, false));
+    base.push(Attribute::new(spec.extra_data_attr, "", None, false));
+    push_event_handler(
+        &mut base,
+        "onmounted",
+        Some(EventHandler::new(move |evt: MountedEvent| mount_cb(evt))),
+    );
+    push_event_handler(
+        &mut base,
+        "onkeydown",
+        Some(EventHandler::new(move |evt: KeyboardEvent| {
+            keydown_cb(evt)
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onclick",
+        Some(EventHandler::new(move |evt: MouseEvent| {
+            evt.stop_propagation();
+        })),
+    );
+    push_event_handler(&mut base, "onfocusin", spec.on_focus_in);
+    push_event_handler(&mut base, "onfocusout", spec.on_focus_out);
+
+    let user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(ws) = wrapper_style {
+        let mut wrapper_props = Vec::with_capacity(4);
+        wrapper_props.push(Attribute::new("id", wrapper_id, None, false));
+        wrapper_props.push(Attribute::new(
+            "data-monoxus-floating-content-wrapper",
+            "",
+            None,
+            false,
+        ));
+        if !ws.is_empty() {
+            wrapper_props.push(Attribute::new("style", ws, None, false));
+        }
+        if is_hidden {
+            wrapper_props.push(Attribute::new("hidden", true, None, false));
+        }
+
+        if let Some(child) = spec.floating_child {
+            return child.call(FloatingContentChildProps::new(wrapper_props, merged));
+        }
+
+        rsx! {
+            div {
+                ..wrapper_props,
+                div {
+                    ..merged,
+                    {spec.children}
+                }
+            }
+        }
+    } else {
+        if let Some(child) = spec.static_child {
+            return child.call(merged);
+        }
+
+        rsx! {
+            div {
+                ..merged,
+                {spec.children}
+            }
+        }
+    }
 }
 
 /// Props for [`DatePickerRoot`].
 #[derive(Clone, PartialEq, Props)]
 pub struct DatePickerRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default)]
-    pub value: Option<Signal<Option<DateValue>>>,
-    #[props(default)]
-    pub controlled_value: Option<ReadSignal<Option<DateValue>>>,
+    pub value: Option<Option<DateValue>>,
     #[props(default)]
     pub default_value: Option<DateValue>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<Option<DateValue>>>,
     #[props(default)]
-    pub placeholder: Option<Signal<DateValue>>,
-    #[props(default)]
-    pub controlled_placeholder: Option<ReadSignal<DateValue>>,
+    pub placeholder: Option<DateValue>,
     #[props(default)]
     pub default_placeholder: Option<DateValue>,
     #[props(default)]
     pub on_placeholder_change: Option<EventHandler<DateValue>>,
     #[props(default)]
-    pub open: Option<Signal<bool>>,
-    #[props(default)]
-    pub controlled_open: Option<ReadSignal<bool>>,
+    pub open: Option<bool>,
     #[props(default = false)]
     pub default_open: bool,
     #[props(default)]
@@ -298,15 +559,13 @@ pub struct DatePickerRootProps {
     pub on_open_change_complete: Option<EventHandler<bool>>,
     #[props(default)]
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
-    #[props(default)]
-    pub is_invalid_override: Option<bool>,
     #[props(default = true)]
     pub close_on_date_select: bool,
     #[props(default)]
     pub granularity: Option<Granularity>,
     #[props(default)]
     pub hour_cycle: Option<HourCycle>,
-    #[props(default)]
+    #[props(default, into)]
     pub locale: CalendarLocale,
     #[props(default = false)]
     pub hide_time_zone: bool,
@@ -321,12 +580,12 @@ pub struct DatePickerRootProps {
     #[props(default = false)]
     pub required: bool,
     #[props(default)]
-    pub readonly_segments: Vec<EditableSegmentKind>,
+    pub read_only_segments: Vec<EditableSegmentKind>,
     #[props(default)]
     pub validate: Option<Callback<DateValue, Option<Vec<String>>>>,
     #[props(default)]
     pub on_invalid: Option<EventHandler<FieldInvalidEvent>>,
-    #[props(default)]
+    #[props(default, into)]
     pub error_message_id: Option<String>,
     #[props(default)]
     pub is_date_disabled: Option<Callback<CalendarDate, bool>>,
@@ -348,7 +607,7 @@ pub struct DatePickerRootProps {
     pub month_format: MonthFormat,
     #[props(default)]
     pub year_format: YearFormat,
-    #[props(default = String::from("Event"))]
+    #[props(default = String::from("Event"), into)]
     pub calendar_label: String,
     #[props(default = true)]
     pub disable_days_outside_month: bool,
@@ -358,30 +617,6 @@ pub struct DatePickerRootProps {
     pub dir: Option<Direction>,
     #[props(default)]
     pub modal: Option<bool>,
-    #[props(default)]
-    pub open_focus: Option<PopoverOpenFocusPolicy>,
-    #[props(default)]
-    pub close_focus: Option<PopoverCloseFocusPolicy>,
-    #[props(default)]
-    pub scroll_lock: Option<PopoverScrollLockPolicy>,
-    #[props(default)]
-    pub outside_interaction: Option<PopoverOutsideInteractionPolicy>,
-    #[props(default)]
-    pub portal_host: Option<PortalHost>,
-    #[props(default)]
-    pub side: Option<PlacementSide>,
-    #[props(default)]
-    pub side_offset: Option<f32>,
-    #[props(default)]
-    pub align: Option<PlacementAlign>,
-    #[props(default)]
-    pub align_offset: Option<f32>,
-    #[props(default)]
-    pub avoid_collisions: Option<bool>,
-    #[props(default)]
-    pub collision_padding: Option<f32>,
-    #[props(default)]
-    pub sticky: Option<bool>,
     #[props(default)]
     pub children: Element,
 }
@@ -393,9 +628,7 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
     let effective_disabled = props.disabled || field_ctx.is_some_and(|f| f.is_disabled());
     let effective_read_only = props.read_only || field_ctx.is_some_and(|f| f.is_read_only());
     let effective_required = props.required || field_ctx.is_some_and(|f| f.is_required());
-    let effective_invalid_override = props
-        .is_invalid_override
-        .or_else(|| field_ctx.map(|f| f.is_invalid()));
+    let effective_invalid_override = field_ctx.map(|f| f.is_invalid());
 
     let resolved_dir = use_direction_context(props.dir);
     let stable_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
@@ -403,14 +636,10 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
     let rels = use_hook(|| DatePickerRelationships::new(scope.clone()));
     let today = use_hook(local_today);
 
-    let value_binding = ControlledBinding::from_props(props.value, props.controlled_value);
-    let placeholder_binding =
-        ControlledBinding::from_props(props.placeholder, props.controlled_placeholder);
-    let open_binding = ControlledBinding::from_props(props.open, props.controlled_open);
-
-    let initial_value = value_binding.initial_or(props.default_value);
-    let initial_placeholder = placeholder_binding
-        .peek_cloned()
+    let value_ctl = use_controllable_signal(props.value, props.default_value, props.on_value_change);
+    let initial_value = value_ctl.peek();
+    let initial_placeholder = props
+        .placeholder
         .or(props.default_placeholder)
         .unwrap_or_else(|| {
             default_date_field_placeholder(
@@ -421,7 +650,13 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
                 today,
             )
         });
-    let initial_open = open_binding.initial_or(props.default_open);
+    let placeholder_ctl = use_controllable_signal(
+        props.placeholder,
+        initial_placeholder,
+        props.on_placeholder_change,
+    );
+    let open_ctl = use_controllable_signal(props.open, props.default_open, props.on_open_change);
+    let initial_open = open_ctl.peek();
 
     let def = DatePickerDefinition::new()
         .with_close_on_date_select(props.close_on_date_select)
@@ -463,18 +698,6 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
     };
     let calendar_config = use_signal(|| next_cal_cfg.clone());
 
-    let mut controlled_value = use_hook(|| CopyValue::new(value_binding));
-    controlled_value.set(value_binding);
-    let mut controlled_placeholder = use_hook(|| CopyValue::new(placeholder_binding));
-    controlled_placeholder.set(placeholder_binding);
-    let mut controlled_open = use_hook(|| CopyValue::new(open_binding));
-    controlled_open.set(open_binding);
-    let mut on_value_change = use_hook(|| CopyValue::new(props.on_value_change));
-    on_value_change.set(props.on_value_change);
-    let mut on_placeholder_change = use_hook(|| CopyValue::new(props.on_placeholder_change));
-    on_placeholder_change.set(props.on_placeholder_change);
-    let mut on_open_change = use_hook(|| CopyValue::new(props.on_open_change));
-    on_open_change.set(props.on_open_change);
     let on_composite_focus_in = use_hook(|| CopyValue::new(None::<EventHandler<FocusEvent>>));
     let on_composite_focus_out = use_hook(|| CopyValue::new(None::<EventHandler<FocusEvent>>));
 
@@ -486,14 +709,14 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
     let mut pred_initialized = use_hook(|| CopyValue::new(false));
     let mut prev_had_pred = use_hook(|| CopyValue::new(has_unavailable_pred));
     if pred_initialized.try_read().is_ok_and(|init| *init) {
-        crate::foundation::state::sync_signal(&mut is_date_disabled, props.is_date_disabled);
-        crate::foundation::state::sync_signal(&mut is_date_unavailable, props.is_date_unavailable);
+        sync_signal(&mut is_date_disabled, props.is_date_disabled);
+        sync_signal(&mut is_date_unavailable, props.is_date_unavailable);
         let had_pred = prev_had_pred.try_read().is_ok_and(|had| *had);
         prev_had_pred.set(has_unavailable_pred);
         if has_unavailable_pred || had_pred {
             let next_rev = predicate_rev.try_peek().ok().map(|cur| cur.wrapping_add(1));
             if let Some(next_rev) = next_rev {
-                crate::foundation::state::sync_signal(&mut predicate_rev, next_rev);
+                sync_signal(&mut predicate_rev, next_rev);
             }
         }
     } else {
@@ -511,12 +734,9 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
             open: open_sig,
             trigger_dom_id,
             content_dom_id,
-            controlled_value,
-            controlled_placeholder,
-            controlled_open,
-            on_value_change,
-            on_placeholder_change,
-            on_open_change,
+            value_ctl,
+            placeholder_ctl,
+            open_ctl,
             on_composite_focus_in,
             on_composite_focus_out,
             is_date_disabled,
@@ -526,13 +746,8 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
         calendar_config,
     };
 
-    // Synchronous render-time reconciliation for external controlled signals.
-    {
-        let ext_val = value_binding.read_cloned();
-        let ext_ph = placeholder_binding.read_cloned();
-        let ext_open = open_binding.read_cloned();
-        runtime.reconcile_external_state(ext_val, ext_ph, ext_open);
-    }
+    // Synchronous render-time reconciliation for external controlled props.
+    runtime.reconcile_external_state(props.value, props.placeholder, props.open);
 
     use_effect(use_reactive(
         (
@@ -561,31 +776,18 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
         },
     ));
 
-    use_effect(use_reactive(
-        (&value_binding, &placeholder_binding, &open_binding),
-        {
-            let mut rt = runtime.clone();
-            move |(val_bind, ph_bind, open_bind)| {
-                let ext_val = val_bind.read_cloned();
-                let ext_ph = ph_bind.read_cloned();
-                let ext_open = open_bind.read_cloned();
-                rt.reconcile_external_state(ext_val, ext_ph, ext_open);
-            }
-        },
-    ));
+    use_effect(use_reactive((&props.value, &props.placeholder, &props.open), {
+        let mut rt = runtime.clone();
+        move |(ext_val, ext_ph, ext_open)| {
+            rt.reconcile_external_state(ext_val, ext_ph, ext_open);
+        }
+    }));
 
     use_context_provider(|| DatePickerContext(runtime.clone()));
 
     let mut rt_for_field_val = runtime.clone();
     let mut rt_for_field_ph = runtime.clone();
     let mut rt_for_popover_open = runtime.clone();
-
-    let resolved_open_focus = props.open_focus.unwrap_or_else(|| {
-        PopoverOpenFocusPolicy::Selector(DATE_PICKER_OPEN_FOCUS_SELECTOR.to_string())
-    });
-    let resolved_close_focus = props
-        .close_focus
-        .unwrap_or(PopoverCloseFocusPolicy::Trigger);
 
     let stable_unavailable_cb = use_hook(|| {
         let is_disabled_sig = runtime.is_date_disabled;
@@ -608,14 +810,12 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
 
     let field_spec = SegmentFieldRootSpec::<DateFieldPolicy> {
         id: Some(rels.field_scope().token().to_string()),
-        value: None,
-        controlled_value: Some(runtime.value.into()),
+        value: Some((runtime.value)()),
         default_value: props.default_value,
         on_value_change: Some(EventHandler::new(move |next| {
             rt_for_field_val.handle_field_value_change(next);
         })),
-        placeholder: None,
-        controlled_placeholder: Some(runtime.placeholder.into()),
+        placeholder: Some((runtime.placeholder)()),
         on_placeholder_change: Some(EventHandler::new(move |next| {
             rt_for_field_ph.handle_field_placeholder_change(next);
         })),
@@ -629,7 +829,7 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
         disabled: effective_disabled,
         read_only: effective_read_only,
         required: effective_required,
-        readonly_segments: props.readonly_segments,
+        read_only_segments: props.read_only_segments,
         is_date_unavailable: combined_unavailable,
         validate: props.validate,
         on_invalid: props.on_invalid,
@@ -694,38 +894,19 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
 
 pub use DatePickerRoot as DatePicker;
 
-/// Render props passed to `as_child` for [`DatePickerTrigger`].
-#[derive(Clone, PartialEq, Props)]
-pub struct DatePickerTriggerRenderProps {
-    pub attrs: DatePickerTriggerAttrs,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    pub on_click: EventHandler<MouseEvent>,
-    pub on_pointer_down: EventHandler<PointerEvent>,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub on_mounted: EventHandler<MountedEvent>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 /// Props for [`DatePickerTrigger`].
 #[derive(Clone, PartialEq, Props)]
 pub struct DatePickerTriggerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<DatePickerTriggerRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
@@ -755,7 +936,6 @@ pub fn DatePickerTrigger(props: DatePickerTriggerProps) -> Element {
     let reg_picker = picker_rt.clone();
     let fi_picker = picker_rt.clone();
     let fo_picker = picker_rt;
-    let render_child = props.render_child;
 
     render_picker_trigger_surface(
         props.id,
@@ -763,7 +943,7 @@ pub fn DatePickerTrigger(props: DatePickerTriggerProps) -> Element {
         props.style,
         effective_disabled,
         dir,
-        props.as_child,
+        props.child,
         props.on_click,
         props.on_key_down,
         props.on_blur,
@@ -799,64 +979,28 @@ pub fn DatePickerTrigger(props: DatePickerTriggerProps) -> Element {
                 frt.focus_last_segment();
             }
         },
-        move |attrs, class, style, on_click, on_pointer_down, on_key_down, on_mounted, attributes, children| {
-            render_child.map(|cb| {
-                cb.call(DatePickerTriggerRenderProps {
-                    attrs,
-                    class,
-                    style,
-                    on_click,
-                    on_pointer_down,
-                    on_key_down,
-                    on_mounted,
-                    attributes,
-                    children,
-                })
-            })
-        },
     )
 }
 
-/// Render props passed to `as_child` for [`DatePickerContent`] and [`DatePickerContentStatic`].
-#[derive(Clone, PartialEq, Props)]
-pub struct DatePickerContentRenderProps {
-    pub attrs: DatePickerContentAttrs,
-    #[props(default)]
-    pub wrapper_id: Option<String>,
-    #[props(default)]
-    pub wrapper_style: Option<String>,
-    pub role: String,
-    pub aria_modal: bool,
-    pub aria_labelledby: Option<String>,
-    pub aria_describedby: Option<String>,
-    #[props(default)]
-    pub class: Option<String>,
-    pub style: String,
-    pub on_mounted: EventHandler<MountedEvent>,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub on_click: EventHandler<MouseEvent>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-/// Props for [`DatePickerContent`] and [`DatePickerContentStatic`].
+/// Props for floating [`DatePickerContent`].
 #[derive(Clone, PartialEq, Props)]
 pub struct DatePickerContentProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub role: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_labelledby: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_describedby: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
+    #[props(default = false)]
+    pub keep_mounted: bool,
     #[props(default)]
     pub side: Option<PlacementSide>,
     #[props(default)]
@@ -867,10 +1011,32 @@ pub struct DatePickerContentProps {
     pub align_offset: Option<f32>,
     #[props(default)]
     pub avoid_collisions: Option<bool>,
+    #[props(default, into)]
+    pub collision_boundary: Option<String>,
     #[props(default)]
     pub collision_padding: Option<f32>,
     #[props(default)]
-    pub sticky: Option<bool>,
+    pub arrow_padding: Option<f32>,
+    #[props(default)]
+    pub sticky: Option<StickyStrategy>,
+    #[props(default)]
+    pub hide_when_detached: Option<bool>,
+    #[props(default, into)]
+    pub custom_anchor: Option<String>,
+    #[props(default)]
+    pub open_focus: Option<PopoverOpenFocusPolicy>,
+    #[props(default)]
+    pub close_focus: Option<PopoverCloseFocusPolicy>,
+    #[props(default)]
+    pub scroll_lock: Option<PopoverScrollLockPolicy>,
+    #[props(default)]
+    pub outside_interaction: Option<PopoverOutsideInteractionPolicy>,
+    #[props(default)]
+    pub prevent_body_pointer_events: Option<bool>,
+    #[props(default)]
+    pub escape_key_down_behavior: Option<DismissBehavior>,
+    #[props(default)]
+    pub interact_outside_behavior: Option<DismissBehavior>,
     #[props(default)]
     pub on_open_auto_focus: Option<EventHandler<OpenAutoFocusEvent>>,
     #[props(default)]
@@ -878,95 +1044,199 @@ pub struct DatePickerContentProps {
     #[props(default)]
     pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
     #[props(default)]
-    pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
-    #[props(default = false)]
-    pub as_child: bool,
+    pub on_pointer_down_outside: Option<EventHandler<PointerDownOutsideEvent>>,
     #[props(default)]
-    pub render_child: Option<Callback<DatePickerContentRenderProps, Element>>,
+    pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<FloatingContentChildProps, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
     pub children: Element,
 }
 
-fn render_date_picker_content(props: DatePickerContentProps, floating: bool) -> Element {
-    let picker_rt = super::runtime::try_use_date_picker_context();
-    let fi_rt = picker_rt.clone();
-    let fo_rt = picker_rt.clone();
-    let reg_rt = picker_rt;
-    let render_child = props.render_child;
-    render_picker_content_surface(
-        props,
-        floating,
-        "data-date-picker-content",
-        fi_rt.map(|rt| EventHandler::new(move |evt| rt.notify_composite_focus_in(evt))),
-        fo_rt.map(|rt| EventHandler::new(move |evt| rt.notify_composite_focus_out(evt))),
-        move |cid| {
-            if let Some(ref rt) = reg_rt {
-                rt.register_content_dom_id(cid);
-            }
-        },
-        move |attrs,
-              wrapper_id,
-              wrapper_style,
-              role,
-              aria_modal,
-              aria_labelledby,
-              aria_describedby,
-              class,
-              style,
-              on_mounted,
-              on_key_down,
-              on_click,
-              attributes,
-              children| {
-            render_child.map(|cb| {
-                cb.call(DatePickerContentRenderProps {
-                    attrs,
-                    wrapper_id,
-                    wrapper_style,
-                    role,
-                    aria_modal,
-                    aria_labelledby,
-                    aria_describedby,
-                    class,
-                    style,
-                    on_mounted,
-                    on_key_down,
-                    on_click,
-                    attributes,
-                    children,
-                })
-            })
-        },
-    )
+/// Props for static (non-floating) [`DatePickerContentStatic`].
+#[derive(Clone, PartialEq, Props)]
+pub struct DatePickerContentStaticProps {
+    #[props(default, into)]
+    pub id: Option<String>,
+    #[props(default, into)]
+    pub class: Option<String>,
+    #[props(default, into)]
+    pub style: Option<String>,
+    #[props(default, into)]
+    pub role: Option<String>,
+    #[props(default, into)]
+    pub aria_labelledby: Option<String>,
+    #[props(default, into)]
+    pub aria_describedby: Option<String>,
+    #[props(default = false)]
+    pub force_mount: bool,
+    #[props(default = false)]
+    pub keep_mounted: bool,
+    #[props(default)]
+    pub open_focus: Option<PopoverOpenFocusPolicy>,
+    #[props(default)]
+    pub close_focus: Option<PopoverCloseFocusPolicy>,
+    #[props(default)]
+    pub scroll_lock: Option<PopoverScrollLockPolicy>,
+    #[props(default)]
+    pub outside_interaction: Option<PopoverOutsideInteractionPolicy>,
+    #[props(default)]
+    pub prevent_body_pointer_events: Option<bool>,
+    #[props(default)]
+    pub escape_key_down_behavior: Option<DismissBehavior>,
+    #[props(default)]
+    pub interact_outside_behavior: Option<DismissBehavior>,
+    #[props(default)]
+    pub on_open_auto_focus: Option<EventHandler<OpenAutoFocusEvent>>,
+    #[props(default)]
+    pub on_close_auto_focus: Option<EventHandler<CloseAutoFocusEvent>>,
+    #[props(default)]
+    pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
+    #[props(default)]
+    pub on_pointer_down_outside: Option<EventHandler<PointerDownOutsideEvent>>,
+    #[props(default)]
+    pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    #[props(default)]
+    pub children: Element,
 }
 
 /// Floating popover dialog content for `DatePicker`.
 #[component]
 pub fn DatePickerContent(props: DatePickerContentProps) -> Element {
-    render_date_picker_content(props, true)
+    let picker_rt = super::runtime::try_use_date_picker_context();
+    let fi_rt = picker_rt.clone();
+    let fo_rt = picker_rt.clone();
+    let reg_rt = picker_rt;
+    render_picker_content_surface(
+        PickerContentSurfaceSpec {
+            id: props.id,
+            class: props.class,
+            style: props.style,
+            role: props.role,
+            aria_labelledby: props.aria_labelledby,
+            aria_describedby: props.aria_describedby,
+            force_mount: props.force_mount,
+            keep_mounted: props.keep_mounted,
+            floating: true,
+            side: props.side,
+            align: props.align,
+            side_offset: props.side_offset,
+            align_offset: props.align_offset,
+            avoid_collisions: props.avoid_collisions,
+            collision_boundary: props.collision_boundary,
+            collision_padding: props.collision_padding,
+            arrow_padding: props.arrow_padding,
+            sticky: props.sticky,
+            hide_when_detached: props.hide_when_detached,
+            custom_anchor: props.custom_anchor,
+            open_focus: props.open_focus,
+            close_focus: props.close_focus,
+            scroll_lock: props.scroll_lock,
+            outside_interaction: props.outside_interaction,
+            prevent_body_pointer_events: props.prevent_body_pointer_events,
+            escape_key_down_behavior: props.escape_key_down_behavior,
+            interact_outside_behavior: props.interact_outside_behavior,
+            on_open_auto_focus: props.on_open_auto_focus,
+            on_close_auto_focus: props.on_close_auto_focus,
+            on_escape_key_down: props.on_escape_key_down,
+            on_pointer_down_outside: props.on_pointer_down_outside,
+            on_interact_outside: props.on_interact_outside,
+            default_open_focus_selector: DATE_PICKER_OPEN_FOCUS_SELECTOR,
+            extra_data_attr: "data-date-picker-content",
+            on_focus_in: fi_rt
+                .map(|rt| EventHandler::new(move |evt| rt.notify_composite_focus_in(evt))),
+            on_focus_out: fo_rt
+                .map(|rt| EventHandler::new(move |evt| rt.notify_composite_focus_out(evt))),
+            floating_child: props.child,
+            static_child: None,
+            attributes: props.attributes,
+            children: props.children,
+        },
+        move |cid| {
+            if let Some(ref rt) = reg_rt {
+                rt.register_content_dom_id(cid);
+            }
+        },
+    )
 }
 
 /// Static (non-floating) popover dialog content for `DatePicker`.
 #[component]
-pub fn DatePickerContentStatic(props: DatePickerContentProps) -> Element {
-    render_date_picker_content(props, false)
+pub fn DatePickerContentStatic(props: DatePickerContentStaticProps) -> Element {
+    let picker_rt = super::runtime::try_use_date_picker_context();
+    let fi_rt = picker_rt.clone();
+    let fo_rt = picker_rt.clone();
+    let reg_rt = picker_rt;
+    render_picker_content_surface(
+        PickerContentSurfaceSpec {
+            id: props.id,
+            class: props.class,
+            style: props.style,
+            role: props.role,
+            aria_labelledby: props.aria_labelledby,
+            aria_describedby: props.aria_describedby,
+            force_mount: props.force_mount,
+            keep_mounted: props.keep_mounted,
+            floating: false,
+            side: None,
+            align: None,
+            side_offset: None,
+            align_offset: None,
+            avoid_collisions: None,
+            collision_boundary: None,
+            collision_padding: None,
+            arrow_padding: None,
+            sticky: None,
+            hide_when_detached: None,
+            custom_anchor: None,
+            open_focus: props.open_focus,
+            close_focus: props.close_focus,
+            scroll_lock: props.scroll_lock,
+            outside_interaction: props.outside_interaction,
+            prevent_body_pointer_events: props.prevent_body_pointer_events,
+            escape_key_down_behavior: props.escape_key_down_behavior,
+            interact_outside_behavior: props.interact_outside_behavior,
+            on_open_auto_focus: props.on_open_auto_focus,
+            on_close_auto_focus: props.on_close_auto_focus,
+            on_escape_key_down: props.on_escape_key_down,
+            on_pointer_down_outside: props.on_pointer_down_outside,
+            on_interact_outside: props.on_interact_outside,
+            default_open_focus_selector: DATE_PICKER_OPEN_FOCUS_SELECTOR,
+            extra_data_attr: "data-date-picker-content",
+            on_focus_in: fi_rt
+                .map(|rt| EventHandler::new(move |evt| rt.notify_composite_focus_in(evt))),
+            on_focus_out: fo_rt
+                .map(|rt| EventHandler::new(move |evt| rt.notify_composite_focus_out(evt))),
+            floating_child: None,
+            static_child: props.child,
+            attributes: props.attributes,
+            children: props.children,
+        },
+        move |cid| {
+            if let Some(ref rt) = reg_rt {
+                rt.register_content_dom_id(cid);
+            }
+        },
+    )
 }
 
 /// Props for [`DatePickerCalendar`].
 #[derive(Clone, PartialEq, Props)]
 pub struct DatePickerCalendarProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CalendarRootRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub render_children: Option<Callback<CalendarSnapshot, Element>>,
     #[props(default)]
@@ -1010,7 +1280,7 @@ pub fn DatePickerCalendar(props: DatePickerCalendarProps) -> Element {
         class: props.class,
         style: props.style,
         mode: CalendarMode::Single,
-        value: Some(picker_rt.calendar_value),
+        value: Some((picker_rt.calendar_value)()),
         default_value: None,
         on_value_change: Some(EventHandler::new(move |next| {
             rt_for_val.handle_calendar_value_change(next);
@@ -1022,7 +1292,7 @@ pub fn DatePickerCalendar(props: DatePickerCalendarProps) -> Element {
             rt_for_select.handle_calendar_date_select(date);
         })),
         max_days: None,
-        placeholder: Some(picker_rt.calendar_placeholder),
+        placeholder: Some((picker_rt.calendar_placeholder)()),
         default_placeholder: None,
         on_placeholder_change: Some(EventHandler::new(move |ph| {
             rt_for_ph.handle_calendar_placeholder_change(ph);
@@ -1046,8 +1316,7 @@ pub fn DatePickerCalendar(props: DatePickerCalendarProps) -> Element {
         initial_focus,
         is_date_disabled,
         is_date_unavailable,
-        as_child: props.as_child,
-        render_child: props.render_child,
+        child: props.child,
         render_children: props.render_children,
         on_key_down: props.on_key_down,
         on_mounted: props.on_mounted,

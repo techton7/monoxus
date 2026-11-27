@@ -22,6 +22,7 @@ pub use self::hidden_input::*;
 pub use self::item::*;
 pub use self::portal::*;
 pub use self::runtime::*;
+pub use self::trigger::SelectRoot as Select;
 pub use self::trigger::*;
 pub use self::types::*;
 pub use self::viewport::*;

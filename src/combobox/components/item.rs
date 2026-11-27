@@ -3,34 +3,20 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::combobox::{
-    attrs::ComboboxItemAttrs, runtime::use_combobox_context, types::ComboboxItemRenderState,
+use crate::combobox::{runtime::use_combobox_context, types::ComboboxItemRenderState};
+use crate::foundation::compose::{
+    collect_user_attrs, merge_props, push_attr_opt, push_event_handler,
 };
-use crate::foundation::compose::merge_global_attributes;
 
 const DRAG_THRESHOLD_PX: f64 = 4.0;
 
-#[derive(Clone, PartialEq)]
-pub struct ComboboxItemRenderProps {
-    pub attrs: ComboboxItemAttrs,
-    pub state: ComboboxItemRenderState,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub on_mouse_down: EventHandler<MouseEvent>,
-    pub on_pointer_down: EventHandler<PointerEvent>,
-    pub on_pointer_up: EventHandler<PointerEvent>,
-    pub on_click: EventHandler<MouseEvent>,
-    pub on_pointer_move: EventHandler<PointerEvent>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 #[derive(Props, Clone, PartialEq)]
 pub struct ComboboxItemProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
+    #[props(into)]
     pub value: String,
-    #[props(default)]
+    #[props(default, into)]
     pub label: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
@@ -38,14 +24,12 @@ pub struct ComboboxItemProps {
     pub on_highlight: Option<EventHandler<()>>,
     #[props(default)]
     pub on_unhighlight: Option<EventHandler<()>>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<ComboboxItemRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub render_children: Option<Callback<ComboboxItemRenderState, Element>>,
     #[props(extends = GlobalAttributes)]
@@ -191,56 +175,49 @@ pub fn ComboboxItem(props: ComboboxItemProps) -> Element {
         pm_rt.set_highlighted(Some(pm_val.clone()), false);
     });
 
+    let id_str = attrs.id().to_owned();
+    let role_str = attrs.role();
+    let aria_selected = attrs.aria_selected();
+    let aria_disabled = attrs.aria_disabled();
+    let data_value = attrs.data_value().to_owned();
+    let data_label = attrs.data_label().to_owned();
+    let data_disabled = attrs.data_disabled();
+    let data_highlighted = attrs.data_highlighted();
+    let data_selected = attrs.data_selected();
+
+    let mut base = Vec::with_capacity(15);
+    base.push(Attribute::new("id", id_str, None, false));
+    base.push(Attribute::new("role", role_str, None, false));
+    base.push(Attribute::new("aria-selected", aria_selected, None, false));
+    push_attr_opt(&mut base, "aria-disabled", aria_disabled);
+    base.push(Attribute::new("data-combobox-item", "", None, false));
+    base.push(Attribute::new("data-value", data_value, None, false));
+    base.push(Attribute::new("data-label", data_label, None, false));
+    push_attr_opt(&mut base, "data-disabled", data_disabled);
+    push_attr_opt(&mut base, "data-highlighted", data_highlighted);
+    push_attr_opt(&mut base, "data-selected", data_selected);
+    push_event_handler(&mut base, "onmousedown", Some(on_mouse_down));
+    push_event_handler(&mut base, "onpointerdown", Some(on_pointer_down));
+    push_event_handler(&mut base, "onpointerup", Some(on_pointer_up));
+    push_event_handler(&mut base, "onclick", Some(on_click));
+    push_event_handler(&mut base, "onpointermove", Some(on_pointer_move));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
+
     let body = if let Some(ref render_children) = props.render_children {
         render_children.call(render_state)
     } else {
         props.children
     };
 
-    if props.as_child {
-        if let Some(ref render_child) = props.render_child {
-            return render_child.call(ComboboxItemRenderProps {
-                attrs,
-                state: render_state,
-                class: props.class,
-                style: props.style,
-                on_mouse_down,
-                on_pointer_down,
-                on_pointer_up,
-                on_click,
-                on_pointer_move,
-                attributes: props.attributes,
-                children: body,
-            });
-        }
-    }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
-
     rsx! {
         div {
-            id: "{attrs.id()}",
-            role: "{attrs.role()}",
-            "aria-selected": "{attrs.aria_selected()}",
-            "aria-disabled": attrs.aria_disabled(),
-            "data-combobox-item": "",
-            "data-value": "{attrs.data_value()}",
-            "data-label": "{attrs.data_label()}",
-            "data-disabled": attrs.data_disabled(),
-            "data-highlighted": attrs.data_highlighted(),
-            "data-selected": attrs.data_selected(),
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            onmousedown: move |evt| on_mouse_down.call(evt),
-            onpointerdown: move |evt| on_pointer_down.call(evt),
-            onpointerup: move |evt| on_pointer_up.call(evt),
-            onclick: move |evt| on_click.call(evt),
-            onpointermove: move |evt| on_pointer_move.call(evt),
-            ..merged.rest,
+            ..merged,
             {body}
         }
     }

@@ -2,46 +2,27 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
-use crate::foundation::{compose::merge_global_attributes, shared::use_stable_id};
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props, push_event_handler},
+    shared::use_stable_id,
+};
 
 use super::super::{attrs::CommandLoadingAttrs, runtime::CommandContext};
 
 #[derive(Clone, PartialEq, Props)]
-pub struct CommandLoadingRenderProps {
-    pub id: String,
-    pub role: &'static str,
-    pub aria_valuenow: f64,
-    pub aria_valuemin: &'static str,
-    pub aria_valuemax: &'static str,
-    pub aria_label: String,
-    pub data_command_loading: &'static str,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-#[derive(Clone, PartialEq, Props)]
 pub struct CommandLoadingProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default = 0.0)]
     pub progress: f64,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_label: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CommandLoadingRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -60,48 +41,46 @@ pub fn CommandLoading(props: CommandLoadingProps) -> Element {
     });
     let attrs = CommandLoadingAttrs::new(resolved_id, props.progress, props.aria_label.as_deref());
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(CommandLoadingRenderProps {
-                id: attrs.id,
-                role: attrs.role,
-                aria_valuenow: attrs.aria_valuenow,
-                aria_valuemin: attrs.aria_valuemin,
-                aria_valuemax: attrs.aria_valuemax,
-                aria_label: attrs.aria_label,
-                data_command_loading: attrs.data_command_loading,
-                class: props.class,
-                style: props.style,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-    }
+    let mut base = Vec::with_capacity(7);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new(
+        "aria-valuenow",
+        attrs.aria_valuenow.to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-valuemin",
+        attrs.aria_valuemin,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-valuemax",
+        attrs.aria_valuemax,
+        None,
+        false,
+    ));
+    base.push(Attribute::new("aria-label", attrs.aria_label, None, false));
+    base.push(Attribute::new(
+        "data-command-loading",
+        attrs.data_command_loading,
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            role: "{attrs.role}",
-            aria_valuenow: "{attrs.aria_valuenow}",
-            aria_valuemin: "{attrs.aria_valuemin}",
-            aria_valuemax: "{attrs.aria_valuemax}",
-            aria_label: "{attrs.aria_label}",
-            "data-command-loading": attrs.data_command_loading,
-            class: merged.class,
-            style: merged.style,
-            onmounted: move |evt| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

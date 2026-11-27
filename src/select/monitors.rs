@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::foundation::overlay::{
-    FloatingReadiness, OverlayPositionConfig, compute_overlay_position,
+    FloatingReadiness, OverlayPositionConfig, StickyStrategy, compute_overlay_position,
 };
 
 use super::{runtime::SelectRuntime, types::SelectMode};
@@ -39,7 +39,7 @@ impl SelectRuntime {
         }
 
         let trigger_id = self.current_trigger_id();
-        let content_id = self.relationships().content_id();
+        let content_id = self.current_content_id();
         let boundary_id = self.collision_boundary();
         let custom_anchor_id = self.custom_anchor();
         let anchor_id = custom_anchor_id.as_deref().unwrap_or(trigger_id.as_str());
@@ -47,7 +47,7 @@ impl SelectRuntime {
 
         let config = OverlayPositionConfig {
             anchor_id,
-            content_id,
+            content_id: &content_id,
             arrow_id: arrow_id.as_deref(),
             boundary_id: boundary_id.as_deref(),
             side: self.preferred_side(),
@@ -58,7 +58,7 @@ impl SelectRuntime {
             collision_padding: self.collision_padding(),
             arrow_padding: self.arrow_padding(),
             hide_when_detached: self.hide_when_detached(),
-            sticky: self.sticky().as_deref() == Some("always"),
+            sticky: self.sticky() == Some(StickyStrategy::Always),
             namespace: Some("select"),
         };
 
@@ -92,8 +92,6 @@ impl SelectRuntime {
     pub fn handle_form_reset(&self) {
         let select_def = self.select.read();
         let mode = select_def.mode();
-        let value_controlled = select_def.is_value_controlled();
-        let values_controlled = select_def.is_values_controlled();
         drop(select_def);
 
         match mode {
@@ -102,41 +100,14 @@ impl SelectRuntime {
                 if self.value() == default_val {
                     return;
                 }
-                if !value_controlled {
-                    let mut val_sig = self.state.value;
-                    val_sig.set(default_val.clone());
-                    let mut vals_sig = self.state.values;
-                    vals_sig.set(
-                        default_val
-                            .as_ref()
-                            .map(|v| vec![v.clone()])
-                            .unwrap_or_default(),
-                    );
-                }
-                if let Some(cb) = self.on_value_change.try_read().ok().and_then(|g| g.clone()) {
-                    cb(default_val.clone());
-                }
-                if let Some(cb) = self.on_values_change.try_read().ok().and_then(|g| g.clone()) {
-                    cb(default_val.map(|v| vec![v]).unwrap_or_default());
-                }
+                self.propose_single_value(default_val);
             }
             SelectMode::Multiple => {
                 let default_vals = self.default_values();
                 if self.values() == default_vals {
                     return;
                 }
-                if !values_controlled {
-                    let mut vals_sig = self.state.values;
-                    vals_sig.set(default_vals.clone());
-                    let mut val_sig = self.state.value;
-                    val_sig.set(default_vals.first().cloned());
-                }
-                if let Some(cb) = self.on_values_change.try_read().ok().and_then(|g| g.clone()) {
-                    cb(default_vals.clone());
-                }
-                if let Some(cb) = self.on_value_change.try_read().ok().and_then(|g| g.clone()) {
-                    cb(default_vals.first().cloned());
-                }
+                self.propose_multiple_values(default_vals);
             }
         }
     }

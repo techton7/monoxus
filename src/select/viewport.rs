@@ -1,8 +1,13 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
 use dioxus::prelude::keyboard_types::Key;
 use dioxus::prelude::*;
+use oxidase::WatcherGuard;
+use oxidase::dom::ResizeObserverBox;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     keyboard::{NavKey, is_ime_composing_key, translate_nav_key},
 };
 
@@ -276,12 +281,14 @@ pub(crate) fn scroll_item_within_container(
 
 #[derive(Clone, PartialEq, Props)]
 pub struct SelectViewportProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -293,88 +300,374 @@ pub fn SelectViewport(props: SelectViewportProps) -> Element {
         id,
         class,
         style,
+        child,
         attributes,
         children,
     } = props;
     let ctx = use_context::<super::types::SelectContext>();
     let vp_id = id.unwrap_or_else(|| ctx.runtime.relationships().viewport_id());
+    ctx.runtime.set_viewport_id(vp_id.clone());
+
+    let scroll_guard = use_hook(|| Rc::new(RefCell::new(WatcherGuard::noop())));
+    let resize_guard = use_hook(|| Rc::new(RefCell::new(WatcherGuard::noop())));
+    let is_open = ctx.runtime.is_open();
+    let reg_sig = ctx.runtime.state.registry;
+
+    {
+        let rt = ctx.runtime.clone();
+        let sg = Rc::clone(&scroll_guard);
+        let rg = Rc::clone(&resize_guard);
+        use_effect(use_reactive((&vp_id, &is_open, &reg_sig), move |(id, open, _)| {
+            if !open {
+                let prev_s = std::mem::replace(&mut *sg.borrow_mut(), WatcherGuard::noop());
+                prev_s.stop();
+                let prev_r = std::mem::replace(&mut *rg.borrow_mut(), WatcherGuard::noop());
+                prev_r.stop();
+                return;
+            }
+            rt.sync_viewport_scroll_state();
+            let rt_scroll = rt.clone();
+            let next_s = crate::foundation::browser::start_element_scroll_monitor(&id, move || {
+                rt_scroll.sync_viewport_scroll_state();
+            });
+            let prev_s = std::mem::replace(&mut *sg.borrow_mut(), next_s);
+            prev_s.stop();
+
+            let rt_resize = rt.clone();
+            let next_r = crate::foundation::browser::start_resize_monitor(
+                &id,
+                ResizeObserverBox::BorderBox,
+                move |_| {
+                    rt_resize.sync_viewport_scroll_state();
+                },
+            );
+            let prev_r = std::mem::replace(&mut *rg.borrow_mut(), next_r);
+            prev_r.stop();
+        }));
+    }
+
+    {
+        let drop_rt = ctx.runtime.clone();
+        let drop_vp_id = vp_id.clone();
+        let sg = Rc::clone(&scroll_guard);
+        let rg = Rc::clone(&resize_guard);
+        use_drop(move || {
+            let prev_s = std::mem::replace(&mut *sg.borrow_mut(), WatcherGuard::noop());
+            prev_s.stop();
+            let prev_r = std::mem::replace(&mut *rg.borrow_mut(), WatcherGuard::noop());
+            prev_r.stop();
+            if drop_rt.current_viewport_id() == drop_vp_id {
+                drop_rt.set_viewport_id(drop_rt.relationships().viewport_id());
+            }
+        });
+    }
+
     let default_style =
         "position: relative; flex: 1 1 auto; min-height: 0; overflow-x: hidden; overflow-y: auto;";
-    let combined_style = match style {
-        Some(s) => format!("{default_style} {s}"),
-        None => default_style.to_string(),
-    };
-    let merged =
-        merge_global_attributes(class.as_deref(), Some(combined_style.as_str()), attributes);
+
+    let mut base = Vec::with_capacity(4);
+    base.push(Attribute::new("id", vp_id, None, false));
+    base.push(Attribute::new("style", default_style, None, false));
+    push_event_handler(
+        &mut base,
+        "onscroll",
+        Some(EventHandler::new({
+            let rt = ctx.runtime.clone();
+            move |_evt: ScrollEvent| {
+                rt.sync_viewport_scroll_state();
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onmounted",
+        Some(EventHandler::new({
+            let rt = ctx.runtime.clone();
+            move |_evt: MountedEvent| {
+                rt.sync_viewport_scroll_state();
+            }
+        })),
+    );
+
+    let user = collect_user_attrs(class, style, attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
+
     rsx! {
         div {
-            id: "{vp_id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            ..merged.rest,
+            ..merged,
             {children}
         }
     }
 }
 
+fn start_auto_scroll_loop(
+    runtime: SelectRuntime,
+    mut gen_slot: CopyValue<u64>,
+    step_y: f64,
+    is_up: bool,
+) {
+    let next_gen = gen_slot
+        .try_read()
+        .map(|g| g.wrapping_add(1))
+        .unwrap_or(1);
+    let _ = gen_slot.try_write().map(|mut g| *g = next_gen);
+
+    crate::foundation::browser::spawn_root_task(async move {
+        loop {
+            let still_active = gen_slot.try_read().is_ok_and(|g| *g == next_gen);
+            if !still_active {
+                break;
+            }
+            let can_continue = if is_up {
+                runtime.can_scroll_up()
+            } else {
+                runtime.can_scroll_down()
+            };
+            if !can_continue {
+                break;
+            }
+            runtime.scroll_viewport_by(step_y);
+            let _ = oxidase::frame::next_frame().await;
+        }
+    });
+}
+
+fn stop_auto_scroll_loop(mut gen_slot: CopyValue<u64>) {
+    let next_gen = gen_slot
+        .try_read()
+        .map(|g| g.wrapping_add(1))
+        .unwrap_or(1);
+    let _ = gen_slot.try_write().map(|mut g| *g = next_gen);
+}
+
 #[derive(Clone, PartialEq, Props)]
 pub struct SelectScrollUpButtonProps {
-    #[props(default)]
+    #[props(default, into)]
+    pub id: Option<String>,
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default = false)]
+    pub force_mount: bool,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
-    pub children: Element,
+    #[props(default)]
+    pub children: Option<Element>,
 }
 
 #[component]
 pub fn SelectScrollUpButton(props: SelectScrollUpButtonProps) -> Element {
     let SelectScrollUpButtonProps {
+        id,
         class,
         style,
+        force_mount,
+        child,
         attributes,
         children,
     } = props;
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+    let ctx = use_context::<super::types::SelectContext>();
+    let gen_slot = use_hook(|| CopyValue::new(0_u64));
+    use_drop(move || {
+        stop_auto_scroll_loop(gen_slot);
+    });
+
+    let can_scroll = ctx.runtime.can_scroll_up();
+    if !can_scroll && !force_mount {
+        return rsx! {};
+    }
+
+    let mut base = Vec::with_capacity(8);
+    push_attr_opt(&mut base, "id", id);
+    base.push(Attribute::new("aria-hidden", "true", None, false));
+    base.push(Attribute::new(
+        "data-monoxus-select-scroll-up-button",
+        "",
+        None,
+        false,
+    ));
+    push_event_handler(
+        &mut base,
+        "onpointerenter",
+        Some(EventHandler::new({
+            let rt = ctx.runtime.clone();
+            move |evt: PointerEvent| {
+                if evt.pointer_type() != "touch" {
+                    start_auto_scroll_loop(rt.clone(), gen_slot, -5.0, true);
+                }
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onpointerdown",
+        Some(EventHandler::new({
+            let rt = ctx.runtime.clone();
+            move |_evt: PointerEvent| {
+                start_auto_scroll_loop(rt.clone(), gen_slot, -5.0, true);
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onpointerleave",
+        Some(EventHandler::new(move |_evt: PointerEvent| {
+            stop_auto_scroll_loop(gen_slot);
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onpointerup",
+        Some(EventHandler::new(move |_evt: PointerEvent| {
+            stop_auto_scroll_loop(gen_slot);
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onclick",
+        Some(EventHandler::new({
+            let rt = ctx.runtime.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                rt.scroll_viewport_by(-40.0);
+            }
+        })),
+    );
+
+    let user = collect_user_attrs(class, style, attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
+
     rsx! {
         div {
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "aria-hidden": "true",
-            ..merged.rest,
-            {children}
+            ..merged,
+            if let Some(c) = children {
+                {c}
+            }
         }
     }
 }
 
 #[derive(Clone, PartialEq, Props)]
 pub struct SelectScrollDownButtonProps {
-    #[props(default)]
+    #[props(default, into)]
+    pub id: Option<String>,
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default = false)]
+    pub force_mount: bool,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
-    pub children: Element,
+    #[props(default)]
+    pub children: Option<Element>,
 }
 
 #[component]
 pub fn SelectScrollDownButton(props: SelectScrollDownButtonProps) -> Element {
     let SelectScrollDownButtonProps {
+        id,
         class,
         style,
+        force_mount,
+        child,
         attributes,
         children,
     } = props;
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+    let ctx = use_context::<super::types::SelectContext>();
+    let gen_slot = use_hook(|| CopyValue::new(0_u64));
+    use_drop(move || {
+        stop_auto_scroll_loop(gen_slot);
+    });
+
+    let can_scroll = ctx.runtime.can_scroll_down();
+    if !can_scroll && !force_mount {
+        return rsx! {};
+    }
+
+    let mut base = Vec::with_capacity(8);
+    push_attr_opt(&mut base, "id", id);
+    base.push(Attribute::new("aria-hidden", "true", None, false));
+    base.push(Attribute::new(
+        "data-monoxus-select-scroll-down-button",
+        "",
+        None,
+        false,
+    ));
+    push_event_handler(
+        &mut base,
+        "onpointerenter",
+        Some(EventHandler::new({
+            let rt = ctx.runtime.clone();
+            move |evt: PointerEvent| {
+                if evt.pointer_type() != "touch" {
+                    start_auto_scroll_loop(rt.clone(), gen_slot, 5.0, false);
+                }
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onpointerdown",
+        Some(EventHandler::new({
+            let rt = ctx.runtime.clone();
+            move |_evt: PointerEvent| {
+                start_auto_scroll_loop(rt.clone(), gen_slot, 5.0, false);
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onpointerleave",
+        Some(EventHandler::new(move |_evt: PointerEvent| {
+            stop_auto_scroll_loop(gen_slot);
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onpointerup",
+        Some(EventHandler::new(move |_evt: PointerEvent| {
+            stop_auto_scroll_loop(gen_slot);
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onclick",
+        Some(EventHandler::new({
+            let rt = ctx.runtime.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                rt.scroll_viewport_by(40.0);
+            }
+        })),
+    );
+
+    let user = collect_user_attrs(class, style, attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
+
     rsx! {
         div {
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "aria-hidden": "true",
-            ..merged.rest,
-            {children}
+            ..merged,
+            if let Some(c) = children {
+                {c}
+            }
         }
     }
 }

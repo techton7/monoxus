@@ -19,45 +19,45 @@ const DEFAULT_POSITIONER_STYLE: &str = "position: fixed; inset: 0; z-index: 60; 
 
 #[derive(Clone, PartialEq, Props)]
 pub struct CommandDialogProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default)]
-    pub open: Option<Signal<bool>>,
-    #[props(default)]
-    pub default_open: Option<bool>,
+    pub open: Option<bool>,
+    #[props(default = false)]
+    pub default_open: bool,
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
-    #[props(default = "Command Palette".to_string())]
+    #[props(default = "Command Palette".to_string(), into)]
     pub title: String,
-    #[props(default = "Search for a command to run...".to_string())]
+    #[props(default = "Search for a command to run...".to_string(), into)]
     pub description: String,
     #[props(default)]
     pub portal_host: Option<PortalHost>,
-    #[props(default)]
+    #[props(default, into)]
     pub overlay_class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub overlay_style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub positioner_class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub positioner_style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub content_id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub content_class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub content_style: Option<String>,
     #[props(default = true)]
     pub auto_focus_input: bool,
-    #[props(default)]
-    pub value: Option<Signal<String>>,
-    #[props(default)]
+    #[props(default, into)]
+    pub value: Option<String>,
+    #[props(default, into)]
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
     #[props(default)]
     pub on_state_change: Option<EventHandler<CommandStateSnapshot>>,
-    #[props(default)]
+    #[props(default, into)]
     pub label: Option<String>,
     #[props(default = true)]
     pub should_filter: bool,
@@ -73,9 +73,9 @@ pub struct CommandDialogProps {
     pub disable_initial_scroll: bool,
     #[props(default)]
     pub columns: Option<usize>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
@@ -200,8 +200,8 @@ pub fn CommandDialog(props: CommandDialogProps) -> Element {
     rsx! {
         DialogRoot {
             id: props.id.clone(),
-            open: props.open.map(|sig| sig()),
-            default_open: props.default_open.unwrap_or(false),
+            open: props.open,
+            default_open: props.default_open,
             on_open_change: Some(stable_on_open_change),
             DialogPortal {
                 host: props.portal_host,

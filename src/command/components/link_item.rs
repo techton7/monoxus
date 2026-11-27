@@ -3,49 +3,16 @@ use dioxus::prelude::*;
 use super::item::{CommandItemKind, CommandItemSurfaceSpec, render_command_item_surface};
 
 #[derive(Clone, PartialEq, Props)]
-pub struct CommandLinkItemRenderProps {
-    pub id: String,
-    pub role: &'static str,
-    pub aria_disabled: &'static str,
-    pub aria_selected: &'static str,
-    pub data_command_item: &'static str,
-    pub data_value: String,
-    #[props(default)]
-    pub data_group: Option<String>,
-    #[props(default)]
-    pub data_disabled: Option<&'static str>,
-    #[props(default)]
-    pub data_selected: Option<&'static str>,
-    #[props(default)]
-    pub href: Option<String>,
-    #[props(default)]
-    pub target: Option<String>,
-    #[props(default)]
-    pub rel: Option<String>,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    pub on_mousedown: EventHandler<MouseEvent>,
-    pub on_pointer_move: EventHandler<PointerEvent>,
-    pub on_click: EventHandler<MouseEvent>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-#[derive(Clone, PartialEq, Props)]
 pub struct CommandLinkItemProps {
+    #[props(into)]
     pub value: String,
-    #[props(default)]
+    #[props(default, into)]
     pub href: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub target: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub rel: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
@@ -55,14 +22,12 @@ pub struct CommandLinkItemProps {
     pub keywords: Vec<String>,
     #[props(default)]
     pub on_select: Option<EventHandler<()>>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<CommandLinkItemRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
@@ -86,7 +51,7 @@ pub fn CommandLinkItem(props: CommandLinkItemProps) -> Element {
         on_select: props.on_select,
         class: props.class,
         style: props.style,
-        as_child: props.as_child,
+        child: props.child,
         on_click: props.on_click,
         on_pointer_move: props.on_pointer_move,
         on_mounted: props.on_mounted,
@@ -96,7 +61,6 @@ pub fn CommandLinkItem(props: CommandLinkItemProps) -> Element {
             href: props.href,
             target: props.target,
             rel: props.rel,
-            render_child: props.render_child,
         },
     })
 }
