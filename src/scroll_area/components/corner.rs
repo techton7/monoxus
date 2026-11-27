@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::{join_styles, merge_global_attributes},
+    compose::{collect_user_attrs, merge_props},
     shared::Direction,
 };
 
@@ -12,13 +12,18 @@ use super::{
 
 #[derive(Clone, PartialEq, Props)]
 pub struct ScrollAreaCornerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default)]
     pub force_mount: bool,
+    #[props(default)]
     pub children: Option<Element>,
+    #[props(default, into)]
     pub class: Option<String>,
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
 }
@@ -67,23 +72,40 @@ pub fn ScrollAreaCorner(props: ScrollAreaCornerProps) -> Element {
         if dir == Direction::Ltr { "0" } else { "auto" },
         if dir == Direction::Rtl { "0" } else { "auto" },
     );
-    let combined_style = join_styles([base_style.as_str(), props.style.as_deref().unwrap_or("")]);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        props.attributes,
-    );
 
     let corner_attrs = ScrollAreaCornerAttributes::new(&corner_id);
 
+    let mut base = Vec::with_capacity(4);
+    base.push(Attribute::new(
+        "id",
+        corner_attrs.id().to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new("style", base_style, None, false));
+    base.push(Attribute::new(
+        "data-state",
+        corner_attrs.data_state(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-monoxus-scroll-area-corner",
+        "",
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
+
     rsx! {
         div {
-            id: "{corner_attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-state": "{corner_attrs.data_state()}",
-            "data-monoxus-scroll-area-corner": "",
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

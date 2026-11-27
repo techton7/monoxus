@@ -1,10 +1,12 @@
 use std::borrow::Cow;
 use std::rc::Rc;
 
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::{join_styles, merge_global_attributes},
+    compose::{collect_user_attrs, merge_props},
     shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
     state::sync_signal,
 };
@@ -21,7 +23,7 @@ use super::{
 
 #[derive(Clone, PartialEq, Props)]
 pub struct ScrollAreaRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default)]
     pub r#type: ScrollAreaType,
@@ -29,9 +31,14 @@ pub struct ScrollAreaRootProps {
     pub dir: Option<Direction>,
     #[props(default = 600)]
     pub scroll_hide_delay: u64,
+    #[props(default)]
     pub children: Element,
+    #[props(default, into)]
     pub class: Option<String>,
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
 }
@@ -77,48 +84,14 @@ pub fn ScrollAreaRoot(props: ScrollAreaRootProps) -> Element {
     let base_style = format!(
         "position: relative; --monoxus-scroll-area-corner-width: {corner_w}px; --monoxus-scroll-area-corner-height: {corner_h}px; --radix-scroll-area-corner-width: {corner_w}px; --radix-scroll-area-corner-height: {corner_h}px;"
     );
-    let combined_style = join_styles([base_style.as_str(), props.style.as_deref().unwrap_or("")]);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        props.attributes,
-    );
 
     let root_attrs = ScrollAreaRootAttributes::new(relationships_sig.read().root_id().to_string())
         .with_dir(Some(dir));
 
-    let onpointerenter = {
-        let timer = Rc::clone(&hide_timer);
-        let mut hover_visible = runtime.hover_visible;
-        move |_| {
-            if type_sig
-                .try_peek()
-                .is_ok_and(|t| *t == ScrollAreaType::Hover)
-            {
-                timer.cancel();
-                hover_visible.set(true);
-            }
-        }
-    };
-
-    let onpointerleave = {
-        let timer = Rc::clone(&hide_timer);
-        let hover_visible = runtime.hover_visible;
-        move |_| {
-            if type_sig
-                .try_peek()
-                .is_ok_and(|t| *t == ScrollAreaType::Hover)
-            {
-                let delay = scroll_hide_delay_sig.try_peek().map(|d| *d).unwrap_or(600);
-                let mut hover_visible = hover_visible;
-                timer.schedule(delay, move || {
-                    if let Ok(mut guard) = hover_visible.try_write() {
-                        *guard = false;
-                    }
-                });
-            }
-        }
-    };
+    let timer_enter = Rc::clone(&hide_timer);
+    let mut hover_visible_enter = runtime.hover_visible;
+    let timer_leave = Rc::clone(&hide_timer);
+    let hover_visible_leave = runtime.hover_visible;
 
     use_drop({
         let timer = Rc::clone(&hide_timer);
@@ -132,24 +105,64 @@ pub fn ScrollAreaRoot(props: ScrollAreaRootProps) -> Element {
         Direction::Rtl => "rtl",
     };
 
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new("id", root_attrs.id().to_string(), None, false));
+    base.push(Attribute::new("style", base_style, None, false));
+    base.push(Attribute::new("dir", dir_str, None, false));
+    base.push(Attribute::new("data-monoxus-scroll-area-root", "", None, false));
+    base.push(Attribute::new(
+        "onpointerenter",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                if type_sig
+                    .try_peek()
+                    .is_ok_and(|t| *t == ScrollAreaType::Hover)
+                {
+                    timer_enter.cancel();
+                    hover_visible_enter.set(true);
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerleave",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                if type_sig
+                    .try_peek()
+                    .is_ok_and(|t| *t == ScrollAreaType::Hover)
+                {
+                    let delay = scroll_hide_delay_sig.try_peek().map(|d| *d).unwrap_or(600);
+                    let mut hover_visible = hover_visible_leave;
+                    timer_leave.schedule(delay, move || {
+                        if let Ok(mut guard) = hover_visible.try_write() {
+                            *guard = false;
+                        }
+                    });
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
+
     rsx! {
         div {
-            id: "{root_attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            dir: "{dir_str}",
-            "data-monoxus-scroll-area-root": "",
-            onpointerenter: onpointerenter,
-            onpointerleave: onpointerleave,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
 }
 
-#[component]
-pub fn ScrollArea(props: ScrollAreaRootProps) -> Element {
-    rsx! {
-        ScrollAreaRoot { ..props }
-    }
-}
+pub use ScrollAreaRoot as ScrollArea;

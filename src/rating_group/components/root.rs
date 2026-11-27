@@ -5,7 +5,8 @@ use dioxus::prelude::*;
 use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
     compose::{
-        extract_aria_invalid_and_describedby, merge_global_attributes,
+        MergePropsConfig, collect_user_attrs, extract_aria_invalid_and_describedby,
+        merge_props_with_config, push_attr_opt, push_event_handler,
         resolve_invalid_and_describedby,
     },
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
@@ -14,42 +15,19 @@ use crate::foundation::{
 };
 
 use crate::rating_group::{
-    attrs::RatingGroupRootAttributes,
     runtime::{RatingGroupContext, translate_keyboard_key, use_rating_group_runtime},
     state::{RatingGroupDefinition, clamp_rating_value, format_rating_value},
     types::{Direction, Orientation, RatingGroupAriaValuetext, RatingGroupItemData},
 };
 
-/// Render props passed to `render_child` when `RatingGroupRoot` uses `as_child: true`.
-#[derive(Clone, PartialEq, Props)]
-pub struct RatingGroupRootRenderProps {
-    pub id: String,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    pub attrs: RatingGroupRootAttributes,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub on_pointer_leave: EventHandler<PointerEvent>,
-    #[props(default)]
-    pub on_blur: Option<EventHandler<FocusEvent>>,
-    #[props(default)]
-    pub on_focus: Option<EventHandler<FocusEvent>>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 /// Properties for [`RatingGroupRoot`].
 #[derive(Clone, PartialEq, Props)]
 pub struct RatingGroupRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub value: Option<f64>,
@@ -77,22 +55,20 @@ pub struct RatingGroupRootProps {
     pub orientation: Orientation,
     #[props(default)]
     pub dir: Option<Direction>,
-    #[props(default)]
+    #[props(default, into)]
     pub name: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub form: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_label: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_labelledby: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_describedby: Option<String>,
     #[props(default)]
     pub aria_valuetext: Option<RatingGroupAriaValuetext>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<RatingGroupRootRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub render_items: Option<Callback<Vec<RatingGroupItemData>, Element>>,
     #[props(default)]
@@ -228,48 +204,6 @@ pub fn RatingGroupRoot(props: RatingGroupRootProps) -> Element {
 
     let root_attrs = runtime.root_attrs();
 
-    let mut consumer_on_key_down_slot = use_hook(|| CopyValue::new(props.on_key_down));
-    consumer_on_key_down_slot.set(props.on_key_down);
-
-    let mut consumer_on_pointer_leave_slot = use_hook(|| CopyValue::new(props.on_pointer_leave));
-    consumer_on_pointer_leave_slot.set(props.on_pointer_leave);
-
-    let mut consumer_on_blur_slot = use_hook(|| CopyValue::new(props.on_blur));
-    consumer_on_blur_slot.set(props.on_blur);
-
-    let mut consumer_on_focus_slot = use_hook(|| CopyValue::new(props.on_focus));
-    consumer_on_focus_slot.set(props.on_focus);
-
-    let on_key_down = use_hook(|| {
-        let mut runtime = runtime.clone();
-        Callback::new(move |evt: KeyboardEvent| {
-            if let Some(handler) = consumer_on_key_down_slot.try_read().ok().and_then(|s| *s) {
-                handler.call(evt.clone());
-            }
-            if !evt.default_action_enabled() {
-                return;
-            }
-            let key = translate_keyboard_key(&evt.key());
-            if runtime.handle_keydown(key) {
-                evt.prevent_default();
-            }
-        })
-    });
-
-    let on_pointer_leave = use_hook(|| {
-        let mut runtime = runtime.clone();
-        Callback::new(move |evt: PointerEvent| {
-            if let Some(handler) = consumer_on_pointer_leave_slot
-                .try_read()
-                .ok()
-                .and_then(|s| *s)
-            {
-                handler.call(evt);
-            }
-            runtime.clear_hover_value();
-        })
-    });
-
     let content = if let Some(render_items) = props.render_items.as_ref() {
         render_items.call(runtime.items())
     } else {
@@ -295,84 +229,121 @@ pub fn RatingGroupRoot(props: RatingGroupRootProps) -> Element {
         None
     };
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            let rendered = render_child.call(RatingGroupRootRenderProps {
-                id: dom_root_id,
-                class: props.class,
-                style: props.style,
-                attrs: root_attrs,
-                on_key_down,
-                on_pointer_leave,
-                on_blur: props.on_blur,
-                on_focus: props.on_focus,
-                on_mounted: props.on_mounted,
-                attributes: extracted.rest,
-                children: content,
-            });
-            return rsx! {
-                {rendered}
-                if let Some(input) = hidden_input {
-                    {input}
+    let mut base = Vec::with_capacity(24);
+    base.push(Attribute::new("id", dom_root_id, None, false));
+    base.push(Attribute::new("role", root_attrs.role, None, false));
+    base.push(Attribute::new("dir", root_attrs.dir, None, false));
+    base.push(Attribute::new("tabindex", root_attrs.tabindex, None, false));
+    base.push(Attribute::new(
+        "aria-valuenow",
+        root_attrs.aria_valuenow.to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-valuemin",
+        root_attrs.aria_valuemin.to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-valuemax",
+        root_attrs.aria_valuemax.to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-valuetext",
+        root_attrs.aria_valuetext,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-orientation",
+        root_attrs.aria_orientation,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-required",
+        root_attrs.aria_required,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "aria-disabled", root_attrs.aria_disabled);
+    push_attr_opt(&mut base, "aria-invalid", root_attrs.aria_invalid);
+    push_attr_opt(&mut base, "aria-describedby", root_attrs.aria_describedby);
+    push_attr_opt(&mut base, "aria-label", root_attrs.aria_label);
+    push_attr_opt(&mut base, "aria-labelledby", root_attrs.aria_labelledby);
+    base.push(Attribute::new(
+        "data-orientation",
+        root_attrs.data_orientation,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-disabled", root_attrs.data_disabled);
+    push_attr_opt(&mut base, "data-readonly", root_attrs.data_readonly);
+    push_attr_opt(&mut base, "data-invalid", root_attrs.data_invalid);
+    base.push(Attribute::new(
+        "data-rating-group-root",
+        root_attrs.data_rating_group_root,
+        None,
+        false,
+    ));
+
+    {
+        let mut runtime = runtime.clone();
+        push_event_handler(
+            &mut base,
+            "onkeydown",
+            Some(EventHandler::new(move |evt: KeyboardEvent| {
+                let key = translate_keyboard_key(&evt.key());
+                if runtime.handle_keydown(key) {
+                    evt.prevent_default();
                 }
-            };
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::RatingGroupRoot: as_child requires render_child; rendering the default div"
+            })),
+        );
+    }
+    {
+        let mut runtime = runtime.clone();
+        push_event_handler(
+            &mut base,
+            "onpointerleave",
+            Some(EventHandler::new(move |_evt: PointerEvent| {
+                runtime.clear_hover_value();
+            })),
         );
     }
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        extracted.rest,
+    let mut user = collect_user_attrs(props.class, props.style, extracted.rest);
+    push_event_handler(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler(&mut user, "onpointerleave", props.on_pointer_leave);
+    push_event_handler(&mut user, "onfocus", props.on_focus);
+    push_event_handler(&mut user, "onblur", props.on_blur);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props_with_config(
+        base,
+        user,
+        MergePropsConfig {
+            invariant_attrs: &[],
+            bookkeeping_events: &["onpointerleave"],
+        },
     );
 
-    rsx! {
-        div {
-            id: "{dom_root_id}",
-            class: merged.class,
-            style: merged.style,
-            role: root_attrs.role,
-            dir: root_attrs.dir,
-            tabindex: root_attrs.tabindex,
-            "aria-valuenow": "{root_attrs.aria_valuenow}",
-            "aria-valuemin": "{root_attrs.aria_valuemin}",
-            "aria-valuemax": "{root_attrs.aria_valuemax}",
-            "aria-valuetext": root_attrs.aria_valuetext,
-            "aria-orientation": root_attrs.aria_orientation,
-            "aria-required": root_attrs.aria_required,
-            "aria-disabled": root_attrs.aria_disabled,
-            "aria-invalid": root_attrs.aria_invalid,
-            "aria-describedby": root_attrs.aria_describedby.as_deref(),
-            "aria-label": root_attrs.aria_label,
-            "aria-labelledby": root_attrs.aria_labelledby,
-            "data-orientation": root_attrs.data_orientation,
-            "data-disabled": root_attrs.data_disabled,
-            "data-readonly": root_attrs.data_readonly,
-            "data-invalid": root_attrs.data_invalid,
-            "data-rating-group-root": root_attrs.data_rating_group_root,
-            onkeydown: move |evt| on_key_down.call(evt),
-            onpointerleave: move |evt| on_pointer_leave.call(evt),
-            onfocus: move |evt| {
-                if let Some(handler) = consumer_on_focus_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt);
-                }
-            },
-            onblur: move |evt| {
-                if let Some(handler) = consumer_on_blur_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt);
-                }
-            },
-            onmounted: move |evt| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
-            {content}
+    let root_el = if let Some(child) = props.child {
+        child.call(merged)
+    } else {
+        rsx! {
+            div {
+                ..merged,
+                {content}
+            }
         }
+    };
+
+    rsx! {
+        {root_el}
         if let Some(input) = hidden_input {
             {input}
         }

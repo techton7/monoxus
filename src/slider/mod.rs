@@ -8,3 +8,4 @@ pub use ui_sdk::slider::{attrs::*, relationships::*, state::*, types::*};
 mod tests;
 
 pub use self::{components::*, runtime::*};
+pub use SliderRoot as Slider;

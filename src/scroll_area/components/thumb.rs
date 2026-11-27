@@ -1,11 +1,13 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{WatcherGuard, get_element_client_rect},
-    compose::{join_styles, merge_global_attributes},
+    compose::{collect_user_attrs, merge_props},
     overlay::use_presence,
     shared::Orientation,
     state::sync_signal,
@@ -22,13 +24,18 @@ use super::{
 
 #[derive(Clone, PartialEq, Props)]
 pub struct ScrollAreaThumbProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
+    #[props(default)]
     pub children: Option<Element>,
+    #[props(default, into)]
     pub class: Option<String>,
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
 }
@@ -133,56 +140,105 @@ pub fn ScrollAreaThumb(props: ScrollAreaThumbProps) -> Element {
             "height: 100%; width: var(--monoxus-scroll-area-thumb-width, var(--radix-scroll-area-thumb-width, {thumb_size}px)); transform: translate3d({offset}px, 0, 0);"
         ),
     };
-    let combined_style = join_styles([base_style.as_str(), props.style.as_deref().unwrap_or("")]);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        props.attributes,
-    );
-
     let thumb_attrs = ScrollAreaThumbAttributes::new(&thumb_id).with_visible(has_thumb_val);
 
-    let onpointerdown = {
-        let mut pointer_offset = scrollbar_ctx.pointer_offset;
-        let mut thumb_pointer_active = scrollbar_ctx.thumb_pointer_active;
-        let orientation = scrollbar_ctx.orientation;
-        let tid = thumb_id.clone();
-        move |evt: PointerEvent| {
-            if evt.pointer_type() == "mouse"
-                && evt
-                    .trigger_button()
-                    .is_some_and(|b| b != dioxus::html::input_data::MouseButton::Primary)
-            {
-                return;
-            }
-            if let Some(rect) = get_element_client_rect(&tid) {
-                let coords = evt.client_coordinates();
-                let offset = match orientation {
-                    Orientation::Horizontal => coords.x - rect.x,
-                    Orientation::Vertical | Orientation::Both => coords.y - rect.y,
-                };
-                pointer_offset.set(offset);
-                thumb_pointer_active.set(true);
-            }
-        }
-    };
+    let mut base = Vec::with_capacity(8);
+    base.push(Attribute::new(
+        "id",
+        thumb_attrs.id().to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new("style", base_style, None, false));
+    base.push(Attribute::new(
+        "data-state",
+        thumb_attrs.data_state(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-monoxus-scroll-area-thumb",
+        "",
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onmounted",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                mounted_rev += 1;
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerdown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new({
+                let mut pointer_offset = scrollbar_ctx.pointer_offset;
+                let mut thumb_pointer_active = scrollbar_ctx.thumb_pointer_active;
+                let orientation = scrollbar_ctx.orientation;
+                let tid = thumb_id;
+                move |evt: Event<PlatformEventData>| {
+                    let evt: PointerEvent = evt.map(|d| PointerData::from(d));
+                    if evt.pointer_type() == "mouse"
+                        && evt
+                            .trigger_button()
+                            .is_some_and(|b| b != dioxus::html::input_data::MouseButton::Primary)
+                    {
+                        return;
+                    }
+                    if let Some(rect) = get_element_client_rect(&tid) {
+                        let coords = evt.client_coordinates();
+                        let offset = match orientation {
+                            Orientation::Horizontal => coords.x - rect.x,
+                            Orientation::Vertical | Orientation::Both => coords.y - rect.y,
+                        };
+                        pointer_offset.set(offset);
+                        thumb_pointer_active.set(true);
+                    }
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "ontransitionend",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                presence.finish_active_exit();
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onanimationend",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                presence.finish_active_exit();
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{thumb_attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-state": "{thumb_attrs.data_state()}",
-            "data-monoxus-scroll-area-thumb": "",
-            onmounted: move |_| mounted_rev += 1,
-            onpointerdown: onpointerdown,
-            ontransitionend: move |_| {
-                presence.finish_active_exit();
-            },
-            onanimationend: move |_| {
-                presence.finish_active_exit();
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

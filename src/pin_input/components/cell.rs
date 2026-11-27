@@ -1,37 +1,25 @@
 use dioxus::prelude::*;
 
-use crate::foundation::{compose::merge_global_attributes, state::sync_signal};
-
-use super::super::{
-    attrs::PinInputCellAttributes,
-    runtime::{PinInputCellContext, use_pin_input_context},
-    types::PinInputCellData,
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
+    state::sync_signal,
 };
 
-/// Render props passed to `render_child` when [`PinInputCell`] sets `as_child: true`.
-#[derive(Clone)]
-pub struct PinInputCellRenderChildProps {
-    pub attrs: PinInputCellAttributes,
-    pub cell: PinInputCellData,
-    pub display_char: Option<char>,
-    pub children: Option<Element>,
-}
+use super::super::runtime::{PinInputCellContext, use_pin_input_context};
 
 /// Properties for [`PinInputCell`].
 #[derive(Clone, PartialEq, Props)]
 pub struct PinInputCellProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     pub index: usize,
     #[props(default)]
-    pub as_child: bool,
-    #[props(default)]
-    pub render_child: Option<Callback<PinInputCellRenderChildProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub children: Option<Element>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
@@ -86,43 +74,31 @@ pub fn PinInputCell(props: PinInputCellProps) -> Element {
         disabled: disabled_sig,
     });
 
-    if props.as_child && props.render_child.is_none() {
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::PinInputCell: as_child requires render_child; rendering the default div"
-        );
-    }
-    if let Some(render_child) = props.render_child.as_ref().filter(|_| props.as_child) {
-        return render_child.call(PinInputCellRenderChildProps {
-            attrs: cell_attrs,
-            cell: cell_data,
-            display_char,
-            children: props.children,
-        });
-    }
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new("id", cell_attrs.id, None, false));
+    push_attr_opt(&mut base, "data-active", cell_attrs.data_active);
+    push_attr_opt(&mut base, "data-inactive", cell_attrs.data_inactive);
+    push_attr_opt(&mut base, "data-disabled", cell_attrs.data_disabled);
+    push_attr_opt(&mut base, "data-invalid", cell_attrs.data_invalid);
+    base.push(Attribute::new(
+        "data-monoxus-pin-input-cell",
+        cell_attrs.data_monoxus_pin_input_cell,
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{cell_attrs.id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            "data-active": cell_attrs.data_active,
-            "data-inactive": cell_attrs.data_inactive,
-            "data-disabled": cell_attrs.data_disabled,
-            "data-invalid": cell_attrs.data_invalid,
-            "data-monoxus-pin-input-cell": "{cell_attrs.data_monoxus_pin_input_cell}",
-            onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             if let Some(children) = props.children {
                 {children}
             } else if let Some(ch) = display_char {

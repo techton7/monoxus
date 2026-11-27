@@ -7,8 +7,8 @@ use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
     browser::{focus_element_by_id, is_element_focused_by_id},
     compose::{
-        extract_aria_invalid_and_describedby, join_styles, merge_global_attributes,
-        resolve_invalid_and_describedby,
+        collect_user_attrs, extract_aria_invalid_and_describedby, merge_props, push_attr_opt,
+        push_event_handler, resolve_invalid_and_describedby,
     },
     form::use_form_control_sync_with_epoch,
     shared::{ScopeHandle, use_stable_id},
@@ -16,7 +16,6 @@ use crate::foundation::{
 };
 
 use super::super::{
-    attrs::{PinInputInputAttributes, PinInputRootAttributes},
     relationships::PinInputRelationships,
     runtime::{PinInputContext, use_pin_input_runtime},
     state::sanitize_pin_value,
@@ -74,25 +73,16 @@ fn extract_aria_label_attrs(
     (labelledby, label, rest)
 }
 
-/// Render props passed to `render_child` when [`PinInputRoot`] sets `as_child: true`.
-#[derive(Clone)]
-pub struct PinInputRootRenderChildProps {
-    pub attrs: PinInputRootAttributes,
-    pub input_attrs: PinInputInputAttributes,
-    pub snapshot: PinInputSnapshot,
-    pub children: Element,
-}
-
 /// Properties for [`PinInputRoot`].
 #[derive(Clone, PartialEq, Props)]
 pub struct PinInputRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub input_id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub value: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
@@ -126,31 +116,29 @@ pub struct PinInputRootProps {
     pub required: bool,
     #[props(default)]
     pub invalid: Option<bool>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_describedby: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_labelledby: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_label: Option<String>,
     #[props(default = false)]
     pub auto_focus: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub placeholder: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub name: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub form: Option<String>,
     #[props(default)]
-    pub as_child: bool,
-    #[props(default)]
-    pub render_child: Option<Callback<PinInputRootRenderChildProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub render_children: Option<Callback<PinInputSnapshot, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
@@ -333,7 +321,7 @@ pub fn PinInputRoot(props: PinInputRootProps) -> Element {
     let input_attrs = runtime.input_attributes();
 
     let body = if let Some(ref render_children) = props.render_children {
-        render_children.call(snapshot.clone())
+        render_children.call(snapshot)
     } else {
         props.children
     };
@@ -453,47 +441,36 @@ pub fn PinInputRoot(props: PinInputRootProps) -> Element {
         }
     };
 
-    if props.as_child && props.render_child.is_none() {
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::PinInputRoot: as_child requires render_child; rendering the default div"
-        );
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new("id", root_attrs.id, None, false));
+    if !root_attrs.style.is_empty() {
+        base.push(Attribute::new("style", root_attrs.style, None, false));
     }
-    if let Some(render_child) = props.render_child.as_ref().filter(|_| props.as_child) {
-        let combined_children = rsx! {
-            {body}
+    push_attr_opt(&mut base, "aria-disabled", root_attrs.aria_disabled);
+    push_attr_opt(&mut base, "data-disabled", root_attrs.data_disabled);
+    push_attr_opt(&mut base, "data-invalid", root_attrs.data_invalid);
+    base.push(Attribute::new(
+        "data-monoxus-pin-input-root",
+        root_attrs.data_monoxus_pin_input_root,
+        None,
+        false,
+    ));
+
+    let mut user = collect_user_attrs(props.class, props.style, rest_attrs);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return rsx! {
+            {child.call(merged)}
             {overlay_input}
         };
-        return render_child.call(PinInputRootRenderChildProps {
-            attrs: root_attrs,
-            input_attrs,
-            snapshot,
-            children: combined_children,
-        });
     }
-
-    let combined_style = join_styles([root_attrs.style.as_str(), props.style.as_deref().unwrap_or("")]);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        rest_attrs,
-    );
 
     rsx! {
         div {
-            id: "{root_attrs.id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            aria_disabled: root_attrs.aria_disabled,
-            "data-disabled": root_attrs.data_disabled,
-            "data-invalid": root_attrs.data_invalid,
-            "data-monoxus-pin-input-root": "{root_attrs.data_monoxus_pin_input_root}",
-            onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {body}
             {overlay_input}
         }

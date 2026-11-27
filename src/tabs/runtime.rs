@@ -10,7 +10,7 @@ pub use crate::foundation::state::{ControllableStateProps, use_controllable_stat
 use crate::foundation::{
     browser::focus_element_by_id,
     roving_focus::{RovingFocusRuntime, RovingItemMeta, RovingModifiers},
-    state::sync_signal,
+    state::{ControllableSignal, sync_signal},
 };
 
 use super::{
@@ -30,6 +30,7 @@ pub struct TabsRuntimeState {
 #[derive(Clone)]
 pub struct TabsRuntime {
     tabs: Signal<Tabs>,
+    value_ctl: Option<ControllableSignal<String>>,
     on_value_change: CopyValue<Option<TabsValueChangeHandler>>,
     state: TabsRuntimeState,
 }
@@ -48,14 +49,17 @@ where
     let incoming_tab_stop = (!tabs.current_tab_stop().is_empty())
         .then(|| tabs.current_tab_stop().to_owned());
 
-    let roving_cfg = tabs.roving_config();
+    let roving_cfg = tabs.roving_config().with_enabled(!tabs.is_disabled());
     let roving = RovingFocusRuntime::new(
         roving_cfg,
         incoming_tab_stop.clone(),
         tabs.relationships().root_id(),
     );
-    roving.set_orientation(roving_cfg.orientation);
-    roving.set_direction(roving_cfg.dir);
+    let mut synced_cfg = *roving.config.peek();
+    synced_cfg.orientation = roving_cfg.orientation;
+    synced_cfg.dir = roving_cfg.dir;
+    synced_cfg.enabled = !tabs.is_disabled();
+    roving.set_config(synced_cfg);
     roving.set_root_dom_id(tabs.relationships().root_id());
 
     let state = TabsRuntimeState {
@@ -83,6 +87,48 @@ where
 
     TabsRuntime {
         tabs: tabs_sig,
+        value_ctl: None,
+        on_value_change: on_value_change_slot,
+        state,
+    }
+}
+
+pub(crate) fn use_tabs_runtime_controllable(
+    tabs: Tabs,
+    value_ctl: ControllableSignal<String>,
+) -> TabsRuntime {
+    let on_value_change_slot: CopyValue<Option<TabsValueChangeHandler>> =
+        use_hook(|| CopyValue::new(None));
+
+    let incoming_tab_stop = (!tabs.current_tab_stop().is_empty())
+        .then(|| tabs.current_tab_stop().to_owned());
+
+    let roving_cfg = tabs.roving_config().with_enabled(!tabs.is_disabled());
+    let roving = RovingFocusRuntime::new(
+        roving_cfg,
+        incoming_tab_stop,
+        tabs.relationships().root_id(),
+    );
+    let mut synced_cfg = *roving.config.peek();
+    synced_cfg.orientation = roving_cfg.orientation;
+    synced_cfg.dir = roving_cfg.dir;
+    synced_cfg.enabled = !tabs.is_disabled();
+    roving.set_config(synced_cfg);
+    roving.set_root_dom_id(tabs.relationships().root_id());
+
+    let state = TabsRuntimeState {
+        active_value: value_ctl.signal(),
+        roving,
+        content_ids: use_signal(Vec::new),
+        mounted_content_ids: use_signal(Vec::new),
+    };
+
+    let mut tabs_sig = use_signal(|| tabs.clone());
+    sync_signal(&mut tabs_sig, tabs);
+
+    TabsRuntime {
+        tabs: tabs_sig,
+        value_ctl: Some(value_ctl),
         on_value_change: on_value_change_slot,
         state,
     }
@@ -216,6 +262,16 @@ impl TabsRuntime {
     }
 
     pub fn select_tab(&self, value: &str) {
+        if self.tabs.peek().is_disabled() {
+            return;
+        }
+        if let Some(ctl) = self.value_ctl {
+            ctl.set(value.to_string());
+            self.state
+                .roving
+                .set_current_tab_stop(Some(value.to_string()));
+            return;
+        }
         let changed = *self.state.active_value.peek() != value;
         if changed {
             let mut active = self.state.active_value;
@@ -287,6 +343,9 @@ impl TabsRuntime {
     }
 
     pub fn move_tab_stop(&self, value: &str) {
+        if self.tabs.peek().is_disabled() {
+            return;
+        }
         if !self.state.roving.focus_item(value) {
             let target_id = self.trigger_element_id(value);
             focus_element_by_id(&target_id);

@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{ResizeObserverBox, use_element_size_with_mount},
-    compose::{join_styles, merge_global_attributes},
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     state::sync_signal,
 };
 
@@ -11,10 +11,14 @@ use crate::slider::{runtime::use_slider_context, types::Orientation};
 /// Props for [`SliderTrack`].
 #[derive(Clone, PartialEq, Props)]
 pub struct SliderTrackProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub children: Element,
+    #[props(default, into)]
     pub class: Option<String>,
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
@@ -51,23 +55,38 @@ pub fn SliderTrack(props: SliderTrackProps) -> Element {
         }
     });
 
-    let combined_style = join_styles([attrs.style(), props.style.as_deref().unwrap_or("")]);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        props.attributes,
+    let base_style = attrs.style();
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new("id", track_id, None, false));
+    if !base_style.is_empty() {
+        base.push(Attribute::new("style", base_style, None, false));
+    }
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled());
+    base.push(Attribute::new("data-monoxus-slider-track", "", None, false));
+    push_event_handler(
+        &mut base,
+        "onmounted",
+        Some(EventHandler::new(move |_evt: MountedEvent| {
+            mounted_rev += 1;
+        })),
     );
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{track_id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            "data-orientation": "{attrs.data_orientation()}",
-            "data-disabled": attrs.data_disabled(),
-            "data-monoxus-slider-track": "",
-            onmounted: move |_| mounted_rev += 1,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

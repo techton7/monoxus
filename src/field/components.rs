@@ -5,7 +5,7 @@ use dioxus::prelude::*;
 use ui_sdk::label::LABEL_INTERACTIVE_TARGET_SELECTOR;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{ChildProps, collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     shared::use_stable_id,
     state::sync_signal,
 };
@@ -24,48 +24,11 @@ use super::{
     types::{FieldErrorLiveMode, FieldLegendVariant, FieldOrientation},
 };
 
-/// Render props passed to `render_child` when [`FieldRoot`] uses `as_child: true`.
-#[derive(Clone)]
-pub struct FieldRootRenderChildProps {
-    pub attrs: FieldRootAttrs,
-    pub children: Element,
-}
-
-/// Render props passed to `render_child` when [`FieldSet`] uses `as_child: true`.
-#[derive(Clone)]
-pub struct FieldSetRenderChildProps {
-    pub attrs: FieldSetAttrs,
-    pub children: Element,
-}
-
-/// Render props passed to `render_child` when [`FieldLegend`] uses `as_child: true`.
-#[derive(Clone)]
-pub struct FieldLegendRenderChildProps {
-    pub attrs: FieldLegendAttrs,
-    pub children: Element,
-}
-
-/// Render props passed to `render_child` when [`FieldLabel`] uses `as_child: true`.
-#[derive(Clone)]
-pub struct FieldLabelRenderChildProps {
-    pub attrs: FieldLabelAttrs,
-    pub children: Element,
-}
-
-/// Render props passed to `render_child` when [`FieldDescription`] uses `as_child: true`.
-#[derive(Clone)]
-pub struct FieldDescriptionRenderChildProps {
-    pub attrs: FieldDescriptionAttrs,
-    pub children: Element,
-}
-
-/// Render props passed to `render_child` when [`FieldError`] uses `as_child: true`.
-#[derive(Clone)]
-pub struct FieldErrorRenderChildProps {
-    pub attrs: FieldErrorAttrs,
+/// Runtime state exposed alongside merged DOM `props` when [`FieldError`] uses `child`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FieldErrorChildState {
     pub errors: Vec<String>,
     pub active: bool,
-    pub children: Element,
 }
 
 /// Plain-fn helper initializing and syncing a [`FieldContext`] (zero internal `#[component]`
@@ -145,17 +108,14 @@ fn use_field_provider(
 
 /// Plain-fn helper handling double-click text-selection suppression on `<label>` while
 /// preserving interaction on nested interactive targets (`LABEL_INTERACTIVE_TARGET_SELECTOR`).
-fn handle_field_label_mouse_down(
-    evt: MouseEvent,
-    on_mouse_down_slot: CopyValue<Option<EventHandler<MouseEvent>>>,
-) {
+fn handle_field_label_mouse_down(evt: MouseEvent, on_mouse_down: Option<EventHandler<MouseEvent>>) {
     if let Some(target) = oxidase::dom::mouse_event_target(&evt.data())
         && target.closest(LABEL_INTERACTIVE_TARGET_SELECTOR).is_some()
     {
         return;
     }
 
-    if let Some(handler) = on_mouse_down_slot.try_read().ok().and_then(|slot| *slot) {
+    if let Some(handler) = on_mouse_down {
         handler.call(evt.clone());
     }
 
@@ -190,13 +150,13 @@ fn child_has_content(child: VNodeChild<'_>) -> bool {
 /// Properties for [`FieldRoot`] (aliased as [`Field`]).
 #[derive(Props, Clone, PartialEq)]
 pub struct FieldRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub name: Option<String>,
     #[props(default = false)]
     pub invalid: bool,
@@ -210,10 +170,8 @@ pub struct FieldRootProps {
     pub orientation: FieldOrientation,
     #[props(default = Some("group"))]
     pub role: Option<&'static str>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<FieldRootRenderChildProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -237,9 +195,6 @@ pub fn FieldRoot(props: FieldRootProps) -> Element {
         false,
     );
 
-    let mut on_mounted_slot = use_hook(|| CopyValue::new(props.on_mounted));
-    on_mounted_slot.set(props.on_mounted);
-
     let def = ctx.definition();
     let attrs = FieldRootAttrs::from_definition(
         &def,
@@ -248,41 +203,40 @@ pub fn FieldRoot(props: FieldRootProps) -> Element {
         ctx.aria_describedby(None),
     );
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(FieldRootRenderChildProps {
-            attrs,
-            children: props.children,
-        });
-    }
+    let mut base = Vec::with_capacity(10);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    push_attr_opt(&mut base, "role", attrs.role);
+    push_attr_opt(&mut base, "aria-labelledby", attrs.aria_labelledby);
+    push_attr_opt(&mut base, "aria-describedby", attrs.aria_describedby);
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-required", attrs.data_required);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    base.push(Attribute::new(
+        "data-monoxus-field-root",
+        attrs.data_monoxus_field_root,
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: attrs.id.as_str(),
-            role: attrs.role,
-            "aria-labelledby": attrs.aria_labelledby.as_deref(),
-            "aria-describedby": attrs.aria_describedby.as_deref(),
-            "data-orientation": attrs.data_orientation,
-            "data-invalid": attrs.data_invalid,
-            "data-disabled": attrs.data_disabled,
-            "data-required": attrs.data_required,
-            "data-readonly": attrs.data_readonly,
-            "data-monoxus-field-root": attrs.data_monoxus_field_root,
-            class: merged.class,
-            style: merged.style,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -293,13 +247,13 @@ pub use FieldRoot as Field;
 /// Properties for [`FieldSet`].
 #[derive(Props, Clone, PartialEq)]
 pub struct FieldSetProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub name: Option<String>,
     #[props(default = false)]
     pub invalid: bool,
@@ -311,10 +265,8 @@ pub struct FieldSetProps {
     pub read_only: bool,
     #[props(default)]
     pub orientation: FieldOrientation,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<FieldSetRenderChildProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -347,47 +299,45 @@ pub fn FieldSet(props: FieldSetProps) -> Element {
         true,
     );
 
-    let mut on_mounted_slot = use_hook(|| CopyValue::new(props.on_mounted));
-    on_mounted_slot.set(props.on_mounted);
-
     let def = ctx.definition();
     let attrs = FieldSetAttrs::from_definition(&def, ctx.aria_describedby(None));
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(FieldSetRenderChildProps {
-            attrs,
-            children: props.children,
-        });
+    let mut base = Vec::with_capacity(10);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    if attrs.disabled {
+        base.push(Attribute::new("disabled", true, None, false));
     }
+    push_attr_opt(&mut base, "aria-invalid", attrs.aria_invalid);
+    push_attr_opt(&mut base, "aria-describedby", attrs.aria_describedby);
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-required", attrs.data_required);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    base.push(Attribute::new(
+        "data-monoxus-field-set",
+        attrs.data_monoxus_field_set,
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         fieldset {
-            id: attrs.id.as_str(),
-            disabled: attrs.disabled,
-            "aria-invalid": attrs.aria_invalid,
-            "aria-describedby": attrs.aria_describedby.as_deref(),
-            "data-orientation": attrs.data_orientation,
-            "data-invalid": attrs.data_invalid,
-            "data-disabled": attrs.data_disabled,
-            "data-required": attrs.data_required,
-            "data-readonly": attrs.data_readonly,
-            "data-monoxus-field-set": attrs.data_monoxus_field_set,
-            class: merged.class,
-            style: merged.style,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -396,18 +346,16 @@ pub fn FieldSet(props: FieldSetProps) -> Element {
 /// Properties for [`FieldLegend`].
 #[derive(Props, Clone, PartialEq)]
 pub struct FieldLegendProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub variant: FieldLegendVariant,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<FieldLegendRenderChildProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -440,9 +388,6 @@ pub fn FieldLegend(props: FieldLegendProps) -> Element {
         }
     });
 
-    let mut on_mounted_slot = use_hook(|| CopyValue::new(props.on_mounted));
-    on_mounted_slot.set(props.on_mounted);
-
     let attrs = FieldLegendAttrs::new(
         legend_id,
         props.variant,
@@ -452,38 +397,37 @@ pub fn FieldLegend(props: FieldLegendProps) -> Element {
         field_ctx.is_some_and(|c| c.is_read_only()),
     );
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(FieldLegendRenderChildProps {
-            attrs,
-            children: props.children,
-        });
-    }
+    let mut base = Vec::with_capacity(8);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new(
+        "data-variant",
+        attrs.data_variant,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-required", attrs.data_required);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    base.push(Attribute::new(
+        "data-monoxus-field-legend",
+        attrs.data_monoxus_field_legend,
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         legend {
-            id: attrs.id.as_str(),
-            "data-variant": attrs.data_variant,
-            "data-invalid": attrs.data_invalid,
-            "data-disabled": attrs.data_disabled,
-            "data-required": attrs.data_required,
-            "data-readonly": attrs.data_readonly,
-            "data-monoxus-field-legend": attrs.data_monoxus_field_legend,
-            class: merged.class,
-            style: merged.style,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -492,18 +436,16 @@ pub fn FieldLegend(props: FieldLegendProps) -> Element {
 /// Properties for [`FieldLabel`].
 #[derive(Props, Clone, PartialEq)]
 pub struct FieldLabelProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub r#for: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<FieldLabelRenderChildProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
@@ -556,13 +498,6 @@ pub fn FieldLabel(props: FieldLabelProps) -> Element {
         }
     });
 
-    let mut on_click_slot = use_hook(|| CopyValue::new(props.on_click));
-    on_click_slot.set(props.on_click);
-    let mut on_mouse_down_slot = use_hook(|| CopyValue::new(props.on_mouse_down));
-    on_mouse_down_slot.set(props.on_mouse_down);
-    let mut on_mounted_slot = use_hook(|| CopyValue::new(props.on_mounted));
-    on_mounted_slot.set(props.on_mounted);
-
     let attrs = FieldLabelAttrs::new(
         label_id,
         html_for,
@@ -572,46 +507,43 @@ pub fn FieldLabel(props: FieldLabelProps) -> Element {
         field_ctx.is_some_and(|c| c.is_read_only()),
     );
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
+    let mut base = Vec::with_capacity(9);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    push_attr_opt(&mut base, "for", attrs.r#for);
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-required", attrs.data_required);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    base.push(Attribute::new(
+        "data-monoxus-field-label",
+        attrs.data_monoxus_field_label,
+        None,
+        false,
+    ));
     {
-        return render_child.call(FieldLabelRenderChildProps {
-            attrs,
-            children: props.children,
-        });
+        let on_mouse_down = props.on_mouse_down;
+        push_event_handler(
+            &mut base,
+            "onmousedown",
+            Some(EventHandler::new(move |evt: MouseEvent| {
+                handle_field_label_mouse_down(evt, on_mouse_down);
+            })),
+        );
     }
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onclick", props.on_click);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         label {
-            id: attrs.id.as_str(),
-            r#for: attrs.r#for.as_deref(),
-            "data-invalid": attrs.data_invalid,
-            "data-disabled": attrs.data_disabled,
-            "data-required": attrs.data_required,
-            "data-readonly": attrs.data_readonly,
-            "data-monoxus-field-label": attrs.data_monoxus_field_label,
-            class: merged.class,
-            style: merged.style,
-            onclick: move |evt| {
-                if let Some(handler) = on_click_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt);
-                }
-            },
-            onmousedown: move |evt| {
-                handle_field_label_mouse_down(evt, on_mouse_down_slot);
-            },
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -620,18 +552,16 @@ pub fn FieldLabel(props: FieldLabelProps) -> Element {
 /// Properties for [`FieldControl`].
 #[derive(Props, Clone, PartialEq)]
 pub struct FieldControlProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<FieldControlAttrs, Element>>,
+    pub child: Option<Callback<ChildProps<FieldControlAttrs>, Element>>,
     #[props(default)]
     pub children: Element,
 }
 
 /// Renderless control-scoping context provider enabling 1:N control/label pairing inside
-/// [`FieldSet`] or [`FieldRoot`], with optional `render_child: Callback<FieldControlAttrs, Element>`.
+/// [`FieldSet`] or [`FieldRoot`], with optional `child: Callback<ChildProps<FieldControlAttrs>, Element>`.
 #[component]
 pub fn FieldControl(props: FieldControlProps) -> Element {
     let field_ctx = try_use_field_context();
@@ -679,7 +609,7 @@ pub fn FieldControl(props: FieldControlProps) -> Element {
         f_ctx.set_primary_control_id(Some(control_ctx.control_id()));
     }
 
-    if let Some(render_child) = props.render_child.as_ref() {
+    if let Some(child) = props.child {
         let attrs = use_field_control()
             .map(|handle| handle.into_attrs())
             .unwrap_or_else(|| {
@@ -694,7 +624,35 @@ pub fn FieldControl(props: FieldControlProps) -> Element {
                     false,
                 )
             });
-        return render_child.call(attrs);
+        let mut merged = Vec::with_capacity(16);
+        merged.push(Attribute::new("id", attrs.id.clone(), None, false));
+        push_attr_opt(&mut merged, "name", attrs.name.clone());
+        push_attr_opt(&mut merged, "aria-labelledby", attrs.aria_labelledby.clone());
+        push_attr_opt(&mut merged, "aria-describedby", attrs.aria_describedby.clone());
+        push_attr_opt(&mut merged, "aria-invalid", attrs.aria_invalid);
+        push_attr_opt(&mut merged, "aria-required", attrs.aria_required);
+        push_attr_opt(&mut merged, "aria-disabled", attrs.aria_disabled);
+        push_attr_opt(&mut merged, "aria-readonly", attrs.aria_readonly);
+        if attrs.disabled {
+            merged.push(Attribute::new("disabled", true, None, false));
+        }
+        if attrs.required {
+            merged.push(Attribute::new("required", true, None, false));
+        }
+        if attrs.read_only {
+            merged.push(Attribute::new("readonly", true, None, false));
+        }
+        push_attr_opt(&mut merged, "data-invalid", attrs.data_invalid);
+        push_attr_opt(&mut merged, "data-disabled", attrs.data_disabled);
+        push_attr_opt(&mut merged, "data-required", attrs.data_required);
+        push_attr_opt(&mut merged, "data-readonly", attrs.data_readonly);
+        merged.push(Attribute::new(
+            "data-monoxus-field-control",
+            attrs.data_monoxus_field_control,
+            None,
+            false,
+        ));
+        return child.call(ChildProps::new(merged, attrs));
     }
 
     props.children
@@ -703,16 +661,14 @@ pub fn FieldControl(props: FieldControlProps) -> Element {
 /// Properties for [`FieldDescription`].
 #[derive(Props, Clone, PartialEq)]
 pub struct FieldDescriptionProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<FieldDescriptionRenderChildProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -746,44 +702,35 @@ pub fn FieldDescription(props: FieldDescriptionProps) -> Element {
         }
     });
 
-    let mut on_mounted_slot = use_hook(|| CopyValue::new(props.on_mounted));
-    on_mounted_slot.set(props.on_mounted);
-
     let attrs = FieldDescriptionAttrs::new(
         desc_id,
         field_ctx.is_some_and(|c| c.is_invalid()),
         field_ctx.is_some_and(|c| c.is_disabled()),
     );
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(FieldDescriptionRenderChildProps {
-            attrs,
-            children: props.children,
-        });
-    }
+    let mut base = Vec::with_capacity(5);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    base.push(Attribute::new(
+        "data-monoxus-field-description",
+        attrs.data_monoxus_field_description,
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         p {
-            id: attrs.id.as_str(),
-            "data-invalid": attrs.data_invalid,
-            "data-disabled": attrs.data_disabled,
-            "data-monoxus-field-description": attrs.data_monoxus_field_description,
-            class: merged.class,
-            style: merged.style,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -792,11 +739,11 @@ pub fn FieldDescription(props: FieldDescriptionProps) -> Element {
 /// Properties for [`FieldError`].
 #[derive(Props, Clone, PartialEq)]
 pub struct FieldErrorProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub errors: Vec<String>,
@@ -804,10 +751,8 @@ pub struct FieldErrorProps {
     pub force_mount: bool,
     #[props(default)]
     pub live_mode: FieldErrorLiveMode,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<FieldErrorRenderChildProps, Element>>,
+    pub child: Option<Callback<ChildProps<FieldErrorChildState>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -859,9 +804,6 @@ pub fn FieldError(props: FieldErrorProps) -> Element {
         }
     });
 
-    let mut on_mounted_slot = use_hook(|| CopyValue::new(props.on_mounted));
-    on_mounted_slot.set(props.on_mounted);
-
     if !should_render {
         return rsx! {};
     }
@@ -874,39 +816,37 @@ pub fn FieldError(props: FieldErrorProps) -> Element {
         field_ctx.is_some_and(|c| c.is_disabled()),
     );
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(FieldErrorRenderChildProps {
-            attrs,
-            errors: unique_errors,
-            active,
-            children: props.children,
-        });
-    }
+    let mut base = Vec::with_capacity(7);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    push_attr_opt(&mut base, "role", attrs.role);
+    push_attr_opt(&mut base, "aria-live", attrs.aria_live);
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    base.push(Attribute::new(
+        "data-monoxus-field-error",
+        attrs.data_monoxus_field_error,
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(ChildProps::new(
+            merged,
+            FieldErrorChildState {
+                errors: unique_errors,
+                active,
+            },
+        ));
+    }
 
     rsx! {
         div {
-            id: attrs.id.as_str(),
-            role: attrs.role,
-            "aria-live": attrs.aria_live,
-            "data-invalid": attrs.data_invalid,
-            "data-disabled": attrs.data_disabled,
-            "data-monoxus-field-error": attrs.data_monoxus_field_error,
-            class: merged.class,
-            style: merged.style,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             if has_children {
                 {props.children}
             } else if unique_errors.len() == 1 {

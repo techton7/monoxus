@@ -5,40 +5,43 @@ use dioxus::prelude::*;
 use crate::collapsible::{
     components::CollapsibleContext,
     relationships::CollapsibleRelationships,
-    runtime::use_collapsible_runtime,
+    runtime::use_collapsible_runtime_controllable,
     state::Collapsible,
 };
 use crate::foundation::{
-    compose::merge_global_attributes,
-    shared::{ScopeHandle, data_disabled_attr, use_stable_id},
-    state::sync_signal,
+    compose::{collect_user_attrs, merge_props, push_bool_data_attr},
+    shared::{ScopeHandle, use_stable_id},
+    state::{sync_signal, use_controllable_signal},
 };
 
 #[derive(Props, Clone, PartialEq)]
 pub struct CollapsibleRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
-    pub open: Option<Signal<bool>>,
-    #[props(default)]
-    pub default_open: Option<bool>,
+    pub open: Option<bool>,
+    #[props(default = false)]
+    pub default_open: bool,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
 #[component]
 pub fn CollapsibleRoot(props: CollapsibleRootProps) -> Element {
-    let fallback_open = use_signal(|| props.default_open.unwrap_or(false));
-    let open_signal = props.open.unwrap_or(fallback_open);
+    let open_ctl = use_controllable_signal(props.open, props.default_open, props.on_open_change);
+    let open_signal = open_ctl.signal();
 
     let mut disabled_signal = use_signal(|| props.disabled);
     sync_signal(&mut disabled_signal, props.disabled);
@@ -50,18 +53,7 @@ pub fn CollapsibleRoot(props: CollapsibleRootProps) -> Element {
     let is_open = open_signal();
     let collapsible = Collapsible::new(scope, is_open).with_disabled(props.disabled);
 
-    let on_open_change = props.on_open_change;
-    let change_handler = move |next_open: bool| {
-        if *open_signal.peek() != next_open {
-            let mut sig = open_signal;
-            sig.set(next_open);
-        }
-        if let Some(h) = on_open_change {
-            h.call(next_open);
-        }
-    };
-
-    let runtime = use_collapsible_runtime(collapsible, Some(change_handler));
+    let runtime = use_collapsible_runtime_controllable(collapsible, open_ctl);
     let mut runtime_sig = use_signal(|| runtime.clone());
     sync_signal(&mut runtime_sig, runtime.clone());
 
@@ -74,25 +66,26 @@ pub fn CollapsibleRoot(props: CollapsibleRootProps) -> Element {
         disabled: disabled_signal,
         content_id,
         content_mounted,
-        on_open_change,
+        on_open_change: props.on_open_change,
         relationships: relationships.clone(),
     });
 
     let attrs = runtime.root();
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut base = Vec::with_capacity(4);
+    base.push(Attribute::new("id", attrs.id().to_string(), None, false));
+    base.push(Attribute::new("data-state", attrs.data_state_str(), None, false));
+    push_bool_data_attr(&mut base, "data-disabled", attrs.is_disabled());
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id()}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            "data-state": attrs.data_state_str(),
-            "data-disabled": data_disabled_attr(attrs.is_disabled()),
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

@@ -3,8 +3,8 @@ use dioxus::prelude::*;
 use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
     compose::{
-        extract_aria_invalid_and_describedby, merge_global_attributes,
-        resolve_invalid_and_describedby,
+        collect_user_attrs, extract_aria_invalid_and_describedby, merge_props, push_attr_opt,
+        push_event_handler, resolve_invalid_and_describedby,
     },
     state::use_controllable_signal,
 };
@@ -13,11 +13,11 @@ pub use ui_sdk::toggle::*;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToggleProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub pressed: Option<bool>,
@@ -29,7 +29,7 @@ pub struct ToggleProps {
     pub disabled: bool,
     #[props(default)]
     pub invalid: Option<bool>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_describedby: Option<String>,
     #[props(default)]
     pub r#type: ButtonType,
@@ -43,6 +43,8 @@ pub struct ToggleProps {
     pub on_blur: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -104,81 +106,58 @@ pub fn Toggle(props: ToggleProps) -> Element {
     }
     let attrs = toggle_state.attributes();
 
-    let mut on_focus_slot = use_hook(|| CopyValue::new(props.on_focus));
-    on_focus_slot.set(props.on_focus);
-    let mut on_blur_slot = use_hook(|| CopyValue::new(props.on_blur));
-    on_blur_slot.set(props.on_blur);
-
-    let on_click = {
-        let on_click = props.on_click;
-        let disabled = effective_disabled;
-        move |evt: MouseEvent| {
-            if let Some(ref handler) = on_click {
-                handler.call(evt.clone());
-            }
-            if evt.default_action_enabled() && !disabled {
+    let mut base = Vec::with_capacity(12);
+    push_attr_opt(&mut base, "id", attrs.id);
+    base.push(Attribute::new("type", attrs.r#type, None, false));
+    if attrs.disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    base.push(Attribute::new("aria-pressed", attrs.aria_pressed, None, false));
+    push_attr_opt(&mut base, "aria-invalid", attrs.aria_invalid);
+    push_attr_opt(&mut base, "aria-describedby", attrs.aria_describedby);
+    base.push(Attribute::new(
+        "data-state",
+        attrs.data_state.as_str(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    base.push(Attribute::new(
+        "data-toggle-root",
+        attrs.data_toggle_root,
+        None,
+        false,
+    ));
+    push_event_handler(
+        &mut base,
+        "onclick",
+        Some(EventHandler::new(move |_evt: MouseEvent| {
+            if !effective_disabled {
                 let current = pressed_ctl.peek();
                 pressed_ctl.set(!current);
             }
-        }
-    };
-
-    let on_key_down = {
-        let on_key_down = props.on_key_down;
-        move |evt: KeyboardEvent| {
-            if let Some(ref handler) = on_key_down {
-                handler.call(evt);
-            }
-        }
-    };
-
-    let on_focus = move |evt: FocusEvent| {
-        if let Some(handler) = on_focus_slot.try_read().ok().and_then(|s| *s) {
-            handler.call(evt);
-        }
-    };
-
-    let on_blur = move |evt: FocusEvent| {
-        if let Some(handler) = on_blur_slot.try_read().ok().and_then(|s| *s) {
-            handler.call(evt);
-        }
-    };
-
-    let on_mounted = {
-        let on_mounted = props.on_mounted;
-        move |evt: MountedEvent| {
-            if let Some(ref handler) = on_mounted {
-                handler.call(evt);
-            }
-        }
-    };
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        extracted.rest,
+        })),
     );
+
+    let mut user = collect_user_attrs(props.class, props.style, extracted.rest);
+    if !effective_disabled {
+        push_event_handler(&mut user, "onclick", props.on_click);
+    }
+    push_event_handler(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler(&mut user, "onfocus", props.on_focus);
+    push_event_handler(&mut user, "onblur", props.on_blur);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         button {
-            id: attrs.id.as_deref(),
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            r#type: attrs.r#type,
-            disabled: attrs.disabled,
-            "aria-pressed": attrs.aria_pressed,
-            "aria-invalid": attrs.aria_invalid,
-            "aria-describedby": attrs.aria_describedby.as_deref(),
-            "data-state": attrs.data_state.as_str(),
-            "data-disabled": attrs.data_disabled,
-            "data-invalid": attrs.data_invalid,
-            "data-toggle-root": attrs.data_toggle_root,
-            onclick: on_click,
-            onkeydown: on_key_down,
-            onfocus: on_focus,
-            onblur: on_blur,
-            onmounted: on_mounted,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

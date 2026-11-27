@@ -1,7 +1,11 @@
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{
+        collect_user_attrs, merge_props, push_attr_opt, push_event_handler,
+    },
     roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::use_stable_id,
 };
@@ -9,15 +13,15 @@ use crate::toolbar::components::ToolbarRootContext;
 
 #[derive(Clone, PartialEq, Props)]
 pub struct ToolbarButtonProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub value: Option<String>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
@@ -25,8 +29,11 @@ pub struct ToolbarButtonProps {
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -55,77 +62,102 @@ pub fn ToolbarButton(props: ToolbarButtonProps) -> Element {
     let tabindex = runtime.roving.tab_index_for(&roving_key, !props.disabled);
     let attrs = toolbar_state.button_attributes(button_id, props.disabled, tabindex);
 
-    let on_click = {
-        let consumer_on_click = props.on_click;
-        let disabled = props.disabled;
-        move |evt: MouseEvent| {
-            if disabled {
-                evt.prevent_default();
-                return;
-            }
-            if let Some(ref handler) = consumer_on_click {
-                handler.call(evt);
-            }
-        }
-    };
+    let disabled = props.disabled;
+    let roving_key_down = roving_key.clone();
+    let roving_for_key = runtime.roving;
+    let roving_for_focus = runtime.roving;
 
-    let on_key_down = {
-        let roving = runtime.roving;
-        let key_for_roving = roving_key.clone();
-        let disabled = props.disabled;
-        let consumer_on_keydown = props.on_key_down;
-        move |evt: KeyboardEvent| {
-            if let Some(ref handler) = consumer_on_keydown {
-                handler.call(evt.clone());
-            }
-            if !evt.default_action_enabled() || disabled {
-                return;
-            }
-            roving.handle_keydown(Some(&key_for_roving), &evt, None::<fn(&str)>);
-        }
-    };
+    let mut base = Vec::with_capacity(12);
+    base.push(Attribute::new("id", attrs.id().to_string(), None, false));
+    base.push(Attribute::new("type", attrs.button_type(), None, false));
+    base.push(Attribute::new(
+        "tabindex",
+        attrs.tabindex().to_string(),
+        None,
+        false,
+    ));
+    if attrs.is_disabled() {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled());
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-toolbar-button",
+        attrs.data_toolbar_button(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-toolbar-item",
+        attrs.data_toolbar_item(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onclick",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                if disabled {
+                    evt.prevent_default();
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onkeydown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                let kb_evt: KeyboardEvent = evt.map(|d| KeyboardData::from(d));
+                if !kb_evt.default_action_enabled() || disabled {
+                    return;
+                }
+                roving_for_key.handle_keydown(
+                    Some(&roving_key_down),
+                    &kb_evt,
+                    None::<fn(&str)>,
+                );
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onfocus",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                roving_for_focus.handle_item_focus(&roving_key, !disabled);
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
 
-    let on_focus = {
-        let roving = runtime.roving;
-        let key_for_focus = roving_key;
-        let disabled = props.disabled;
-        move |_| {
-            roving.handle_item_focus(&key_for_focus, !disabled);
-        }
-    };
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    if !disabled {
+        push_event_handler(&mut user, "onclick", props.on_click);
+    }
+    push_event_handler(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
 
-    let on_mounted = {
-        let consumer_on_mounted = props.on_mounted;
-        move |evt: MountedEvent| {
-            if let Some(ref handler) = consumer_on_mounted {
-                handler.call(evt);
-            }
-        }
-    };
+    let merged = merge_props(base, user);
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         button {
-            id: "{attrs.id()}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            r#type: attrs.button_type(),
-            tabindex: attrs.tabindex(),
-            disabled: attrs.is_disabled(),
-            "data-disabled": attrs.data_disabled(),
-            "data-orientation": attrs.data_orientation(),
-            "data-toolbar-button": attrs.data_toolbar_button(),
-            "data-toolbar-item": attrs.data_toolbar_item(),
-            onclick: on_click,
-            onkeydown: on_key_down,
-            onfocus: on_focus,
-            onmounted: on_mounted,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::{join_styles, merge_global_attributes};
+use crate::foundation::compose::{collect_user_attrs, merge_props, push_attr_opt};
 
 use crate::slider::{runtime::use_slider_context, types::SliderLabelPosition};
 
@@ -10,10 +10,14 @@ pub struct SliderTickLabelProps {
     pub value: f64,
     #[props(default)]
     pub position: Option<SliderLabelPosition>,
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub children: Element,
+    #[props(default, into)]
     pub class: Option<String>,
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
@@ -26,26 +30,50 @@ pub fn SliderTickLabel(props: SliderTickLabelProps) -> Element {
     let attrs = ctx.0.tick_label_attrs(props.value, props.position);
     let label_id = props.id.unwrap_or_else(|| attrs.id().to_string());
 
-    let combined_style = join_styles([attrs.style(), props.style.as_deref().unwrap_or("")]);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        props.attributes,
-    );
+    let base_style = attrs.style();
+    let mut base = Vec::with_capacity(9);
+    base.push(Attribute::new("id", label_id, None, false));
+    if !base_style.is_empty() {
+        base.push(Attribute::new("style", base_style, None, false));
+    }
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled());
+    base.push(Attribute::new(
+        "data-value",
+        attrs.data_value().to_string(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-bounded", attrs.data_bounded());
+    push_attr_opt(&mut base, "data-selected", attrs.data_selected());
+    base.push(Attribute::new(
+        "data-position",
+        attrs.data_position(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-monoxus-slider-tick-label",
+        "",
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{label_id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            "data-orientation": "{attrs.data_orientation()}",
-            "data-disabled": attrs.data_disabled(),
-            "data-value": "{attrs.data_value()}",
-            "data-bounded": attrs.data_bounded(),
-            "data-selected": attrs.data_selected(),
-            "data-position": "{attrs.data_position()}",
-            "data-monoxus-slider-tick-label": "",
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

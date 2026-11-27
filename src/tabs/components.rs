@@ -1,19 +1,21 @@
 use std::borrow::Cow;
 
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{
+        collect_user_attrs, merge_props, push_attr_opt, push_bool_data_attr, push_event_handler,
+    },
     keyboard::is_activation_key,
     roving_focus::{RovingItemMeta, use_roving_focus_item},
-    shared::{
-        ScopeHandle, data_disabled_attr, use_direction_context, use_mount_animation_guard,
-        use_stable_id,
-    },
+    shared::{ScopeHandle, use_direction_context, use_mount_animation_guard, use_stable_id},
+    state::use_controllable_signal,
 };
 
 use super::{
-    runtime::{TabsRuntime, use_tabs_runtime},
+    runtime::{TabsRuntime, use_tabs_runtime_controllable},
     state::Tabs,
     types::{TabsActivationMode, TabsDirection, TabsOrientation},
 };
@@ -27,15 +29,15 @@ pub struct TabsContext {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct TabsRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
-    pub value: Option<Signal<String>>,
-    #[props(default)]
+    #[props(default, into)]
+    pub value: Option<String>,
+    #[props(default, into)]
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
@@ -45,8 +47,13 @@ pub struct TabsRootProps {
     pub dir: Option<TabsDirection>,
     #[props(default)]
     pub activation_mode: Option<TabsActivationMode>,
+    #[props(default = false)]
+    pub disabled: bool,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -62,18 +69,22 @@ pub fn TabsRoot(props: TabsRootProps) -> Element {
         orientation,
         dir,
         activation_mode,
+        disabled,
+        child,
         attributes,
         children,
     } = props;
     let resolved_dir = use_direction_context(dir.map(Into::into));
     let tabs_dir = TabsDirection::from(resolved_dir);
-    let initial_val = default_value.unwrap_or_default();
-    let fallback_val = use_signal(|| initial_val.clone());
-    let val_signal = value.unwrap_or(fallback_val);
+    let value_ctl =
+        use_controllable_signal(value, default_value.unwrap_or_default(), on_value_change);
+    let val_signal = value_ctl.signal();
     let scope_id = use_stable_id(id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("tabs").child(scope_id);
 
-    let mut tabs_def = Tabs::new(scope, val_signal()).with_direction(tabs_dir);
+    let mut tabs_def = Tabs::new(scope, val_signal())
+        .with_direction(tabs_dir)
+        .with_disabled(disabled);
     if let Some(o) = orientation {
         tabs_def = tabs_def.with_orientation(o);
     }
@@ -81,19 +92,7 @@ pub fn TabsRoot(props: TabsRootProps) -> Element {
         tabs_def = tabs_def.with_activation_mode(am);
     }
 
-    let change_handler = {
-        let val_sig = val_signal;
-        let on_change = on_value_change;
-        move |new_val: String| {
-            let mut sig = val_sig;
-            sig.set(new_val.clone());
-            if let Some(h) = on_change {
-                h.call(new_val);
-            }
-        }
-    };
-
-    let runtime = use_tabs_runtime(tabs_def, Some(change_handler));
+    let runtime = use_tabs_runtime_controllable(tabs_def, value_ctl);
 
     use_context_provider(|| TabsContext {
         runtime: runtime.clone(),
@@ -102,16 +101,27 @@ pub fn TabsRoot(props: TabsRootProps) -> Element {
     });
 
     let root_attrs = runtime.root();
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+    let mut base = Vec::with_capacity(5);
+    base.push(Attribute::new("id", root_attrs.id().to_string(), None, false));
+    base.push(Attribute::new("dir", resolved_dir.as_str(), None, false));
+    base.push(Attribute::new(
+        "data-orientation",
+        root_attrs.data_orientation(),
+        None,
+        false,
+    ));
+    push_bool_data_attr(&mut base, "data-disabled", root_attrs.is_disabled());
+
+    let user = collect_user_attrs(class, style, attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{root_attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            dir: "{resolved_dir.as_str()}",
-            "data-orientation": "{root_attrs.data_orientation()}",
-            ..merged.rest,
+            ..merged,
             {children}
         }
     }
@@ -119,16 +129,19 @@ pub fn TabsRoot(props: TabsRootProps) -> Element {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct TabsListProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = true)]
     pub loop_focus: bool,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -139,6 +152,7 @@ pub fn TabsList(props: TabsListProps) -> Element {
         class,
         style,
         loop_focus,
+        child,
         attributes,
         children,
     } = props;
@@ -155,34 +169,62 @@ pub fn TabsList(props: TabsListProps) -> Element {
         }
     }));
 
-    let on_keydown = move |evt: KeyboardEvent| {
-        let automatic = runtime.tabs().activation_mode().is_automatic();
-        let rt = runtime.clone();
-        runtime.roving().handle_keydown(
-            None,
-            &evt,
-            Some(|next_val: &str| {
-                if automatic {
-                    rt.select_tab(next_val);
+    let mut base = Vec::with_capacity(8);
+    base.push(Attribute::new("id", list_id, None, false));
+    base.push(Attribute::new("role", list_attrs.role(), None, false));
+    base.push(Attribute::new(
+        "aria-orientation",
+        list_attrs.aria_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-orientation",
+        list_attrs.data_orientation(),
+        None,
+        false,
+    ));
+    push_bool_data_attr(&mut base, "data-disabled", list_attrs.is_disabled());
+    base.push(Attribute::new("tabindex", "-1", None, false));
+    base.push(Attribute::new(
+        "onkeydown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                if runtime.tabs().is_disabled() {
+                    return;
                 }
-            }),
-        );
-    };
+                let kb_evt: KeyboardEvent = evt.map(|d| KeyboardData::from(d));
+                if !kb_evt.default_action_enabled() {
+                    return;
+                }
+                let automatic = runtime.tabs().activation_mode().is_automatic();
+                let rt = runtime.clone();
+                runtime.roving().handle_keydown(
+                    None,
+                    &kb_evt,
+                    Some(|next_val: &str| {
+                        if automatic {
+                            rt.select_tab(next_val);
+                        }
+                    }),
+                );
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+    let user = collect_user_attrs(class, style, attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{list_id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            role: "{list_attrs.role()}",
-            aria_orientation: "{list_attrs.aria_orientation()}",
-            "data-orientation": "{list_attrs.data_orientation()}",
-            "data-disabled": data_disabled_attr(list_attrs.is_disabled()),
-            tabindex: "-1",
-            onkeydown: on_keydown,
-            ..merged.rest,
+            ..merged,
             {children}
         }
     }
@@ -190,17 +232,27 @@ pub fn TabsList(props: TabsListProps) -> Element {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct TabsTriggerProps {
+    #[props(into)]
     pub value: String,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub on_click: Option<EventHandler<MouseEvent>>,
+    #[props(default)]
+    pub on_key_down: Option<EventHandler<KeyboardEvent>>,
+    #[props(default)]
+    pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -212,6 +264,10 @@ pub fn TabsTrigger(props: TabsTriggerProps) -> Element {
         id,
         class,
         style,
+        on_click,
+        on_key_down,
+        on_mounted,
+        child,
         attributes,
         children,
     } = props;
@@ -231,69 +287,132 @@ pub fn TabsTrigger(props: TabsTriggerProps) -> Element {
 
     let runtime_click = ctx.runtime.clone();
     let val_click = value.clone();
-    let on_click = move |_| {
-        if is_disabled {
-            return;
-        }
-        runtime_click.select_tab(&val_click);
-    };
-
     let runtime_focus = ctx.runtime.clone();
     let val_focus = value.clone();
-    let on_focus = move |_| {
-        if is_disabled {
-            return;
-        }
-        runtime_focus.roving().handle_item_focus(&val_focus, true);
-        if runtime_focus.tabs().activation_mode().is_automatic() {
-            runtime_focus.select_tab(&val_focus);
-        }
-    };
-
     let runtime_key = ctx.runtime.clone();
     let val_key = value.clone();
-    let on_keydown = move |evt: KeyboardEvent| {
-        if is_disabled {
-            return;
-        }
-        if is_activation_key(&evt.key()) {
-            evt.prevent_default();
-            runtime_key.select_tab(&val_key);
-            return;
-        }
-        let automatic = runtime_key.tabs().activation_mode().is_automatic();
-        let rt = runtime_key.clone();
-        runtime_key.roving().handle_keydown(
-            Some(&val_key),
-            &evt,
-            Some(|next_val: &str| {
-                if automatic {
-                    rt.select_tab(next_val);
-                }
-            }),
-        );
-    };
 
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+    let mut base = Vec::with_capacity(14);
+    base.push(Attribute::new("id", trig_id, None, false));
+    base.push(Attribute::new("type", "button", None, false));
+    base.push(Attribute::new("role", trig_attrs.role(), None, false));
+    base.push(Attribute::new(
+        "tabindex",
+        trig_attrs.tabindex().to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-selected",
+        trig_attrs.aria_selected(),
+        None,
+        false,
+    ));
+    push_attr_opt(
+        &mut base,
+        "aria-controls",
+        trig_attrs.aria_controls().map(str::to_owned),
+    );
+    if is_disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    base.push(Attribute::new(
+        "data-state",
+        trig_attrs.data_state().as_str(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-orientation",
+        trig_attrs.data_orientation(),
+        None,
+        false,
+    ));
+    push_bool_data_attr(&mut base, "data-disabled", is_disabled);
+    base.push(Attribute::new(
+        "onclick",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                if is_disabled {
+                    return;
+                }
+                if !evt.default_action_enabled() {
+                    return;
+                }
+                runtime_click.select_tab(&val_click);
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onfocus",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                if is_disabled {
+                    return;
+                }
+                runtime_focus.roving().handle_item_focus(&val_focus, true);
+                if runtime_focus.tabs().activation_mode().is_automatic() {
+                    runtime_focus.select_tab(&val_focus);
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onkeydown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                if is_disabled {
+                    return;
+                }
+                let kb_evt: KeyboardEvent = evt.map(|d| KeyboardData::from(d));
+                if !kb_evt.default_action_enabled() {
+                    return;
+                }
+                if is_activation_key(&kb_evt.key()) {
+                    kb_evt.prevent_default();
+                    runtime_key.select_tab(&val_key);
+                    return;
+                }
+                let automatic = runtime_key.tabs().activation_mode().is_automatic();
+                let rt = runtime_key.clone();
+                runtime_key.roving().handle_keydown(
+                    Some(&val_key),
+                    &kb_evt,
+                    Some(|next_val: &str| {
+                        if automatic {
+                            rt.select_tab(next_val);
+                        }
+                    }),
+                );
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+
+    let mut user = collect_user_attrs(class, style, attributes);
+    if !is_disabled {
+        push_event_handler(&mut user, "onclick", on_click);
+    }
+    push_event_handler(&mut user, "onkeydown", on_key_down);
+    push_event_handler(&mut user, "onmounted", on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         button {
-            id: "{trig_id}",
-            r#type: "button",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            role: "{trig_attrs.role()}",
-            tabindex: "{trig_attrs.tabindex()}",
-            aria_selected: "{trig_attrs.aria_selected()}",
-            aria_controls: trig_attrs.aria_controls(),
-            disabled: is_disabled,
-            "data-state": trig_attrs.data_state().as_str(),
-            "data-orientation": "{trig_attrs.data_orientation()}",
-            "data-disabled": data_disabled_attr(is_disabled),
-            onclick: on_click,
-            onfocus: on_focus,
-            onkeydown: on_keydown,
-            ..merged.rest,
+            ..merged,
             {children}
         }
     }
@@ -301,19 +420,23 @@ pub fn TabsTrigger(props: TabsTriggerProps) -> Element {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct TabsContentProps {
+    #[props(into)]
     pub value: String,
     #[props(default = false)]
     pub force_mount: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub tabindex: Option<i32>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -326,6 +449,7 @@ pub fn TabsContent(props: TabsContentProps) -> Element {
         class,
         style,
         tabindex,
+        child,
         attributes,
         children,
     } = props;
@@ -375,28 +499,39 @@ pub fn TabsContent(props: TabsContentProps) -> Element {
         return rsx! {};
     }
 
-    let effective_style = match (style.as_deref(), guard_style) {
-        (Some(s), Some(g)) => Some(format!("{s}; {g}")),
-        (Some(s), None) => Some(s.to_string()),
-        (None, Some(g)) => Some(g.to_string()),
-        (None, None) => None,
-    };
-
     let tab_idx = tabindex.unwrap_or(0);
-    let merged = merge_global_attributes(class.as_deref(), effective_style.as_deref(), attributes);
+    let mut base = Vec::with_capacity(9);
+    base.push(Attribute::new("id", content_id, None, false));
+    push_attr_opt(&mut base, "style", guard_style);
+    base.push(Attribute::new("role", content_attrs.role(), None, false));
+    base.push(Attribute::new("aria-labelledby", labelledby, None, false));
+    base.push(Attribute::new(
+        "data-state",
+        if is_active { "active" } else { "inactive" },
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-orientation",
+        content_attrs.data_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new("tabindex", tab_idx.to_string(), None, false));
+    if !is_active && force_mount {
+        base.push(Attribute::new("hidden", true, None, false));
+    }
+
+    let user = collect_user_attrs(class, style, attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{content_id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            role: "{content_attrs.role()}",
-            aria_labelledby: "{labelledby}",
-            "data-state": if is_active { "active" } else { "inactive" },
-            "data-orientation": "{content_attrs.data_orientation()}",
-            tabindex: "{tab_idx}",
-            hidden: if !is_active && force_mount { true } else { false },
-            ..merged.rest,
+            ..merged,
             {children}
         }
     }

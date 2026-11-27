@@ -5,3 +5,4 @@ pub use crate::compat::accordion::{attrs, relationships, state, types};
 pub use crate::compat::accordion::{attrs::*, relationships::*, state::*, types::*};
 
 pub use self::{components::*, runtime::*};
+pub use self::components::AccordionRoot as Accordion;

@@ -2,6 +2,8 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
+use crate::foundation::state::ControllableSignal;
+
 use super::{
     attrs::{CollapsibleContentAttributes, CollapsibleRootAttributes, CollapsibleTriggerAttributes},
     relationships::CollapsibleRelationships,
@@ -17,6 +19,7 @@ pub struct CollapsibleRuntimeState {
 #[derive(Clone, PartialEq)]
 pub struct CollapsibleRuntime {
     collapsible: Collapsible,
+    open_ctl: Option<ControllableSignal<bool>>,
     on_open_change: CopyValue<Option<CollapsibleOpenChangeHandler>>,
     state: CollapsibleRuntimeState,
 }
@@ -49,6 +52,25 @@ where
 
     CollapsibleRuntime {
         collapsible,
+        open_ctl: None,
+        on_open_change: on_open_change_slot,
+        state,
+    }
+}
+
+pub(crate) fn use_collapsible_runtime_controllable(
+    collapsible: Collapsible,
+    open_ctl: ControllableSignal<bool>,
+) -> CollapsibleRuntime {
+    let on_open_change_slot: CopyValue<Option<CollapsibleOpenChangeHandler>> =
+        use_hook(|| CopyValue::new(None));
+    let state = CollapsibleRuntimeState {
+        open: open_ctl.signal(),
+    };
+
+    CollapsibleRuntime {
+        collapsible,
+        open_ctl: Some(open_ctl),
         on_open_change: on_open_change_slot,
         state,
     }
@@ -87,6 +109,10 @@ impl CollapsibleRuntime {
 
     pub fn set_open(&self, open: bool) {
         if self.is_disabled() {
+            return;
+        }
+        if let Some(ctl) = self.open_ctl {
+            ctl.set(open);
             return;
         }
         let changed = *self.state.open.peek() != open;

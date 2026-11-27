@@ -1,9 +1,11 @@
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
 use dioxus::prelude::keyboard_types::Key;
 use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{click_element_by_id, is_element_focused_by_id},
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::use_stable_id,
 };
@@ -11,21 +13,21 @@ use crate::toolbar::{components::ToolbarRootContext, state::Toolbar};
 
 #[derive(Clone, PartialEq, Props)]
 pub struct ToolbarLinkProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub href: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub target: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub rel: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub download: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub value: Option<String>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
@@ -33,8 +35,11 @@ pub struct ToolbarLinkProps {
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -63,80 +68,94 @@ pub fn ToolbarLink(props: ToolbarLinkProps) -> Element {
     let tabindex = runtime.roving.tab_index_for(&roving_key, true);
     let attrs = toolbar_state.link_attributes(link_id.clone(), props.href.clone(), tabindex);
 
-    let on_click = {
-        let consumer_on_click = props.on_click;
-        move |evt: MouseEvent| {
-            if let Some(ref handler) = consumer_on_click {
-                handler.call(evt);
-            }
-        }
-    };
+    let roving_for_key = runtime.roving;
+    let key_for_roving = roving_key.clone();
+    let link_id_for_key = link_id;
+    let roving_for_focus = runtime.roving;
 
-    let on_key_down = {
-        let roving = runtime.roving;
-        let key_for_roving = roving_key.clone();
-        let link_id_for_key = link_id.clone();
-        let consumer_on_keydown = props.on_key_down;
-        move |evt: KeyboardEvent| {
-            if let Some(ref handler) = consumer_on_keydown {
-                handler.call(evt.clone());
-            }
-            if !evt.default_action_enabled() {
-                return;
-            }
-            if let Key::Character(ref ch) = evt.key() {
-                let is_focused_link = is_element_focused_by_id(&link_id_for_key);
-                if Toolbar::should_activate_link_on_key(ch, is_focused_link) {
-                    evt.prevent_default();
-                    click_element_by_id(&link_id_for_key);
+    let mut base = Vec::with_capacity(12);
+    base.push(Attribute::new("id", attrs.id().to_string(), None, false));
+    push_attr_opt(&mut base, "href", attrs.href().map(str::to_owned));
+    push_attr_opt(&mut base, "target", props.target);
+    push_attr_opt(&mut base, "rel", props.rel);
+    push_attr_opt(&mut base, "download", props.download);
+    base.push(Attribute::new(
+        "tabindex",
+        attrs.tabindex().to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-toolbar-link",
+        attrs.data_toolbar_link(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-toolbar-item",
+        attrs.data_toolbar_item(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onkeydown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                let kb_evt: KeyboardEvent = evt.map(|d| KeyboardData::from(d));
+                if !kb_evt.default_action_enabled() {
                     return;
                 }
-            }
-            roving.handle_keydown(Some(&key_for_roving), &evt, None::<fn(&str)>);
-        }
-    };
+                if let Key::Character(ref ch) = kb_evt.key() {
+                    let is_focused_link = is_element_focused_by_id(&link_id_for_key);
+                    if Toolbar::should_activate_link_on_key(ch, is_focused_link) {
+                        kb_evt.prevent_default();
+                        click_element_by_id(&link_id_for_key);
+                        return;
+                    }
+                }
+                roving_for_key.handle_keydown(
+                    Some(&key_for_roving),
+                    &kb_evt,
+                    None::<fn(&str)>,
+                );
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onfocus",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                roving_for_focus.handle_item_focus(&roving_key, true);
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
 
-    let on_focus = {
-        let roving = runtime.roving;
-        let key_for_focus = roving_key;
-        move |_| {
-            roving.handle_item_focus(&key_for_focus, true);
-        }
-    };
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onclick", props.on_click);
+    push_event_handler(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
 
-    let on_mounted = {
-        let consumer_on_mounted = props.on_mounted;
-        move |evt: MountedEvent| {
-            if let Some(ref handler) = consumer_on_mounted {
-                handler.call(evt);
-            }
-        }
-    };
+    let merged = merge_props(base, user);
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         a {
-            id: "{attrs.id()}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            href: attrs.href(),
-            target: props.target.as_deref(),
-            rel: props.rel.as_deref(),
-            download: props.download.as_deref(),
-            tabindex: attrs.tabindex(),
-            "data-orientation": attrs.data_orientation(),
-            "data-toolbar-link": attrs.data_toolbar_link(),
-            "data-toolbar-item": attrs.data_toolbar_item(),
-            onclick: on_click,
-            onkeydown: on_key_down,
-            onfocus: on_focus,
-            onmounted: on_mounted,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

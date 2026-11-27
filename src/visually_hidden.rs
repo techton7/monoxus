@@ -1,40 +1,22 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::merge_global_attributes;
+use crate::foundation::compose::{
+    collect_user_attrs, merge_props, push_attr_opt, push_event_handler,
+};
 
 pub use ui_sdk::visually_hidden::*;
-
-/// Props passed to an explicit `render_child` callback for `VisuallyHidden`.
-#[derive(Clone, PartialEq, Props)]
-pub struct VisuallyHiddenRenderProps {
-    #[props(default)]
-    pub id: Option<String>,
-    #[props(default)]
-    pub class: Option<String>,
-    pub style: String,
-    pub data_visually_hidden_root: &'static str,
-    #[props(default)]
-    pub on_click: Option<EventHandler<MouseEvent>>,
-    #[props(default)]
-    pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
 
 /// Properties for the headless `VisuallyHidden` primitive.
 #[derive(Clone, PartialEq, Props)]
 pub struct VisuallyHiddenProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<VisuallyHiddenRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
@@ -48,50 +30,30 @@ pub struct VisuallyHiddenProps {
 /// Screen-reader-only container hiding content visually while keeping it exposed to assistive technology.
 #[component]
 pub fn VisuallyHidden(props: VisuallyHiddenProps) -> Element {
-    let attrs = VisuallyHiddenState::new().attributes_with_style(props.style.as_deref());
+    let attrs = VisuallyHiddenState::new().attributes();
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(VisuallyHiddenRenderProps {
-                id: props.id,
-                class: props.class,
-                style: attrs.style,
-                data_visually_hidden_root: attrs.data_visually_hidden_root,
-                on_click: props.on_click,
-                on_mounted: props.on_mounted,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::VisuallyHidden: as_child requires render_child; rendering the default span"
-        );
+    let mut base = Vec::with_capacity(3);
+    push_attr_opt(&mut base, "id", props.id);
+    base.push(Attribute::new("style", attrs.style, None, false));
+    base.push(Attribute::new(
+        "data-visually-hidden-root",
+        attrs.data_visually_hidden_root,
+        None,
+        false,
+    ));
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onclick", props.on_click);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        Some(attrs.style.as_str()),
-        props.attributes,
-    );
 
     rsx! {
         span {
-            id: props.id,
-            class: merged.class,
-            style: merged.style,
-            "data-visually-hidden-root": attrs.data_visually_hidden_root,
-            onclick: move |event| {
-                if let Some(handler) = props.on_click.as_ref() {
-                    handler.call(event);
-                }
-            },
-            onmounted: move |event| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(event);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

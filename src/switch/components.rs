@@ -6,8 +6,8 @@ use crate::button::ButtonType;
 use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
     compose::{
-        extract_aria_invalid_and_describedby, merge_global_attributes,
-        resolve_invalid_and_describedby,
+        collect_user_attrs, extract_aria_invalid_and_describedby, merge_props, push_attr_opt,
+        push_event_handler, resolve_invalid_and_describedby,
     },
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
     shared::{ScopeHandle, use_stable_id},
@@ -23,11 +23,11 @@ use super::{
 /// Props for [`SwitchRoot`].
 #[derive(Props, Clone, PartialEq)]
 pub struct SwitchRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub checked: Option<bool>,
@@ -43,13 +43,13 @@ pub struct SwitchRootProps {
     pub read_only: bool,
     #[props(default)]
     pub invalid: Option<bool>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_describedby: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub name: Option<String>,
-    #[props(default = String::from("on"))]
+    #[props(default = String::from("on"), into)]
     pub value: String,
-    #[props(default)]
+    #[props(default, into)]
     pub form: Option<String>,
     #[props(default)]
     pub r#type: ButtonType,
@@ -61,6 +61,8 @@ pub struct SwitchRootProps {
     pub on_blur: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -163,51 +165,6 @@ pub fn SwitchRoot(props: SwitchRootProps) -> Element {
     };
     use_context_provider(|| context);
 
-    let mut on_blur_slot = use_hook(|| CopyValue::new(props.on_blur));
-    on_blur_slot.set(props.on_blur);
-
-    let on_click = {
-        let on_click = props.on_click;
-        let disabled = effective_disabled;
-        let read_only = effective_read_only;
-        move |evt: MouseEvent| {
-            if let Some(ref handler) = on_click {
-                handler.call(evt.clone());
-            }
-            if evt.default_action_enabled() && !disabled && !read_only {
-                let current = checked_ctl.peek();
-                checked_ctl.set(!current);
-            }
-        }
-    };
-
-    let on_key_down = {
-        let on_key_down = props.on_key_down;
-        move |evt: KeyboardEvent| {
-            if let Some(ref handler) = on_key_down {
-                handler.call(evt);
-            }
-            // Per WAI-ARIA 1.2 Switch Pattern, BOTH Enter AND Space toggle the switch.
-            // We do NOT call evt.prevent_default() on Enter or Space so the native <button>
-            // synthesizes Click on Enter (KeyDown) and Space (KeyUp) across Web and Blitz Native.
-        }
-    };
-
-    let on_blur = move |evt: FocusEvent| {
-        if let Some(handler) = on_blur_slot.try_read().ok().and_then(|s| *s) {
-            handler.call(evt);
-        }
-    };
-
-    let on_mounted = {
-        let on_mounted = props.on_mounted;
-        move |evt: MountedEvent| {
-            if let Some(ref handler) = on_mounted {
-                handler.call(evt);
-            }
-        }
-    };
-
     let attrs = SwitchRootAttributes::new(
         Some(root_id.clone()),
         props.r#type.as_str(),
@@ -218,39 +175,69 @@ pub fn SwitchRoot(props: SwitchRootProps) -> Element {
     )
     .with_invalid(effective_invalid)
     .with_aria_describedby(effective_describedby);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        extracted.rest,
+
+    let data_state = attrs.data_state_str();
+    let mut base = Vec::with_capacity(18);
+    push_attr_opt(&mut base, "id", attrs.id);
+    base.push(Attribute::new("type", attrs.r#type, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new("aria-checked", attrs.aria_checked, None, false));
+    push_attr_opt(&mut base, "aria-required", attrs.aria_required);
+    push_attr_opt(&mut base, "aria-readonly", attrs.aria_readonly);
+    push_attr_opt(&mut base, "aria-invalid", attrs.aria_invalid);
+    push_attr_opt(&mut base, "aria-describedby", attrs.aria_describedby);
+    base.push(Attribute::new("data-state", data_state, None, false));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-required", attrs.data_required);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    base.push(Attribute::new(
+        "data-switch-root",
+        attrs.data_switch_root,
+        None,
+        false,
+    ));
+    if attrs.disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    base.push(Attribute::new("value", props.value.clone(), None, false));
+    push_event_handler(
+        &mut base,
+        "onclick",
+        Some(EventHandler::new(move |_evt: MouseEvent| {
+            if !effective_disabled && !effective_read_only {
+                let current = checked_ctl.peek();
+                checked_ctl.set(!current);
+            }
+        })),
     );
 
-    rsx! {
-        button {
-            id: attrs.id.as_deref(),
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            r#type: attrs.r#type,
-            role: attrs.role,
-            "aria-checked": attrs.aria_checked,
-            "aria-required": attrs.aria_required,
-            "aria-readonly": attrs.aria_readonly,
-            "aria-invalid": attrs.aria_invalid,
-            "aria-describedby": attrs.aria_describedby.as_deref(),
-            "data-state": attrs.data_state_str(),
-            "data-disabled": attrs.data_disabled,
-            "data-required": attrs.data_required,
-            "data-readonly": attrs.data_readonly,
-            "data-invalid": attrs.data_invalid,
-            "data-switch-root": attrs.data_switch_root,
-            disabled: attrs.disabled,
-            value: "{props.value}",
-            onclick: on_click,
-            onkeydown: on_key_down,
-            onblur: on_blur,
-            onmounted: on_mounted,
-            ..merged.rest,
-            {props.children}
+    let mut user = collect_user_attrs(props.class, props.style, extracted.rest);
+    if !effective_disabled {
+        push_event_handler(&mut user, "onclick", props.on_click);
+    }
+    // Per WAI-ARIA 1.2 Switch Pattern, BOTH Enter AND Space toggle the switch.
+    // We do NOT call evt.prevent_default() on Enter or Space so the native <button>
+    // synthesizes Click on Enter (KeyDown) and Space (KeyUp) across Web and Blitz Native.
+    push_event_handler(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler(&mut user, "onblur", props.on_blur);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    let root_el = if let Some(child) = props.child {
+        child.call(merged)
+    } else {
+        rsx! {
+            button {
+                ..merged,
+                {props.children}
+            }
         }
+    };
+
+    rsx! {
+        {root_el}
         if should_render_input {
             HiddenFormInput {
                 kind: HiddenInputKind::Checkbox,
@@ -273,14 +260,16 @@ pub use SwitchRoot as Switch;
 /// Props for [`SwitchThumb`].
 #[derive(Props, Clone, PartialEq)]
 pub struct SwitchThumbProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -293,15 +282,6 @@ pub fn SwitchThumb(props: SwitchThumbProps) -> Element {
     let ctx = use_switch_context();
     let thumb_id = props.id.clone().unwrap_or_else(|| ctx.thumb_id().to_string());
 
-    let on_mounted = {
-        let on_mounted = props.on_mounted;
-        move |evt: MountedEvent| {
-            if let Some(ref handler) = on_mounted {
-                handler.call(evt);
-            }
-        }
-    };
-
     let attrs = SwitchThumbAttributes::new(
         Some(thumb_id),
         ctx.is_checked(),
@@ -310,25 +290,34 @@ pub fn SwitchThumb(props: SwitchThumbProps) -> Element {
         ctx.is_read_only(),
     )
     .with_invalid(ctx.is_invalid());
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+
+    let data_state = attrs.data_state_str();
+    let mut base = Vec::with_capacity(8);
+    push_attr_opt(&mut base, "id", attrs.id);
+    base.push(Attribute::new("data-state", data_state, None, false));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-required", attrs.data_required);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    base.push(Attribute::new(
+        "data-switch-thumb",
+        attrs.data_switch_thumb,
+        None,
+        false,
+    ));
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         span {
-            id: attrs.id.as_deref(),
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            "data-state": attrs.data_state_str(),
-            "data-disabled": attrs.data_disabled,
-            "data-required": attrs.data_required,
-            "data-readonly": attrs.data_readonly,
-            "data-invalid": attrs.data_invalid,
-            "data-switch-thumb": attrs.data_switch_thumb,
-            onmounted: on_mounted,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

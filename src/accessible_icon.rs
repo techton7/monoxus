@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::merge_global_attributes;
+use crate::foundation::compose::merge_props;
 use crate::visually_hidden::VisuallyHidden;
 
 pub use ui_sdk::accessible_icon::*;
@@ -8,9 +8,10 @@ pub use ui_sdk::accessible_icon::*;
 /// Properties for the headless `AccessibleIcon` primitive.
 #[derive(Clone, PartialEq, Props)]
 pub struct AccessibleIconProps {
+    #[props(into)]
     pub label: String,
     #[props(default)]
-    pub render_child: Option<Callback<AccessibleIconChildProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -23,27 +24,34 @@ pub struct AccessibleIconProps {
 pub fn AccessibleIcon(props: AccessibleIconProps) -> Element {
     let child_props = AccessibleIconChildProps::new();
 
-    let icon_node = if let Some(render_child) = props.render_child.as_ref() {
-        Some(render_child.call(child_props))
+    let icon_node = if let Some(child) = props.child {
+        let base = vec![
+            Attribute::new("aria-hidden", child_props.aria_hidden, None, false),
+            Attribute::new("focusable", child_props.focusable, None, false),
+        ];
+        let merged = merge_props(base, props.attributes);
+        Some(child.call(merged))
     } else if let Some(children) = props.children {
-        let merged = merge_global_attributes(
-            None,
-            Some(ACCESSIBLE_ICON_FALLBACK_WRAPPER_STYLE),
-            props.attributes,
-        );
+        let base = vec![
+            Attribute::new("aria-hidden", child_props.aria_hidden, None, false),
+            Attribute::new(
+                "style",
+                ACCESSIBLE_ICON_FALLBACK_WRAPPER_STYLE,
+                None,
+                false,
+            ),
+        ];
+        let merged = merge_props(base, props.attributes);
         Some(rsx! {
             span {
-                "aria-hidden": child_props.aria_hidden,
-                class: merged.class,
-                style: merged.style,
-                ..merged.rest,
+                ..merged,
                 {children}
             }
         })
     } else {
         #[cfg(debug_assertions)]
         eprintln!(
-            "monoxus::AccessibleIcon: expected `render_child` or `children`; rendering only the visually hidden label"
+            "monoxus::AccessibleIcon: expected `child` or `children`; rendering only the visually hidden label"
         );
         None
     };

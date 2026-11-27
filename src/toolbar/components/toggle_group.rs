@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt},
     shared::use_stable_id,
 };
 use crate::toolbar::{
@@ -12,17 +12,17 @@ use crate::toolbar::{
 
 #[derive(Clone, PartialEq, Props)]
 pub struct ToolbarToggleGroupProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub r#type: ToolbarToggleGroupMode,
-    #[props(default)]
+    #[props(default, into)]
     pub value: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
@@ -34,10 +34,13 @@ pub struct ToolbarToggleGroupProps {
     pub on_values_change: Option<EventHandler<Vec<String>>>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub role: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -75,24 +78,38 @@ pub fn ToolbarToggleGroup(props: ToolbarToggleGroupProps) -> Element {
     });
 
     let root_attrs = group_runtime.root_attributes(&toolbar_state, None);
-    let resolved_role = props.role.as_deref().unwrap_or(root_attrs.role());
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let resolved_role = props
+        .role
+        .unwrap_or_else(|| root_attrs.role().to_string());
+
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new("id", group_dom_id, None, false));
+    base.push(Attribute::new("role", resolved_role, None, false));
+    base.push(Attribute::new("dir", root_attrs.dir(), None, false));
+    base.push(Attribute::new(
+        "data-orientation",
+        root_attrs.data_orientation(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-disabled", root_attrs.data_disabled());
+    base.push(Attribute::new(
+        "data-toolbar-group",
+        root_attrs.data_toolbar_group(),
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{group_dom_id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            role: "{resolved_role}",
-            dir: root_attrs.dir(),
-            "data-orientation": root_attrs.data_orientation(),
-            "data-disabled": root_attrs.data_disabled(),
-            "data-toolbar-group": root_attrs.data_toolbar_group(),
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

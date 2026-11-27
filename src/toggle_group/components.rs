@@ -6,7 +6,8 @@ use crate::field::try_use_field_context;
 use crate::foundation::{
     browser::focus::use_composite_focus_out,
     compose::{
-        extract_aria_invalid_and_describedby, merge_global_attributes,
+        MergePropsConfig, collect_user_attrs, extract_aria_invalid_and_describedby,
+        merge_props_with_config, push_attr_opt, push_event_handler,
         resolve_invalid_and_describedby,
     },
     keyboard::is_activation_key,
@@ -27,17 +28,17 @@ pub struct ToggleGroupContext {
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToggleGroupRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub r#type: ToggleGroupMode,
-    #[props(default)]
+    #[props(default, into)]
     pub value: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
@@ -51,7 +52,7 @@ pub struct ToggleGroupRootProps {
     pub disabled: bool,
     #[props(default)]
     pub invalid: Option<bool>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_describedby: Option<String>,
     #[props(default)]
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
@@ -63,8 +64,10 @@ pub struct ToggleGroupRootProps {
     pub orientation: ToggleGroupOrientation,
     #[props(default)]
     pub dir: Option<Direction>,
-    #[props(default)]
+    #[props(default, into)]
     pub role: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -121,33 +124,58 @@ pub fn ToggleGroupRoot(props: ToggleGroupRootProps) -> Element {
         .root_attributes(None)
         .with_invalid(effective_invalid)
         .with_aria_describedby(effective_describedby);
-    let resolved_id = props.id.as_deref().unwrap_or(root_attrs.id());
-    runtime.roving.set_root_dom_id(resolved_id);
+    let resolved_id = props
+        .id
+        .clone()
+        .unwrap_or_else(|| root_attrs.id().to_string());
+    runtime.roving.set_root_dom_id(&resolved_id);
     let (handle_focus_in, handle_focus_out) =
-        use_composite_focus_out(vec![resolved_id.to_string()], props.on_focus_out);
-    let resolved_role = props.role.as_deref().unwrap_or(root_attrs.role());
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        extracted.rest,
+        use_composite_focus_out(vec![resolved_id.clone()], props.on_focus_out);
+    let resolved_role = props
+        .role
+        .clone()
+        .unwrap_or_else(|| root_attrs.role().to_string());
+
+    let mut base = Vec::with_capacity(12);
+    base.push(Attribute::new("id", resolved_id, None, false));
+    base.push(Attribute::new("role", resolved_role, None, false));
+    base.push(Attribute::new("dir", root_attrs.dir, None, false));
+    push_attr_opt(&mut base, "aria-invalid", root_attrs.aria_invalid);
+    push_attr_opt(&mut base, "aria-describedby", root_attrs.aria_describedby);
+    base.push(Attribute::new(
+        "data-orientation",
+        root_attrs.data_orientation,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-disabled", root_attrs.data_disabled);
+    push_attr_opt(&mut base, "data-invalid", root_attrs.data_invalid);
+    base.push(Attribute::new(
+        "data-toggle-group-root",
+        root_attrs.data_toggle_group_root,
+        None,
+        false,
+    ));
+    push_event_handler(&mut base, "onfocusin", Some(handle_focus_in));
+    push_event_handler(&mut base, "onfocusout", Some(handle_focus_out));
+
+    let user = collect_user_attrs(props.class, props.style, extracted.rest);
+    let merged = merge_props_with_config(
+        base,
+        user,
+        MergePropsConfig {
+            invariant_attrs: &[],
+            bookkeeping_events: &["onfocusin", "onfocusout"],
+        },
     );
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{resolved_id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            role: "{resolved_role}",
-            dir: "{root_attrs.dir}",
-            "aria-invalid": root_attrs.aria_invalid,
-            "aria-describedby": root_attrs.aria_describedby.as_deref(),
-            "data-orientation": "{root_attrs.data_orientation}",
-            "data-disabled": root_attrs.data_disabled,
-            "data-invalid": root_attrs.data_invalid,
-            "data-toggle-group-root": "{root_attrs.data_toggle_group_root}",
-            onfocusin: handle_focus_in,
-            onfocusout: handle_focus_out,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -155,12 +183,13 @@ pub fn ToggleGroupRoot(props: ToggleGroupRootProps) -> Element {
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToggleGroupItemProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(into)]
     pub value: String,
     #[props(default = false)]
     pub disabled: bool,
@@ -172,6 +201,8 @@ pub struct ToggleGroupItemProps {
     pub on_blur: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -195,104 +226,117 @@ pub fn ToggleGroupItem(props: ToggleGroupItemProps) -> Element {
         RovingItemMeta::new(item_id.clone(), !effective_disabled, is_pressed),
     );
 
-    let mut on_blur_slot = use_hook(|| CopyValue::new(props.on_blur));
-    on_blur_slot.set(props.on_blur);
-
     let item_attrs = runtime
         .item_attributes(&props.value, Some(item_id), props.disabled)
         .with_invalid(runtime.is_invalid());
 
-    let on_click = {
+    let mut base = Vec::with_capacity(18);
+    base.push(Attribute::new("id", item_attrs.id, None, false));
+    base.push(Attribute::new("type", "button", None, false));
+    push_attr_opt(&mut base, "role", item_attrs.role);
+    push_attr_opt(&mut base, "aria-checked", item_attrs.aria_checked);
+    push_attr_opt(&mut base, "aria-pressed", item_attrs.aria_pressed);
+    base.push(Attribute::new("tabindex", item_attrs.tabindex, None, false));
+    if item_attrs.disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    push_attr_opt(&mut base, "data-disabled", item_attrs.data_disabled);
+    push_attr_opt(&mut base, "data-invalid", item_attrs.data_invalid);
+    base.push(Attribute::new(
+        "data-state",
+        item_attrs.data_state.as_str(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-value",
+        item_attrs.data_value,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-orientation",
+        item_attrs.data_orientation,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-toggle-group-item",
+        item_attrs.data_toggle_group_item,
+        None,
+        false,
+    ));
+
+    {
         let runtime = runtime.clone();
         let val = props.value.clone();
-        let consumer_on_click = props.on_click;
-        move |evt: MouseEvent| {
-            if let Some(ref handler) = consumer_on_click {
-                handler.call(evt.clone());
-            }
-            if evt.default_action_enabled() && !effective_disabled {
-                runtime.toggle_item(&val);
-            }
-        }
-    };
-
-    let on_key_down = {
+        push_event_handler(
+            &mut base,
+            "onclick",
+            Some(EventHandler::new(move |_evt: MouseEvent| {
+                if !effective_disabled {
+                    runtime.toggle_item(&val);
+                }
+            })),
+        );
+    }
+    {
         let runtime = runtime.clone();
         let val = props.value.clone();
-        let consumer_on_keydown = props.on_key_down;
-        move |evt: KeyboardEvent| {
-            if let Some(ref handler) = consumer_on_keydown {
-                handler.call(evt.clone());
-            }
-
-            if !evt.default_action_enabled() || effective_disabled {
-                return;
-            }
-
-            if is_activation_key(&evt.key()) {
-                evt.prevent_default();
-                runtime.toggle_item(&val);
-                return;
-            }
-
-            runtime
-                .roving
-                .handle_keydown(Some(&val), &evt, None::<fn(&str)>);
-        }
-    };
-
-    let on_focus = {
+        push_event_handler(
+            &mut base,
+            "onkeydown",
+            Some(EventHandler::new(move |evt: KeyboardEvent| {
+                if effective_disabled {
+                    return;
+                }
+                if is_activation_key(&evt.key()) {
+                    evt.prevent_default();
+                    runtime.toggle_item(&val);
+                    return;
+                }
+                runtime
+                    .roving
+                    .handle_keydown(Some(&val), &evt, None::<fn(&str)>);
+            })),
+        );
+    }
+    {
         let runtime = runtime.clone();
         let val = props.value.clone();
-        move |_| {
-            runtime.roving.handle_item_focus(&val, !effective_disabled);
-        }
-    };
+        push_event_handler(
+            &mut base,
+            "onfocus",
+            Some(EventHandler::new(move |_evt: FocusEvent| {
+                runtime.roving.handle_item_focus(&val, !effective_disabled);
+            })),
+        );
+    }
 
-    let on_blur = move |evt: FocusEvent| {
-        if let Some(handler) = on_blur_slot.try_read().ok().and_then(|s| *s) {
-            handler.call(evt);
-        }
-    };
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    if !effective_disabled {
+        push_event_handler(&mut user, "onclick", props.on_click);
+    }
+    push_event_handler(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler(&mut user, "onblur", props.on_blur);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
 
-    let on_mounted = {
-        let consumer_on_mounted = props.on_mounted;
-        move |evt: MountedEvent| {
-            if let Some(ref handler) = consumer_on_mounted {
-                handler.call(evt);
-            }
-        }
-    };
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
+    let merged = merge_props_with_config(
+        base,
+        user,
+        MergePropsConfig {
+            invariant_attrs: &[],
+            bookkeeping_events: &["onfocus"],
+        },
     );
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         button {
-            id: "{item_attrs.id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            r#type: "button",
-            role: item_attrs.role,
-            "aria-checked": item_attrs.aria_checked,
-            "aria-pressed": item_attrs.aria_pressed,
-            tabindex: item_attrs.tabindex,
-            disabled: item_attrs.disabled,
-            "data-disabled": item_attrs.data_disabled,
-            "data-invalid": item_attrs.data_invalid,
-            "data-state": item_attrs.data_state.as_str(),
-            "data-value": "{item_attrs.data_value}",
-            "data-orientation": "{item_attrs.data_orientation}",
-            "data-toggle-group-item": "{item_attrs.data_toggle_group_item}",
-            onclick: on_click,
-            onkeydown: on_key_down,
-            onfocus: on_focus,
-            onblur: on_blur,
-            onmounted: on_mounted,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

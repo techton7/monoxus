@@ -1,46 +1,36 @@
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     keyboard::is_activation_key,
     roving_focus::{RovingItemMeta, use_roving_focus_item},
 };
 
 use super::super::{
-    attrs::PaginationPrevButtonAttributes,
     relationships::{NEXT_ROVING_KEY, PREV_ROVING_KEY},
     runtime::use_pagination_context,
 };
-use super::next_button::PaginationNextButtonRenderChildProps;
-
-#[derive(Clone)]
-pub struct PaginationPrevButtonRenderChildProps {
-    pub attrs: PaginationPrevButtonAttributes,
-    pub children: Element,
-}
 
 #[derive(Clone, PartialEq, Props)]
 pub struct PaginationPrevButtonProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default)]
-    pub aria_label: Option<String>,
-    #[props(default)]
-    pub as_child: bool,
-    #[props(default)]
-    pub render_child: Option<Callback<PaginationPrevButtonRenderChildProps, Element>>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -48,24 +38,19 @@ pub struct PaginationPrevButtonProps {
 }
 
 pub(crate) enum PaginationStepKind {
-    Prev {
-        render_child: Option<Callback<PaginationPrevButtonRenderChildProps, Element>>,
-    },
-    Next {
-        render_child: Option<Callback<PaginationNextButtonRenderChildProps, Element>>,
-    },
+    Prev,
+    Next,
 }
 
 pub(crate) struct PaginationStepButtonSpec {
     pub id: Option<String>,
     pub disabled: bool,
-    pub aria_label: Option<String>,
-    pub as_child: bool,
     pub on_click: Option<EventHandler<MouseEvent>>,
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     pub class: Option<String>,
     pub style: Option<String>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
     pub kind: PaginationStepKind,
@@ -76,15 +61,12 @@ pub(crate) struct PaginationStepButtonSpec {
 pub(crate) fn render_pagination_step_button(spec: PaginationStepButtonSpec) -> Element {
     let ctx = use_pagination_context();
     let runtime = ctx.runtime;
-    let is_prev = matches!(spec.kind, PaginationStepKind::Prev { .. });
-    let roving_key = if is_prev { PREV_ROVING_KEY } else { NEXT_ROVING_KEY };
-
-    let mut on_click_slot = use_hook(|| CopyValue::new(spec.on_click));
-    on_click_slot.set(spec.on_click);
-    let mut on_key_down_slot = use_hook(|| CopyValue::new(spec.on_key_down));
-    on_key_down_slot.set(spec.on_key_down);
-    let mut on_mounted_slot = use_hook(|| CopyValue::new(spec.on_mounted));
-    on_mounted_slot.set(spec.on_mounted);
+    let is_prev = matches!(spec.kind, PaginationStepKind::Prev);
+    let roving_key = if is_prev {
+        PREV_ROVING_KEY
+    } else {
+        NEXT_ROVING_KEY
+    };
 
     let (
         btn_id,
@@ -94,9 +76,8 @@ pub(crate) fn render_pagination_step_button(spec: PaginationStepButtonSpec) -> E
         data_disabled,
         prev_marker,
         next_marker,
-        early_child,
     ) = match spec.kind {
-        PaginationStepKind::Prev { render_child } => {
+        PaginationStepKind::Prev => {
             let attrs = runtime.prev_button_attributes(spec.id, spec.disabled);
             let effective_disabled = attrs.is_disabled();
             use_roving_focus_item(
@@ -104,18 +85,6 @@ pub(crate) fn render_pagination_step_button(spec: PaginationStepButtonSpec) -> E
                 PREV_ROVING_KEY,
                 RovingItemMeta::new(attrs.id.clone(), !effective_disabled, false),
             );
-            if spec.as_child && render_child.is_none() {
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "monoxus::PaginationPrevButton: as_child requires render_child; rendering the default button"
-                );
-            }
-            if let Some(cb) = render_child.as_ref().filter(|_| spec.as_child) {
-                return cb.call(PaginationPrevButtonRenderChildProps {
-                    attrs,
-                    children: spec.children,
-                });
-            }
             (
                 attrs.id,
                 attrs.r#type,
@@ -124,10 +93,9 @@ pub(crate) fn render_pagination_step_button(spec: PaginationStepButtonSpec) -> E
                 attrs.data_disabled,
                 Some(attrs.data_monoxus_pagination_prev),
                 None,
-                spec.children,
             )
         }
-        PaginationStepKind::Next { render_child } => {
+        PaginationStepKind::Next => {
             let attrs = runtime.next_button_attributes(spec.id, spec.disabled);
             let effective_disabled = attrs.is_disabled();
             use_roving_focus_item(
@@ -135,18 +103,6 @@ pub(crate) fn render_pagination_step_button(spec: PaginationStepButtonSpec) -> E
                 NEXT_ROVING_KEY,
                 RovingItemMeta::new(attrs.id.clone(), !effective_disabled, false),
             );
-            if spec.as_child && render_child.is_none() {
-                #[cfg(debug_assertions)]
-                eprintln!(
-                    "monoxus::PaginationNextButton: as_child requires render_child; rendering the default button"
-                );
-            }
-            if let Some(cb) = render_child.as_ref().filter(|_| spec.as_child) {
-                return cb.call(PaginationNextButtonRenderChildProps {
-                    attrs,
-                    children: spec.children,
-                });
-            }
             (
                 attrs.id,
                 attrs.r#type,
@@ -155,109 +111,117 @@ pub(crate) fn render_pagination_step_button(spec: PaginationStepButtonSpec) -> E
                 attrs.data_disabled,
                 None,
                 Some(attrs.data_monoxus_pagination_next),
-                spec.children,
             )
         }
     };
 
     let effective_disabled = disabled;
+    let runtime_click = runtime.clone();
+    let runtime_key = runtime.clone();
+    let runtime_focus = runtime;
 
-    let on_click = {
-        let runtime = runtime.clone();
-        move |evt: MouseEvent| {
-            if evt
-                .trigger_button()
-                .is_some_and(|b| b != dioxus::html::input_data::MouseButton::Primary)
-            {
-                return;
-            }
-            if effective_disabled {
-                evt.prevent_default();
-                return;
-            }
-            if let Some(handler) = on_click_slot.try_read().ok().and_then(|s| *s) {
-                handler.call(evt.clone());
-            }
-            if evt.default_action_enabled() {
-                if is_prev {
-                    runtime.prev_page();
-                } else {
-                    runtime.next_page();
-                }
-            }
-        }
-    };
-
-    let on_key_down = {
-        let runtime = runtime.clone();
-        move |evt: KeyboardEvent| {
-            if is_activation_key(&evt.key()) {
-                if effective_disabled {
-                    evt.prevent_default();
+    let mut base = Vec::with_capacity(11);
+    base.push(Attribute::new("id", btn_id, None, false));
+    base.push(Attribute::new("type", btn_type, None, false));
+    push_attr_opt(&mut base, "aria-disabled", aria_disabled);
+    if disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    push_attr_opt(&mut base, "data-disabled", data_disabled);
+    push_attr_opt(&mut base, "data-monoxus-pagination-prev", prev_marker);
+    push_attr_opt(&mut base, "data-monoxus-pagination-next", next_marker);
+    base.push(Attribute::new(
+        "onclick",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                let mouse_evt: MouseEvent = evt.map(|d| MouseData::from(d));
+                if mouse_evt
+                    .trigger_button()
+                    .is_some_and(|b| b != dioxus::html::input_data::MouseButton::Primary)
+                {
                     return;
                 }
-                if let Some(handler) = on_key_down_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt.clone());
+                if effective_disabled {
+                    mouse_evt.prevent_default();
+                    return;
                 }
-                if evt.default_action_enabled() {
-                    evt.prevent_default();
+                if mouse_evt.default_action_enabled() {
                     if is_prev {
-                        runtime.prev_page();
+                        runtime_click.prev_page();
                     } else {
-                        runtime.next_page();
+                        runtime_click.next_page();
                     }
                 }
-                return;
-            }
-
-            if let Some(handler) = on_key_down_slot.try_read().ok().and_then(|s| *s) {
-                handler.call(evt.clone());
-            }
-            if evt.default_action_enabled() {
-                runtime
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onkeydown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                let kb_evt: KeyboardEvent = evt.map(|d| KeyboardData::from(d));
+                if is_activation_key(&kb_evt.key()) {
+                    if effective_disabled {
+                        kb_evt.prevent_default();
+                        return;
+                    }
+                    if kb_evt.default_action_enabled() {
+                        kb_evt.prevent_default();
+                        if is_prev {
+                            runtime_key.prev_page();
+                        } else {
+                            runtime_key.next_page();
+                        }
+                    }
+                    return;
+                }
+                if kb_evt.default_action_enabled() {
+                    runtime_key.roving.handle_keydown(
+                        Some(roving_key),
+                        &kb_evt,
+                        None::<fn(&str)>,
+                    );
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onfocus",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                runtime_focus
                     .roving
-                    .handle_keydown(Some(roving_key), &evt, None::<fn(&str)>);
-            }
-        }
-    };
+                    .handle_item_focus(roving_key, !effective_disabled);
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
 
-    let on_focus = {
-        let runtime = runtime.clone();
-        move |_| {
-            runtime
-                .roving
-                .handle_item_focus(roving_key, !effective_disabled);
-        }
-    };
+    let mut user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+    if !effective_disabled {
+        push_event_handler(&mut user, "onclick", spec.on_click);
+    }
+    push_event_handler(&mut user, "onkeydown", spec.on_key_down);
+    push_event_handler(&mut user, "onmounted", spec.on_mounted);
 
-    let merged = merge_global_attributes(
-        spec.class.as_deref(),
-        spec.style.as_deref(),
-        spec.attributes,
-    );
+    let merged = merge_props(base, user);
+
+    if let Some(child) = spec.child {
+        return child.call(merged);
+    }
 
     rsx! {
         button {
-            id: "{btn_id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            r#type: "{btn_type}",
-            aria_label: spec.aria_label.as_deref(),
-            aria_disabled: aria_disabled,
-            disabled: disabled,
-            "data-disabled": data_disabled,
-            "data-monoxus-pagination-prev": prev_marker,
-            "data-monoxus-pagination-next": next_marker,
-            onclick: on_click,
-            onkeydown: on_key_down,
-            onfocus: on_focus,
-            onmounted: move |evt| {
-                if let Some(handler) = on_mounted_slot.try_read().ok().and_then(|s| *s) {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
-            {early_child}
+            ..merged,
+            {spec.children}
         }
     }
 }
@@ -267,17 +231,14 @@ pub fn PaginationPrevButton(props: PaginationPrevButtonProps) -> Element {
     render_pagination_step_button(PaginationStepButtonSpec {
         id: props.id,
         disabled: props.disabled,
-        aria_label: props.aria_label,
-        as_child: props.as_child,
         on_click: props.on_click,
         on_key_down: props.on_key_down,
         on_mounted: props.on_mounted,
         class: props.class,
         style: props.style,
+        child: props.child,
         attributes: props.attributes,
         children: props.children,
-        kind: PaginationStepKind::Prev {
-            render_child: props.render_child,
-        },
+        kind: PaginationStepKind::Prev,
     })
 }

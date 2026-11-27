@@ -8,7 +8,8 @@ use crate::foundation::{
         pointer::{try_release_pointer_capture, try_set_pointer_capture},
     },
     compose::{
-        extract_aria_invalid_and_describedby, join_styles, merge_global_attributes,
+        MergePropsConfig, collect_user_attrs, extract_aria_invalid_and_describedby,
+        merge_props_with_config, push_attr_opt, push_event_handler,
         resolve_invalid_and_describedby,
     },
     form::{HiddenFormInputs, use_form_control_sync_with_epoch},
@@ -27,13 +28,15 @@ use crate::slider::{
 /// Props for [`SliderRoot`].
 #[derive(Clone, PartialEq, Props)]
 pub struct SliderRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default)]
     pub value: Option<SliderValue>,
     #[props(default)]
     pub default_value: Option<SliderValue>,
+    #[props(default)]
     pub on_value_change: Option<EventHandler<SliderValue>>,
+    #[props(default)]
     pub on_value_commit: Option<EventHandler<SliderValue>>,
     #[props(default = 0.0)]
     pub min: f64,
@@ -41,6 +44,7 @@ pub struct SliderRootProps {
     pub max: f64,
     #[props(default = 1.0)]
     pub step: f64,
+    #[props(default)]
     pub steps: Option<Vec<f64>>,
     #[props(default = 0)]
     pub min_steps_between_thumbs: usize,
@@ -48,6 +52,7 @@ pub struct SliderRootProps {
     pub order_policy: SliderThumbOrderPolicy,
     #[props(default)]
     pub thumb_alignment: SliderThumbAlignment,
+    #[props(default)]
     pub track_padding: Option<f64>,
     #[props(default)]
     pub orientation: Orientation,
@@ -61,14 +66,20 @@ pub struct SliderRootProps {
     pub required: bool,
     #[props(default)]
     pub invalid: Option<bool>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_describedby: Option<String>,
     #[props(default)]
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
+    #[props(default, into)]
     pub name: Option<String>,
+    #[props(default, into)]
     pub form: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub children: Element,
+    #[props(default, into)]
     pub class: Option<String>,
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
@@ -179,72 +190,6 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
     let (handle_focus_in, handle_focus_out) =
         use_composite_focus_out(vec![dom_root_id.clone()], props.on_focus_out);
 
-    let on_pointer_down = {
-        let mut runtime = runtime.clone();
-        let dom_root_id = dom_root_id.clone();
-        move |evt: PointerEvent| {
-            let def = runtime.def.peek().clone();
-            if def.disabled {
-                return;
-            }
-            if evt
-                .trigger_button()
-                .is_some_and(|b| b != dioxus::html::input_data::MouseButton::Primary)
-            {
-                return;
-            }
-            evt.prevent_default();
-            let _ = try_set_pointer_capture(&evt.data(), None);
-            if *runtime.thumb_drag_claimed.peek() {
-                runtime.thumb_drag_claimed.set(false);
-                return;
-            }
-            let coords = evt.data().client_coordinates();
-            let rect = get_element_client_rect(&runtime.resolved_track_id())
-                .or_else(|| get_element_client_rect(&dom_root_id))
-                .unwrap_or(Rect2D::new(0.0, 0.0, 100.0, 100.0));
-
-            let current_vals = runtime.values.peek().clone();
-            let fraction = runtime.compute_pointer_fraction(coords.x, coords.y, &rect);
-            let raw_val = percent_to_value(fraction * 100.0, def.min, def.max);
-            let closest_idx = find_closest_thumb(&current_vals, raw_val);
-            runtime.start_drag(closest_idx);
-            runtime.update_pointer_coord(coords.x, coords.y, &rect);
-        }
-    };
-
-    let on_pointer_move = {
-        let mut runtime = runtime.clone();
-        let dom_root_id = dom_root_id.clone();
-        move |evt: PointerEvent| {
-            if !*runtime.is_dragging.peek() {
-                return;
-            }
-            let coords = evt.data().client_coordinates();
-            let rect = get_element_client_rect(&runtime.resolved_track_id())
-                .or_else(|| get_element_client_rect(&dom_root_id))
-                .unwrap_or(Rect2D::new(0.0, 0.0, 100.0, 100.0));
-            runtime.update_pointer_coord(coords.x, coords.y, &rect);
-        }
-    };
-
-    let on_pointer_up = {
-        let mut runtime = runtime.clone();
-        move |evt: PointerEvent| finish_slider_pointer(&evt, &mut runtime)
-    };
-
-    let on_pointer_cancel = {
-        let mut runtime = runtime.clone();
-        move |evt: PointerEvent| finish_slider_pointer(&evt, &mut runtime)
-    };
-
-    let combined_style = join_styles([attrs.style(), props.style.as_deref().unwrap_or("")]);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        extracted.rest,
-    );
-
     let current_vals = runtime.current_values();
     let string_values: Vec<String> = current_vals.iter().map(|v| v.to_string()).collect();
     let is_single = *runtime.is_single.read();
@@ -257,27 +202,132 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
         }
     });
 
-    rsx! {
-        div {
-            id: "{dom_root_id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            dir: "{root_dir}",
-            "data-orientation": "{attrs.data_orientation()}",
-            "data-disabled": attrs.data_disabled(),
-            "data-required": attrs.data_required(),
-            "data-invalid": attrs.data_invalid(),
-            "data-monoxus-slider-root": "",
-            aria_disabled: attrs.aria_disabled(),
-            onpointerdown: on_pointer_down,
-            onpointermove: on_pointer_move,
-            onpointerup: on_pointer_up,
-            onpointercancel: on_pointer_cancel,
-            onfocusin: handle_focus_in,
-            onfocusout: handle_focus_out,
-            ..merged.rest,
-            {props.children}
+    let base_style = attrs.style();
+    let mut base = Vec::with_capacity(16);
+    base.push(Attribute::new("id", dom_root_id.clone(), None, false));
+    if !base_style.is_empty() {
+        base.push(Attribute::new("style", base_style, None, false));
+    }
+    base.push(Attribute::new("dir", root_dir, None, false));
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled());
+    push_attr_opt(&mut base, "data-required", attrs.data_required());
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid());
+    base.push(Attribute::new("data-monoxus-slider-root", "", None, false));
+    push_attr_opt(&mut base, "aria-disabled", attrs.aria_disabled());
+
+    {
+        let mut runtime = runtime.clone();
+        let dom_root_id = dom_root_id.clone();
+        push_event_handler(
+            &mut base,
+            "onpointerdown",
+            Some(EventHandler::new(move |evt: PointerEvent| {
+                let def = runtime.def.peek().clone();
+                if def.disabled {
+                    return;
+                }
+                if evt
+                    .trigger_button()
+                    .is_some_and(|b| b != dioxus::html::input_data::MouseButton::Primary)
+                {
+                    return;
+                }
+                evt.prevent_default();
+                let _ = try_set_pointer_capture(&evt.data(), None);
+                if *runtime.thumb_drag_claimed.peek() {
+                    runtime.thumb_drag_claimed.set(false);
+                    return;
+                }
+                let coords = evt.data().client_coordinates();
+                let rect = get_element_client_rect(&runtime.resolved_track_id())
+                    .or_else(|| get_element_client_rect(&dom_root_id))
+                    .unwrap_or(Rect2D::new(0.0, 0.0, 100.0, 100.0));
+
+                let current_vals = runtime.values.peek().clone();
+                let fraction = runtime.compute_pointer_fraction(coords.x, coords.y, &rect);
+                let raw_val = percent_to_value(fraction * 100.0, def.min, def.max);
+                let closest_idx = find_closest_thumb(&current_vals, raw_val);
+                runtime.start_drag(closest_idx);
+                runtime.update_pointer_coord(coords.x, coords.y, &rect);
+            })),
+        );
+    }
+    {
+        let mut runtime = runtime.clone();
+        let dom_root_id = dom_root_id.clone();
+        push_event_handler(
+            &mut base,
+            "onpointermove",
+            Some(EventHandler::new(move |evt: PointerEvent| {
+                if !*runtime.is_dragging.peek() {
+                    return;
+                }
+                let coords = evt.data().client_coordinates();
+                let rect = get_element_client_rect(&runtime.resolved_track_id())
+                    .or_else(|| get_element_client_rect(&dom_root_id))
+                    .unwrap_or(Rect2D::new(0.0, 0.0, 100.0, 100.0));
+                runtime.update_pointer_coord(coords.x, coords.y, &rect);
+            })),
+        );
+    }
+    {
+        let mut runtime = runtime.clone();
+        push_event_handler(
+            &mut base,
+            "onpointerup",
+            Some(EventHandler::new(move |evt: PointerEvent| {
+                finish_slider_pointer(&evt, &mut runtime);
+            })),
+        );
+    }
+    {
+        let mut runtime = runtime.clone();
+        push_event_handler(
+            &mut base,
+            "onpointercancel",
+            Some(EventHandler::new(move |evt: PointerEvent| {
+                finish_slider_pointer(&evt, &mut runtime);
+            })),
+        );
+    }
+    push_event_handler(&mut base, "onfocusin", Some(handle_focus_in));
+    push_event_handler(&mut base, "onfocusout", Some(handle_focus_out));
+
+    let user = collect_user_attrs(props.class, props.style, extracted.rest);
+    let merged = merge_props_with_config(
+        base,
+        user,
+        MergePropsConfig {
+            invariant_attrs: &[],
+            bookkeeping_events: &[
+                "onpointermove",
+                "onpointerup",
+                "onpointercancel",
+                "onfocusin",
+                "onfocusout",
+            ],
+        },
+    );
+
+    let root_el = if let Some(child) = props.child {
+        child.call(merged)
+    } else {
+        rsx! {
+            div {
+                ..merged,
+                {props.children}
+            }
         }
+    };
+
+    rsx! {
+        {root_el}
         if should_render_inputs {
             HiddenFormInputs {
                 name: input_name,

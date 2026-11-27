@@ -20,7 +20,6 @@ pub use oxidase::WatcherGuard;
 #[derive(Clone)]
 pub struct AvatarContext {
     pub(crate) status_ctl: ControllableSignal<AvatarImageLoadingStatus>,
-    pub(crate) delay_ms: Signal<Option<u64>>,
     pub(crate) relationships: AvatarRelationships,
     pub(crate) image_count: Signal<usize>,
 }

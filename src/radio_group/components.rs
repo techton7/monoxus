@@ -6,7 +6,8 @@ use crate::field::try_use_field_context;
 use crate::foundation::{
     browser::focus::use_composite_focus_out,
     compose::{
-        extract_aria_invalid_and_describedby, join_styles, merge_global_attributes,
+        MergePropsConfig, collect_user_attrs, extract_aria_invalid_and_describedby, merge_props,
+        merge_props_with_config, push_attr_opt, push_event_handler,
         resolve_invalid_and_describedby,
     },
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
@@ -68,15 +69,15 @@ pub fn try_use_radio_group_item_context() -> Option<RadioGroupItemContext> {
 
 #[derive(Props, Clone, PartialEq)]
 pub struct RadioGroupRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub value: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
@@ -88,7 +89,7 @@ pub struct RadioGroupRootProps {
     pub read_only: bool,
     #[props(default)]
     pub invalid: Option<bool>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_describedby: Option<String>,
     #[props(default)]
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
@@ -98,14 +99,16 @@ pub struct RadioGroupRootProps {
     pub dir: Option<Direction>,
     #[props(default = true)]
     pub loop_focus: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub name: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub form: Option<String>,
-    #[props(default = Some(String::from("off")))]
+    #[props(default = Some(String::from("off")), into)]
     pub autocomplete: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub role: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -206,35 +209,52 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
         .root_attributes(None)
         .with_invalid(effective_invalid)
         .with_aria_describedby(effective_describedby);
-    let resolved_role = props.role.as_deref().unwrap_or(root_attrs.role());
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        extracted.rest,
+    let resolved_role = props
+        .role
+        .clone()
+        .unwrap_or_else(|| root_attrs.role().to_string());
+
+    let mut base = Vec::with_capacity(18);
+    base.push(Attribute::new("id", resolved_id, None, false));
+    base.push(Attribute::new("role", resolved_role, None, false));
+    base.push(Attribute::new("dir", root_attrs.dir, None, false));
+    push_attr_opt(&mut base, "aria-orientation", root_attrs.aria_orientation);
+    push_attr_opt(&mut base, "aria-required", root_attrs.aria_required);
+    push_attr_opt(&mut base, "aria-disabled", root_attrs.aria_disabled);
+    push_attr_opt(&mut base, "aria-readonly", root_attrs.aria_readonly);
+    push_attr_opt(&mut base, "aria-invalid", root_attrs.aria_invalid);
+    push_attr_opt(&mut base, "aria-describedby", root_attrs.aria_describedby);
+    push_attr_opt(&mut base, "data-orientation", root_attrs.data_orientation);
+    push_attr_opt(&mut base, "data-disabled", root_attrs.data_disabled);
+    push_attr_opt(&mut base, "data-required", root_attrs.data_required);
+    push_attr_opt(&mut base, "data-readonly", root_attrs.data_readonly);
+    push_attr_opt(&mut base, "data-invalid", root_attrs.data_invalid);
+    base.push(Attribute::new(
+        "data-radio-group-root",
+        root_attrs.data_radio_group_root,
+        None,
+        false,
+    ));
+    push_event_handler(&mut base, "onfocusin", Some(handle_focus_in));
+    push_event_handler(&mut base, "onfocusout", Some(handle_focus_out));
+
+    let user = collect_user_attrs(props.class, props.style, extracted.rest);
+    let merged = merge_props_with_config(
+        base,
+        user,
+        MergePropsConfig {
+            invariant_attrs: &[],
+            bookkeeping_events: &["onfocusin", "onfocusout"],
+        },
     );
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{resolved_id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            role: "{resolved_role}",
-            dir: "{root_attrs.dir}",
-            "aria-orientation": root_attrs.aria_orientation,
-            "aria-required": root_attrs.aria_required,
-            "aria-disabled": root_attrs.aria_disabled,
-            "aria-readonly": root_attrs.aria_readonly,
-            "aria-invalid": root_attrs.aria_invalid,
-            "aria-describedby": root_attrs.aria_describedby.as_deref(),
-            "data-orientation": root_attrs.data_orientation,
-            "data-disabled": root_attrs.data_disabled,
-            "data-required": root_attrs.data_required,
-            "data-readonly": root_attrs.data_readonly,
-            "data-invalid": root_attrs.data_invalid,
-            "data-radio-group-root": "{root_attrs.data_radio_group_root}",
-            onfocusin: handle_focus_in,
-            onfocusout: handle_focus_out,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -244,12 +264,13 @@ pub use RadioGroupRoot as RadioGroup;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct RadioGroupItemProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(into)]
     pub value: String,
     #[props(default = false)]
     pub disabled: bool,
@@ -263,6 +284,8 @@ pub struct RadioGroupItemProps {
     pub on_blur: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -299,87 +322,118 @@ pub fn RadioGroupItem(props: RadioGroupItemProps) -> Element {
         disabled_sig: item_disabled_sig,
     });
 
-    let mut on_blur_slot = use_hook(|| CopyValue::new(props.on_blur));
-    on_blur_slot.set(props.on_blur);
-
     let item_attrs = runtime
         .item_attributes(&props.value, Some(item_id.clone()), props.disabled)
         .with_invalid(runtime.is_invalid());
 
-    let on_click = {
+    let mut base = Vec::with_capacity(18);
+    base.push(Attribute::new("id", item_attrs.id, None, false));
+    base.push(Attribute::new("type", "button", None, false));
+    base.push(Attribute::new("role", item_attrs.role, None, false));
+    base.push(Attribute::new(
+        "aria-checked",
+        item_attrs.aria_checked,
+        None,
+        false,
+    ));
+    base.push(Attribute::new("tabindex", item_attrs.tabindex, None, false));
+    if item_attrs.disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    base.push(Attribute::new(
+        "data-state",
+        item_attrs.data_state.as_str(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-disabled", item_attrs.data_disabled);
+    push_attr_opt(&mut base, "data-readonly", item_attrs.data_readonly);
+    push_attr_opt(&mut base, "data-invalid", item_attrs.data_invalid);
+    push_attr_opt(&mut base, "data-orientation", item_attrs.data_orientation);
+    base.push(Attribute::new(
+        "data-value",
+        item_attrs.data_value,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-radio-group-item",
+        item_attrs.data_radio_group_item,
+        None,
+        false,
+    ));
+
+    {
         let runtime = runtime.clone();
         let val = props.value.clone();
-        let consumer_on_click = props.on_click;
-        move |evt: MouseEvent| {
-            if let Some(ref handler) = consumer_on_click {
-                handler.call(evt.clone());
-            }
-            if evt.default_action_enabled() && !effective_disabled && !effective_read_only {
-                runtime.check_item(&val);
-            }
-        }
-    };
-
-    let on_key_down = {
+        push_event_handler(
+            &mut base,
+            "onclick",
+            Some(EventHandler::new(move |_evt: MouseEvent| {
+                if !effective_disabled && !effective_read_only {
+                    runtime.check_item(&val);
+                }
+            })),
+        );
+    }
+    {
         let runtime = runtime.clone();
         let val = props.value.clone();
-        let consumer_on_keydown = props.on_key_down;
-        move |evt: KeyboardEvent| {
-            if let Some(ref handler) = consumer_on_keydown {
-                handler.call(evt.clone());
-            }
-
-            if !evt.default_action_enabled() || effective_disabled {
-                return;
-            }
-
-            if is_enter_key(&evt.key()) {
-                // RG-5: Enter suppression on RadioGroupItem
-                evt.prevent_default();
-                return;
-            }
-
-            // RG-3, D-5: Directional roving navigation with immediate auto-selection
-            let on_focused = if !effective_read_only {
-                let rt = runtime.clone();
-                Some(move |next_key: &str| {
-                    rt.check_item(next_key);
-                })
-            } else {
-                None
-            };
-
-            runtime.roving.handle_keydown(Some(&val), &evt, on_focused);
-        }
-    };
-
-    let on_focus = {
+        push_event_handler(
+            &mut base,
+            "onkeydown",
+            Some(EventHandler::new(move |evt: KeyboardEvent| {
+                if effective_disabled {
+                    return;
+                }
+                if is_enter_key(&evt.key()) {
+                    // RG-5: Enter suppression on RadioGroupItem
+                    evt.prevent_default();
+                    return;
+                }
+                // RG-3, D-5: Directional roving navigation with immediate auto-selection
+                let on_focused = if !effective_read_only {
+                    let rt = runtime.clone();
+                    Some(move |next_key: &str| {
+                        rt.check_item(next_key);
+                    })
+                } else {
+                    None
+                };
+                runtime.roving.handle_keydown(Some(&val), &evt, on_focused);
+            })),
+        );
+    }
+    {
         let runtime = runtime.clone();
         let val = props.value.clone();
-        let consumer_on_focus = props.on_focus;
-        move |evt: FocusEvent| {
-            if let Some(ref handler) = consumer_on_focus {
-                handler.call(evt);
-            }
-            // RG-4: Tab / pointer / programmatic focus updates current_tab_stop WITHOUT auto-selecting
-            runtime.roving.handle_item_focus(&val, !effective_disabled);
-        }
-    };
+        push_event_handler(
+            &mut base,
+            "onfocus",
+            Some(EventHandler::new(move |_evt: FocusEvent| {
+                // RG-4: Tab / pointer / programmatic focus updates current_tab_stop WITHOUT auto-selecting
+                runtime.roving.handle_item_focus(&val, !effective_disabled);
+            })),
+        );
+    }
 
-    let on_blur = move |evt: FocusEvent| {
-        if let Some(handler) = on_blur_slot.try_read().ok().and_then(|s| *s) {
-            handler.call(evt);
-        }
-    };
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    if !effective_disabled {
+        push_event_handler(&mut user, "onclick", props.on_click);
+    }
+    push_event_handler(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler(&mut user, "onfocus", props.on_focus);
+    push_event_handler(&mut user, "onblur", props.on_blur);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
 
-    let on_mounted = {
-        let consumer_on_mounted = props.on_mounted;
-        move |evt: MountedEvent| {
-            if let Some(ref handler) = consumer_on_mounted {
-                handler.call(evt);
-            }
-        }
-    };
+    let merged = merge_props_with_config(
+        base,
+        user,
+        MergePropsConfig {
+            invariant_attrs: &[],
+            bookkeeping_events: &["onfocus"],
+        },
+    );
 
     let should_render_hidden = (runtime.should_render_hidden_inputs)();
     let reset_epoch = (runtime.reset_epoch)();
@@ -387,37 +441,20 @@ pub fn RadioGroupItem(props: RadioGroupItemProps) -> Element {
     let group_form = (runtime.form)();
     let group_required = (runtime.required)();
     let group_autocomplete = (runtime.autocomplete)();
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+
+    let item_el = if let Some(child) = props.child {
+        child.call(merged)
+    } else {
+        rsx! {
+            button {
+                ..merged,
+                {props.children}
+            }
+        }
+    };
 
     rsx! {
-        button {
-            id: "{item_attrs.id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            r#type: "button",
-            role: "{item_attrs.role}",
-            "aria-checked": "{item_attrs.aria_checked}",
-            tabindex: item_attrs.tabindex,
-            disabled: item_attrs.disabled,
-            "data-state": item_attrs.data_state.as_str(),
-            "data-disabled": item_attrs.data_disabled,
-            "data-readonly": item_attrs.data_readonly,
-            "data-invalid": item_attrs.data_invalid,
-            "data-orientation": item_attrs.data_orientation,
-            "data-value": "{item_attrs.data_value}",
-            "data-radio-group-item": "{item_attrs.data_radio_group_item}",
-            onclick: on_click,
-            onkeydown: on_key_down,
-            onfocus: on_focus,
-            onblur: on_blur,
-            onmounted: on_mounted,
-            ..merged.rest,
-            {props.children}
-        }
+        {item_el}
         if should_render_hidden {
             HiddenFormInput {
                 id: hidden_input_id,
@@ -439,16 +476,18 @@ pub fn RadioGroupItem(props: RadioGroupItemProps) -> Element {
 
 #[derive(Props, Clone, PartialEq)]
 pub struct RadioGroupIndicatorProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -474,34 +513,40 @@ pub fn RadioGroupIndicator(props: RadioGroupIndicatorProps) -> Element {
         return rsx! {};
     }
 
-    let on_mounted = {
-        let consumer_on_mounted = props.on_mounted;
-        move |evt: MountedEvent| {
-            if let Some(ref handler) = consumer_on_mounted {
-                handler.call(evt);
-            }
-        }
-    };
+    let base_style = attrs.style();
+    let mut base = Vec::with_capacity(8);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    if !base_style.is_empty() {
+        base.push(Attribute::new("style", base_style, None, false));
+    }
+    base.push(Attribute::new(
+        "data-state",
+        attrs.data_state.as_str(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    push_attr_opt(&mut base, "data-orientation", attrs.data_orientation);
+    base.push(Attribute::new(
+        "data-radio-group-indicator",
+        attrs.data_radio_group_indicator,
+        None,
+        false,
+    ));
 
-    let combined_style = join_styles([attrs.style(), props.style.as_deref().unwrap_or("")]);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         span {
-            id: "{attrs.id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            "data-state": attrs.data_state.as_str(),
-            "data-disabled": attrs.data_disabled,
-            "data-readonly": attrs.data_readonly,
-            "data-orientation": attrs.data_orientation,
-            "data-radio-group-indicator": "{attrs.data_radio_group_indicator}",
-            onmounted: on_mounted,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

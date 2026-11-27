@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::{join_styles, merge_global_attributes};
+use crate::foundation::compose::{collect_user_attrs, merge_props, push_attr_opt};
 
 use crate::slider::{runtime::use_slider_context, types::SliderLabelPosition};
 
@@ -11,10 +11,15 @@ pub struct SliderThumbLabelProps {
     pub index: usize,
     #[props(default)]
     pub position: Option<SliderLabelPosition>,
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
+    #[props(default)]
     pub children: Option<Element>,
+    #[props(default, into)]
     pub class: Option<String>,
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
@@ -27,25 +32,49 @@ pub fn SliderThumbLabel(props: SliderThumbLabelProps) -> Element {
     let attrs = ctx.0.thumb_label_attrs(props.index, props.position);
     let label_id = props.id.unwrap_or_else(|| attrs.id().to_string());
 
-    let combined_style = join_styles([attrs.style(), props.style.as_deref().unwrap_or("")]);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        props.attributes,
-    );
+    let base_style = attrs.style();
+    let mut base = Vec::with_capacity(8);
+    base.push(Attribute::new("id", label_id, None, false));
+    if !base_style.is_empty() {
+        base.push(Attribute::new("style", base_style, None, false));
+    }
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled());
+    base.push(Attribute::new(
+        "data-value",
+        attrs.data_value().to_string(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-active", attrs.data_active());
+    base.push(Attribute::new(
+        "data-position",
+        attrs.data_position(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-monoxus-slider-thumb-label",
+        "",
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{label_id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            "data-orientation": "{attrs.data_orientation()}",
-            "data-disabled": attrs.data_disabled(),
-            "data-value": "{attrs.data_value()}",
-            "data-active": attrs.data_active(),
-            "data-position": "{attrs.data_position()}",
-            "data-monoxus-slider-thumb-label": "",
-            ..merged.rest,
+            ..merged,
             if let Some(ref children) = props.children {
                 {children}
             } else {

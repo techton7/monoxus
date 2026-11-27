@@ -1,21 +1,23 @@
 use std::borrow::Cow;
 
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
 
 use crate::accordion::attrs::format_accordion_css_vars;
 use crate::collapsible::attrs::merge_disclosure_styles;
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{
+        collect_user_attrs, merge_props, push_attr_opt, push_bool_data_attr, push_event_handler,
+    },
     overlay::use_presence,
     roving_focus::key_to_roving_str,
-    shared::{
-        ScopeHandle, data_disabled_attr, use_direction_context, use_disclosure_size, use_stable_id,
-    },
-    state::sync_signal,
+    shared::{ScopeHandle, use_direction_context, use_disclosure_size, use_stable_id},
+    state::{sync_signal, use_controllable_signal},
 };
 
 use super::{
-    runtime::{AccordionRuntime, use_accordion_runtime_with_control},
+    runtime::{AccordionRuntime, use_accordion_runtime_controllable},
     state::Accordion,
     types::{AccordionDirection, AccordionMode, AccordionOrientation},
 };
@@ -27,11 +29,11 @@ pub struct AccordionContext {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct AccordionRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub mode: AccordionMode,
@@ -43,14 +45,23 @@ pub struct AccordionRootProps {
     pub loop_focus: bool,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default)]
+    #[props(default, into)]
+    pub value: Option<String>,
+    #[props(default, into)]
     pub default_value: Option<String>,
+    #[props(default)]
+    pub values: Option<Vec<String>>,
     #[props(default)]
     pub default_values: Option<Vec<String>>,
     #[props(default)]
-    pub on_value_change: Option<EventHandler<Vec<String>>>,
+    pub on_value_change: Option<EventHandler<String>>,
+    #[props(default)]
+    pub on_values_change: Option<EventHandler<Vec<String>>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -65,9 +76,13 @@ pub fn AccordionRoot(props: AccordionRootProps) -> Element {
         dir,
         loop_focus,
         disabled,
+        value,
         default_value,
+        values,
         default_values,
         on_value_change,
+        on_values_change,
+        child,
         attributes,
         children,
     } = props;
@@ -76,37 +91,68 @@ pub fn AccordionRoot(props: AccordionRootProps) -> Element {
     let scope_id = use_stable_id(id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("accordion").child(scope_id);
 
-    let mut accordion = Accordion::new(scope, mode)
+    let controlled_values = match mode {
+        AccordionMode::Single { .. } => value.map(|v| {
+            if v.is_empty() {
+                Vec::new()
+            } else {
+                vec![v]
+            }
+        }),
+        AccordionMode::Multiple => values,
+    };
+    let default_vals = match mode {
+        AccordionMode::Single { .. } => default_value
+            .filter(|v| !v.is_empty())
+            .map(|v| vec![v])
+            .or(default_values)
+            .unwrap_or_default(),
+        AccordionMode::Multiple => default_values
+            .or_else(|| default_value.filter(|v| !v.is_empty()).map(|v| vec![v]))
+            .unwrap_or_default(),
+    };
+    let active_ctl = use_controllable_signal(controlled_values, default_vals, None);
+
+    let accordion = Accordion::new(scope, mode)
         .with_orientation(orientation)
         .with_direction(accordion_dir)
         .with_loop_focus(loop_focus)
-        .with_disabled(disabled);
+        .with_disabled(disabled)
+        .with_values(active_ctl.peek());
 
-    if let Some(vals) = default_values {
-        accordion = accordion.with_values(vals);
-    } else if let Some(val) = default_value {
-        accordion = accordion.with_value(val);
-    }
-
-    let change_handler = on_value_change.map(|handler| move |vals| handler.call(vals));
-    let runtime = use_accordion_runtime_with_control(accordion, false, change_handler);
+    let runtime = use_accordion_runtime_controllable(
+        accordion,
+        active_ctl,
+        on_value_change,
+        on_values_change,
+    );
 
     use_context_provider(|| AccordionContext {
         runtime: runtime.clone(),
     });
 
     let attrs = runtime.root();
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+    let mut base = Vec::with_capacity(5);
+    base.push(Attribute::new("id", attrs.id().to_string(), None, false));
+    base.push(Attribute::new("dir", resolved_dir.as_str(), None, false));
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation(),
+        None,
+        false,
+    ));
+    push_bool_data_attr(&mut base, "data-disabled", attrs.is_disabled());
+
+    let user = collect_user_attrs(class, style, attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            dir: "{resolved_dir.as_str()}",
-            "data-orientation": "{attrs.data_orientation()}",
-            "data-disabled": data_disabled_attr(attrs.is_disabled()),
-            ..merged.rest,
+            ..merged,
             {children}
         }
     }
@@ -120,15 +166,19 @@ pub struct AccordionItemContext {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct AccordionItemProps {
+    #[props(into)]
     pub value: String,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -139,6 +189,7 @@ pub fn AccordionItem(props: AccordionItemProps) -> Element {
         class,
         style,
         disabled,
+        child,
         attributes,
         children,
     } = props;
@@ -186,18 +237,38 @@ pub fn AccordionItem(props: AccordionItemProps) -> Element {
     });
 
     let attrs = ctx.runtime.item(&value, disabled);
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new("id", attrs.id().to_string(), None, false));
+    base.push(Attribute::new(
+        "data-state",
+        attrs.data_state_str(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-value",
+        attrs.data_value().to_string(),
+        None,
+        false,
+    ));
+    push_bool_data_attr(&mut base, "data-disabled", attrs.is_disabled());
+
+    let user = collect_user_attrs(class, style, attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-state": "{attrs.data_state_str()}",
-            "data-orientation": "{attrs.data_orientation()}",
-            "data-value": "{attrs.data_value()}",
-            "data-disabled": data_disabled_attr(attrs.is_disabled()),
-            ..merged.rest,
+            ..merged,
             {children}
         }
     }
@@ -207,12 +278,15 @@ pub fn AccordionItem(props: AccordionItemProps) -> Element {
 pub struct AccordionHeaderProps {
     #[props(default = 3)]
     pub level: u8,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -222,6 +296,7 @@ pub fn AccordionHeader(props: AccordionHeaderProps) -> Element {
         level,
         class,
         style,
+        child,
         attributes,
         children,
     } = props;
@@ -233,23 +308,45 @@ pub fn AccordionHeader(props: AccordionHeaderProps) -> Element {
     let attrs = ctx
         .runtime
         .header_with_level(&item_value, item_disabled, clamped);
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+
+    let clamped_str = clamped.to_string();
+    let mut base = Vec::with_capacity(9);
+    base.push(Attribute::new("id", attrs.id().to_string(), None, false));
+    base.push(Attribute::new("role", attrs.role(), None, false));
+    base.push(Attribute::new("aria-level", clamped_str.clone(), None, false));
+    base.push(Attribute::new("data-heading-level", clamped_str, None, false));
+    base.push(Attribute::new(
+        "data-state",
+        attrs.data_state_str(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-value",
+        attrs.data_value().to_string(),
+        None,
+        false,
+    ));
+    push_bool_data_attr(&mut base, "data-disabled", attrs.is_disabled());
+
+    let user = collect_user_attrs(class, style, attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     macro_rules! render_heading {
         ($tag:ident) => {
             rsx! {
                 $tag {
-                    id: "{attrs.id()}",
-                    class: merged.class.as_deref(),
-                    style: merged.style.as_deref(),
-                    role: "{attrs.role()}",
-                    "aria-level": "{clamped}",
-                    "data-heading-level": "{clamped}",
-                    "data-state": "{attrs.data_state_str()}",
-                    "data-orientation": "{attrs.data_orientation()}",
-                    "data-value": "{attrs.data_value()}",
-                    "data-disabled": data_disabled_attr(attrs.is_disabled()),
-                    ..merged.rest,
+                    ..merged,
                     {children}
                 }
             }
@@ -268,14 +365,23 @@ pub fn AccordionHeader(props: AccordionHeaderProps) -> Element {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct AccordionTriggerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub on_click: Option<EventHandler<MouseEvent>>,
+    #[props(default)]
+    pub on_key_down: Option<EventHandler<KeyboardEvent>>,
+    #[props(default)]
+    pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -285,6 +391,10 @@ pub fn AccordionTrigger(props: AccordionTriggerProps) -> Element {
         id,
         class,
         style,
+        on_click,
+        on_key_down,
+        on_mounted,
+        child,
         attributes,
         children,
     } = props;
@@ -307,55 +417,123 @@ pub fn AccordionTrigger(props: AccordionTriggerProps) -> Element {
     let focus_runtime = ctx.runtime.clone();
     let key_runtime = ctx.runtime.clone();
 
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
-
-    rsx! {
-        button {
-            r#type: "button",
-            id: "{trig_id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "aria-expanded": "{attrs.aria_expanded()}",
-            "aria-controls": attrs.aria_controls(),
-            "aria-disabled": attrs.aria_disabled(),
-            tabindex: attrs.tabindex(),
-            disabled: attrs.is_disabled(),
-            "data-state": "{attrs.data_state_str()}",
-            "data-orientation": "{attrs.data_orientation()}",
-            "data-value": "{attrs.data_value()}",
-            "data-disabled": data_disabled_attr(attrs.is_disabled()),
-            onfocus: move |_| {
+    let mut base = Vec::with_capacity(14);
+    base.push(Attribute::new("type", "button", None, false));
+    base.push(Attribute::new("id", trig_id, None, false));
+    base.push(Attribute::new(
+        "aria-expanded",
+        attrs.aria_expanded(),
+        None,
+        false,
+    ));
+    push_attr_opt(
+        &mut base,
+        "aria-controls",
+        attrs.aria_controls().map(str::to_owned),
+    );
+    push_attr_opt(&mut base, "aria-disabled", attrs.aria_disabled());
+    base.push(Attribute::new("tabindex", attrs.tabindex().to_string(), None, false));
+    if attrs.is_disabled() {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    base.push(Attribute::new(
+        "data-state",
+        attrs.data_state_str(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-value",
+        attrs.data_value().to_string(),
+        None,
+        false,
+    ));
+    push_bool_data_attr(&mut base, "data-disabled", attrs.is_disabled());
+    base.push(Attribute::new(
+        "onfocus",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
                 if !(*item_ctx.disabled.peek() || focus_runtime.is_disabled_peek()) {
                     let focus_val = item_ctx.value.peek().clone();
                     focus_runtime
                         .roving()
                         .set_current_tab_stop(Some(focus_val));
                 }
-            },
-            onclick: move |_| {
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onclick",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
                 if *item_ctx.disabled.peek() || click_runtime.is_disabled_peek() {
+                    return;
+                }
+                if !evt.default_action_enabled() {
                     return;
                 }
                 let click_val = item_ctx.value.peek().clone();
                 click_runtime.toggle_item(&click_val);
-            },
-            onkeydown: move |evt: KeyboardEvent| {
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onkeydown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
                 if *item_ctx.disabled.peek() || key_runtime.is_disabled_peek() {
                     return;
                 }
-                let event_key = evt.key();
+                let kb_evt: KeyboardEvent = evt.map(|d| KeyboardData::from(d));
+                if !kb_evt.default_action_enabled() {
+                    return;
+                }
+                let event_key = kb_evt.key();
                 if let Some(key_str) = key_to_roving_str(&event_key)
                     && Accordion::is_navigation_key_for_orientation(
                         key_runtime.orientation_peek(),
                         key_str,
                     )
                 {
-                    evt.prevent_default();
-                    evt.stop_propagation();
+                    kb_evt.prevent_default();
+                    kb_evt.stop_propagation();
                     key_runtime.navigate_key(key_str);
                 }
-            },
-            ..merged.rest,
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+
+    let mut user = collect_user_attrs(class, style, attributes);
+    if !attrs.is_disabled() {
+        push_event_handler(&mut user, "onclick", on_click);
+    }
+    push_event_handler(&mut user, "onkeydown", on_key_down);
+    push_event_handler(&mut user, "onmounted", on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
+
+    rsx! {
+        button {
+            ..merged,
             {children}
         }
     }
@@ -363,14 +541,17 @@ pub fn AccordionTrigger(props: AccordionTriggerProps) -> Element {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct AccordionContentProps {
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -380,6 +561,7 @@ pub fn AccordionContent(props: AccordionContentProps) -> Element {
         class,
         style,
         force_mount,
+        child,
         attributes,
         children,
     } = props;
@@ -427,32 +609,87 @@ pub fn AccordionContent(props: AccordionContentProps) -> Element {
         }
     });
 
-    let hidden = (!(is_open || is_present)).then_some(true);
+    let is_hidden = !(is_open || is_present);
     let css_vars = disclosure.size().map(format_accordion_css_vars);
-    let effective_style = merge_disclosure_styles(
-        style.as_deref(),
-        disclosure.guard_style(),
-        css_vars.as_deref(),
-    );
+    let base_style =
+        merge_disclosure_styles(None, disclosure.guard_style(), css_vars.as_deref());
 
-    let merged = merge_global_attributes(class.as_deref(), effective_style.as_deref(), attributes);
+    let mut base = Vec::with_capacity(12);
+    base.push(Attribute::new("id", attrs.id().to_string(), None, false));
+    push_attr_opt(&mut base, "style", base_style);
+    base.push(Attribute::new("role", attrs.role(), None, false));
+    base.push(Attribute::new(
+        "aria-labelledby",
+        attrs.aria_labelledby().to_string(),
+        None,
+        false,
+    ));
+    if is_hidden {
+        base.push(Attribute::new("hidden", true, None, false));
+    }
+    base.push(Attribute::new(
+        "data-state",
+        attrs.data_state_str(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-value",
+        attrs.data_value().to_string(),
+        None,
+        false,
+    ));
+    push_bool_data_attr(&mut base, "data-disabled", attrs.is_disabled());
+    base.push(Attribute::new(
+        "onmounted",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                disclosure.on_mounted();
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "ontransitionend",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                disclosure.on_motion_end();
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onanimationend",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                disclosure.on_motion_end();
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(class, style, attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            role: "{attrs.role()}",
-            "aria-labelledby": "{attrs.aria_labelledby()}",
-            hidden: hidden,
-            "data-state": "{attrs.data_state_str()}",
-            "data-orientation": "{attrs.data_orientation()}",
-            "data-value": "{attrs.data_value()}",
-            "data-disabled": data_disabled_attr(attrs.is_disabled()),
-            onmounted: move |_| disclosure.on_mounted(),
-            ontransitionend: move |_| disclosure.on_motion_end(),
-            onanimationend: move |_| disclosure.on_motion_end(),
-            ..merged.rest,
+            ..merged,
             {should_render.then_some(children)}
         }
     }

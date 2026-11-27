@@ -1,6 +1,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
 use dioxus::html::geometry::{ClientPoint, WheelDelta};
 use dioxus::prelude::*;
 
@@ -10,7 +12,7 @@ use crate::foundation::{
         get_element_scroll_metrics, restore_body_user_select, set_body_user_select_none,
         set_element_scroll_position, start_resize_monitor,
     },
-    compose::{join_styles, merge_global_attributes},
+    compose::{collect_user_attrs, merge_props},
     overlay::use_presence,
     shared::{Direction, Orientation},
     state::sync_signal,
@@ -34,14 +36,19 @@ use super::{
 
 #[derive(Clone, PartialEq, Props)]
 pub struct ScrollAreaScrollbarProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     pub orientation: Orientation,
     #[props(default = false)]
     pub force_mount: bool,
+    #[props(default)]
     pub children: Element,
+    #[props(default, into)]
     pub class: Option<String>,
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
 }
@@ -381,193 +388,306 @@ pub fn ScrollAreaScrollbar(props: ScrollAreaScrollbarProps) -> Element {
             },
         ),
     };
-    let combined_style = join_styles([base_style.as_str(), props.style.as_deref().unwrap_or("")]);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        props.attributes,
-    );
-
     let scrollbar_attrs =
         ScrollAreaScrollbarAttributes::new(&scrollbar_id, orientation, &viewport_id)
             .with_visible(is_visible);
 
-    let onpointerenter = {
-        let mut runtime = ctx.runtime;
-        let type_sig = ctx.r#type;
-        move |_| {
-            if type_sig
-                .try_peek()
-                .is_ok_and(|t| *t == ScrollAreaType::Scroll)
-            {
-                let next = transition_scroll_state(
-                    runtime.scroll_state(),
-                    ScrollAreaStateEvent::PointerEnter,
-                );
-                runtime.scroll_state.set(next);
-            }
-        }
-    };
+    let mut base = Vec::with_capacity(18);
+    base.push(Attribute::new(
+        "id",
+        scrollbar_attrs.id().to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new("style", base_style, None, false));
+    base.push(Attribute::new("role", scrollbar_attrs.role(), None, false));
+    base.push(Attribute::new(
+        "aria-orientation",
+        scrollbar_attrs.aria_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-controls",
+        scrollbar_attrs.aria_controls().to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-orientation",
+        scrollbar_attrs.data_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-state",
+        scrollbar_attrs.data_state(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-monoxus-scroll-area-scrollbar",
+        "",
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerenter",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new({
+                let mut runtime = ctx.runtime;
+                let type_sig = ctx.r#type;
+                move |_: Event<PlatformEventData>| {
+                    if type_sig
+                        .try_peek()
+                        .is_ok_and(|t| *t == ScrollAreaType::Scroll)
+                    {
+                        let next = transition_scroll_state(
+                            runtime.scroll_state(),
+                            ScrollAreaStateEvent::PointerEnter,
+                        );
+                        runtime.scroll_state.set(next);
+                    }
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerleave",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new({
+                let mut runtime = ctx.runtime;
+                let type_sig = ctx.r#type;
+                move |_: Event<PlatformEventData>| {
+                    if type_sig
+                        .try_peek()
+                        .is_ok_and(|t| *t == ScrollAreaType::Scroll)
+                    {
+                        let next = transition_scroll_state(
+                            runtime.scroll_state(),
+                            ScrollAreaStateEvent::PointerLeave,
+                        );
+                        runtime.scroll_state.set(next);
+                    }
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerdown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new({
+                let mounted_el = Rc::clone(&mounted_el);
+                let captured_pid = Rc::clone(&captured_pid);
+                let mut is_dragging = is_dragging;
+                let mut pointer_offset = pointer_offset;
+                let mut thumb_pointer_active = thumb_pointer_active;
+                let runtime = ctx.runtime;
+                let sid = scrollbar_id.clone();
+                let rels = ctx.relationships;
+                let dir_sig = ctx.dir;
 
-    let onpointerleave = {
-        let mut runtime = ctx.runtime;
-        let type_sig = ctx.r#type;
-        move |_| {
-            if type_sig
-                .try_peek()
-                .is_ok_and(|t| *t == ScrollAreaType::Scroll)
-            {
-                let next = transition_scroll_state(
-                    runtime.scroll_state(),
-                    ScrollAreaStateEvent::PointerLeave,
-                );
-                runtime.scroll_state.set(next);
-            }
-        }
-    };
+                move |evt: Event<PlatformEventData>| {
+                    let evt: PointerEvent = evt.map(|d| PointerData::from(d));
+                    if evt.pointer_type() == "mouse"
+                        && evt
+                            .trigger_button()
+                            .is_some_and(|b| b != dioxus::html::input_data::MouseButton::Primary)
+                    {
+                        return;
+                    }
+                    let pid = try_set_pointer_capture(&evt.data(), mounted_el.borrow().as_ref());
+                    *captured_pid.borrow_mut() = pid;
+                    set_body_user_select_none();
+                    is_dragging.set(true);
 
-    let onpointerdown = {
-        let mounted_el = Rc::clone(&mounted_el);
-        let captured_pid = Rc::clone(&captured_pid);
-        let mut is_dragging = is_dragging;
-        let mut pointer_offset = pointer_offset;
-        let mut thumb_pointer_active = thumb_pointer_active;
-        let runtime = ctx.runtime;
-        let sid = scrollbar_id.clone();
-        let rels = ctx.relationships;
-        let dir_sig = ctx.dir;
+                    // If the thumb itself was clicked, do not jump track
+                    if *thumb_pointer_active.peek() {
+                        thumb_pointer_active.set(false);
+                        return;
+                    }
 
-        move |evt: PointerEvent| {
-            if evt.pointer_type() == "mouse"
-                && evt
-                    .trigger_button()
-                    .is_some_and(|b| b != dioxus::html::input_data::MouseButton::Primary)
-            {
-                return;
-            }
-            let pid = try_set_pointer_capture(&evt.data(), mounted_el.borrow().as_ref());
-            *captured_pid.borrow_mut() = pid;
-            set_body_user_select_none();
-            is_dragging.set(true);
+                    pointer_offset.set(0.0);
+                    let vid = rels.peek().viewport_id().to_string();
+                    let dir = dir_sig.try_peek().map(|d| *d).unwrap_or(Direction::Ltr);
+                    apply_pointer_scroll(
+                        &vid,
+                        &sid,
+                        evt.client_coordinates(),
+                        0.0,
+                        orientation,
+                        dir,
+                        sizes,
+                        runtime,
+                    );
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointermove",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new({
+                let sid = scrollbar_id;
+                let rels = ctx.relationships;
+                let runtime = ctx.runtime;
+                let dir_sig = ctx.dir;
 
-            // If the thumb itself was clicked, do not jump track
-            if *thumb_pointer_active.peek() {
-                thumb_pointer_active.set(false);
-                return;
-            }
+                move |evt: Event<PlatformEventData>| {
+                    if !*is_dragging.peek() {
+                        return;
+                    }
+                    let evt: PointerEvent = evt.map(|d| PointerData::from(d));
+                    let vid = rels.peek().viewport_id().to_string();
+                    let offset = *pointer_offset.peek();
+                    let dir = dir_sig.try_peek().map(|d| *d).unwrap_or(Direction::Ltr);
+                    apply_pointer_scroll(
+                        &vid,
+                        &sid,
+                        evt.client_coordinates(),
+                        offset,
+                        orientation,
+                        dir,
+                        sizes,
+                        runtime,
+                    );
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerup",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new({
+                let mounted_el = Rc::clone(&mounted_el);
+                let captured_pid = Rc::clone(&captured_pid);
+                move |evt: Event<PlatformEventData>| {
+                    let evt: PointerEvent = evt.map(|d| PointerData::from(d));
+                    finish_pointer_drag(
+                        &evt,
+                        &mounted_el,
+                        &captured_pid,
+                        is_dragging,
+                        thumb_pointer_active,
+                    );
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onlostpointercapture",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new({
+                let mounted_el = Rc::clone(&mounted_el);
+                let captured_pid = Rc::clone(&captured_pid);
+                move |evt: Event<PlatformEventData>| {
+                    let evt: PointerEvent = evt.map(|d| PointerData::from(d));
+                    finish_pointer_drag(
+                        &evt,
+                        &mounted_el,
+                        &captured_pid,
+                        is_dragging,
+                        thumb_pointer_active,
+                    );
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onwheel",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new({
+                let rels = ctx.relationships;
+                let mut runtime = ctx.runtime;
+                move |evt: Event<PlatformEventData>| {
+                    let evt: WheelEvent = evt.map(|d| WheelData::from(d));
+                    let vid = rels.peek().viewport_id().to_string();
+                    let delta = evt.delta();
+                    let (dx, dy) = match delta {
+                        WheelDelta::Pixels(p) => (p.x, p.y),
+                        WheelDelta::Lines(l) => (l.x * 16.0, l.y * 16.0),
+                        WheelDelta::Pages(pg) => (pg.x * 100.0, pg.y * 100.0),
+                    };
+                    let within_bounds = forward_wheel_to_viewport(&vid, dx, dy, orientation);
+                    if let Some(m) = get_element_scroll_metrics(&vid) {
+                        runtime.viewport_metrics.set(Some(m));
+                    }
+                    if within_bounds {
+                        evt.prevent_default();
+                    }
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onmounted",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new({
+                let mounted_el = Rc::clone(&mounted_el);
+                move |evt: Event<PlatformEventData>| {
+                    let evt: MountedEvent = evt.map(|d| MountedData::from(d));
+                    *mounted_el.borrow_mut() = Some(oxidase::Element::from_mounted(evt.data()));
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "ontransitionend",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                presence.finish_active_exit();
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onanimationend",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                presence.finish_active_exit();
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
 
-            pointer_offset.set(0.0);
-            let vid = rels.peek().viewport_id().to_string();
-            let dir = dir_sig.try_peek().map(|d| *d).unwrap_or(Direction::Ltr);
-            apply_pointer_scroll(
-                &vid,
-                &sid,
-                evt.client_coordinates(),
-                0.0,
-                orientation,
-                dir,
-                sizes,
-                runtime,
-            );
-        }
-    };
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
 
-    let onpointermove = {
-        let sid = scrollbar_id.clone();
-        let rels = ctx.relationships;
-        let runtime = ctx.runtime;
-        let dir_sig = ctx.dir;
-
-        move |evt: PointerEvent| {
-            if !*is_dragging.peek() {
-                return;
-            }
-            let vid = rels.peek().viewport_id().to_string();
-            let offset = *pointer_offset.peek();
-            let dir = dir_sig.try_peek().map(|d| *d).unwrap_or(Direction::Ltr);
-            apply_pointer_scroll(
-                &vid,
-                &sid,
-                evt.client_coordinates(),
-                offset,
-                orientation,
-                dir,
-                sizes,
-                runtime,
-            );
-        }
-    };
-
-    let onpointerup = {
-        let mounted_el = Rc::clone(&mounted_el);
-        let captured_pid = Rc::clone(&captured_pid);
-        move |evt: PointerEvent| {
-            finish_pointer_drag(&evt, &mounted_el, &captured_pid, is_dragging, thumb_pointer_active);
-        }
-    };
-
-    let onlostpointercapture = {
-        let mounted_el = Rc::clone(&mounted_el);
-        let captured_pid = Rc::clone(&captured_pid);
-        move |evt: PointerEvent| {
-            finish_pointer_drag(&evt, &mounted_el, &captured_pid, is_dragging, thumb_pointer_active);
-        }
-    };
-
-    let onwheel = {
-        let rels = ctx.relationships;
-        let mut runtime = ctx.runtime;
-        move |evt: WheelEvent| {
-            let vid = rels.peek().viewport_id().to_string();
-            let delta = evt.delta();
-            let (dx, dy) = match delta {
-                WheelDelta::Pixels(p) => (p.x, p.y),
-                WheelDelta::Lines(l) => (l.x * 16.0, l.y * 16.0),
-                WheelDelta::Pages(pg) => (pg.x * 100.0, pg.y * 100.0),
-            };
-            let within_bounds = forward_wheel_to_viewport(&vid, dx, dy, orientation);
-            if let Some(m) = get_element_scroll_metrics(&vid) {
-                runtime.viewport_metrics.set(Some(m));
-            }
-            if within_bounds {
-                evt.prevent_default();
-            }
-        }
-    };
-
-    let onmounted = {
-        let mounted_el = Rc::clone(&mounted_el);
-        move |evt: MountedEvent| {
-            *mounted_el.borrow_mut() = Some(oxidase::Element::from_mounted(evt.data()));
-        }
-    };
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{scrollbar_attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            role: "{scrollbar_attrs.role()}",
-            "aria-orientation": "{scrollbar_attrs.aria_orientation()}",
-            "aria-controls": "{scrollbar_attrs.aria_controls()}",
-            "data-orientation": "{scrollbar_attrs.data_orientation()}",
-            "data-state": "{scrollbar_attrs.data_state()}",
-            "data-monoxus-scroll-area-scrollbar": "",
-            onpointerenter: onpointerenter,
-            onpointerleave: onpointerleave,
-            onpointerdown: onpointerdown,
-            onpointermove: onpointermove,
-            onpointerup: onpointerup,
-            onlostpointercapture: onlostpointercapture,
-            onwheel: onwheel,
-            onmounted: onmounted,
-            ontransitionend: move |_| {
-                presence.finish_active_exit();
-            },
-            onanimationend: move |_| {
-                presence.finish_active_exit();
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

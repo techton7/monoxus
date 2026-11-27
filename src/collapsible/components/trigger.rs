@@ -1,24 +1,31 @@
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
 
 use crate::collapsible::components::CollapsibleContext;
-use crate::foundation::{compose::merge_global_attributes, shared::data_disabled_attr};
+use crate::foundation::compose::{
+    collect_user_attrs, merge_props, push_attr_opt, push_bool_data_attr, push_event_handler,
+};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct CollapsibleTriggerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_controls: Option<String>,
     #[props(default)]
-    pub onclick: Option<EventHandler<MouseEvent>>,
+    pub on_click: Option<EventHandler<MouseEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -40,36 +47,54 @@ pub fn CollapsibleTrigger(props: CollapsibleTriggerProps) -> Element {
     let aria_controls = should_emit_controls.then_some(target_id);
 
     let click_runtime = runtime.clone();
-    let onclick_handler = props.onclick;
 
-    let on_click = move |evt: MouseEvent| {
-        if let Some(h) = onclick_handler {
-            h.call(evt);
-        }
-        if !is_disabled {
-            click_runtime.toggle();
-        }
-    };
+    let mut base = Vec::with_capacity(9);
+    base.push(Attribute::new("id", trigger_id, None, false));
+    base.push(Attribute::new("type", "button", None, false));
+    if is_disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    base.push(Attribute::new("aria-expanded", aria_expanded, None, false));
+    push_attr_opt(&mut base, "aria-controls", aria_controls);
+    base.push(Attribute::new(
+        "data-state",
+        trigger.data_state_str(),
+        None,
+        false,
+    ));
+    push_bool_data_attr(&mut base, "data-disabled", is_disabled);
+    base.push(Attribute::new(
+        "onclick",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                if is_disabled {
+                    evt.prevent_default();
+                    return;
+                }
+                if evt.default_action_enabled() {
+                    click_runtime.toggle();
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    if !is_disabled {
+        push_event_handler(&mut user, "onclick", props.on_click);
+    }
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         button {
-            id: "{trigger_id}",
-            r#type: "button",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            disabled: is_disabled,
-            aria_expanded: "{aria_expanded}",
-            aria_controls: aria_controls.as_deref(),
-            "data-state": trigger.data_state_str(),
-            "data-disabled": data_disabled_attr(is_disabled),
-            onclick: on_click,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

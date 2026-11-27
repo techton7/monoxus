@@ -1,6 +1,8 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
 
 use crate::foundation::{
@@ -8,7 +10,7 @@ use crate::foundation::{
         ElementSize, ResizeObserverBox, WatcherGuard, get_element_scroll_metrics,
         start_element_scroll_monitor, start_resize_monitor,
     },
-    compose::{join_styles, merge_global_attributes},
+    compose::{collect_user_attrs, merge_props, push_event_handler},
     state::sync_signal,
 };
 
@@ -23,13 +25,24 @@ use super::{
 
 #[derive(Clone, PartialEq, Props)]
 pub struct ScrollAreaViewportProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
+    #[props(default, into)]
     pub nonce: Option<String>,
+    #[props(default)]
     pub disable_implicit_content_element: Option<bool>,
+    #[props(default)]
+    pub on_scroll: Option<EventHandler<ScrollEvent>>,
+    #[props(default)]
+    pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
     pub children: Element,
+    #[props(default, into)]
     pub class: Option<String>,
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
 }
@@ -52,12 +65,6 @@ pub fn ScrollAreaViewport(props: ScrollAreaViewportProps) -> Element {
         "scrollbar-width: none; -ms-overflow-style: none; -webkit-overflow-scrolling: touch; display: flex; flex-direction: column; align-items: stretch; overflow-x: {}; overflow-y: {};",
         if scrollbar_x_enabled { "scroll" } else { "hidden" },
         if scrollbar_y_enabled { "scroll" } else { "hidden" },
-    );
-    let combined_style = join_styles([base_style.as_str(), props.style.as_deref().unwrap_or("")]);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        props.attributes,
     );
 
     let viewport_attrs = ScrollAreaViewportAttributes::new(&viewport_id);
@@ -200,20 +207,68 @@ pub fn ScrollAreaViewport(props: ScrollAreaViewportProps) -> Element {
         }
     };
 
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new(
+        "id",
+        viewport_attrs.id().to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new("style", base_style, None, false));
+    base.push(Attribute::new(
+        "tabindex",
+        viewport_attrs.tabindex().to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-monoxus-scroll-area-viewport",
+        "",
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-radix-scroll-area-viewport",
+        "",
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onmounted",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
+                mounted_rev += 1;
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onscroll", props.on_scroll);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        let rendered_child = child.call(merged);
+        return rsx! {
+            style {
+                nonce: props.nonce.as_deref(),
+                "{css_rules}"
+            }
+            {rendered_child}
+        };
+    }
+
     rsx! {
         style {
             nonce: props.nonce.as_deref(),
             "{css_rules}"
         }
         div {
-            id: "{viewport_attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            tabindex: "{viewport_attrs.tabindex()}",
-            "data-monoxus-scroll-area-viewport": "",
-            "data-radix-scroll-area-viewport": "",
-            onmounted: move |_| mounted_rev += 1,
-            ..merged.rest,
+            ..merged,
             {children}
         }
     }
@@ -221,11 +276,16 @@ pub fn ScrollAreaViewport(props: ScrollAreaViewportProps) -> Element {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct ScrollAreaContentProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
+    #[props(default)]
     pub children: Element,
+    #[props(default, into)]
     pub class: Option<String>,
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
 }
@@ -254,12 +314,6 @@ pub fn ScrollAreaContent(props: ScrollAreaContentProps) -> Element {
     } else {
         "display: flex; flex-direction: column; flex-grow: 1;"
     };
-    let combined_style = join_styles([base_style, props.style.as_deref().unwrap_or("")]);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        props.attributes,
-    );
 
     let content_attrs = ScrollAreaContentAttributes::new(&content_id);
     let resize_guard_cell = use_hook(|| Rc::new(std::cell::RefCell::new(WatcherGuard::noop())));
@@ -303,14 +357,32 @@ pub fn ScrollAreaContent(props: ScrollAreaContentProps) -> Element {
         }
     });
 
+    let mut base = Vec::with_capacity(4);
+    base.push(Attribute::new(
+        "id",
+        content_attrs.id().to_string(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new("style", base_style, None, false));
+    base.push(Attribute::new("role", content_attrs.role(), None, false));
+    base.push(Attribute::new(
+        "data-monoxus-scroll-area-content",
+        "",
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
+
     rsx! {
         div {
-            id: "{content_attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            role: "{content_attrs.role()}",
-            "data-monoxus-scroll-area-content": "",
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

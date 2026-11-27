@@ -2,15 +2,10 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-pub use crate::foundation::compose::{
-    compose_part_event_handlers, compose_part_refs, project_as_child,
-};
-pub use crate::foundation::state::{ControllableStateProps, use_controllable_state};
-
 use crate::foundation::{
     browser::focus_element_by_id,
     roving_focus::{RovingFocusRuntime, RovingItemMeta, RovingModifiers, use_roving_focus_group},
-    state::sync_signal,
+    state::{ControllableSignal, sync_signal},
 };
 
 use super::{
@@ -32,7 +27,10 @@ pub struct AccordionRuntimeState {
 #[derive(Clone)]
 pub struct AccordionRuntime {
     accordion: Signal<Accordion>,
+    active_ctl: Option<ControllableSignal<Vec<String>>>,
     on_value_change: CopyValue<Option<AccordionValueChangeHandler>>,
+    on_single_change: CopyValue<Option<EventHandler<String>>>,
+    on_multiple_change: CopyValue<Option<EventHandler<Vec<String>>>>,
     state: AccordionRuntimeState,
 }
 
@@ -59,6 +57,10 @@ where
     let mut on_value_change_slot: CopyValue<Option<AccordionValueChangeHandler>> =
         use_hook(|| CopyValue::new(None));
     on_value_change_slot.set(synced_value_change);
+    let on_single_change_slot: CopyValue<Option<EventHandler<String>>> =
+        use_hook(|| CopyValue::new(None));
+    let on_multiple_change_slot: CopyValue<Option<EventHandler<Vec<String>>>> =
+        use_hook(|| CopyValue::new(None));
 
     let initial_active = accordion.active_values().to_vec();
     let initial_tab_stop = (!accordion.current_tab_stop().is_empty())
@@ -99,7 +101,53 @@ where
 
     AccordionRuntime {
         accordion: accordion_sig,
+        active_ctl: None,
         on_value_change: on_value_change_slot,
+        on_single_change: on_single_change_slot,
+        on_multiple_change: on_multiple_change_slot,
+        state,
+    }
+}
+
+pub(crate) fn use_accordion_runtime_controllable(
+    accordion: Accordion,
+    active_ctl: ControllableSignal<Vec<String>>,
+    on_value_change: Option<EventHandler<String>>,
+    on_values_change: Option<EventHandler<Vec<String>>>,
+) -> AccordionRuntime {
+    let on_value_change_slot: CopyValue<Option<AccordionValueChangeHandler>> =
+        use_hook(|| CopyValue::new(None));
+    let mut on_single_change_slot: CopyValue<Option<EventHandler<String>>> =
+        use_hook(|| CopyValue::new(None));
+    on_single_change_slot.set(on_value_change);
+    let mut on_multiple_change_slot: CopyValue<Option<EventHandler<Vec<String>>>> =
+        use_hook(|| CopyValue::new(None));
+    on_multiple_change_slot.set(on_values_change);
+
+    let initial_tab_stop = (!accordion.current_tab_stop().is_empty())
+        .then(|| accordion.current_tab_stop().to_owned());
+
+    let roving = use_roving_focus_group(
+        accordion.roving_config(),
+        initial_tab_stop,
+        accordion.relationships().root_id(),
+    );
+
+    let state = AccordionRuntimeState {
+        active_values: active_ctl.signal(),
+        roving,
+        mounted_content_ids: use_signal(Vec::new),
+    };
+
+    let mut accordion_sig = use_signal(|| accordion.clone());
+    sync_signal(&mut accordion_sig, accordion);
+
+    AccordionRuntime {
+        accordion: accordion_sig,
+        active_ctl: Some(active_ctl),
+        on_value_change: on_value_change_slot,
+        on_single_change: on_single_change_slot,
+        on_multiple_change: on_multiple_change_slot,
         state,
     }
 }
@@ -249,11 +297,21 @@ impl AccordionRuntime {
             .with_tab_stop(self.current_tab_stop());
         if updated.toggle_item(value) {
             let new_values = updated.active_values().to_vec();
-            let mut active = self.state.active_values;
-            active.set(new_values.clone());
             self.state
                 .roving
                 .set_current_tab_stop(Some(value.to_string()));
+            if let Some(ctl) = self.active_ctl {
+                ctl.set(new_values.clone());
+                if let Some(handler) = self.on_single_change.try_read().ok().and_then(|s| *s) {
+                    handler.call(new_values.first().cloned().unwrap_or_default());
+                }
+                if let Some(handler) = self.on_multiple_change.try_read().ok().and_then(|s| *s) {
+                    handler.call(new_values);
+                }
+                return;
+            }
+            let mut active = self.state.active_values;
+            active.set(new_values.clone());
             let callback = self
                 .on_value_change
                 .try_read()

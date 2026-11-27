@@ -1,7 +1,7 @@
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props},
     shared::{Direction, Orientation, ScopeHandle, use_direction_context, use_stable_id},
 };
 use crate::toolbar::{
@@ -12,11 +12,11 @@ use crate::toolbar::{
 
 #[derive(Clone, PartialEq, Props)]
 pub struct ToolbarRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = Orientation::Horizontal)]
     pub orientation: Orientation,
@@ -24,8 +24,11 @@ pub struct ToolbarRootProps {
     pub dir: Option<Direction>,
     #[props(default = true)]
     pub loop_focus: bool,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -58,24 +61,43 @@ pub fn ToolbarRoot(props: ToolbarRootProps) -> Element {
     });
 
     let root_attrs = runtime.root_attributes();
-    let resolved_id = props.id.as_deref().unwrap_or(root_attrs.id());
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let resolved_id = props
+        .id
+        .unwrap_or_else(|| root_attrs.id().to_string());
+
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new("id", resolved_id, None, false));
+    base.push(Attribute::new("role", root_attrs.role(), None, false));
+    base.push(Attribute::new(
+        "aria-orientation",
+        root_attrs.aria_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new("dir", root_attrs.dir(), None, false));
+    base.push(Attribute::new(
+        "data-orientation",
+        root_attrs.data_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-toolbar-root",
+        root_attrs.data_toolbar_root(),
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{resolved_id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            role: root_attrs.role(),
-            "aria-orientation": root_attrs.aria_orientation(),
-            dir: root_attrs.dir(),
-            "data-orientation": root_attrs.data_orientation(),
-            "data-toolbar-root": root_attrs.data_toolbar_root(),
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

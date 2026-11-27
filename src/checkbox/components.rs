@@ -7,7 +7,8 @@ use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
     browser::focus::use_composite_focus_out,
     compose::{
-        extract_aria_invalid_and_describedby, merge_global_attributes,
+        MergePropsConfig, collect_user_attrs, extract_aria_invalid_and_describedby, merge_props,
+        merge_props_with_config, push_attr_opt, push_event_handler,
         resolve_invalid_and_describedby,
     },
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
@@ -33,11 +34,11 @@ use super::{
 /// Props for [`CheckboxRoot`].
 #[derive(Props, Clone, PartialEq)]
 pub struct CheckboxRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub checked: Option<CheckedState>,
@@ -53,13 +54,13 @@ pub struct CheckboxRootProps {
     pub read_only: bool,
     #[props(default)]
     pub invalid: Option<bool>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_describedby: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub name: Option<String>,
-    #[props(default = String::from("on"))]
+    #[props(default = String::from("on"), into)]
     pub value: String,
-    #[props(default)]
+    #[props(default, into)]
     pub form: Option<String>,
     #[props(default)]
     pub r#type: ButtonType,
@@ -71,6 +72,8 @@ pub struct CheckboxRootProps {
     pub on_blur: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -164,8 +167,6 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
         use_controllable_signal(props.checked, props.default_checked, props.on_checked_change);
     let mut on_checked_change_slot = use_hook(|| CopyValue::new(props.on_checked_change));
     on_checked_change_slot.set(props.on_checked_change);
-    let mut on_blur_slot = use_hook(|| CopyValue::new(props.on_blur));
-    on_blur_slot.set(props.on_blur);
 
     let current_checked = if is_in_group {
         let g = group_ctx.as_ref().unwrap();
@@ -220,66 +221,6 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
     };
     use_context_provider(|| context);
 
-    let on_click = {
-        let on_click = props.on_click;
-        let disabled = effective_disabled;
-        let read_only = effective_read_only;
-        let group_ctx = group_ctx.clone();
-        let item_value = props.value.clone();
-        move |evt: MouseEvent| {
-            if let Some(ref handler) = on_click {
-                handler.call(evt.clone());
-            }
-            if evt.default_action_enabled() && !disabled && !read_only {
-                if is_in_group
-                    && let Some(ref g) = group_ctx
-                {
-                    let next = if g.is_item_checked(&item_value) {
-                        CheckedState::Unchecked
-                    } else {
-                        CheckedState::Checked
-                    };
-                    g.toggle_item(item_value.clone());
-                    if let Some(cb) = on_checked_change_slot.try_read().ok().and_then(|s| *s) {
-                        cb.call(next);
-                    }
-                } else {
-                    let current = standalone_ctl.peek();
-                    standalone_ctl.set(current.toggle());
-                }
-            }
-        }
-    };
-
-    let on_key_down = {
-        let on_key_down = props.on_key_down;
-        move |evt: KeyboardEvent| {
-            if let Some(ref handler) = on_key_down {
-                handler.call(evt.clone());
-            }
-            if is_enter_key(&evt.key()) {
-                // Per WAI-ARIA 1.2 Checkbox Pattern, Enter must NOT toggle checkbox.
-                evt.prevent_default();
-            }
-            // Space is left uncancelled so native <button> synthesizes Click on KeyUp with zero double-fire.
-        }
-    };
-
-    let on_blur = move |evt: FocusEvent| {
-        if let Some(handler) = on_blur_slot.try_read().ok().and_then(|s| *s) {
-            handler.call(evt);
-        }
-    };
-
-    let on_mounted = {
-        let on_mounted = props.on_mounted;
-        move |evt: MountedEvent| {
-            if let Some(ref handler) = on_mounted {
-                handler.call(evt);
-            }
-        }
-    };
-
     let attrs = CheckboxRootAttributes::new(
         Some(root_id.clone()),
         props.r#type.as_str(),
@@ -290,39 +231,96 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
     )
     .with_invalid(effective_invalid)
     .with_aria_describedby(effective_describedby);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        extracted.rest,
+
+    let data_state = attrs.data_state_str();
+    let mut base = Vec::with_capacity(20);
+    push_attr_opt(&mut base, "id", attrs.id);
+    base.push(Attribute::new("type", attrs.r#type, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new("aria-checked", attrs.aria_checked, None, false));
+    push_attr_opt(&mut base, "aria-required", attrs.aria_required);
+    push_attr_opt(&mut base, "aria-readonly", attrs.aria_readonly);
+    push_attr_opt(&mut base, "aria-invalid", attrs.aria_invalid);
+    push_attr_opt(&mut base, "aria-describedby", attrs.aria_describedby);
+    base.push(Attribute::new("data-state", data_state, None, false));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-required", attrs.data_required);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    base.push(Attribute::new(
+        "data-checkbox-root",
+        attrs.data_checkbox_root,
+        None,
+        false,
+    ));
+    if attrs.disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    base.push(Attribute::new("value", props.value.clone(), None, false));
+
+    {
+        let group_ctx = group_ctx.clone();
+        let item_value = props.value.clone();
+        push_event_handler(
+            &mut base,
+            "onclick",
+            Some(EventHandler::new(move |_evt: MouseEvent| {
+                if !effective_disabled && !effective_read_only {
+                    if is_in_group
+                        && let Some(ref g) = group_ctx
+                    {
+                        let next = if g.is_item_checked(&item_value) {
+                            CheckedState::Unchecked
+                        } else {
+                            CheckedState::Checked
+                        };
+                        g.toggle_item(item_value.clone());
+                        if let Some(cb) = on_checked_change_slot.try_read().ok().and_then(|s| *s) {
+                            cb.call(next);
+                        }
+                    } else {
+                        let current = standalone_ctl.peek();
+                        standalone_ctl.set(current.toggle());
+                    }
+                }
+            })),
+        );
+    }
+    push_event_handler(
+        &mut base,
+        "onkeydown",
+        Some(EventHandler::new(move |evt: KeyboardEvent| {
+            if is_enter_key(&evt.key()) {
+                // Per WAI-ARIA 1.2 Checkbox Pattern, Enter must NOT toggle checkbox.
+                evt.prevent_default();
+            }
+            // Space is left uncancelled so native <button> synthesizes Click on KeyUp with zero double-fire.
+        })),
     );
 
-    rsx! {
-        button {
-            id: attrs.id.as_deref(),
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            r#type: attrs.r#type,
-            role: attrs.role,
-            "aria-checked": attrs.aria_checked,
-            "aria-required": attrs.aria_required,
-            "aria-readonly": attrs.aria_readonly,
-            "aria-invalid": attrs.aria_invalid,
-            "aria-describedby": attrs.aria_describedby.as_deref(),
-            "data-state": attrs.data_state_str(),
-            "data-disabled": attrs.data_disabled,
-            "data-required": attrs.data_required,
-            "data-readonly": attrs.data_readonly,
-            "data-invalid": attrs.data_invalid,
-            "data-checkbox-root": attrs.data_checkbox_root,
-            disabled: attrs.disabled,
-            value: "{props.value}",
-            onclick: on_click,
-            onkeydown: on_key_down,
-            onblur: on_blur,
-            onmounted: on_mounted,
-            ..merged.rest,
-            {props.children}
+    let mut user = collect_user_attrs(props.class, props.style, extracted.rest);
+    if !effective_disabled {
+        push_event_handler(&mut user, "onclick", props.on_click);
+    }
+    push_event_handler(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler(&mut user, "onblur", props.on_blur);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    let root_el = if let Some(child) = props.child {
+        child.call(merged)
+    } else {
+        rsx! {
+            button {
+                ..merged,
+                {props.children}
+            }
         }
+    };
+
+    rsx! {
+        {root_el}
         if should_render_input {
             HiddenFormInput {
                 kind: HiddenInputKind::Checkbox,
@@ -345,16 +343,18 @@ pub use CheckboxRoot as Checkbox;
 /// Props for [`CheckboxIndicator`].
 #[derive(Props, Clone, PartialEq)]
 pub struct CheckboxIndicatorProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -379,41 +379,44 @@ pub fn CheckboxIndicator(props: CheckboxIndicatorProps) -> Element {
         return rsx! {};
     }
 
-    let on_mounted = {
-        let on_mounted = props.on_mounted;
-        move |evt: MountedEvent| {
-            if let Some(ref handler) = on_mounted {
-                handler.call(evt);
-            }
-        }
-    };
-
     let attrs = CheckboxIndicatorAttributes::new(
         Some(indicator_id),
         state,
         ctx.is_disabled(),
         ctx.is_read_only(),
-        props.style.as_deref(),
+        None,
     )
     .with_invalid(ctx.is_invalid());
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        Some(attrs.style.as_str()),
-        props.attributes,
-    );
+
+    let data_state = attrs.data_state_str();
+    let mut base = Vec::with_capacity(8);
+    push_attr_opt(&mut base, "id", attrs.id);
+    if !attrs.style.is_empty() {
+        base.push(Attribute::new("style", attrs.style, None, false));
+    }
+    base.push(Attribute::new("data-state", data_state, None, false));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    base.push(Attribute::new(
+        "data-checkbox-indicator",
+        attrs.data_checkbox_indicator,
+        None,
+        false,
+    ));
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         span {
-            id: attrs.id.as_deref(),
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            "data-state": attrs.data_state_str(),
-            "data-disabled": attrs.data_disabled,
-            "data-readonly": attrs.data_readonly,
-            "data-invalid": attrs.data_invalid,
-            "data-checkbox-indicator": attrs.data_checkbox_indicator,
-            onmounted: on_mounted,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -422,11 +425,11 @@ pub fn CheckboxIndicator(props: CheckboxIndicatorProps) -> Element {
 /// Props for [`CheckboxGroup`].
 #[derive(Props, Clone, PartialEq)]
 pub struct CheckboxGroupProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub values: Option<Vec<String>>,
@@ -434,9 +437,9 @@ pub struct CheckboxGroupProps {
     pub default_values: Vec<String>,
     #[props(default)]
     pub on_values_change: Option<EventHandler<Vec<String>>>,
-    #[props(default)]
+    #[props(default, into)]
     pub name: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub form: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
@@ -446,10 +449,12 @@ pub struct CheckboxGroupProps {
     pub read_only: bool,
     #[props(default)]
     pub invalid: Option<bool>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_describedby: Option<String>,
     #[props(default)]
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -559,30 +564,44 @@ pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
     )
     .with_invalid(effective_invalid)
     .with_aria_describedby(effective_describedby);
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        extracted.rest,
+
+    let mut base = Vec::with_capacity(14);
+    push_attr_opt(&mut base, "id", attrs.id);
+    base.push(Attribute::new("role", attrs.role, None, false));
+    push_attr_opt(&mut base, "aria-labelledby", attrs.aria_labelledby);
+    push_attr_opt(&mut base, "aria-readonly", attrs.aria_readonly);
+    push_attr_opt(&mut base, "aria-invalid", attrs.aria_invalid);
+    push_attr_opt(&mut base, "aria-describedby", attrs.aria_describedby);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-required", attrs.data_required);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    push_attr_opt(&mut base, "data-invalid", attrs.data_invalid);
+    base.push(Attribute::new(
+        "data-checkbox-group",
+        attrs.data_checkbox_group,
+        None,
+        false,
+    ));
+    push_event_handler(&mut base, "onfocusin", Some(handle_focus_in));
+    push_event_handler(&mut base, "onfocusout", Some(handle_focus_out));
+
+    let user = collect_user_attrs(props.class, props.style, extracted.rest);
+    let merged = merge_props_with_config(
+        base,
+        user,
+        MergePropsConfig {
+            invariant_attrs: &[],
+            bookkeeping_events: &["onfocusin", "onfocusout"],
+        },
     );
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: attrs.id.as_deref(),
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            role: attrs.role,
-            "aria-labelledby": attrs.aria_labelledby.as_deref(),
-            "aria-readonly": attrs.aria_readonly,
-            "aria-invalid": attrs.aria_invalid,
-            "aria-describedby": attrs.aria_describedby.as_deref(),
-            "data-disabled": attrs.data_disabled,
-            "data-required": attrs.data_required,
-            "data-readonly": attrs.data_readonly,
-            "data-invalid": attrs.data_invalid,
-            "data-checkbox-group": attrs.data_checkbox_group,
-            onfocusin: handle_focus_in,
-            onfocusout: handle_focus_out,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -591,12 +610,14 @@ pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
 /// Props for [`CheckboxGroupLabel`].
 #[derive(Props, Clone, PartialEq)]
 pub struct CheckboxGroupLabelProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -631,21 +652,28 @@ pub fn CheckboxGroupLabel(props: CheckboxGroupLabelProps) -> Element {
         group_ctx.is_disabled(),
         group_ctx.is_read_only(),
     );
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+
+    let mut base = Vec::with_capacity(4);
+    push_attr_opt(&mut base, "id", attrs.id);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-readonly", attrs.data_readonly);
+    base.push(Attribute::new(
+        "data-checkbox-group-label",
+        attrs.data_checkbox_group_label,
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         span {
-            id: attrs.id.as_deref(),
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            "data-disabled": attrs.data_disabled,
-            "data-readonly": attrs.data_readonly,
-            "data-checkbox-group-label": attrs.data_checkbox_group_label,
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

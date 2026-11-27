@@ -3,27 +3,19 @@ use std::borrow::Cow;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_event_handler},
     shared::{Direction, Orientation, ScopeHandle, use_direction_context, use_stable_id},
 };
 
 use super::super::{
-    attrs::PaginationRootAttributes,
     relationships::PaginationRelationships,
     runtime::{PaginationContext, use_pagination_runtime},
     types::PaginationSnapshot,
 };
 
-#[derive(Clone)]
-pub struct PaginationRootRenderChildProps {
-    pub attrs: PaginationRootAttributes,
-    pub snapshot: PaginationSnapshot,
-    pub children: Element,
-}
-
 #[derive(Clone, PartialEq, Props)]
 pub struct PaginationRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     pub count: usize,
     #[props(default = 1)]
@@ -42,22 +34,20 @@ pub struct PaginationRootProps {
     pub orientation: Orientation,
     #[props(default)]
     pub dir: Option<Direction>,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_label: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub role: Option<String>,
-    #[props(default)]
-    pub as_child: bool,
-    #[props(default)]
-    pub render_child: Option<Callback<PaginationRootRenderChildProps, Element>>,
     #[props(default)]
     pub render_children: Option<Callback<PaginationSnapshot, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -102,50 +92,46 @@ pub fn PaginationRoot(props: PaginationRootProps) -> Element {
 
     let snapshot = runtime.snapshot();
     let root_attrs = runtime.root_attributes(Some(resolved_id));
-    let resolved_role = props.role.as_deref().unwrap_or(root_attrs.role());
+    let resolved_role = props
+        .role
+        .unwrap_or_else(|| root_attrs.role().to_string());
 
     let body = if let Some(ref render_children) = props.render_children {
-        render_children.call(snapshot.clone())
+        render_children.call(snapshot)
     } else {
         props.children
     };
 
-    if props.as_child && props.render_child.is_none() {
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::PaginationRoot: as_child requires render_child; rendering the default nav"
-        );
-    }
-    if let Some(render_child) = props.render_child.as_ref().filter(|_| props.as_child) {
-        return render_child.call(PaginationRootRenderChildProps {
-            attrs: root_attrs,
-            snapshot,
-            children: body,
-        });
-    }
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new("id", root_attrs.id, None, false));
+    base.push(Attribute::new("role", resolved_role, None, false));
+    base.push(Attribute::new("aria-label", root_attrs.aria_label, None, false));
+    base.push(Attribute::new("dir", root_attrs.dir, None, false));
+    base.push(Attribute::new(
+        "data-orientation",
+        root_attrs.data_orientation,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-monoxus-pagination-root",
+        root_attrs.data_monoxus_pagination_root,
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         nav {
-            id: "{root_attrs.id}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            role: "{resolved_role}",
-            aria_label: "{root_attrs.aria_label}",
-            dir: "{root_attrs.dir}",
-            "data-orientation": "{root_attrs.data_orientation}",
-            "data-monoxus-pagination-root": "{root_attrs.data_monoxus_pagination_root}",
-            onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {body}
         }
     }

@@ -4,57 +4,29 @@ use dioxus::prelude::*;
 use futures_timer::Delay;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     shared::{ScopeHandle, use_stable_id},
     state::{sync_signal, use_controllable_signal},
 };
 
 use super::{
-    attrs::{AvatarFallbackAttributes, AvatarImageAttributes, AvatarRootAttributes},
     relationships::AvatarRelationships,
     runtime::{AvatarContext, AvatarImageProbe, use_avatar_context, watch_avatar_image},
     types::AvatarImageLoadingStatus,
 };
 
-#[derive(Clone)]
-pub struct AvatarRootRenderChildProps {
-    pub attrs: AvatarRootAttributes,
-    pub children: Element,
-}
-
-#[derive(Clone)]
-pub struct AvatarImageRenderChildProps {
-    pub attrs: AvatarImageAttributes,
-    pub src: String,
-    pub crossorigin: Option<String>,
-    pub referrerpolicy: Option<String>,
-    pub children: Element,
-}
-
-#[derive(Clone)]
-pub struct AvatarFallbackRenderChildProps {
-    pub attrs: AvatarFallbackAttributes,
-    pub children: Element,
-}
-
 #[derive(Props, Clone, PartialEq)]
 pub struct AvatarRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub loading_status: Option<AvatarImageLoadingStatus>,
     #[props(default)]
-    pub on_loading_status_change: Option<EventHandler<AvatarImageLoadingStatus>>,
-    #[props(default)]
-    pub delay_ms: Option<u64>,
-    #[props(default = false)]
-    pub as_child: bool,
-    #[props(default)]
-    pub render_child: Option<Callback<AvatarRootRenderChildProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -72,53 +44,42 @@ pub fn AvatarRoot(props: AvatarRootProps) -> Element {
     let status_ctl = use_controllable_signal(
         props.loading_status,
         AvatarImageLoadingStatus::default(),
-        props.on_loading_status_change,
+        None,
     );
-    let mut delay_ms = use_signal(|| props.delay_ms);
-    sync_signal(&mut delay_ms, props.delay_ms);
     let image_count = use_signal(|| 0);
 
     let context = use_context_provider(|| AvatarContext {
         status_ctl,
-        delay_ms,
         relationships,
         image_count,
     });
 
-    if props.as_child && props.render_child.is_none() {
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::AvatarRoot: as_child requires render_child; rendering the default span"
-        );
-    }
-
     let attrs = context.root_attributes();
-    if let Some(render_child) = props.render_child.as_ref().filter(|_| props.as_child) {
-        return render_child.call(AvatarRootRenderChildProps {
-            attrs,
-            children: props.children,
-        });
-    }
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let base = vec![
+        Attribute::new(
+            "id",
+            props
+                .id
+                .unwrap_or_else(|| context.relationships.root_id().to_string()),
+            None,
+            false,
+        ),
+        Attribute::new("data-status", attrs.data_status, None, false),
+        Attribute::new("data-avatar-root", attrs.data_avatar_root, None, false),
+    ];
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         span {
-            id: props.id.clone().unwrap_or_else(|| context.relationships.root_id().to_string()),
-            class: merged.class,
-            style: merged.style,
-            "data-status": attrs.data_status,
-            "data-avatar-root": attrs.data_avatar_root,
-            onmounted: move |event| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(event);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -128,32 +89,28 @@ pub use AvatarRoot as Avatar;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct AvatarImageProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub src: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub alt: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub crossorigin: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub referrerpolicy: Option<String>,
     #[props(default)]
     pub on_loading_status_change: Option<EventHandler<AvatarImageLoadingStatus>>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<AvatarImageRenderChildProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
-    #[props(default)]
-    pub children: Element,
 }
 
 #[component]
@@ -264,62 +221,54 @@ pub fn AvatarImage(props: AvatarImageProps) -> Element {
         return rsx! {};
     };
 
-    if let Some(render_child) = props.render_child.as_ref().filter(|_| props.as_child) {
-        return render_child.call(AvatarImageRenderChildProps {
-            attrs,
-            src,
-            crossorigin: props.crossorigin,
-            referrerpolicy: props.referrerpolicy,
-            children: props.children,
-        });
-    }
-    if props.as_child && props.render_child.is_none() {
-        #[cfg(debug_assertions)]
-        eprintln!("monoxus::AvatarImage: as_child requires render_child");
-    }
+    let mut base = Vec::with_capacity(7);
+    base.push(Attribute::new(
+        "id",
+        props
+            .id
+            .unwrap_or_else(|| context.relationships.image_id().to_string()),
+        None,
+        false,
+    ));
+    base.push(Attribute::new("src", src, None, false));
+    push_attr_opt(&mut base, "alt", props.alt);
+    push_attr_opt(&mut base, "crossorigin", props.crossorigin);
+    push_attr_opt(&mut base, "referrerpolicy", props.referrerpolicy);
+    base.push(Attribute::new("data-status", attrs.data_status, None, false));
+    base.push(Attribute::new(
+        "data-avatar-image",
+        attrs.data_avatar_image,
+        None,
+        false,
+    ));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         img {
-            id: props.id.clone().unwrap_or_else(|| context.relationships.image_id().to_string()),
-            class: merged.class,
-            style: merged.style,
-            src,
-            alt: props.alt,
-            crossorigin: props.crossorigin,
-            referrerpolicy: props.referrerpolicy,
-            "data-status": attrs.data_status,
-            "data-avatar-image": attrs.data_avatar_image,
-            onmounted: move |event| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(event);
-                }
-            },
-            ..merged.rest,
-            {props.children}
+            ..merged,
         }
     }
 }
 
 #[derive(Props, Clone, PartialEq)]
 pub struct AvatarFallbackProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub delay_ms: Option<u64>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<AvatarFallbackRenderChildProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -332,7 +281,7 @@ pub struct AvatarFallbackProps {
 pub fn AvatarFallback(props: AvatarFallbackProps) -> Element {
     let context = use_avatar_context();
     let status = context.status();
-    let delay_ms = props.delay_ms.or(*context.delay_ms.read());
+    let delay_ms = props.delay_ms;
     let mut elapsed = use_signal(|| delay_ms.unwrap_or(0) == 0);
     let mut task = use_signal(|| None::<dioxus::core::Task>);
     let generation = use_hook(|| Rc::new(Cell::new(0_u64)));
@@ -392,36 +341,36 @@ pub fn AvatarFallback(props: AvatarFallbackProps) -> Element {
     }
 
     let attrs = context.fallback_attributes();
-    if let Some(render_child) = props.render_child.as_ref().filter(|_| props.as_child) {
-        return render_child.call(AvatarFallbackRenderChildProps {
-            attrs,
-            children: props.children,
-        });
-    }
-    if props.as_child && props.render_child.is_none() {
-        #[cfg(debug_assertions)]
-        eprintln!("monoxus::AvatarFallback: as_child requires render_child");
-    }
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let base = vec![
+        Attribute::new(
+            "id",
+            props
+                .id
+                .unwrap_or_else(|| context.relationships.fallback_id().to_string()),
+            None,
+            false,
+        ),
+        Attribute::new("data-status", attrs.data_status, None, false),
+        Attribute::new(
+            "data-avatar-fallback",
+            attrs.data_avatar_fallback,
+            None,
+            false,
+        ),
+    ];
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+
+    let merged = merge_props(base, user);
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         span {
-            id: props.id.clone().unwrap_or_else(|| context.relationships.fallback_id().to_string()),
-            class: merged.class,
-            style: merged.style,
-            "data-status": attrs.data_status,
-            "data-avatar-fallback": attrs.data_avatar_fallback,
-            onmounted: move |event| {
-                if let Some(handler) = props.on_mounted.as_ref() {
-                    handler.call(event);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
