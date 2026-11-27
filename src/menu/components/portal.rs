@@ -15,6 +15,8 @@ pub struct MenuPortalProps {
     #[props(default)]
     pub host: Option<PortalHost>,
     #[props(default = false)]
+    pub disabled: bool,
+    #[props(default = false)]
     pub force_mount: bool,
     pub children: Element,
 }
@@ -34,7 +36,7 @@ pub fn MenuPortal(props: MenuPortalProps) -> Element {
     render_overlay_portal(OverlayPortalSpec {
         portal_id: pid,
         should_render: portal_surface.should_render_content(),
-        disabled: false,
+        disabled: props.disabled,
         force_mount: props.force_mount,
         host: props.host.unwrap_or_else(PortalHost::default_host),
         emit_status_attrs: false,

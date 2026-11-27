@@ -4,13 +4,14 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::is_element_focused_by_id,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     keyboard::is_ime_composing_key,
     shared::use_stable_id,
 };
 use crate::menu::{
     MENU_POINTER_SCROLL_GUARD_PX, MenuItemAttributes, MenuItemEntry, MenuItemKind, MenuKey,
     MenuPart, MenuRootContext, MenuSelectEvent, MenuSurfaceContext, MenuSurfaceRuntime,
-    PressedItemSnapshot, extract_vnode_text, merge_attributes_with_part, translate_menu_key,
+    PressedItemSnapshot, extract_vnode_text, translate_menu_key,
 };
 
 /// Shared DOM registration hook keeping `MenuSurfaceRuntime.items` synchronized.
@@ -61,6 +62,15 @@ pub struct LeafItemHandlers {
     pub on_pointer_move: EventHandler<PointerEvent>,
     pub on_pointer_leave: EventHandler<PointerEvent>,
     pub on_key_down: EventHandler<KeyboardEvent>,
+}
+
+pub(crate) fn push_leaf_item_handlers(attrs: &mut Vec<Attribute>, handlers: LeafItemHandlers) {
+    push_event_handler::<PointerData>(attrs, "onpointerdown", Some(handlers.on_pointer_down));
+    push_event_handler::<PointerData>(attrs, "onpointerup", Some(handlers.on_pointer_up));
+    push_event_handler::<MouseData>(attrs, "onclick", Some(handlers.on_click));
+    push_event_handler::<PointerData>(attrs, "onpointermove", Some(handlers.on_pointer_move));
+    push_event_handler::<PointerData>(attrs, "onpointerleave", Some(handlers.on_pointer_leave));
+    push_event_handler::<KeyboardData>(attrs, "onkeydown", Some(handlers.on_key_down));
 }
 
 pub fn build_leaf_item_handlers(
@@ -201,42 +211,24 @@ pub fn build_leaf_item_handlers(
     }
 }
 
-/// Render props passed to `render_child` when `MenuItem` uses `as_child: true`.
-#[derive(Clone, PartialEq)]
-pub struct MenuItemRenderProps {
-    pub attrs: MenuItemAttributes,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub on_pointer_down: EventHandler<PointerEvent>,
-    pub on_pointer_up: EventHandler<PointerEvent>,
-    pub on_click: EventHandler<MouseEvent>,
-    pub on_pointer_move: EventHandler<PointerEvent>,
-    pub on_pointer_leave: EventHandler<PointerEvent>,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 #[derive(Props, Clone, PartialEq)]
 pub struct MenuItemProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub text_value: Option<String>,
     #[props(default = true)]
     pub close_on_select: bool,
     #[props(default)]
     pub on_select: Option<EventHandler<MenuSelectEvent>>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<MenuItemRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -259,12 +251,10 @@ pub fn MenuItem(props: MenuItemProps) -> Element {
         MenuItemKind::Item,
     );
 
-    let highlighted = !props.disabled && surface.current_highlighted_id().as_deref() == Some(id.as_str());
+    let highlighted =
+        !props.disabled && surface.current_highlighted_id().as_deref() == Some(id.as_str());
     let attrs = MenuItemAttributes::from_parts(id.clone(), props.disabled, highlighted, root.variant);
-    let merged_attrs = merge_attributes_with_part(
-        props.attributes,
-        MenuPart::Item.static_data_attr_name(root.variant),
-    );
+    let part_attr = MenuPart::Item.static_data_attr_name(root.variant);
 
     let on_select = props.on_select;
     let handlers = build_leaf_item_handlers(
@@ -280,42 +270,32 @@ pub fn MenuItem(props: MenuItemProps) -> Element {
         }),
     );
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(MenuItemRenderProps {
-            attrs,
-            class: props.class,
-            style: props.style,
-            on_pointer_down: handlers.on_pointer_down,
-            on_pointer_up: handlers.on_pointer_up,
-            on_click: handlers.on_click,
-            on_pointer_move: handlers.on_pointer_move,
-            on_pointer_leave: handlers.on_pointer_leave,
-            on_key_down: handlers.on_key_down,
-            attributes: merged_attrs,
-            children: props.children,
-        });
+    let mut base = Vec::with_capacity(14);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new("tabindex", attrs.tabindex, None, false));
+    push_attr_opt(&mut base, "aria-disabled", attrs.aria_disabled);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-highlighted", attrs.data_highlighted);
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(part_attr, "", None, false));
+    push_leaf_item_handlers(&mut base, handlers);
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
-            role: "{attrs.role}",
-            tabindex: "{attrs.tabindex}",
-            "aria-disabled": attrs.aria_disabled,
-            "data-disabled": attrs.data_disabled,
-            "data-highlighted": attrs.data_highlighted,
-            "data-orientation": "{attrs.data_orientation}",
-            onpointerdown: move |evt| handlers.on_pointer_down.call(evt),
-            onpointerup: move |evt| handlers.on_pointer_up.call(evt),
-            onclick: move |evt| handlers.on_click.call(evt),
-            onpointermove: move |evt| handlers.on_pointer_move.call(evt),
-            onpointerleave: move |evt| handlers.on_pointer_leave.call(evt),
-            onkeydown: move |evt| handlers.on_key_down.call(evt),
-            ..merged_attrs,
+            ..merged,
             {props.children}
         }
     }

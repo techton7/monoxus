@@ -2,25 +2,32 @@ use std::{cell::RefCell, rc::Rc};
 
 use dioxus::prelude::*;
 
-use crate::foundation::overlay::{
-    FloatingArrowSpec, PlacementAlign, PlacementSide, render_floating_arrow,
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props},
+    overlay::{
+        FloatingArrowSpec, PlacementAlign, PlacementSide, compute_arrow_inline_style,
+        render_floating_arrow,
+    },
 };
 use crate::tooltip::components::TooltipRootContext;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct TooltipArrowProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = 10.0)]
     pub width: f32,
     #[props(default = 5.0)]
     pub height: f32,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Option<Element>,
 }
 
@@ -65,21 +72,49 @@ pub fn TooltipArrow(props: TooltipArrowProps) -> Element {
             "end" => PlacementAlign::End,
             _ => PlacementAlign::Center,
         });
+    let data_state = match arrow.data_state().as_str() {
+        "delayed-open" => "delayed-open",
+        "instant-open" => "instant-open",
+        "open" => "open",
+        _ => "closed",
+    };
+    let arrow_pos = placement.as_ref().map(|p| *p.arrow());
+    let arrow_padding = runtime.effective_arrow_padding();
+
+    if let Some(child) = props.child {
+        if arrow_pos.is_some_and(|pos| pos.hidden()) {
+            return rsx! {};
+        }
+        let pos_style = compute_arrow_inline_style(
+            side,
+            arrow_pos.map(|pos| (pos.x(), pos.y())),
+            props.width,
+            props.height,
+            arrow_padding,
+            false,
+        );
+        let base = vec![
+            Attribute::new("id", arrow_id, None, false),
+            Attribute::new("style", pos_style, None, false),
+            Attribute::new("data-state", data_state, None, false),
+            Attribute::new("data-side", side.as_str(), None, false),
+            Attribute::new("data-align", align.as_str(), None, false),
+            Attribute::new("aria-hidden", "true", None, false),
+        ];
+        let user = collect_user_attrs(props.class, props.style, props.attributes);
+        let merged = merge_props(base, user);
+        return child.call(merged);
+    }
 
     render_floating_arrow(FloatingArrowSpec {
         id: arrow_id,
         side,
         align,
-        data_state: match arrow.data_state().as_str() {
-            "delayed-open" => "delayed-open",
-            "instant-open" => "instant-open",
-            "open" => "open",
-            _ => "closed",
-        },
-        arrow: placement.as_ref().map(|p| *p.arrow()),
+        data_state,
+        arrow: arrow_pos,
         width: props.width,
         height: props.height,
-        arrow_padding: 4.0,
+        arrow_padding,
         edge_offset: false,
         class: props.class,
         style: props.style,

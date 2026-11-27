@@ -6,7 +6,7 @@ use futures_timer::Delay;
 use crate::{
     foundation::{
         browser::spawn_root_task,
-        compose::merge_global_attributes,
+        compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
         keyboard::is_ime_composing_key,
         roving_focus::{RovingItemMeta, key_to_roving_str, use_roving_focus_item},
     },
@@ -14,28 +14,23 @@ use crate::{
 };
 
 use super::super::{
-    runtime::{
-        NavigationMenuContext, NavigationMenuItemContext, NavigationMenuTriggerRenderProps,
-        advance_guard_token,
-    },
+    runtime::{NavigationMenuContext, NavigationMenuItemContext, advance_guard_token},
     state::{is_content_entry_key, is_item_hover_enabled},
     types::NAVIGATION_MENU_POINTER_CLICK_GUARD_MS,
 };
 
 #[derive(Clone, PartialEq, Props)]
 pub struct NavigationMenuTriggerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<NavigationMenuTriggerRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
@@ -88,20 +83,18 @@ pub fn NavigationMenuTrigger(props: NavigationMenuTriggerProps) -> Element {
     let effective_open_on_hover =
         is_item_hover_enabled(ctx.current_activation_mode(), item_open_on_hover);
 
-    let on_pointer_enter = {
-        move |_: Event<PointerData>| {
-            if *was_click_close.peek() {
-                was_click_close.set(false);
-            }
-            item_ctx.set_was_escape_close(false);
+    let on_pointer_enter = EventHandler::new(move |_: PointerEvent| {
+        if *was_click_close.peek() {
+            was_click_close.set(false);
         }
-    };
+        item_ctx.set_was_escape_close(false);
+    });
 
     let on_pointer_move = {
         let ctx = ctx.clone();
         let item_value = item_value.clone();
         let disabled = props.disabled;
-        move |evt: Event<PointerData>| {
+        EventHandler::new(move |evt: PointerEvent| {
             if evt.pointer_type() != "mouse" {
                 return;
             }
@@ -133,13 +126,13 @@ pub fn NavigationMenuTrigger(props: NavigationMenuTriggerProps) -> Element {
                     *guard = false;
                 }
             });
-        }
+        })
     };
 
     let on_pointer_leave = {
         let ctx = ctx.clone();
         let disabled = props.disabled;
-        move |evt: Event<PointerData>| {
+        EventHandler::new(move |evt: PointerEvent| {
             if evt.pointer_type() != "mouse" || disabled {
                 return;
             }
@@ -150,21 +143,17 @@ pub fn NavigationMenuTrigger(props: NavigationMenuTriggerProps) -> Element {
             if effective_open_on_hover {
                 ctx.on_trigger_leave(item_open_on_hover);
             }
-        }
+        })
     };
 
     let on_click = {
         let ctx = ctx.clone();
         let item_value = item_value.clone();
-        let consumer_on_click = props.on_click;
         let disabled = props.disabled;
-        move |evt: MouseEvent| {
+        EventHandler::new(move |evt: MouseEvent| {
             if disabled {
                 evt.prevent_default();
                 return;
-            }
-            if let Some(ref handler) = consumer_on_click {
-                handler.call(evt.clone());
             }
             let currently_open = ctx.value.try_peek().is_ok_and(|v| *v == item_value);
             if *has_pointer_move_opened.peek() && currently_open {
@@ -178,7 +167,7 @@ pub fn NavigationMenuTrigger(props: NavigationMenuTriggerProps) -> Element {
             let should_close = currently_open && (ctx.is_root_menu || !disable_toggle);
             ctx.on_item_select(&item_value);
             was_click_close.set(should_close);
-        }
+        })
     };
 
     let on_focus = {
@@ -186,21 +175,17 @@ pub fn NavigationMenuTrigger(props: NavigationMenuTriggerProps) -> Element {
         let trigger_id = trigger_id.clone();
         let item_value = item_value.clone();
         let disabled = props.disabled;
-        move |_| {
+        EventHandler::new(move |_: FocusEvent| {
             ctx.record_element_focus(&trigger_id);
             ctx.roving.handle_item_focus(&item_value, !disabled);
-        }
+        })
     };
 
     let on_key_down = {
         let ctx = ctx.clone();
         let item_value = item_value.clone();
-        let consumer_on_key_down = props.on_key_down;
         let disabled = props.disabled;
-        move |evt: KeyboardEvent| {
-            if let Some(ref handler) = consumer_on_key_down {
-                handler.call(evt.clone());
-            }
+        EventHandler::new(move |evt: KeyboardEvent| {
             if disabled || is_ime_composing_key(&evt) {
                 return;
             }
@@ -216,7 +201,7 @@ pub fn NavigationMenuTrigger(props: NavigationMenuTriggerProps) -> Element {
             }
             ctx.roving
                 .handle_keydown(Some(&item_value), &evt, None::<fn(&str)>);
-        }
+        })
     };
 
     let focus_proxy_attrs = ctx.focus_proxy_attributes(&item_value);
@@ -256,60 +241,78 @@ pub fn NavigationMenuTrigger(props: NavigationMenuTriggerProps) -> Element {
         }
     };
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            let rendered = render_child.call(NavigationMenuTriggerRenderProps {
-                attrs: trigger_attrs,
-                is_open,
-                class: props.class,
-                style: props.style,
-                attributes: props.attributes,
-                children: props.children,
-            });
-            return rsx! {
-                {rendered}
-                {proxies}
-            };
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::NavigationMenuTrigger: as_child requires render_child; rendering the default button"
-        );
+    let mut base = Vec::with_capacity(18);
+    base.push(Attribute::new(
+        "id",
+        trigger_attrs.id().to_owned(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "type",
+        trigger_attrs.button_type(),
+        None,
+        false,
+    ));
+    if trigger_attrs.is_disabled() {
+        base.push(Attribute::new("disabled", true, None, false));
     }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
+    base.push(Attribute::new(
+        "aria-expanded",
+        trigger_attrs.aria_expanded(),
+        None,
+        false,
+    ));
+    push_attr_opt(
+        &mut base,
+        "aria-controls",
+        trigger_attrs.aria_controls().map(str::to_owned),
     );
+    base.push(Attribute::new(
+        "data-state",
+        trigger_attrs.data_state().as_str(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-disabled", trigger_attrs.data_disabled());
+    base.push(Attribute::new(
+        "data-value",
+        trigger_attrs.data_value().to_owned(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-monoxus-navigation-menu-trigger",
+        trigger_attrs.data_monoxus_navigation_menu_trigger(),
+        None,
+        false,
+    ));
+    push_event_handler::<PointerData>(&mut base, "onpointerenter", Some(on_pointer_enter));
+    push_event_handler::<PointerData>(&mut base, "onpointermove", Some(on_pointer_move));
+    push_event_handler::<PointerData>(&mut base, "onpointerleave", Some(on_pointer_leave));
+    push_event_handler::<MouseData>(&mut base, "onclick", Some(on_click));
+    push_event_handler::<FocusData>(&mut base, "onfocus", Some(on_focus));
+    push_event_handler::<KeyboardData>(&mut base, "onkeydown", Some(on_key_down));
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler::<MouseData>(&mut user, "onclick", props.on_click);
+    push_event_handler::<KeyboardData>(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler::<MountedData>(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    let trigger_el = if let Some(child) = props.child {
+        child.call(merged)
+    } else {
+        rsx! {
+            button {
+                ..merged,
+                {props.children}
+            }
+        }
+    };
 
     rsx! {
-        button {
-            id: "{trigger_attrs.id()}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            r#type: "{trigger_attrs.button_type()}",
-            disabled: trigger_attrs.is_disabled(),
-            aria_expanded: "{trigger_attrs.aria_expanded()}",
-            aria_controls: trigger_attrs.aria_controls(),
-            "data-state": trigger_attrs.data_state().as_str(),
-            "data-disabled": trigger_attrs.data_disabled(),
-            "data-value": "{trigger_attrs.data_value()}",
-            "data-monoxus-navigation-menu-trigger": "{trigger_attrs.data_monoxus_navigation_menu_trigger()}",
-            onpointerenter: on_pointer_enter,
-            onpointermove: on_pointer_move,
-            onpointerleave: on_pointer_leave,
-            onclick: on_click,
-            onfocus: on_focus,
-            onkeydown: on_key_down,
-            onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
-            {props.children}
-        }
+        {trigger_el}
         {proxies}
     }
 }

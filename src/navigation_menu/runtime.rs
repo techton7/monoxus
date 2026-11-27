@@ -26,6 +26,7 @@ use crate::foundation::{
         Direction, EscapeKeyDownEvent, FocusOutsideEvent, InteractOutsideEvent, Orientation,
         PointerDownOutsideEvent, ScopeHandle,
     },
+    state::ControllableSignal,
 };
 
 use super::{
@@ -50,106 +51,6 @@ use super::{
         NavigationMenuOutsideBehavior, NavigationMenuViewportSize,
     },
 };
-
-/// Render props passed to `render_child` on `NavigationMenuRoot`.
-#[derive(Clone)]
-pub struct NavigationMenuRootRenderProps {
-    pub attrs: NavigationMenuRootAttributes,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-/// Render props passed to `render_child` on `NavigationMenuSub`.
-#[derive(Clone)]
-pub struct NavigationMenuSubRenderProps {
-    pub attrs: NavigationMenuSubAttributes,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-/// Render props passed to `render_child` on `NavigationMenuList`.
-#[derive(Clone)]
-pub struct NavigationMenuListRenderProps {
-    pub attrs: NavigationMenuListAttributes,
-    pub track_attrs: NavigationMenuListTrackAttributes,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-    pub indicator: Element,
-}
-
-/// Render props passed to `render_child` on `NavigationMenuItem`.
-#[derive(Clone)]
-pub struct NavigationMenuItemRenderProps {
-    pub attrs: NavigationMenuItemAttributes,
-    pub value: String,
-    pub is_open: bool,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-/// Render props passed to `render_child` on `NavigationMenuTrigger`.
-#[derive(Clone)]
-pub struct NavigationMenuTriggerRenderProps {
-    pub attrs: NavigationMenuTriggerAttributes,
-    pub is_open: bool,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-/// Render props passed to `render_child` on `NavigationMenuContent`.
-#[derive(Clone)]
-pub struct NavigationMenuContentRenderProps {
-    pub attrs: NavigationMenuContentAttributes,
-    pub is_open: bool,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-/// Render props passed to `render_child` on `NavigationMenuLink`.
-#[derive(Clone)]
-pub struct NavigationMenuLinkRenderProps {
-    pub attrs: NavigationMenuLinkAttributes,
-    pub active: bool,
-    pub is_focused: bool,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-/// Render props passed to `render_child` on `NavigationMenuIndicator`.
-#[derive(Clone)]
-pub struct NavigationMenuIndicatorRenderProps {
-    pub attrs: NavigationMenuIndicatorAttributes,
-    pub is_visible: bool,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-/// Render props passed to `render_child` on `NavigationMenuViewport`.
-#[derive(Clone)]
-pub struct NavigationMenuViewportRenderProps {
-    pub attrs: NavigationMenuViewportAttributes,
-    pub is_open: bool,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FocusTrackerState {
@@ -215,8 +116,7 @@ pub struct ViewportContentData {
     pub force_mount: bool,
     pub class: Option<String>,
     pub style: Option<String>,
-    pub as_child: bool,
-    pub render_child: Option<Callback<NavigationMenuContentRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
     pub on_pointer_down_outside: Option<EventHandler<PointerDownOutsideEvent>>,
     pub on_focus_outside: Option<EventHandler<FocusOutsideEvent>>,
@@ -234,8 +134,7 @@ pub struct IndicatorMountData {
     pub class: Option<String>,
     pub style: Option<String>,
     pub force_mount: bool,
-    pub as_child: bool,
-    pub render_child: Option<Callback<NavigationMenuIndicatorRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -348,10 +247,10 @@ pub struct NavigationMenuContext {
     pub root_menu_id: Signal<String>,
     pub menu_dom_id: Signal<String>,
     pub relationships: NavigationMenuRelationships,
+    pub value_state: ControllableSignal<String>,
     pub value: Signal<String>,
     pub previous_value: Signal<String>,
     pub tracked_value: Signal<String>,
-    pub on_value_change: CopyValue<Option<EventHandler<String>>>,
     pub dir: Signal<Direction>,
     pub orientation: Signal<Orientation>,
     pub activation_mode: Signal<NavigationMenuActivationMode>,
@@ -378,8 +277,7 @@ pub struct NavigationMenuContext {
 pub fn use_navigation_menu_root_runtime(
     scope: ScopeHandle,
     dom_id: String,
-    value_signal: Signal<String>,
-    on_value_change: Option<EventHandler<String>>,
+    value_state: ControllableSignal<String>,
     delay_duration: u64,
     skip_delay_duration: u64,
     dir: Direction,
@@ -387,6 +285,7 @@ pub fn use_navigation_menu_root_runtime(
     activation_mode: NavigationMenuActivationMode,
     aria_label: Option<String>,
 ) -> NavigationMenuContext {
+    let value_signal = value_state.signal();
     let relationships = NavigationMenuRelationships::new(scope.clone());
     let initial_val = value_signal();
     let def = NavigationMenuDef::new(scope)
@@ -417,7 +316,6 @@ pub fn use_navigation_menu_root_runtime(
     let menu_dom_id = use_signal(|| dom_id.clone());
     let previous_value = use_signal(String::new);
     let tracked_value = use_signal(|| initial_val.clone());
-    let on_value_change_slot = use_hook(|| CopyValue::new(on_value_change));
     let dir_sig = use_signal(|| def.dir());
     let orientation_sig = use_signal(|| def.orientation());
     let activation_mode_sig = use_signal(|| def.activation_mode());
@@ -453,10 +351,10 @@ pub fn use_navigation_menu_root_runtime(
         root_menu_id,
         menu_dom_id,
         relationships,
+        value_state,
         value: value_signal,
         previous_value,
         tracked_value,
-        on_value_change: on_value_change_slot,
         dir: dir_sig,
         orientation: orientation_sig,
         activation_mode: activation_mode_sig,
@@ -721,13 +619,13 @@ pub fn use_navigation_menu_sub_runtime(
     parent: &NavigationMenuContext,
     scope: ScopeHandle,
     dom_id: String,
-    value_signal: Signal<String>,
-    on_value_change: Option<EventHandler<String>>,
+    value_state: ControllableSignal<String>,
     orientation: Orientation,
     activation_mode: Option<NavigationMenuActivationMode>,
     disable_toggle: bool,
     parent_root_dismiss: Option<Callback<()>>,
 ) -> NavigationMenuContext {
+    let value_signal = value_state.signal();
     let relationships = NavigationMenuRelationships::new(scope.clone());
     let inherited_dir = (parent.dir)();
     let inherited_mode = (parent.activation_mode)();
@@ -747,10 +645,10 @@ pub fn use_navigation_menu_sub_runtime(
         root_menu_id: parent.root_menu_id,
         menu_dom_id: use_signal(|| dom_id),
         relationships,
+        value_state,
         value: value_signal,
         previous_value: use_signal(String::new),
         tracked_value: use_signal(|| initial_val),
-        on_value_change: use_hook(|| CopyValue::new(on_value_change)),
         dir: use_signal(|| def.dir()),
         orientation: use_signal(|| def.orientation()),
         activation_mode: use_signal(|| def.activation_mode()),
@@ -834,7 +732,6 @@ impl NavigationMenuContext {
     pub fn sync_root_props(
         &self,
         dom_id: &str,
-        on_value_change: Option<EventHandler<String>>,
         delay_duration: u64,
         skip_delay_duration: u64,
         dir: Direction,
@@ -844,10 +741,6 @@ impl NavigationMenuContext {
     ) {
         update_signal_if_changed(self.root_menu_id, dom_id.to_string());
         update_signal_if_changed(self.menu_dom_id, dom_id.to_string());
-        let mut on_change_slot = self.on_value_change;
-        if let Ok(mut w) = on_change_slot.try_write() {
-            *w = on_value_change;
-        }
         update_signal_if_changed(self.dir, dir);
         update_signal_if_changed(self.orientation, orientation);
         update_signal_if_changed(self.activation_mode, activation_mode);
@@ -869,17 +762,12 @@ impl NavigationMenuContext {
     pub fn sync_sub_props(
         &self,
         dom_id: &str,
-        on_value_change: Option<EventHandler<String>>,
         dir: Direction,
         orientation: Orientation,
         activation_mode: NavigationMenuActivationMode,
         disable_toggle: bool,
     ) {
         update_signal_if_changed(self.menu_dom_id, dom_id.to_string());
-        let mut on_change_slot = self.on_value_change;
-        if let Ok(mut w) = on_change_slot.try_write() {
-            *w = on_value_change;
-        }
         update_signal_if_changed(self.dir, dir);
         update_signal_if_changed(self.orientation, orientation);
         update_signal_if_changed(self.activation_mode, activation_mode);
@@ -933,32 +821,28 @@ impl NavigationMenuContext {
         if current == next_value {
             return;
         }
-        let mut prev_sig = self.previous_value;
-        if let Ok(mut prev) = prev_sig.try_write() {
-            *prev = current;
+        if !self.value_state.is_controlled() {
+            let mut prev_sig = self.previous_value;
+            if let Ok(mut prev) = prev_sig.try_write() {
+                *prev = current;
+            }
+            let mut tracked_sig = self.tracked_value;
+            if let Ok(mut tr) = tracked_sig.try_write() {
+                *tr = next_value.clone();
+            }
+            if let Some(mut hm) = self.hover_machine {
+                let cmds = if let Ok(mut m) = hm.try_write() {
+                    m.dispatch(NavigationMenuHoverAction::ValueCommitted {
+                        next_value: next_value.clone(),
+                    })
+                    .commands
+                } else {
+                    Vec::new()
+                };
+                self.run_timer_commands(cmds);
+            }
         }
-        let mut tracked_sig = self.tracked_value;
-        if let Ok(mut tr) = tracked_sig.try_write() {
-            *tr = next_value.clone();
-        }
-        let mut val_sig = self.value;
-        if let Ok(mut w) = val_sig.try_write() {
-            *w = next_value.clone();
-        }
-        if let Some(mut hm) = self.hover_machine {
-            let cmds = if let Ok(mut m) = hm.try_write() {
-                m.dispatch(NavigationMenuHoverAction::ValueCommitted {
-                    next_value: next_value.clone(),
-                })
-                .commands
-            } else {
-                Vec::new()
-            };
-            self.run_timer_commands(cmds);
-        }
-        if let Some(handler) = self.on_value_change.try_read().ok().and_then(|g| *g) {
-            handler.call(next_value);
-        }
+        self.value_state.set(next_value);
     }
 
     pub fn on_trigger_enter(&self, item_value: &str, item_open_on_hover: Option<bool>) {

@@ -15,14 +15,15 @@ use crate::foundation::{
     },
     keyboard::{is_escape_key, is_ime_composing_key},
     overlay::{
-        CancellableDelay, DismissCallbacks, DismissConfig, DismissEvent, DismissLayerHandle,
-        FloatingHandle, FloatingLayer, FloatingMonitorSpec, FloatingPlacement, FloatingReadiness,
-        FocusScopeConfig, FocusScopeHandle, GeometryVars, GraceCorridorHandle, GraceCorridorOutcome,
-        GraceTransit, GraceTransitStatus, PlacementAlign, PlacementSide, Point2D, PresenceHandle,
-        Rect, Size, WatcherSlot, active_overlay_layers_snapshot, is_overlay_escape_consumed,
-        is_topmost_overlay_layer, mark_overlay_escape_consumed, use_cancellable_delay,
-        use_dismissable_layer, use_floating_layer, use_focus_scope, use_grace_corridor,
-        use_presence, use_watcher_slot,
+        CancellableDelay, DismissBehavior, DismissCallbacks, DismissConfig, DismissEvent,
+        DismissLayerHandle, FloatingHandle, FloatingLayer, FloatingMonitorSpec, FloatingPlacement,
+        FloatingReadiness, FocusScopeConfig, FocusScopeHandle, GeometryVars, GraceCorridorHandle,
+        GraceCorridorOutcome, GraceTransit, GraceTransitStatus, PlacementAlign, PlacementSide,
+        Point2D, PresenceHandle, Rect, Size, StickyStrategy, WatcherSlot,
+        active_overlay_layers_snapshot, is_overlay_escape_consumed, is_topmost_overlay_layer,
+        mark_overlay_escape_consumed, use_cancellable_delay, use_dismissable_layer,
+        use_floating_layer, use_focus_scope, use_grace_corridor, use_presence_with_keep_mounted,
+        use_watcher_slot,
     },
     shared::{
         Direction, EscapeKeyDownEvent, InteractOutsideEvent, PointerDownOutsideEvent,
@@ -40,7 +41,7 @@ use super::{
     state::{HoverCard, HoverCardLifecycle},
     types::{
         HOVER_CARD_GEOMETRY_NAMESPACE, HOVER_CARD_RADIX_ANCHOR_LABEL,
-        HOVER_CARD_RADIX_COMPATIBILITY_PREFIX, HoverCardOutsideBehavior,
+        HOVER_CARD_RADIX_COMPATIBILITY_PREFIX,
     },
 };
 
@@ -57,14 +58,16 @@ pub struct HoverCardFloatingOverrides {
     pub collision_boundary: Option<String>,
     pub collision_padding: Option<f32>,
     pub arrow_padding: Option<f32>,
+    pub sticky: Option<StickyStrategy>,
     pub hide_when_detached: Option<bool>,
+    pub custom_anchor: Option<String>,
     pub dir: Option<Direction>,
 }
 
 #[derive(Clone, Copy, Default, PartialEq)]
 pub struct HoverCardOutsideConfig {
-    pub escape_keydown_behavior: HoverCardOutsideBehavior,
-    pub interact_outside_behavior: HoverCardOutsideBehavior,
+    pub escape_key_down_behavior: DismissBehavior,
+    pub interact_outside_behavior: DismissBehavior,
     pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
     pub on_pointer_down_outside: Option<EventHandler<PointerDownOutsideEvent>>,
     pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
@@ -96,6 +99,7 @@ struct HoverCardRuntimeState {
     content_id: Signal<Option<String>>,
     floating_overrides: Signal<HoverCardFloatingOverrides>,
     outside_config: CopyValue<HoverCardOutsideConfig>,
+    keep_mounted: Signal<bool>,
     alive: CopyValue<bool>,
 }
 
@@ -123,9 +127,8 @@ where
 
     let mut live_hover_card = use_signal(|| hover_card.clone());
     let mut desired_open = use_signal(|| hover_card.is_open());
-    if sync_signal(&mut live_hover_card, hover_card.clone()) {
-        sync_signal(&mut desired_open, hover_card.is_open());
-    }
+    sync_signal(&mut live_hover_card, hover_card.clone());
+    sync_signal(&mut desired_open, hover_card.is_open());
 
     let trigger_handle = use_signal(|| None::<Rc<MountedData>>);
     let content_handle = use_signal(|| None::<Rc<MountedData>>);
@@ -141,12 +144,19 @@ where
     let content_id = use_signal(|| None::<String>);
     let floating_overrides = use_signal(HoverCardFloatingOverrides::default);
     let outside_config = use_hook(|| CopyValue::new(HoverCardOutsideConfig::default()));
+    let keep_mounted = use_signal(|| false);
     let mut alive = use_hook(|| CopyValue::new(true));
 
     let effective_trigger_id = registered_trigger_id
         .read()
         .clone()
         .unwrap_or_else(|| hover_card.relationships().trigger_id().to_owned());
+    let overrides_now = floating_overrides.read().clone();
+    let effective_anchor_id = overrides_now
+        .custom_anchor
+        .clone()
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(|| effective_trigger_id.clone());
     let effective_content_id = content_id
         .read()
         .clone()
@@ -163,19 +173,19 @@ where
         })
     });
 
-    let presence = use_presence(
+    let presence = use_presence_with_keep_mounted(
         hover_card.is_open(),
         &effective_content_id,
         hover_card.lifecycle().presence().retain_mount(),
+        *keep_mounted.read(),
         Some(on_presence_complete),
     );
 
-    let effective_floating =
-        compute_effective_floating_layer(&hover_card, &floating_overrides.read());
+    let effective_floating = compute_effective_floating_layer(&hover_card, &overrides_now);
     let mut floating_spec =
-        FloatingMonitorSpec::new(effective_trigger_id.clone(), effective_content_id.clone());
+        FloatingMonitorSpec::new(effective_anchor_id, effective_content_id.clone());
     floating_spec.arrow_id = Some(hover_card.relationships().arrow_id().to_owned());
-    floating_spec.boundary_id = floating_overrides.read().collision_boundary.clone();
+    floating_spec.boundary_id = overrides_now.collision_boundary.clone();
     floating_spec.side = effective_floating.side();
     floating_spec.align = effective_floating.align();
     floating_spec.direction = effective_floating.direction();
@@ -185,7 +195,7 @@ where
     floating_spec.collision_padding = effective_floating.collision_padding();
     floating_spec.arrow_padding = effective_floating.arrow_padding();
     floating_spec.hide_when_detached = effective_floating.hide_when_detached();
-    floating_spec.sticky = true;
+    floating_spec.sticky = effective_floating.sticky() == StickyStrategy::Always;
     floating_spec.namespace = Some(HOVER_CARD_GEOMETRY_NAMESPACE.to_owned());
 
     let floating = use_floating_layer(
@@ -224,7 +234,7 @@ where
             if let Some(handler) = cfg.on_escape_key_down {
                 handler.call(evt.clone());
             }
-            if !cfg.escape_keydown_behavior.should_close() {
+            if !cfg.escape_key_down_behavior.dismisses() {
                 evt.prevent_default();
             }
         })
@@ -235,7 +245,7 @@ where
             if let Some(handler) = cfg.on_pointer_down_outside {
                 handler.call(evt.clone());
             }
-            if !cfg.interact_outside_behavior.should_close() {
+            if !cfg.interact_outside_behavior.dismisses() {
                 evt.prevent_default();
             }
         })
@@ -246,7 +256,7 @@ where
             if let Some(handler) = cfg.on_interact_outside {
                 handler.call(evt.clone());
             }
-            if !cfg.interact_outside_behavior.should_close() {
+            if !cfg.interact_outside_behavior.dismisses() {
                 evt.prevent_default();
             }
         })
@@ -314,6 +324,7 @@ where
         content_id,
         floating_overrides,
         outside_config,
+        keep_mounted,
         alive,
     };
 
@@ -435,6 +446,23 @@ impl HoverCardRuntime {
 
     pub fn should_render_content(&self) -> bool {
         self.state.presence.should_render()
+    }
+
+    pub fn data_starting_style(&self) -> Option<&'static str> {
+        self.state.presence.data_starting_style()
+    }
+
+    pub fn data_ending_style(&self) -> Option<&'static str> {
+        self.state.presence.data_ending_style()
+    }
+
+    pub fn is_presence_hidden(&self) -> bool {
+        self.state.presence.is_hidden()
+    }
+
+    pub fn set_keep_mounted(&self, keep_mounted: bool) {
+        let mut sig = self.state.keep_mounted;
+        sync_signal(&mut sig, keep_mounted);
     }
 
     pub fn content(&self) -> HoverCardContentAttributes {
@@ -979,8 +1007,10 @@ impl HoverCardRuntime {
         if let Some(handler) = cfg.on_escape_key_down {
             handler.call(evt.clone());
         }
-        if cfg.escape_keydown_behavior.should_close() && !evt.is_default_prevented() {
-            mark_overlay_escape_consumed();
+        if cfg.escape_key_down_behavior.dismisses() && !evt.is_default_prevented() {
+            if !cfg.escape_key_down_behavior.bubbles() {
+                mark_overlay_escape_consumed();
+            }
             self.force_close();
             return true;
         }
@@ -1022,7 +1052,7 @@ impl HoverCardRuntime {
         if let Some(handler) = cfg.on_interact_outside {
             handler.call(out_evt.clone());
         }
-        if cfg.interact_outside_behavior.should_close() && !out_evt.is_default_prevented() {
+        if cfg.interact_outside_behavior.dismisses() && !out_evt.is_default_prevented() {
             self.force_close();
             return true;
         }
@@ -1275,6 +1305,9 @@ fn compute_effective_floating_layer(
     }
     if let Some(arrow_padding) = overrides.arrow_padding {
         layer = layer.with_arrow_padding(arrow_padding);
+    }
+    if let Some(sticky) = overrides.sticky {
+        layer = layer.with_sticky(sticky);
     }
     if let Some(hide_when_detached) = overrides.hide_when_detached {
         layer = layer.with_hide_when_detached(hide_when_detached);

@@ -9,11 +9,12 @@ pub use crate::foundation::compose::{
 use crate::foundation::{
     browser::is_body_pointer_events_locked,
     overlay::{
-        DismissCallbacks, DismissConfig, DismissEvent, DismissLayerHandle, FocusScopeConfig,
-        FocusScopeHandle, ModalLayerConfig, ModalLayerHandle, ModalShieldPolicy, PresenceHandle,
-        use_dismissable_layer, use_focus_scope, use_modal_layer, use_presence,
+        DismissBehavior, DismissCallbacks, DismissConfig, DismissEvent, DismissLayerHandle,
+        FocusScopeConfig, FocusScopeHandle, ModalLayerConfig, ModalLayerHandle, ModalShieldPolicy,
+        OverlayLayerSpec, PresenceHandle, sync_overlay_layer_spec, use_dismissable_layer,
+        use_focus_scope, use_modal_layer, use_presence_with_keep_mounted,
     },
-    state::DataState,
+    state::{DataState, sync_signal},
 };
 
 use super::{
@@ -25,8 +26,10 @@ use super::{
     relationships::DialogRelationships,
     state::{Dialog, DialogLifecycle},
     types::{
-        DIALOG_FOCUSABLE_SELECTOR, DialogCloseFocusPolicy, DialogMountedHandle,
-        DialogOpenFocusPolicy,
+        CloseAutoFocusEvent, DIALOG_FOCUSABLE_SELECTOR, DialogCloseFocusPolicy,
+        DialogMountedHandle, DialogOpenFocusPolicy, DialogOutsideInteractionPolicy,
+        DialogScrollLockPolicy, EscapeKeyDownEvent, InteractOutsideEvent, OpenAutoFocusEvent,
+        PointerDownOutsideEvent,
     },
 };
 
@@ -40,7 +43,15 @@ struct DialogRuntimeState {
     dismiss_layer: DismissLayerHandle,
     modal_layer: ModalLayerHandle,
     focus_scope: FocusScopeHandle,
+    open_focus_override: Signal<Option<DialogOpenFocusPolicy>>,
+    close_focus_override: Signal<Option<DialogCloseFocusPolicy>>,
+    scroll_lock_override: Signal<Option<DialogScrollLockPolicy>>,
+    outside_interaction_override: Signal<Option<DialogOutsideInteractionPolicy>>,
     prevent_body_pointer_events_override: Signal<Option<bool>>,
+    escape_key_down_behavior: Signal<Option<DismissBehavior>>,
+    interact_outside_behavior: Signal<Option<DismissBehavior>>,
+    content_keep_mounted: Signal<bool>,
+    overlay_keep_mounted: Signal<bool>,
     last_dismiss_was_pointer: CopyValue<bool>,
     overlay_id: Signal<Option<String>>,
     content_id: Signal<Option<String>>,
@@ -50,6 +61,12 @@ struct DialogRuntimeState {
     on_dismiss_request: CopyValue<Option<EventHandler<bool>>>,
     on_open_change: CopyValue<Option<EventHandler<bool>>>,
     has_on_open_change_slot: CopyValue<bool>,
+    on_open_change_complete: CopyValue<Option<EventHandler<bool>>>,
+    on_open_auto_focus: CopyValue<Option<EventHandler<OpenAutoFocusEvent>>>,
+    on_close_auto_focus: CopyValue<Option<EventHandler<CloseAutoFocusEvent>>>,
+    on_escape_key_down: CopyValue<Option<EventHandler<EscapeKeyDownEvent>>>,
+    on_pointer_down_outside: CopyValue<Option<EventHandler<PointerDownOutsideEvent>>>,
+    on_interact_outside: CopyValue<Option<EventHandler<InteractOutsideEvent>>>,
 }
 
 #[derive(Clone)]
@@ -62,7 +79,15 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
     let trigger_handle = use_signal(|| None);
     let content_handle = use_signal(|| None);
     let focus_targets = use_signal(HashMap::new);
+    let open_focus_override = use_signal(|| None::<DialogOpenFocusPolicy>);
+    let close_focus_override = use_signal(|| None::<DialogCloseFocusPolicy>);
+    let scroll_lock_override = use_signal(|| None::<DialogScrollLockPolicy>);
+    let outside_interaction_override = use_signal(|| None::<DialogOutsideInteractionPolicy>);
     let prevent_body_pointer_events_override = use_signal(|| None::<bool>);
+    let escape_key_down_behavior = use_signal(|| None::<DismissBehavior>);
+    let interact_outside_behavior = use_signal(|| None::<DismissBehavior>);
+    let content_keep_mounted = use_signal(|| false);
+    let overlay_keep_mounted = use_signal(|| false);
     let last_dismiss_was_pointer = use_hook(|| CopyValue::new(false));
     let overlay_id_sig = use_signal(|| None::<String>);
     let content_id_sig = use_signal(|| None::<String>);
@@ -72,6 +97,17 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
     let on_dismiss_request = use_hook(|| CopyValue::new(Option::<EventHandler<bool>>::None));
     let on_open_change_slot = use_hook(|| CopyValue::new(Option::<EventHandler<bool>>::None));
     let has_on_open_change_slot = use_hook(|| CopyValue::new(false));
+    let on_open_change_complete = use_hook(|| CopyValue::new(Option::<EventHandler<bool>>::None));
+    let on_open_auto_focus =
+        use_hook(|| CopyValue::new(Option::<EventHandler<OpenAutoFocusEvent>>::None));
+    let on_close_auto_focus =
+        use_hook(|| CopyValue::new(Option::<EventHandler<CloseAutoFocusEvent>>::None));
+    let on_escape_key_down =
+        use_hook(|| CopyValue::new(Option::<EventHandler<EscapeKeyDownEvent>>::None));
+    let on_pointer_down_outside =
+        use_hook(|| CopyValue::new(Option::<EventHandler<PointerDownOutsideEvent>>::None));
+    let on_interact_outside =
+        use_hook(|| CopyValue::new(Option::<EventHandler<InteractOutsideEvent>>::None));
 
     let is_open = dialog.is_open();
     let retain_mount = dialog.lifecycle().presence().retain_mount();
@@ -87,20 +123,56 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         .read()
         .clone()
         .unwrap_or_else(|| dialog.relationships().trigger_id().to_string());
+
+    let effective_scroll_lock = scroll_lock_override
+        .read()
+        .clone()
+        .unwrap_or_else(|| dialog.lifecycle().scroll_lock_policy().clone());
     let effective_pbpe = prevent_body_pointer_events_override
         .read()
-        .unwrap_or_else(|| {
-            dialog
-                .lifecycle()
-                .scroll_lock_policy()
-                .prevent_body_pointer_events()
-        });
+        .unwrap_or_else(|| effective_scroll_lock.prevent_body_pointer_events());
 
-    let overlay_presence = use_presence(is_open, &effective_overlay_id, retain_mount, None);
-    let content_presence = use_presence(is_open, &effective_content_id, retain_mount, None);
+    let on_presence_complete = use_hook(move || {
+        EventHandler::new(move |open: bool| {
+            if let Some(cb) = on_open_change_complete.try_read().ok().and_then(|s| *s) {
+                cb.call(open);
+            }
+        })
+    });
 
-    let outside_policy = *dialog.lifecycle().outside_interaction_policy();
+    let overlay_presence = use_presence_with_keep_mounted(
+        is_open,
+        &effective_overlay_id,
+        retain_mount,
+        *overlay_keep_mounted.read(),
+        None,
+    );
+    let content_presence = use_presence_with_keep_mounted(
+        is_open,
+        &effective_content_id,
+        retain_mount,
+        *content_keep_mounted.read(),
+        Some(on_presence_complete),
+    );
+
+    let outside_policy = outside_interaction_override
+        .read()
+        .unwrap_or_else(|| *dialog.lifecycle().outside_interaction_policy());
     let is_alert = *is_alert_override.read();
+    let escape_behavior = escape_key_down_behavior
+        .read()
+        .unwrap_or(DismissBehavior::Close);
+    let explicit_outside_behavior = *interact_outside_behavior.read();
+    let outside_behavior = explicit_outside_behavior.unwrap_or_else(|| {
+        if is_alert {
+            DismissBehavior::Ignore
+        } else if outside_policy.pointer_down_outside().dismisses() {
+            DismissBehavior::Close
+        } else {
+            DismissBehavior::Ignore
+        }
+    });
+
     let focus_guards = dialog.lifecycle().focus_guards();
     let mut dismiss_boundaries = vec![
         effective_content_id.clone(),
@@ -121,10 +193,33 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         // Modal pointer lock is owned by `use_modal_layer` below so `scroll_lock` &
         // `prevent_body_pointer_events` overrides stay single-source-of-truth.
         disable_outside_pointer_events: false,
-        listen_escape: true,
-        listen_pointer_down_outside: !is_alert && outside_policy.pointer_down_outside().dismisses(),
-        listen_focus_outside: !is_alert && outside_policy.focus_outside().dismisses(),
+        listen_escape: escape_behavior.dismisses(),
+        listen_pointer_down_outside: outside_behavior.dismisses(),
+        listen_focus_outside: !is_alert
+            && outside_behavior.dismisses()
+            && outside_policy.focus_outside().dismisses(),
     };
+    let on_escape_bridge = use_hook(move || {
+        EventHandler::new(move |evt: EscapeKeyDownEvent| {
+            if let Some(handler) = on_escape_key_down.try_read().ok().and_then(|g| *g) {
+                handler.call(evt);
+            }
+        })
+    });
+    let on_pointer_down_outside_bridge = use_hook(move || {
+        EventHandler::new(move |evt: PointerDownOutsideEvent| {
+            if let Some(handler) = on_pointer_down_outside.try_read().ok().and_then(|g| *g) {
+                handler.call(evt);
+            }
+        })
+    });
+    let on_interact_outside_bridge = use_hook(move || {
+        EventHandler::new(move |evt: InteractOutsideEvent| {
+            if let Some(handler) = on_interact_outside.try_read().ok().and_then(|g| *g) {
+                handler.call(evt);
+            }
+        })
+    });
     let on_dismiss = use_hook(move || {
         EventHandler::new(move |evt: DismissEvent| {
             let was_pointer = matches!(evt, DismissEvent::PointerDownOutside);
@@ -137,10 +232,24 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         is_open,
         dismiss_config,
         DismissCallbacks {
+            on_escape_key_down: Some(on_escape_bridge),
+            on_pointer_down_outside: Some(on_pointer_down_outside_bridge),
+            on_focus_outside: None,
+            on_interact_outside: Some(on_interact_outside_bridge),
             on_dismiss: Some(on_dismiss),
-            ..Default::default()
         },
     );
+
+    if is_open && !effective_content_id.is_empty() {
+        let mut layer_spec = OverlayLayerSpec::new(effective_content_id.clone())
+            .with_modal(dialog.lifecycle().mode().is_modal())
+            .with_escape_behavior(escape_behavior)
+            .with_outside_press_behavior(outside_behavior);
+        if is_alert && explicit_outside_behavior.is_none() {
+            layer_spec = layer_spec.with_disable_pointer_dismissal(true);
+        }
+        sync_overlay_layer_spec(layer_spec);
+    }
 
     let portal_id = dialog.relationships().scope().qualify("portal");
     let mut keep_ids = vec![
@@ -164,14 +273,16 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
             lock_id: dialog.relationships().root_id().to_string(),
             keep_ids,
             shield_policy: ModalShieldPolicy::InertAndAriaHidden,
-            prevent_scroll: dialog.lifecycle().scroll_lock_policy().is_enabled(),
+            prevent_scroll: effective_scroll_lock.is_enabled(),
             prevent_body_pointer_events: effective_pbpe,
-            restore_delay: dialog.lifecycle().scroll_lock_policy().restore_delay(),
+            restore_delay: effective_scroll_lock.restore_delay(),
         },
     );
 
     let effective_open_policy = if let Some(target) = open_focus_target_sig.read().clone() {
         DialogOpenFocusPolicy::Target(target)
+    } else if let Some(policy) = open_focus_override.read().clone() {
+        policy
     } else {
         dialog.lifecycle().open_focus_policy().clone()
     };
@@ -185,12 +296,29 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
                 DialogOpenFocusPolicy::Suppress => (false, None),
             }
         };
-    let (restore_focus_on_close, restore_target_id) = match dialog.lifecycle().close_focus_policy()
-    {
+    let effective_close_policy = close_focus_override
+        .read()
+        .clone()
+        .unwrap_or_else(|| dialog.lifecycle().close_focus_policy().clone());
+    let (restore_focus_on_close, restore_target_id) = match effective_close_policy {
         DialogCloseFocusPolicy::Trigger => (true, Some(effective_trigger_id.clone())),
-        DialogCloseFocusPolicy::Target(target) => (true, Some(target.clone())),
+        DialogCloseFocusPolicy::Target(target) => (true, Some(target)),
         DialogCloseFocusPolicy::None => (false, None),
     };
+    let on_open_focus_bridge = use_hook(move || {
+        EventHandler::new(move |evt: OpenAutoFocusEvent| {
+            if let Some(handler) = on_open_auto_focus.try_read().ok().and_then(|s| *s) {
+                handler.call(evt);
+            }
+        })
+    });
+    let on_close_focus_bridge = use_hook(move || {
+        EventHandler::new(move |evt: CloseAutoFocusEvent| {
+            if let Some(handler) = on_close_auto_focus.try_read().ok().and_then(|s| *s) {
+                handler.call(evt);
+            }
+        })
+    });
     let focus_scope = use_focus_scope(
         is_open,
         FocusScopeConfig {
@@ -204,8 +332,8 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
             restore_focus_on_close,
             suppress_tab_order: false,
         },
-        None,
-        None,
+        Some(on_open_focus_bridge),
+        Some(on_close_focus_bridge),
     );
 
     let custom_open_target = open_focus_target_sig.read().clone();
@@ -269,7 +397,15 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         dismiss_layer,
         modal_layer,
         focus_scope,
+        open_focus_override,
+        close_focus_override,
+        scroll_lock_override,
+        outside_interaction_override,
         prevent_body_pointer_events_override,
+        escape_key_down_behavior,
+        interact_outside_behavior,
+        content_keep_mounted,
+        overlay_keep_mounted,
         last_dismiss_was_pointer,
         overlay_id: overlay_id_sig,
         content_id: content_id_sig,
@@ -279,6 +415,12 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         on_dismiss_request,
         on_open_change: on_open_change_slot,
         has_on_open_change_slot,
+        on_open_change_complete,
+        on_open_auto_focus,
+        on_close_auto_focus,
+        on_escape_key_down,
+        on_pointer_down_outside,
+        on_interact_outside,
     };
 
     DialogRuntime { dialog, state }
@@ -348,6 +490,115 @@ impl DialogRuntime {
 
     pub fn should_render_content(&self) -> bool {
         self.state.content_presence.should_render()
+    }
+
+    pub fn content_data_starting_style(&self) -> Option<&'static str> {
+        self.state.content_presence.data_starting_style()
+    }
+
+    pub fn content_data_ending_style(&self) -> Option<&'static str> {
+        self.state.content_presence.data_ending_style()
+    }
+
+    pub fn is_content_hidden(&self) -> bool {
+        self.state.content_presence.is_hidden()
+    }
+
+    pub fn overlay_data_starting_style(&self) -> Option<&'static str> {
+        self.state.overlay_presence.data_starting_style()
+    }
+
+    pub fn overlay_data_ending_style(&self) -> Option<&'static str> {
+        self.state.overlay_presence.data_ending_style()
+    }
+
+    pub fn is_overlay_hidden(&self) -> bool {
+        self.state.overlay_presence.is_hidden()
+    }
+
+    pub fn set_content_keep_mounted(&self, keep_mounted: bool) {
+        let mut sig = self.state.content_keep_mounted;
+        sync_signal(&mut sig, keep_mounted);
+    }
+
+    pub fn set_overlay_keep_mounted(&self, keep_mounted: bool) {
+        let mut sig = self.state.overlay_keep_mounted;
+        sync_signal(&mut sig, keep_mounted);
+    }
+
+    pub fn set_on_open_change_complete(&self, handler: Option<EventHandler<bool>>) {
+        let mut slot = self.state.on_open_change_complete;
+        let _ = slot.try_write().map(|mut w| *w = handler);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_content_policy_overrides(
+        &self,
+        open_focus: Option<DialogOpenFocusPolicy>,
+        close_focus: Option<DialogCloseFocusPolicy>,
+        scroll_lock: Option<DialogScrollLockPolicy>,
+        outside_interaction: Option<DialogOutsideInteractionPolicy>,
+        prevent_body_pointer_events: Option<bool>,
+        escape_key_down_behavior: Option<DismissBehavior>,
+        interact_outside_behavior: Option<DismissBehavior>,
+    ) {
+        let mut of = self.state.open_focus_override;
+        sync_signal(&mut of, open_focus);
+        let mut cf = self.state.close_focus_override;
+        sync_signal(&mut cf, close_focus);
+        let mut sl = self.state.scroll_lock_override;
+        sync_signal(&mut sl, scroll_lock);
+        let mut oi = self.state.outside_interaction_override;
+        sync_signal(&mut oi, outside_interaction);
+        let mut pbpe = self.state.prevent_body_pointer_events_override;
+        sync_signal(&mut pbpe, prevent_body_pointer_events);
+        let mut eb = self.state.escape_key_down_behavior;
+        sync_signal(&mut eb, escape_key_down_behavior);
+        let mut ob = self.state.interact_outside_behavior;
+        sync_signal(&mut ob, interact_outside_behavior);
+    }
+
+    pub fn set_content_event_handlers(
+        &self,
+        on_open_auto_focus: Option<EventHandler<OpenAutoFocusEvent>>,
+        on_close_auto_focus: Option<EventHandler<CloseAutoFocusEvent>>,
+        on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
+        on_pointer_down_outside: Option<EventHandler<PointerDownOutsideEvent>>,
+        on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
+    ) {
+        let mut oa = self.state.on_open_auto_focus;
+        let _ = oa.try_write().map(|mut w| *w = on_open_auto_focus);
+        let mut ca = self.state.on_close_auto_focus;
+        let _ = ca.try_write().map(|mut w| *w = on_close_auto_focus);
+        let mut ek = self.state.on_escape_key_down;
+        let _ = ek.try_write().map(|mut w| *w = on_escape_key_down);
+        let mut pd = self.state.on_pointer_down_outside;
+        let _ = pd.try_write().map(|mut w| *w = on_pointer_down_outside);
+        let mut io = self.state.on_interact_outside;
+        let _ = io.try_write().map(|mut w| *w = on_interact_outside);
+    }
+
+    pub fn should_dismiss_on_outside_pointer(&self, is_alert_dialog: bool) -> bool {
+        if let Some(behavior) = self
+            .state
+            .interact_outside_behavior
+            .try_peek()
+            .ok()
+            .and_then(|b| *b)
+        {
+            return behavior.dismisses();
+        }
+        if is_alert_dialog {
+            return false;
+        }
+        let policy = self
+            .state
+            .outside_interaction_override
+            .try_peek()
+            .ok()
+            .and_then(|p| *p)
+            .unwrap_or_else(|| *self.dialog.lifecycle().outside_interaction_policy());
+        policy.pointer_down_outside().dismisses()
     }
 
     pub fn title(&self) -> DialogTitleAttributes {
@@ -450,11 +701,7 @@ impl DialogRuntime {
 
     pub fn set_prevent_body_pointer_events_override(&self, override_value: Option<bool>) {
         let mut sig = self.state.prevent_body_pointer_events_override;
-        if let Ok(mut current) = sig.try_write()
-            && *current != override_value
-        {
-            *current = override_value;
-        }
+        sync_signal(&mut sig, override_value);
     }
 
     pub fn effective_prevent_body_pointer_events(&self) -> bool {
@@ -462,10 +709,17 @@ impl DialogRuntime {
             .prevent_body_pointer_events_override
             .peek()
             .unwrap_or_else(|| {
-                self.dialog
-                    .lifecycle()
-                    .scroll_lock_policy()
-                    .prevent_body_pointer_events()
+                self.state
+                    .scroll_lock_override
+                    .peek()
+                    .as_ref()
+                    .map(|sl| sl.prevent_body_pointer_events())
+                    .unwrap_or_else(|| {
+                        self.dialog
+                            .lifecycle()
+                            .scroll_lock_policy()
+                            .prevent_body_pointer_events()
+                    })
             })
     }
 
@@ -480,11 +734,7 @@ impl DialogRuntime {
         callback: Option<EventHandler<bool>>,
     ) {
         let mut alert_sig = self.state.is_alert_override;
-        if alert_sig.try_peek().is_ok_and(|cur| *cur != is_alert_dialog)
-            && let Ok(mut w) = alert_sig.try_write()
-        {
-            *w = is_alert_dialog;
-        }
+        sync_signal(&mut alert_sig, is_alert_dialog);
         let mut cb_slot = self.state.on_dismiss_request;
         if let Ok(mut w) = cb_slot.try_write() {
             *w = callback;

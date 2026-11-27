@@ -3,31 +3,28 @@ use std::borrow::Cow;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    overlay::{FloatingLayer, PlacementAlign, PlacementSide, PortalHost},
     shared::{ScopeHandle, use_stable_id},
+    state::use_controllable_signal,
 };
 use crate::tooltip::{
     components::{TooltipProviderContext, TooltipRootContext},
     relationships::TooltipRelationships,
-    runtime::{use_tooltip_provider_runtime, use_tooltip_runtime},
+    runtime::{use_tooltip_provider_runtime, use_tooltip_runtime_with_complete},
     state::{Tooltip, TooltipProvider as TooltipProviderDef},
-    types::TOOLTIP_GEOMETRY_NAMESPACE,
 };
 
 #[derive(Props, Clone, PartialEq)]
 pub struct TooltipRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub open: Option<Signal<bool>>,
-    #[props(default)]
-    pub default_open: Option<bool>,
+    pub open: Option<bool>,
+    #[props(default = false)]
+    pub default_open: bool,
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub on_open_change_complete: Option<EventHandler<bool>>,
     #[props(default)]
     pub delay_duration: Option<u64>,
     #[props(default)]
@@ -38,25 +35,13 @@ pub struct TooltipRootProps {
     pub close_on_trigger_click: Option<bool>,
     #[props(default)]
     pub ignore_non_keyboard_focus: Option<bool>,
-    #[props(default)]
-    pub portal_host: Option<PortalHost>,
-    #[props(default)]
-    pub side: Option<PlacementSide>,
-    #[props(default)]
-    pub side_offset: Option<f32>,
-    #[props(default)]
-    pub align: Option<PlacementAlign>,
-    #[props(default)]
-    pub align_offset: Option<f32>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
     pub children: Element,
 }
 
 #[component]
 pub fn TooltipRoot(props: TooltipRootProps) -> Element {
-    let fallback_open = use_signal(|| props.default_open.unwrap_or(false));
-    let open_signal = props.open.unwrap_or(fallback_open);
+    let open_ctl = use_controllable_signal(props.open, props.default_open, props.on_open_change);
+    let open_signal = open_ctl.signal();
 
     let scope_id = use_stable_id(props.id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("tooltip").child(scope_id);
@@ -84,19 +69,16 @@ pub fn TooltipRoot(props: TooltipRootProps) -> Element {
     }
     let fallback_provider_runtime = use_tooltip_provider_runtime(fallback_provider_def);
 
+    // Preserve parent TooltipProvider shared skip-delay & active-tooltip state even when
+    // per-root override props are supplied (`LD-09`).
     let effective_provider_runtime = match parent_provider_ctx {
-        Some(ctx) => {
-            if props.delay_duration.is_some()
-                || props.skip_delay_duration.is_some()
-                || props.disable_hoverable_content.is_some()
-                || props.close_on_trigger_click.is_some()
-                || props.ignore_non_keyboard_focus.is_some()
-            {
-                fallback_provider_runtime
-            } else {
-                ctx.runtime.read().clone()
-            }
-        }
+        Some(ctx) => ctx.runtime.read().with_overrides(
+            props.delay_duration,
+            props.skip_delay_duration,
+            props.disable_hoverable_content,
+            props.close_on_trigger_click,
+            props.ignore_non_keyboard_focus,
+        ),
         None => fallback_provider_runtime,
     };
 
@@ -122,62 +104,31 @@ pub fn TooltipRoot(props: TooltipRootProps) -> Element {
     }
     prev_open.set(is_open);
 
-    let mut tooltip = Tooltip::new(scope, is_open)
+    let tooltip = Tooltip::new(scope, is_open)
         .with_provider(effective_provider_runtime.provider().clone());
 
-    if let Some(host) = props.portal_host {
-        tooltip = tooltip.with_portal_host(host);
-    }
-
-    let side = props.side.unwrap_or(PlacementSide::Top);
-    let mut floating = FloatingLayer::new(side)
-        .with_side_offset(props.side_offset.unwrap_or(8.0))
-        .with_namespace(TOOLTIP_GEOMETRY_NAMESPACE);
-    if let Some(align) = props.align {
-        floating = floating.with_align(align);
-    }
-    if let Some(align_offset) = props.align_offset {
-        floating = floating.with_align_offset(align_offset);
-    }
-    tooltip = tooltip.with_floating(floating);
-
-    let on_open_change = props.on_open_change;
     let change_handler = move |next_open: bool| {
-        if *open_signal.peek() != next_open {
-            let mut sig = open_signal;
-            sig.set(next_open);
-        }
-        if let Some(h) = on_open_change {
-            h.call(next_open);
-        }
+        open_ctl.set(next_open);
     };
 
-    let runtime = use_tooltip_runtime(tooltip, Some(effective_provider_runtime), change_handler);
+    let runtime = use_tooltip_runtime_with_complete(
+        tooltip,
+        Some(effective_provider_runtime),
+        change_handler,
+        props.on_open_change_complete,
+    );
     let mut runtime_sig = use_signal(|| runtime.clone());
     runtime_sig.set(runtime.clone());
 
     use_context_provider(|| TooltipRootContext {
         runtime: runtime_sig,
         open: open_signal,
-        on_open_change,
+        on_open_change: props.on_open_change,
         relationships: relationships.clone(),
     });
-
-    let attrs = runtime.root();
-    let merged = crate::foundation::compose::merge_global_attributes(
-        props.class.as_deref(),
-        Some(props.style.as_deref().unwrap_or("display: contents;")),
-        props.attributes,
-    );
+    use_context_provider(|| runtime.floating_tooltip_context());
 
     rsx! {
-        div {
-            id: "{attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-state": attrs.data_state().as_str(),
-            ..merged.rest,
-            {props.children}
-        }
+        {props.children}
     }
 }

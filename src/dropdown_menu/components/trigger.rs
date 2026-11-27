@@ -1,39 +1,34 @@
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 
-use crate::foundation::keyboard::is_ime_composing_key;
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
+    keyboard::is_ime_composing_key,
+    state::sync_signal,
+};
 use crate::menu::{
     MenuKey, MenuOpenFocusTarget, MenuPart, MenuRootContext, MenuTriggerAttributes, MenuVariant,
-    merge_attributes_with_part, translate_menu_key,
+    translate_menu_key,
 };
-
-/// Render props passed to `render_child` when `DropdownMenuTrigger` uses `as_child: true`.
-#[derive(Clone, PartialEq)]
-pub struct DropdownMenuTriggerRenderProps {
-    pub attrs: MenuTriggerAttributes,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub on_pointer_down: EventHandler<PointerEvent>,
-    pub on_click: EventHandler<MouseEvent>,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
 
 #[derive(Props, Clone, PartialEq)]
 pub struct DropdownMenuTriggerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<DropdownMenuTriggerRenderProps, Element>>,
+    pub on_click: Option<EventHandler<MouseEvent>>,
+    #[props(default)]
+    pub on_key_down: Option<EventHandler<KeyboardEvent>>,
+    #[props(default)]
+    pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -49,9 +44,7 @@ pub fn DropdownMenuTrigger(props: DropdownMenuTriggerProps) -> Element {
 
     {
         let mut tid = root.trigger_id;
-        if tid.try_peek().is_ok_and(|g| *g != id) {
-            let _ = tid.try_write().map(|mut w| *w = id.clone());
-        }
+        sync_signal(&mut tid, id.clone());
     }
 
     let is_open = root.is_open();
@@ -62,10 +55,6 @@ pub fn DropdownMenuTrigger(props: DropdownMenuTriggerProps) -> Element {
         is_open,
         props.disabled,
         MenuVariant::DropdownMenu,
-    );
-    let merged_attrs = merge_attributes_with_part(
-        props.attributes,
-        MenuPart::Trigger.static_data_attr_name(MenuVariant::DropdownMenu),
     );
 
     let toggled_on_pointer_down = use_signal(|| false);
@@ -131,37 +120,48 @@ pub fn DropdownMenuTrigger(props: DropdownMenuTriggerProps) -> Element {
         }
     });
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(DropdownMenuTriggerRenderProps {
-            attrs,
-            class: props.class,
-            style: props.style,
-            on_pointer_down,
-            on_click,
-            on_key_down,
-            attributes: merged_attrs,
-            children: props.children,
-        });
+    let data_state_str = attrs.data_state.as_str();
+    let part_attr = MenuPart::Trigger.static_data_attr_name(MenuVariant::DropdownMenu);
+
+    let mut base = Vec::with_capacity(14);
+    base.push(Attribute::new("type", "button", None, false));
+    base.push(Attribute::new("id", attrs.id, None, false));
+    if attrs.disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    base.push(Attribute::new(
+        "aria-haspopup",
+        attrs.aria_haspopup,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-expanded",
+        if attrs.aria_expanded { "true" } else { "false" },
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "aria-controls", attrs.aria_controls);
+    base.push(Attribute::new("data-state", data_state_str, None, false));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    base.push(Attribute::new(part_attr, "", None, false));
+    push_event_handler::<PointerData>(&mut base, "onpointerdown", Some(on_pointer_down));
+    push_event_handler::<MouseData>(&mut base, "onclick", Some(on_click));
+    push_event_handler::<KeyboardData>(&mut base, "onkeydown", Some(on_key_down));
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler::<MouseData>(&mut user, "onclick", props.on_click);
+    push_event_handler::<KeyboardData>(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler::<MountedData>(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
 
     rsx! {
         button {
-            r#type: "button",
-            id: "{attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
-            disabled: attrs.disabled,
-            "aria-haspopup": "{attrs.aria_haspopup}",
-            "aria-expanded": "{attrs.aria_expanded}",
-            "aria-controls": attrs.aria_controls.as_deref(),
-            "data-state": "{attrs.data_state.as_str()}",
-            "data-disabled": attrs.data_disabled,
-            onpointerdown: move |evt| on_pointer_down.call(evt),
-            onclick: move |evt| on_click.call(evt),
-            onkeydown: move |evt| on_key_down.call(evt),
-            ..merged_attrs,
+            ..merged,
             {props.children}
         }
     }

@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::{get_tabbable_candidates, remove_from_tab_order, restore_tab_order},
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     keyboard::{is_escape_key, is_ime_composing_key},
     overlay::{
         OverlayBranchContext, is_overlay_escape_consumed, mark_overlay_escape_consumed,
@@ -18,9 +18,9 @@ use crate::foundation::{
 
 use super::super::{
     runtime::{
-        ContentDismissConfig, NavigationMenuContentRenderProps, NavigationMenuContext,
-        NavigationMenuInContent, NavigationMenuItemContext, NavigationMenuRootDismissContext,
-        ViewportContentData, active_element_id, first_data_focused_id, focus_element_reliable,
+        ContentDismissConfig, NavigationMenuContext, NavigationMenuInContent,
+        NavigationMenuItemContext, NavigationMenuRootDismissContext, ViewportContentData,
+        active_element_id, first_data_focused_id, focus_element_reliable,
         focus_first_candidate_id, handle_proxy_focus, is_active_element_inside,
         is_ignored_arrow_element_by_id,
     },
@@ -30,11 +30,11 @@ use super::super::{
 
 #[derive(Clone, PartialEq, Props)]
 pub struct NavigationMenuContentProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
@@ -50,10 +50,8 @@ pub struct NavigationMenuContentProps {
     pub escape_keydown_behavior: NavigationMenuOutsideBehavior,
     #[props(default)]
     pub interact_outside_behavior: NavigationMenuOutsideBehavior,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<NavigationMenuContentRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -106,8 +104,7 @@ pub fn NavigationMenuContent(props: NavigationMenuContentProps) -> Element {
             force_mount: props.force_mount,
             class: props.class.clone(),
             style: props.style.clone(),
-            as_child: props.as_child,
-            render_child: props.render_child,
+            child: props.child,
             on_escape_key_down: props.on_escape_key_down,
             on_pointer_down_outside: props.on_pointer_down_outside,
             on_focus_outside: props.on_focus_outside,
@@ -135,6 +132,8 @@ pub fn NavigationMenuContent(props: NavigationMenuContentProps) -> Element {
             item_state: item_ctx,
             is_open,
             inline_mode: true,
+            data_starting_style: presence.data_starting_style(),
+            data_ending_style: presence.data_ending_style(),
             class: props.class,
             style: props.style,
             on_escape_key_down: props.on_escape_key_down,
@@ -143,8 +142,7 @@ pub fn NavigationMenuContent(props: NavigationMenuContentProps) -> Element {
             on_interact_outside: props.on_interact_outside,
             escape_keydown_behavior: props.escape_keydown_behavior,
             interact_outside_behavior: props.interact_outside_behavior,
-            as_child: props.as_child,
-            render_child: props.render_child,
+            child: props.child,
             on_mounted: props.on_mounted,
             attributes: props.attributes,
             children: props.children,
@@ -161,6 +159,8 @@ pub(crate) struct NavigationMenuContentImplSpec {
     pub item_state: NavigationMenuItemContext,
     pub is_open: bool,
     pub inline_mode: bool,
+    pub data_starting_style: Option<&'static str>,
+    pub data_ending_style: Option<&'static str>,
     pub class: Option<String>,
     pub style: Option<String>,
     pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
@@ -169,8 +169,7 @@ pub(crate) struct NavigationMenuContentImplSpec {
     pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
     pub escape_keydown_behavior: NavigationMenuOutsideBehavior,
     pub interact_outside_behavior: NavigationMenuOutsideBehavior,
-    pub as_child: bool,
-    pub render_child: Option<Callback<NavigationMenuContentRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -270,13 +269,6 @@ pub(crate) fn render_navigation_menu_content_impl(
         return rsx! {};
     }
 
-    let merged_user_style = match (spec.style.as_deref(), guard_style) {
-        (Some(s), Some(g)) if !s.trim().is_empty() => Some(format!("{s}; {g}")),
-        (Some(s), None) if !s.trim().is_empty() => Some(s.to_string()),
-        (_, Some(g)) => Some(g.to_string()),
-        _ => None,
-    };
-
     let content_attrs = ctx.content_attributes(
         &spec.value,
         spec.is_open,
@@ -284,7 +276,7 @@ pub(crate) fn render_navigation_menu_content_impl(
         spec.inline_mode,
         Some(spec.content_id.clone()),
         Some(spec.trigger_id.clone()),
-        merged_user_style.as_deref(),
+        guard_style,
     );
 
     let item_open_on_hover = spec.item_state.open_on_hover_opt();
@@ -292,25 +284,25 @@ pub(crate) fn render_navigation_menu_content_impl(
         let ctx = ctx.clone();
         let is_open = spec.is_open;
         let inline_mode = spec.inline_mode;
-        move |_: Event<PointerData>| {
+        EventHandler::new(move |_: PointerEvent| {
             if inline_mode && is_open {
                 ctx.on_content_enter();
             }
-        }
+        })
     };
 
     let on_pointer_leave = {
         let ctx = ctx.clone();
         let is_open = spec.is_open;
         let inline_mode = spec.inline_mode;
-        move |evt: Event<PointerData>| {
+        EventHandler::new(move |evt: PointerEvent| {
             if !inline_mode || !is_open || evt.pointer_type() != "mouse" {
                 return;
             }
             if is_item_hover_enabled(ctx.current_activation_mode(), item_open_on_hover) {
                 ctx.on_content_leave(item_open_on_hover);
             }
-        }
+        })
     };
 
     let on_key_down = {
@@ -321,7 +313,7 @@ pub(crate) fn render_navigation_menu_content_impl(
         let item_state = spec.item_state;
         let escape_behavior = spec.escape_keydown_behavior;
         let on_escape = spec.on_escape_key_down;
-        move |evt: KeyboardEvent| {
+        EventHandler::new(move |evt: KeyboardEvent| {
             if is_ime_composing_key(&evt) {
                 return;
             }
@@ -408,51 +400,64 @@ pub(crate) fn render_navigation_menu_content_impl(
                     focus_element_reliable(&next_id);
                 }
             }
-        }
+        })
     };
 
-    if spec.as_child {
-        if let Some(render_child) = spec.render_child.as_ref() {
-            return render_child.call(NavigationMenuContentRenderProps {
-                attrs: content_attrs,
-                is_open: spec.is_open,
-                class: spec.class,
-                style: spec.style,
-                attributes: spec.attributes,
-                children: spec.children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::NavigationMenuContent: as_child requires render_child; rendering the default div"
-        );
-    }
+    let base_style = {
+        let s = content_attrs.style();
+        (!s.trim().is_empty()).then(|| s.to_owned())
+    };
 
-    let merged = merge_global_attributes(
-        spec.class.as_deref(),
-        Some(content_attrs.style()),
-        spec.attributes,
-    );
+    let mut base = Vec::with_capacity(14);
+    base.push(Attribute::new(
+        "id",
+        content_attrs.id().to_owned(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "style", base_style);
+    base.push(Attribute::new(
+        "aria-labelledby",
+        content_attrs.aria_labelledby().to_owned(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-state",
+        content_attrs.data_state().as_str(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-orientation",
+        content_attrs.data_orientation(),
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "data-motion", content_attrs.data_motion());
+    push_attr_opt(&mut base, "data-starting-style", spec.data_starting_style);
+    push_attr_opt(&mut base, "data-ending-style", spec.data_ending_style);
+    base.push(Attribute::new(
+        "data-monoxus-navigation-menu-content",
+        content_attrs.data_monoxus_navigation_menu_content(),
+        None,
+        false,
+    ));
+    push_event_handler::<PointerData>(&mut base, "onpointerenter", Some(on_pointer_enter));
+    push_event_handler::<PointerData>(&mut base, "onpointerleave", Some(on_pointer_leave));
+    push_event_handler::<KeyboardData>(&mut base, "onkeydown", Some(on_key_down));
+
+    let mut user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+    push_event_handler::<MountedData>(&mut user, "onmounted", spec.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = spec.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{content_attrs.id()}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            aria_labelledby: "{content_attrs.aria_labelledby()}",
-            "data-state": content_attrs.data_state().as_str(),
-            "data-orientation": "{content_attrs.data_orientation()}",
-            "data-motion": content_attrs.data_motion(),
-            "data-monoxus-navigation-menu-content": "{content_attrs.data_monoxus_navigation_menu_content()}",
-            onpointerenter: on_pointer_enter,
-            onpointerleave: on_pointer_leave,
-            onkeydown: on_key_down,
-            onmounted: move |evt| {
-                if let Some(ref handler) = spec.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {spec.children}
         }
     }

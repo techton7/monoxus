@@ -3,30 +3,31 @@ use std::borrow::Cow;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_event_handler},
     shared::{Orientation, use_stable_id},
+    state::use_controllable_signal,
 };
 
 use super::super::{
     relationships::NavigationMenuRelationships,
     runtime::{
         NavigationMenuContext, NavigationMenuInContent, NavigationMenuRootDismissContext,
-        NavigationMenuSubRenderProps, use_navigation_menu_sub_runtime,
+        use_navigation_menu_sub_runtime,
     },
     types::NavigationMenuActivationMode,
 };
 
 #[derive(Clone, PartialEq, Props)]
 pub struct NavigationMenuSubProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
-    pub value: Option<Signal<String>>,
-    #[props(default)]
+    #[props(default, into)]
+    pub value: Option<String>,
+    #[props(default, into)]
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
@@ -36,10 +37,8 @@ pub struct NavigationMenuSubProps {
     pub activation_mode: Option<NavigationMenuActivationMode>,
     #[props(default = true)]
     pub disable_toggle: bool,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<NavigationMenuSubRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -59,8 +58,11 @@ pub fn NavigationMenuSub(props: NavigationMenuSubProps) -> Element {
         .clone()
         .unwrap_or_else(|| initial_rels.root_id().to_owned());
 
-    let fallback_value = use_signal(|| props.default_value.clone().unwrap_or_default());
-    let value_signal = props.value.unwrap_or(fallback_value);
+    let value_state = use_controllable_signal(
+        props.value,
+        props.default_value.unwrap_or_default(),
+        props.on_value_change,
+    );
 
     let effective_mode = props
         .activation_mode
@@ -71,8 +73,7 @@ pub fn NavigationMenuSub(props: NavigationMenuSubProps) -> Element {
         &parent_ctx,
         scope,
         dom_id.clone(),
-        value_signal,
-        props.on_value_change,
+        value_state,
         props.orientation,
         Some(effective_mode),
         props.disable_toggle,
@@ -81,7 +82,6 @@ pub fn NavigationMenuSub(props: NavigationMenuSubProps) -> Element {
 
     ctx.sync_sub_props(
         &dom_id,
-        props.on_value_change,
         inherited_dir,
         props.orientation,
         effective_mode,
@@ -93,41 +93,28 @@ pub fn NavigationMenuSub(props: NavigationMenuSubProps) -> Element {
 
     let sub_attrs = ctx.sub_attributes(Some(dom_id));
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(NavigationMenuSubRenderProps {
-                attrs: sub_attrs,
-                class: props.class,
-                style: props.style,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::NavigationMenuSub: as_child requires render_child; rendering the default div"
-        );
-    }
+    let base = vec![
+        Attribute::new("id", sub_attrs.id().to_owned(), None, false),
+        Attribute::new("data-orientation", sub_attrs.data_orientation(), None, false),
+        Attribute::new(
+            "data-monoxus-navigation-menu-sub",
+            sub_attrs.data_monoxus_navigation_menu_sub(),
+            None,
+            false,
+        ),
+    ];
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler::<MountedData>(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{sub_attrs.id()}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            "data-orientation": "{sub_attrs.data_orientation()}",
-            "data-monoxus-navigation-menu-sub": "{sub_attrs.data_monoxus_navigation_menu_sub()}",
-            onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

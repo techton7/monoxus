@@ -2,7 +2,10 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::foundation::shared::use_stable_id;
+use crate::foundation::{
+    shared::use_stable_id,
+    state::{sync_signal, use_controllable_signal},
+};
 use crate::menu::{
     MenuActivePortalSurface, MenuRootContext, MenuVariant, MenubarMenuBridge,
     use_menu_surface_lifecycle,
@@ -20,8 +23,10 @@ pub struct MenubarSingleMenuContext {
 
 #[derive(Props, Clone, PartialEq)]
 pub struct MenubarMenuProps {
-    #[props(default)]
+    #[props(default, into)]
     pub value: Option<String>,
+    #[props(default)]
+    pub on_open_change_complete: Option<EventHandler<bool>>,
     pub children: Element,
 }
 
@@ -38,24 +43,24 @@ pub fn MenubarMenu(props: MenubarMenuProps) -> Element {
             .menu_relationships(menubar.relationships.scope().child(menu_value.clone()))
     });
 
-    let open_sig = use_signal(|| menubar.is_menu_open(&menu_value));
-    let is_open_now = menubar.is_menu_open(&menu_value);
-    {
-        let mut os = open_sig;
-        if os.try_peek().is_ok_and(|cur| *cur != is_open_now) {
-            let _ = os.try_write().map(|mut w| *w = is_open_now);
-        }
-    }
-
     let close_cb_menubar = menubar.clone();
     let close_cb_value = menu_value.clone();
     let on_open_change = use_callback(move |next: bool| {
         if next {
-            close_cb_menubar.open_menu(&close_cb_value, crate::menu::MenuOpenFocusTarget::ContentContainer);
+            close_cb_menubar.open_menu(
+                &close_cb_value,
+                crate::menu::MenuOpenFocusTarget::ContentContainer,
+            );
         } else {
             close_cb_menubar.close_menu(&close_cb_value);
         }
     });
+
+    let open_state = use_controllable_signal(
+        Some(menubar.is_menu_open(&menu_value)),
+        false,
+        Some(on_open_change),
+    );
 
     let bridge = use_hook(|| {
         let mb_triggers = menubar.clone();
@@ -80,10 +85,8 @@ pub fn MenubarMenu(props: MenubarMenuProps) -> Element {
     let root = MenuRootContext::new(
         MenuVariant::Menubar,
         rels.clone(),
-        open_sig,
-        true,
-        Some(on_open_change),
-        None,
+        open_state,
+        props.on_open_change_complete,
         false,
         dir,
         loop_focus,
@@ -93,13 +96,9 @@ pub fn MenubarMenu(props: MenubarMenuProps) -> Element {
 
     {
         let mut d = root.dir;
-        if d.try_peek().is_ok_and(|cur| *cur != dir) {
-            let _ = d.try_write().map(|mut w| *w = dir);
-        }
+        sync_signal(&mut d, dir);
         let mut lf = root.loop_focus;
-        if lf.try_peek().is_ok_and(|cur| *cur != loop_focus) {
-            let _ = lf.try_write().map(|mut w| *w = loop_focus);
-        }
+        sync_signal(&mut lf, loop_focus);
     }
 
     let disabled_sig = use_signal(|| false);
@@ -110,7 +109,12 @@ pub fn MenubarMenu(props: MenubarMenuProps) -> Element {
         .state
         .try_peek()
         .ok()
-        .and_then(|s| s.menus().iter().find(|m| m.value == menu_value).map(|m| m.dom_order))
+        .and_then(|s| {
+            s.menus()
+                .iter()
+                .find(|m| m.value == menu_value)
+                .map(|m| m.dom_order)
+        })
         .unwrap_or(usize::MAX);
 
     let needs_register = menubar.state.try_peek().is_ok_and(|s| {

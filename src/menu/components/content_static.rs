@@ -1,20 +1,30 @@
 use dioxus::prelude::*;
 
-use crate::foundation::{overlay::PlacementSide, shared::Direction, state::sync_signal};
+use crate::foundation::{
+    overlay::{DismissBehavior, PlacementSide},
+    shared::Direction,
+    state::sync_signal,
+};
 use crate::menu::{MenuPart, MenuPreventableEvent, MenuRootContext, MenuVariant};
 
-use super::content::{MenuContentRenderProps, MenuSurfaceViewSpec, render_menu_surface};
+use super::content::{MenuSurfaceChild, MenuSurfaceViewSpec, render_menu_surface};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct MenuContentStaticProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
+    #[props(default = false)]
+    pub keep_mounted: bool,
+    #[props(default)]
+    pub escape_key_down_behavior: DismissBehavior,
+    #[props(default)]
+    pub interact_outside_behavior: DismissBehavior,
     #[props(default)]
     pub loop_focus: Option<bool>,
     #[props(default)]
@@ -27,10 +37,8 @@ pub struct MenuContentStaticProps {
     pub on_close_auto_focus: Option<EventHandler<MenuPreventableEvent>>,
     #[props(default)]
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<MenuContentRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -52,6 +60,12 @@ pub fn MenuContentStatic(props: MenuContentStaticProps) -> Element {
 
         let mut fm = surface.force_mount;
         sync_signal(&mut fm, props.force_mount);
+        let mut km = surface.keep_mounted;
+        sync_signal(&mut km, props.keep_mounted);
+        let mut eb = surface.escape_key_down_behavior;
+        sync_signal(&mut eb, props.escape_key_down_behavior);
+        let mut ob = surface.interact_outside_behavior;
+        sync_signal(&mut ob, props.interact_outside_behavior);
 
         let effective_loop = props.loop_focus.unwrap_or_else(|| *root.loop_focus.read());
         let mut lf = surface.loop_focus;
@@ -93,8 +107,7 @@ pub fn MenuContentStatic(props: MenuContentStaticProps) -> Element {
         on_pointer_enter: None,
         on_pointer_move: None,
         on_pointer_leave: None,
-        as_child: props.as_child,
-        render_child: props.render_child,
+        child: MenuSurfaceChild::Static(props.child),
         attributes: props.attributes,
         children: props.children,
     })

@@ -3,79 +3,56 @@ use std::borrow::Cow;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
-    overlay::{FloatingLayer, PlacementAlign, PlacementSide, PortalHost, StickyStrategy},
+    overlay::{FloatingLayer, PlacementSide},
     shared::{ScopeHandle, use_stable_id},
+    state::use_controllable_signal,
 };
 use crate::popover::{
     components::PopoverContext,
     relationships::PopoverRelationships,
     runtime::use_popover_runtime,
     state::Popover,
-    types::{
-        POPOVER_GEOMETRY_NAMESPACE, PopoverCloseFocusPolicy, PopoverOpenFocusPolicy,
-        PopoverOutsideInteractionPolicy, PopoverScrollLockPolicy,
-    },
+    types::POPOVER_GEOMETRY_NAMESPACE,
 };
 
 #[derive(Props, Clone, PartialEq)]
 pub struct PopoverRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
-    pub open: Option<Signal<bool>>,
-    #[props(default)]
-    pub default_open: Option<bool>,
+    pub open: Option<bool>,
+    #[props(default = false)]
+    pub default_open: bool,
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
     #[props(default)]
     pub on_open_change_complete: Option<EventHandler<bool>>,
     #[props(default)]
     pub modal: Option<bool>,
-    #[props(default)]
-    pub open_focus: Option<PopoverOpenFocusPolicy>,
-    #[props(default)]
-    pub close_focus: Option<PopoverCloseFocusPolicy>,
-    #[props(default)]
-    pub scroll_lock: Option<PopoverScrollLockPolicy>,
-    #[props(default)]
-    pub outside_interaction: Option<PopoverOutsideInteractionPolicy>,
-    #[props(default)]
-    pub portal_host: Option<PortalHost>,
-    #[props(default)]
-    pub side: Option<PlacementSide>,
-    #[props(default)]
-    pub side_offset: Option<f32>,
-    #[props(default)]
-    pub align: Option<PlacementAlign>,
-    #[props(default)]
-    pub align_offset: Option<f32>,
-    #[props(default)]
-    pub avoid_collisions: Option<bool>,
-    #[props(default)]
-    pub collision_padding: Option<f32>,
-    #[props(default)]
-    pub sticky: Option<bool>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
     pub children: Element,
 }
 
 #[component]
 pub fn PopoverRoot(props: PopoverRootProps) -> Element {
-    let fallback_open = use_signal(|| props.default_open.unwrap_or(false));
-    let open_signal = props.open.unwrap_or(fallback_open);
+    let PopoverRootProps {
+        id,
+        open,
+        default_open,
+        on_open_change,
+        on_open_change_complete,
+        modal,
+        children,
+    } = props;
 
-    let scope_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
+    let open_ctl = use_controllable_signal(open, default_open, on_open_change);
+    let open_signal = open_ctl.signal();
+
+    let scope_id = use_stable_id(id.clone().map(Cow::Owned)).into_owned();
     let scope = ScopeHandle::root("popover").child(scope_id);
     let relationships = PopoverRelationships::new(scope.clone());
 
     let is_open = open_signal();
-    let is_modal = props.modal.unwrap_or(false);
+    let is_modal = modal.unwrap_or(false);
 
     let mut popover = if is_modal {
         Popover::new_modal(scope, is_open)
@@ -83,59 +60,23 @@ pub fn PopoverRoot(props: PopoverRootProps) -> Element {
         Popover::new(scope, is_open)
     };
 
-    if let Some(m) = props.modal {
+    if let Some(m) = modal {
         popover = popover.with_modal(m);
     }
-    if let Some(of) = props.open_focus {
-        popover = popover.with_open_focus_policy(of);
-    }
-    if let Some(cf) = props.close_focus {
-        popover = popover.with_close_focus_policy(cf);
-    }
-    if let Some(sl) = props.scroll_lock {
-        popover = popover.with_scroll_lock_policy(sl);
-    }
-    if let Some(oi) = props.outside_interaction {
-        popover = popover.with_outside_interaction_policy(oi);
-    }
-    if let Some(host) = props.portal_host {
-        popover = popover.with_portal_host(host);
-    }
 
-    let side = props.side.unwrap_or(PlacementSide::Bottom);
-    let mut floating = FloatingLayer::new(side)
-        .with_side_offset(props.side_offset.unwrap_or(4.0))
-        .with_avoid_collisions(props.avoid_collisions.unwrap_or(true))
-        .with_collision_padding(props.collision_padding.unwrap_or(8.0))
+    let floating = FloatingLayer::new(PlacementSide::Bottom)
+        .with_side_offset(4.0)
+        .with_avoid_collisions(true)
+        .with_collision_padding(8.0)
         .with_namespace(POPOVER_GEOMETRY_NAMESPACE);
-    if let Some(align) = props.align {
-        floating = floating.with_align(align);
-    }
-    if let Some(align_offset) = props.align_offset {
-        floating = floating.with_align_offset(align_offset);
-    }
-    if let Some(sticky) = props.sticky {
-        floating = floating.with_sticky(if sticky {
-            StickyStrategy::Always
-        } else {
-            StickyStrategy::Partial
-        });
-    }
     popover = popover.with_floating(floating);
 
-    let on_open_change = props.on_open_change;
     let change_handler = move |next_open: bool| {
-        if *open_signal.peek() != next_open {
-            let mut sig = open_signal;
-            sig.set(next_open);
-        }
-        if let Some(h) = on_open_change {
-            h.call(next_open);
-        }
+        open_ctl.set(next_open);
     };
 
     let runtime = use_popover_runtime(popover, change_handler);
-    runtime.set_on_open_change_complete(props.on_open_change_complete);
+    runtime.set_on_open_change_complete(on_open_change_complete);
     let mut runtime_sig = use_signal(|| runtime.clone());
     if runtime_sig.peek().popover() != runtime.popover() {
         runtime_sig.set(runtime.clone());
@@ -148,6 +89,7 @@ pub fn PopoverRoot(props: PopoverRootProps) -> Element {
     use_context_provider(|| PopoverContext {
         runtime: runtime_sig,
         open: open_signal,
+        open_ctl,
         on_open_change,
         relationships: relationships.clone(),
         title_id,
@@ -155,22 +97,7 @@ pub fn PopoverRoot(props: PopoverRootProps) -> Element {
         content_id,
     });
 
-    let attrs = runtime.root();
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        Some(props.style.as_deref().unwrap_or("display: contents;")),
-        props.attributes,
-    );
-
     rsx! {
-        div {
-            id: "{attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-state": attrs.data_state().as_str(),
-            ..merged.rest,
-            {props.children}
-        }
+        {children}
     }
 }

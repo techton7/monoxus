@@ -1,10 +1,15 @@
-use crate::foundation::compose::merge_global_attributes;
 use dioxus::prelude::*;
+
+use crate::foundation::compose::{collect_user_attrs, merge_props};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToastTitleProps {
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
+    #[props(default, into)]
+    pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -14,14 +19,17 @@ pub struct ToastTitleProps {
 /// Semantic heading container for primary toast message text.
 #[component]
 pub fn ToastTitle(props: ToastTitleProps) -> Element {
-    let merged = merge_global_attributes(props.class.as_deref(), None, props.attributes);
+    let base = vec![Attribute::new("data-title", "", None, false)];
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            "data-title": "",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref(),
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

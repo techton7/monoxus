@@ -15,18 +15,18 @@ use crate::foundation::{
     compose::MountedHandle,
     keyboard::is_ime_composing_key,
     overlay::{
-        CancellableDelay, DismissCallbacks, DismissConfig, DismissEvent, DismissLayerHandle,
-        FloatingHandle, FloatingMonitorSpec, FloatingPlacement, FloatingReadiness,
-        FloatingScrollPolicy, FocusScopeConfig, FocusScopeHandle, GraceCorridorHandle,
-        GraceCorridorOutcome, GraceTransit, ModalLayerConfig, ModalLayerHandle, ModalShieldPolicy,
-        PlacementAlign, PlacementSide, Point2D, PresenceHandle, PresenceState, Rect2D,
-        SUBMENU_INTENT_MIN_PROGRESS_PX, StickyStrategy, is_overlay_escape_consumed,
-        is_topmost_overlay_layer, mark_overlay_escape_consumed, use_cancellable_delay,
-        use_dismissable_layer, use_floating_layer, use_focus_scope, use_grace_corridor,
-        use_modal_layer, use_presence, use_watcher_slot,
+        CancellableDelay, DismissBehavior, DismissCallbacks, DismissConfig, DismissEvent,
+        DismissLayerHandle, FloatingHandle, FloatingMonitorSpec, FloatingPlacement,
+        FloatingReadiness, FloatingScrollPolicy, FocusScopeConfig, FocusScopeHandle,
+        GraceCorridorHandle, GraceCorridorOutcome, GraceTransit, ModalLayerConfig,
+        ModalLayerHandle, ModalShieldPolicy, PlacementAlign, PlacementSide, Point2D,
+        PresenceHandle, PresenceState, Rect2D, SUBMENU_INTENT_MIN_PROGRESS_PX, StickyStrategy,
+        is_overlay_escape_consumed, is_topmost_overlay_layer, mark_overlay_escape_consumed,
+        use_cancellable_delay, use_dismissable_layer, use_floating_layer, use_focus_scope,
+        use_grace_corridor, use_modal_layer, use_presence_with_keep_mounted, use_watcher_slot,
     },
     shared::Direction,
-    state::sync_signal,
+    state::{ControllableSignal, sync_signal},
 };
 
 use super::{
@@ -68,9 +68,8 @@ pub struct ActiveCorridorSubmenu {
 pub struct MenuRootContext {
     pub variant: MenuVariant,
     pub relationships: MenuRelationships,
+    pub open_state: ControllableSignal<bool>,
     pub open: Signal<bool>,
-    pub is_controlled: bool,
-    pub on_open_change: CopyValue<Option<EventHandler<bool>>>,
     pub on_open_change_complete: CopyValue<Option<EventHandler<bool>>>,
     pub modal: Signal<bool>,
     pub dir: Signal<Direction>,
@@ -95,9 +94,7 @@ impl MenuRootContext {
     pub fn new(
         variant: MenuVariant,
         relationships: MenuRelationships,
-        open: Signal<bool>,
-        is_controlled: bool,
-        on_open_change: Option<EventHandler<bool>>,
+        open_state: ControllableSignal<bool>,
         on_open_change_complete: Option<EventHandler<bool>>,
         modal: bool,
         dir: Direction,
@@ -105,6 +102,7 @@ impl MenuRootContext {
         submenu_open_delay_ms: Option<u64>,
         menubar_bridge: Option<MenubarMenuBridge>,
     ) -> Self {
+        let open = open_state.signal();
         let using_keyboard = use_is_using_keyboard();
         let default_side = match variant {
             MenuVariant::ContextMenu => PlacementSide::Right,
@@ -128,8 +126,6 @@ impl MenuRootContext {
             loop_focus,
         );
 
-        let mut on_open_change_slot = use_hook(|| CopyValue::new(on_open_change));
-        on_open_change_slot.set(on_open_change);
         let mut on_open_change_complete_slot =
             use_hook(|| CopyValue::new(on_open_change_complete));
         on_open_change_complete_slot.set(on_open_change_complete);
@@ -137,9 +133,8 @@ impl MenuRootContext {
         Self {
             variant,
             relationships: relationships.clone(),
+            open_state,
             open,
-            is_controlled,
-            on_open_change: on_open_change_slot,
             on_open_change_complete: on_open_change_complete_slot,
             modal: use_signal(|| modal),
             dir: use_signal(|| dir),
@@ -188,18 +183,7 @@ impl MenuRootContext {
     }
 
     pub fn request_open_change(&self, next: bool) {
-        if self.is_open() == next {
-            return;
-        }
-        if !self.is_controlled {
-            let mut open_sig = self.open;
-            if let Ok(mut w) = open_sig.try_write() {
-                *w = next;
-            }
-        }
-        if let Some(cb) = self.on_open_change.try_read().ok().and_then(|s| *s) {
-            cb.call(next);
-        }
+        self.open_state.set(next);
     }
 
     pub fn close_submenus(&self) {
@@ -293,6 +277,10 @@ pub struct MenuSurfaceRuntime {
     pub sticky: Signal<StickyStrategy>,
     pub hide_when_detached: Signal<bool>,
     pub force_mount: Signal<bool>,
+    pub keep_mounted: Signal<bool>,
+    pub custom_anchor: Signal<Option<String>>,
+    pub escape_key_down_behavior: Signal<DismissBehavior>,
+    pub interact_outside_behavior: Signal<DismissBehavior>,
     pub prevent_scroll: Signal<bool>,
     pub loop_focus: Signal<bool>,
     pub focus_on_open_armed: Signal<bool>,
@@ -363,6 +351,10 @@ impl MenuSurfaceRuntime {
             sticky: use_signal(|| StickyStrategy::Partial),
             hide_when_detached: use_signal(|| false),
             force_mount: use_signal(|| false),
+            keep_mounted: use_signal(|| false),
+            custom_anchor: use_signal(|| None),
+            escape_key_down_behavior: use_signal(|| DismissBehavior::Close),
+            interact_outside_behavior: use_signal(|| DismissBehavior::Close),
             prevent_scroll: use_signal(|| false),
             loop_focus: use_signal(|| loop_focus),
             focus_on_open_armed: use_signal(|| false),
@@ -377,6 +369,7 @@ impl MenuSurfaceRuntime {
 
     pub fn should_render_content(&self) -> bool {
         let force = self.force_mount.try_read().map(|g| *g).unwrap_or(false);
+        let keep = self.keep_mounted.try_read().map(|g| *g).unwrap_or(false);
         let is_open = self.open.try_read().map(|g| *g).unwrap_or(false);
         let present = self
             .presence
@@ -384,7 +377,31 @@ impl MenuSurfaceRuntime {
             .ok()
             .and_then(|h| *h)
             .is_some_and(|h| h.should_render());
-        force || is_open || present
+        force || keep || is_open || present
+    }
+
+    pub fn data_starting_style(&self) -> Option<&'static str> {
+        self.presence
+            .try_read()
+            .ok()
+            .and_then(|h| *h)
+            .and_then(|h| h.data_starting_style())
+    }
+
+    pub fn data_ending_style(&self) -> Option<&'static str> {
+        self.presence
+            .try_read()
+            .ok()
+            .and_then(|h| *h)
+            .and_then(|h| h.data_ending_style())
+    }
+
+    pub fn is_presence_hidden(&self) -> bool {
+        self.presence
+            .try_read()
+            .ok()
+            .and_then(|h| *h)
+            .is_some_and(|h| h.is_hidden())
     }
 
     pub fn presence_state(&self) -> PresenceState {
@@ -1033,8 +1050,18 @@ impl MenuSurfaceRuntime {
             if is_overlay_escape_consumed() || !is_topmost_overlay_layer(&root_cid) {
                 return;
             }
-            evt.prevent_default();
-            evt.stop_propagation();
+            let escape_behavior = self
+                .escape_key_down_behavior
+                .try_read()
+                .map(|g| *g)
+                .unwrap_or(DismissBehavior::Close);
+            if escape_behavior == DismissBehavior::DeferOtherwiseIgnore {
+                return;
+            }
+            if !escape_behavior.bubbles() {
+                evt.prevent_default();
+                evt.stop_propagation();
+            }
             let esc_evt = MenuPreventableEvent::empty();
             if let Some(cb) = self.on_escape_key_down.try_read().ok().and_then(|s| *s) {
                 cb.call(esc_evt.clone());
@@ -1048,8 +1075,10 @@ impl MenuSurfaceRuntime {
             {
                 cb.call(esc_evt.clone());
             }
-            mark_overlay_escape_consumed();
-            if !esc_evt.is_default_prevented() {
+            if !escape_behavior.bubbles() {
+                mark_overlay_escape_consumed();
+            }
+            if escape_behavior.dismisses() && !esc_evt.is_default_prevented() {
                 root.close_menu_tree(true);
             }
             return;
@@ -1169,7 +1198,8 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
     let portal_id_opt = surface.portal_id.read().clone();
     let is_static = *surface.is_static_surface.read();
 
-    // 1. Presence (`use_presence` + Menubar fast-switch skip `MB-5`)
+    // 1. Presence (`use_presence_with_keep_mounted` + Menubar fast-switch skip `MB-5`)
+    let keep_mounted = *surface.keep_mounted.read();
     let on_complete = (!surface.is_submenu).then(|| {
         let complete_slot = root.on_open_change_complete;
         EventHandler::new(move |open: bool| {
@@ -1178,7 +1208,8 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
             }
         })
     });
-    let presence = use_presence(is_open, &content_id, true, on_complete);
+    let presence =
+        use_presence_with_keep_mounted(is_open, &content_id, true, keep_mounted, on_complete);
     if !is_open && root.skip_exit_animation.try_peek().is_ok_and(|s| *s) {
         if let Some(cycle) = presence.active_close_cycle() {
             presence.complete_close_cycle(cycle);
@@ -1189,10 +1220,19 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
     let mut presence_slot = surface.presence;
     presence_slot.set(Some(presence));
 
-    // 2. Floating layer (`use_floating_layer` + z-index hoisting + VirtualPoint + Hide)
+    // 2. Floating layer (`use_floating_layer` + z-index hoisting + VirtualPoint + custom_anchor + Hide)
     let should_render = surface.should_render_content();
-    let anchor_id = surface.anchor_id.read().clone();
-    let virtual_anchor = if !surface.is_submenu && root.variant == MenuVariant::ContextMenu {
+    let custom_anchor = surface
+        .custom_anchor
+        .read()
+        .clone()
+        .filter(|id| !id.is_empty());
+    let has_custom_anchor = custom_anchor.is_some();
+    let anchor_id = custom_anchor.unwrap_or_else(|| surface.anchor_id.read().clone());
+    let virtual_anchor = if !surface.is_submenu
+        && !has_custom_anchor
+        && root.variant == MenuVariant::ContextMenu
+    {
         (*root.virtual_anchor.read()).map(|(x, y)| {
             (
                 x as f32,
@@ -1293,35 +1333,70 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
         MenuVariant::ContextMenu | MenuVariant::Menu => {}
     }
 
+    let escape_behavior = *surface.escape_key_down_behavior.read();
+    let outside_behavior = *surface.interact_outside_behavior.read();
     let dismiss_cfg = DismissConfig::new(content_id.clone())
         .with_boundaries(boundaries)
         .with_modal(is_modal)
+        .with_listen_escape(escape_behavior != DismissBehavior::DeferOtherwiseIgnore)
+        .with_listen_pointer_down_outside(outside_behavior != DismissBehavior::DeferOtherwiseIgnore)
+        .with_listen_focus_outside(outside_behavior != DismissBehavior::DeferOtherwiseIgnore)
         .with_disable_outside_pointer_events(false);
 
     let esc_slot = surface.on_escape_key_down;
     let pd_slot = surface.on_pointer_down_outside;
     let fo_slot = surface.on_focus_outside;
     let io_slot = surface.on_interact_outside;
+    let esc_beh_sig = surface.escape_key_down_behavior;
+    let out_beh_sig = surface.interact_outside_behavior;
     let dismiss_root = root.clone();
     let dismiss_callbacks = DismissCallbacks {
-        on_escape_key_down: Some(EventHandler::new(move |evt| {
+        on_escape_key_down: Some(EventHandler::new(move |evt: crate::foundation::shared::EscapeKeyDownEvent| {
             if let Some(cb) = esc_slot.try_read().ok().and_then(|s| *s) {
-                cb.call(evt);
+                cb.call(evt.clone());
+            }
+            let beh = esc_beh_sig
+                .try_read()
+                .map(|g| *g)
+                .unwrap_or(DismissBehavior::Close);
+            if !beh.dismisses() {
+                evt.prevent_default();
             }
         })),
-        on_pointer_down_outside: Some(EventHandler::new(move |evt| {
+        on_pointer_down_outside: Some(EventHandler::new(move |evt: crate::foundation::shared::PointerDownOutsideEvent| {
             if let Some(cb) = pd_slot.try_read().ok().and_then(|s| *s) {
-                cb.call(evt);
+                cb.call(evt.clone());
+            }
+            let beh = out_beh_sig
+                .try_read()
+                .map(|g| *g)
+                .unwrap_or(DismissBehavior::Close);
+            if !beh.dismisses() {
+                evt.prevent_default();
             }
         })),
-        on_focus_outside: Some(EventHandler::new(move |evt| {
+        on_focus_outside: Some(EventHandler::new(move |evt: crate::foundation::shared::FocusOutsideEvent| {
             if let Some(cb) = fo_slot.try_read().ok().and_then(|s| *s) {
-                cb.call(evt);
+                cb.call(evt.clone());
+            }
+            let beh = out_beh_sig
+                .try_read()
+                .map(|g| *g)
+                .unwrap_or(DismissBehavior::Close);
+            if !beh.dismisses() {
+                evt.prevent_default();
             }
         })),
-        on_interact_outside: Some(EventHandler::new(move |evt| {
+        on_interact_outside: Some(EventHandler::new(move |evt: crate::foundation::shared::InteractOutsideEvent| {
             if let Some(cb) = io_slot.try_read().ok().and_then(|s| *s) {
-                cb.call(evt);
+                cb.call(evt.clone());
+            }
+            let beh = out_beh_sig
+                .try_read()
+                .map(|g| *g)
+                .unwrap_or(DismissBehavior::Close);
+            if !beh.dismisses() {
+                evt.prevent_default();
             }
         })),
         on_dismiss: Some(EventHandler::new(move |evt: DismissEvent| match evt {
@@ -1530,9 +1605,8 @@ pub struct MenuSubContext {
     pub trigger_id: String,
     pub content_id: String,
     pub wrapper_id: String,
+    pub open_state: ControllableSignal<bool>,
     pub open: Signal<bool>,
-    pub is_controlled: bool,
-    pub on_open_change: CopyValue<Option<EventHandler<bool>>>,
     pub open_delay_ms: u64,
     pub parent_surface: MenuSurfaceRuntime,
     pub surface: MenuSurfaceRuntime,
@@ -1603,16 +1677,7 @@ impl MenuSubContext {
                 self.parent_surface.unregister_child_subcontent(&live_cid);
             }
         }
-        if self.is_open() == next {
-            return;
-        }
-        if !self.is_controlled {
-            let mut o = self.open;
-            let _ = o.try_write().map(|mut w| *w = next);
-        }
-        if let Some(cb) = self.on_open_change.try_read().ok().and_then(|s| *s) {
-            cb.call(next);
-        }
+        self.open_state.set(next);
     }
 
     pub fn close_and_focus_trigger(&self, focus_trigger: bool, using_keyboard: bool) {

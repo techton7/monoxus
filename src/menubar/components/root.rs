@@ -1,30 +1,24 @@
 use dioxus::prelude::*;
 
-use crate::foundation::shared::{Direction, ScopeHandle, use_direction_context, use_stable_id};
-use crate::menu::{MenuPart, MenuVariant, merge_attributes_with_part};
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props},
+    shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
+    state::use_controllable_signal,
+};
+use crate::menu::{MenuPart, MenuVariant};
 use crate::menubar::{MenubarRelationships, MenubarRootAttributes, MenubarRuntimeContext};
-
-/// Render props passed to `render_child` when `MenubarRoot` uses `as_child: true`.
-#[derive(Clone, PartialEq)]
-pub struct MenubarRootRenderProps {
-    pub attrs: MenubarRootAttributes,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
 
 #[derive(Props, Clone, PartialEq)]
 pub struct MenubarRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub value: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
@@ -34,10 +28,8 @@ pub struct MenubarRootProps {
     pub loop_focus: bool,
     #[props(default)]
     pub submenu_open_delay_ms: Option<u64>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<MenubarRootRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -48,21 +40,19 @@ pub struct MenubarRootProps {
 pub fn MenubarRoot(props: MenubarRootProps) -> Element {
     let effective_dir = use_direction_context(props.dir);
     let token = use_stable_id(None);
-    let relationships = use_hook(|| MenubarRelationships::new(ScopeHandle::root("menubar").child(token)));
+    let relationships =
+        use_hook(|| MenubarRelationships::new(ScopeHandle::root("menubar").child(token)));
     let root_id = props.id.unwrap_or_else(|| relationships.root_id().to_owned());
 
-    let is_controlled = props.value.is_some();
-    let initial_active = props
-        .value
-        .clone()
-        .or_else(|| props.default_value.clone())
-        .filter(|v| !v.is_empty());
+    let value_state = use_controllable_signal(
+        props.value.clone(),
+        props.default_value.unwrap_or_default(),
+        props.on_value_change,
+    );
 
     let runtime = MenubarRuntimeContext::new(
         relationships,
-        initial_active,
-        is_controlled,
-        props.on_value_change,
+        value_state,
         effective_dir,
         props.loop_focus,
         props.submenu_open_delay_ms,
@@ -92,32 +82,25 @@ pub fn MenubarRoot(props: MenubarRootProps) -> Element {
     use_context_provider(|| runtime.clone());
 
     let attrs = MenubarRootAttributes::new(root_id, effective_dir);
-    let merged_attrs = merge_attributes_with_part(
-        props.attributes,
-        MenuPart::Root.static_data_attr_name(MenuVariant::Menubar),
-    );
+    let part_attr = MenuPart::Root.static_data_attr_name(MenuVariant::Menubar);
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(MenubarRootRenderProps {
-            attrs,
-            class: props.class,
-            style: props.style,
-            attributes: merged_attrs,
-            children: props.children,
-        });
+    let base = vec![
+        Attribute::new("id", attrs.id, None, false),
+        Attribute::new("role", attrs.role, None, false),
+        Attribute::new("aria-orientation", attrs.aria_orientation, None, false),
+        Attribute::new("dir", attrs.dir, None, false),
+        Attribute::new(part_attr, "", None, false),
+    ];
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
-            role: "{attrs.role}",
-            "aria-orientation": "{attrs.aria_orientation}",
-            dir: "{attrs.dir}",
-            ..merged_attrs,
+            ..merged,
             {props.children}
         }
     }

@@ -3,62 +3,41 @@ use std::{cell::RefCell, rc::Rc};
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::{merge_attributes_with_part, merge_global_attributes},
+    compose::{
+        collect_user_attrs, merge_attributes_with_part, merge_global_attributes, merge_props,
+        push_attr_opt, push_bool_data_attr, push_event_handler,
+    },
     shared::data_disabled_attr,
 };
 use crate::popover::components::PopoverContext;
 
 #[derive(Props, Clone, PartialEq)]
-pub struct PopoverTriggerRenderProps {
-    pub id: String,
-    pub disabled: bool,
-    pub aria_haspopup: &'static str,
-    pub aria_expanded: bool,
-    pub aria_controls: Option<String>,
-    pub data_state: &'static str,
-    pub data_disabled: Option<&'static str>,
-    pub tabindex: Option<&'static str>,
-    #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    pub on_mounted: EventHandler<MountedEvent>,
-    pub on_pointer_down: EventHandler<PointerEvent>,
-    pub on_click: EventHandler<MouseEvent>,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
-#[derive(Props, Clone, PartialEq)]
 pub struct PopoverTriggerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default = false)]
-    pub as_child: bool,
-    #[props(default)]
-    pub render_child: Option<Callback<PopoverTriggerRenderProps, Element>>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
 /// Specification for [`render_popover_trigger_surface`] (plain Rust function, zero internal
-/// `#[component]` overhead per `Dioxus #5894`, shared by `PopoverTrigger`, `DatePickerTrigger`,
-/// and `DateRangePickerTrigger`).
+/// `#[component]` overhead per `Dioxus #5894`, shared by `DatePickerTrigger` and
+/// `DateRangePickerTrigger`).
 #[allow(dead_code)]
 pub(crate) struct PopoverTriggerSurfaceSpec {
     pub id: Option<String>,
@@ -99,8 +78,9 @@ pub(crate) struct PopoverTriggerSurfaceView {
     pub children: Element,
 }
 
-/// Plain Rust monomorphized render helper for popover triggers (zero internal `#[component]`,
+/// Plain Rust monomorphized render helper for picker triggers (zero internal `#[component]`,
 /// compliant with `Dioxus #5894` and `Dioxus #3717`).
+#[allow(dead_code)]
 pub(crate) fn render_popover_trigger_surface<F>(
     spec: PopoverTriggerSurfaceSpec,
     render_as_child: F,
@@ -212,10 +192,6 @@ where
         if let Some(el) = render_as_child(view) {
             return el;
         }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::PopoverTrigger: as_child requires render_child; rendering the default button"
-        );
     }
 
     let merged = merge_global_attributes(
@@ -289,45 +265,112 @@ where
 
 #[component]
 pub fn PopoverTrigger(props: PopoverTriggerProps) -> Element {
-    let render_child = props.render_child;
-    render_popover_trigger_surface(
-        PopoverTriggerSurfaceSpec {
-            id: props.id,
-            class: props.class,
-            style: props.style,
-            disabled: props.disabled,
-            as_child: props.as_child,
-            extra_data_attr: None,
-            on_click: props.on_click,
-            on_key_down: props.on_key_down,
-            on_blur: None,
-            on_focus_in: None,
-            on_focus_out: None,
-            on_mounted: props.on_mounted,
-            attributes: props.attributes,
-            children: props.children,
-        },
-        move |view| {
-            render_child.map(|cb| {
-                cb.call(PopoverTriggerRenderProps {
-                    id: view.id,
-                    disabled: view.disabled,
-                    aria_haspopup: view.aria_haspopup,
-                    aria_expanded: view.aria_expanded,
-                    aria_controls: view.aria_controls,
-                    data_state: view.data_state,
-                    data_disabled: view.data_disabled,
-                    tabindex: view.tabindex,
-                    class: view.class,
-                    style: view.style,
-                    on_mounted: view.on_mounted,
-                    on_pointer_down: view.on_pointer_down,
-                    on_click: view.on_click,
-                    on_key_down: view.on_key_down,
-                    attributes: view.attributes,
-                    children: view.children,
-                })
-            })
-        },
-    )
+    let PopoverTriggerProps {
+        id,
+        class,
+        style,
+        disabled,
+        on_click,
+        on_key_down,
+        on_mounted,
+        child,
+        attributes,
+        children,
+    } = props;
+    let ctx = use_context::<PopoverContext>();
+    let runtime = ctx.runtime.read().clone();
+    let trigger = runtime.trigger();
+    let trigger_id = id.unwrap_or_else(|| trigger.id().to_string());
+
+    let latest_tid = use_hook(|| Rc::new(RefCell::new(trigger_id.clone())));
+    {
+        let mut prev = latest_tid.borrow_mut();
+        if *prev != trigger_id {
+            runtime.unregister_trigger_id(&prev);
+            *prev = trigger_id.clone();
+        }
+    }
+    runtime.register_trigger_id(&trigger_id);
+    let tid_for_drop = Rc::clone(&latest_tid);
+    let runtime_for_drop = runtime.clone();
+    use_drop(move || {
+        let current = tid_for_drop.borrow().clone();
+        runtime_for_drop.unregister_trigger_id(&current);
+    });
+
+    let tabindex = (!disabled).then_some("0");
+    let data_state = match trigger.data_state() {
+        crate::foundation::state::DataState::Open => "open",
+        _ => "closed",
+    };
+    let aria_expanded = if trigger.aria_expanded() {
+        "true"
+    } else {
+        "false"
+    };
+    let aria_controls = trigger.aria_controls().map(str::to_owned);
+
+    let mut mount_cb = runtime.mount_trigger();
+    let mut pd_cb = runtime.trigger_pointer_down();
+    let mut click_cb = runtime.trigger_click();
+
+    let mut base = Vec::with_capacity(13);
+    base.push(Attribute::new("id", trigger_id, None, false));
+    base.push(Attribute::new("type", "button", None, false));
+    if disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    push_attr_opt(&mut base, "tabindex", tabindex);
+    base.push(Attribute::new("aria-haspopup", "dialog", None, false));
+    base.push(Attribute::new("aria-expanded", aria_expanded, None, false));
+    push_attr_opt(&mut base, "aria-controls", aria_controls);
+    base.push(Attribute::new("data-state", data_state, None, false));
+    push_bool_data_attr(&mut base, "data-disabled", disabled);
+    push_event_handler(
+        &mut base,
+        "onmounted",
+        Some(EventHandler::new(move |evt: MountedEvent| mount_cb(evt))),
+    );
+    push_event_handler(
+        &mut base,
+        "onpointerdown",
+        Some(EventHandler::new(move |evt: PointerEvent| {
+            if !disabled {
+                pd_cb(evt);
+            }
+        })),
+    );
+    push_event_handler(
+        &mut base,
+        "onclick",
+        Some(EventHandler::new(move |evt: MouseEvent| {
+            if disabled {
+                evt.prevent_default();
+                return;
+            }
+            if evt.default_action_enabled() {
+                click_cb(evt);
+            }
+        })),
+    );
+
+    let mut user = collect_user_attrs(class, style, attributes);
+    push_event_handler(&mut user, "onmounted", on_mounted);
+    if !disabled {
+        push_event_handler(&mut user, "onclick", on_click);
+    }
+    push_event_handler(&mut user, "onkeydown", on_key_down);
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = child {
+        return child.call(merged);
+    }
+
+    rsx! {
+        button {
+            ..merged,
+            {children}
+        }
+    }
 }

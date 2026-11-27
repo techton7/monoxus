@@ -643,22 +643,10 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
         children: rsx! {
             PopoverRoot {
                 id: Some(rels.popover_scope().token().to_string()),
-                open: Some(runtime.open),
+                open: Some((runtime.open)()),
                 on_open_change: move |next| rt_for_popover_open.handle_popover_open_change(next),
                 on_open_change_complete: props.on_open_change_complete,
                 modal: props.modal,
-                open_focus: Some(resolved_open_focus),
-                close_focus: Some(resolved_close_focus),
-                scroll_lock: props.scroll_lock,
-                outside_interaction: props.outside_interaction,
-                portal_host: props.portal_host,
-                side: props.side,
-                side_offset: props.side_offset,
-                align: props.align,
-                align_offset: props.align_offset,
-                avoid_collisions: props.avoid_collisions,
-                collision_padding: props.collision_padding,
-                sticky: props.sticky,
                 {props.children}
             }
         },

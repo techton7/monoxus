@@ -1,35 +1,25 @@
 use dioxus::prelude::*;
 
-use crate::foundation::shared::use_stable_id;
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props, push_attr_opt},
+    shared::use_stable_id,
+};
 use crate::menu::{
     CheckedState, MenuIndicatorContext, MenuItemIndicatorAttributes, MenuPart, MenuRootContext,
-    merge_attributes_with_part,
 };
-
-/// Render props passed to `render_child` when `ItemIndicator` uses `as_child: true`.
-#[derive(Clone, PartialEq)]
-pub struct MenuItemIndicatorRenderProps {
-    pub attrs: MenuItemIndicatorAttributes,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub attributes: Vec<Attribute>,
-    pub children: Option<Element>,
-}
 
 #[derive(Props, Clone, PartialEq)]
 pub struct MenuItemIndicatorProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<MenuItemIndicatorRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Option<Element>,
@@ -56,31 +46,25 @@ pub fn MenuItemIndicator(props: MenuItemIndicatorProps) -> Element {
         return rsx! {};
     }
 
-    let merged_attrs = merge_attributes_with_part(
-        props.attributes,
-        MenuPart::ItemIndicator.static_data_attr_name(root.variant),
-    );
+    let part_attr = MenuPart::ItemIndicator.static_data_attr_name(root.variant);
+    let data_state_str = attrs.data_state.as_str();
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(MenuItemIndicatorRenderProps {
-            attrs,
-            class: props.class,
-            style: props.style,
-            attributes: merged_attrs,
-            children: props.children,
-        });
+    let mut base = Vec::with_capacity(4);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("data-state", data_state_str, None, false));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    base.push(Attribute::new(part_attr, "", None, false));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
 
     rsx! {
         span {
-            id: "{attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
-            "data-state": "{attrs.data_state.as_str()}",
-            "data-disabled": attrs.data_disabled,
-            ..merged_attrs,
+            ..merged,
             if let Some(children) = props.children {
                 {children}
             }

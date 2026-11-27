@@ -11,7 +11,7 @@ use crate::tooltip::{
 
 #[derive(Props, Clone, PartialEq)]
 pub struct TooltipProviderProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default = TooltipProviderDef::DEFAULT_DELAY_DURATION_MS)]
     pub delay_duration: u64,

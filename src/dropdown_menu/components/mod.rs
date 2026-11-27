@@ -3,7 +3,7 @@ pub mod trigger;
 
 pub use self::{
     root::{DropdownMenu, DropdownMenuRoot, DropdownMenuRootProps},
-    trigger::{DropdownMenuTrigger, DropdownMenuTriggerProps, DropdownMenuTriggerRenderProps},
+    trigger::{DropdownMenuTrigger, DropdownMenuTriggerProps},
 };
 
 pub use crate::menu::components::{
@@ -11,10 +11,8 @@ pub use crate::menu::components::{
     MenuCheckboxGroup as DropdownMenuCheckboxGroup,
     MenuCheckboxGroupProps as DropdownMenuCheckboxGroupProps,
     MenuCheckboxItem as DropdownMenuCheckboxItem,
-    MenuCheckboxItemProps as DropdownMenuCheckboxItemProps,
-    MenuCheckboxItemRenderProps as DropdownMenuCheckboxItemRenderProps,
-    MenuContent as DropdownMenuContent, MenuContentProps as DropdownMenuContentProps,
-    MenuContentRenderProps as DropdownMenuContentRenderProps,
+    MenuCheckboxItemProps as DropdownMenuCheckboxItemProps, MenuContent as DropdownMenuContent,
+    MenuContentProps as DropdownMenuContentProps,
     MenuContentStatic as DropdownMenuContentStatic,
     MenuContentStaticProps as DropdownMenuContentStaticProps, MenuGroup as DropdownMenuGroup,
     MenuGroupHeading as DropdownMenuGroupHeading,
@@ -22,20 +20,15 @@ pub use crate::menu::components::{
     MenuGroupProps as DropdownMenuGroupProps, MenuItem as DropdownMenuItem,
     MenuItemIndicator as DropdownMenuItemIndicator,
     MenuItemIndicatorProps as DropdownMenuItemIndicatorProps,
-    MenuItemIndicatorRenderProps as DropdownMenuItemIndicatorRenderProps,
-    MenuItemProps as DropdownMenuItemProps, MenuItemRenderProps as DropdownMenuItemRenderProps,
-    MenuLabel as DropdownMenuLabel, MenuLabelProps as DropdownMenuLabelProps,
-    MenuPortal as DropdownMenuPortal, MenuPortalProps as DropdownMenuPortalProps,
-    MenuRadioGroup as DropdownMenuRadioGroup,
+    MenuItemProps as DropdownMenuItemProps, MenuLabel as DropdownMenuLabel,
+    MenuLabelProps as DropdownMenuLabelProps, MenuPortal as DropdownMenuPortal,
+    MenuPortalProps as DropdownMenuPortalProps, MenuRadioGroup as DropdownMenuRadioGroup,
     MenuRadioGroupProps as DropdownMenuRadioGroupProps, MenuRadioItem as DropdownMenuRadioItem,
-    MenuRadioItemProps as DropdownMenuRadioItemProps,
-    MenuRadioItemRenderProps as DropdownMenuRadioItemRenderProps,
-    MenuSeparator as DropdownMenuSeparator, MenuSeparatorProps as DropdownMenuSeparatorProps,
-    MenuSub as DropdownMenuSub, MenuSubContent as DropdownMenuSubContent,
-    MenuSubContentProps as DropdownMenuSubContentProps,
+    MenuRadioItemProps as DropdownMenuRadioItemProps, MenuSeparator as DropdownMenuSeparator,
+    MenuSeparatorProps as DropdownMenuSeparatorProps, MenuSub as DropdownMenuSub,
+    MenuSubContent as DropdownMenuSubContent, MenuSubContentProps as DropdownMenuSubContentProps,
     MenuSubContentStatic as DropdownMenuSubContentStatic,
     MenuSubContentStaticProps as DropdownMenuSubContentStaticProps,
     MenuSubProps as DropdownMenuSubProps, MenuSubTrigger as DropdownMenuSubTrigger,
     MenuSubTriggerProps as DropdownMenuSubTriggerProps,
-    MenuSubTriggerRenderProps as DropdownMenuSubTriggerRenderProps,
 };

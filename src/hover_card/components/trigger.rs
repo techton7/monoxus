@@ -3,23 +3,28 @@ use std::{
     rc::Rc,
 };
 
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
 
+use crate::foundation::compose::{
+    collect_user_attrs, merge_props, push_attr_opt, push_event_handler,
+};
 use crate::hover_card::components::HoverCardRootContext;
 
 #[derive(Clone, PartialEq, Props)]
 pub struct HoverCardTriggerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub href: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub target: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub rel: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
@@ -27,8 +32,11 @@ pub struct HoverCardTriggerProps {
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -76,51 +84,158 @@ pub fn HoverCardTrigger(props: HoverCardTriggerProps) -> Element {
     }));
 
     let mut on_mount_runtime = runtime.mount_trigger();
-    let consumer_on_mounted = props.on_mounted;
-    let consumer_on_click = props.on_click;
+    let mut on_touch_start = runtime.trigger_touch_start();
+    let mut on_pointer_down = runtime.trigger_pointer_down();
+    let mut on_pointer_enter = runtime.trigger_pointer_enter(props.disabled);
+    let mut on_pointer_leave = runtime.trigger_pointer_leave(props.disabled);
+    let mut on_focus = runtime.trigger_focus(props.disabled);
+    let mut on_blur = runtime.trigger_blur();
+    let mut on_key_down = runtime.escape_keydown();
     let effective_disabled = trigger.is_disabled();
-    let merged = crate::foundation::compose::merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+
+    let href = trigger.href().map(str::to_owned);
+    let target = trigger.target().map(str::to_owned);
+    let rel = trigger.rel().map(str::to_owned);
+    let tabindex = trigger.tabindex().map(|t| t.to_string());
+    let aria_disabled = trigger.aria_disabled();
+    let data_state = trigger.data_state().as_str();
+    let data_disabled = trigger.data_disabled();
+    let part_attr = trigger.data_monoxus_hover_card_trigger();
+
+    let mut base = Vec::with_capacity(18);
+    base.push(Attribute::new("id", trigger_id, None, false));
+    push_attr_opt(&mut base, "href", href);
+    push_attr_opt(&mut base, "target", target);
+    push_attr_opt(&mut base, "rel", rel);
+    push_attr_opt(&mut base, "tabindex", tabindex);
+    push_attr_opt(&mut base, "aria-disabled", aria_disabled);
+    base.push(Attribute::new("data-state", data_state, None, false));
+    push_attr_opt(&mut base, "data-disabled", data_disabled);
+    base.push(Attribute::new(
+        "data-monoxus-hover-card-trigger",
+        part_attr,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onmounted",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_mount_runtime(evt.map(|d| MountedData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "ontouchstart",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_touch_start(evt.map(|d| TouchData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerdown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_pointer_down(evt.map(|d| PointerData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerenter",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_pointer_enter(evt.map(|d| PointerData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerleave",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_pointer_leave(evt.map(|d| PointerData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onfocus",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_focus(evt.map(|d| FocusData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onblur",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_blur(evt.map(|d| FocusData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onkeydown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_key_down(evt.map(|d| KeyboardData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    if effective_disabled {
+        base.push(Attribute::new(
+            "onclick",
+            AttributeValue::Listener(
+                ListenerCallback::<PlatformEventData>::new(
+                    move |evt: Event<PlatformEventData>| {
+                        evt.prevent_default();
+                    },
+                )
+                .erase(),
+            ),
+            None,
+            false,
+        ));
+    }
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler(&mut user, "onmounted", props.on_mounted);
+    if !effective_disabled {
+        push_event_handler(&mut user, "onclick", props.on_click);
+    }
+
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         a {
-            id: "{trigger_id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            href: trigger.href(),
-            target: trigger.target(),
-            rel: trigger.rel(),
-            tabindex: trigger.tabindex(),
-            "aria-disabled": trigger.aria_disabled(),
-            "data-state": trigger.data_state().as_str(),
-            "data-disabled": trigger.data_disabled(),
-            "data-monoxus-hover-card-trigger": trigger.data_monoxus_hover_card_trigger(),
-            onmounted: move |evt| {
-                on_mount_runtime(evt.clone());
-                if let Some(ref handler) = consumer_on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ontouchstart: runtime.trigger_touch_start(),
-            onpointerdown: runtime.trigger_pointer_down(),
-            onpointerenter: runtime.trigger_pointer_enter(props.disabled),
-            onpointerleave: runtime.trigger_pointer_leave(props.disabled),
-            onfocus: runtime.trigger_focus(props.disabled),
-            onblur: runtime.trigger_blur(),
-            onkeydown: runtime.escape_keydown(),
-            onclick: move |evt: MouseEvent| {
-                if effective_disabled {
-                    evt.prevent_default();
-                    return;
-                }
-                if let Some(ref handler) = consumer_on_click {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

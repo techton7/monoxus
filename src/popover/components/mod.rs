@@ -12,15 +12,17 @@ pub use self::{
     anchor::{PopoverAnchor, PopoverAnchorProps},
     arrow::{PopoverArrow, PopoverArrowProps},
     close::{PopoverClose, PopoverCloseProps},
-    content::{PopoverContent, PopoverContentProps, PopoverContentRenderProps},
+    content::{PopoverContent, PopoverContentProps},
     description::{PopoverDescription, PopoverDescriptionProps},
     portal::{PopoverPortal, PopoverPortalProps},
     root::{PopoverRoot, PopoverRootProps},
     title::{PopoverTitle, PopoverTitleProps},
-    trigger::{PopoverTrigger, PopoverTriggerProps, PopoverTriggerRenderProps},
+    trigger::{PopoverTrigger, PopoverTriggerProps},
 };
 
 use dioxus::prelude::*;
+
+use crate::foundation::state::ControllableSignal;
 
 use super::{relationships::PopoverRelationships, runtime::PopoverRuntime};
 
@@ -28,6 +30,7 @@ use super::{relationships::PopoverRelationships, runtime::PopoverRuntime};
 pub struct PopoverContext {
     pub runtime: Signal<PopoverRuntime>,
     pub open: Signal<bool>,
+    pub open_ctl: ControllableSignal<bool>,
     pub on_open_change: Option<EventHandler<bool>>,
     pub relationships: PopoverRelationships,
     pub title_id: Signal<Option<String>>,

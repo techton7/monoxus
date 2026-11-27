@@ -8,6 +8,8 @@ pub struct TooltipPortalProps {
     #[props(default)]
     pub host: Option<PortalHost>,
     #[props(default = false)]
+    pub disabled: bool,
+    #[props(default = false)]
     pub force_mount: bool,
     pub children: Element,
 }
@@ -23,7 +25,7 @@ pub fn TooltipPortal(props: TooltipPortalProps) -> Element {
     render_overlay_portal(OverlayPortalSpec {
         portal_id: runtime.relationships().scope().qualify("portal"),
         should_render: runtime.should_render_portal(),
-        disabled: false,
+        disabled: props.disabled,
         force_mount: props.force_mount,
         host: resolved_host,
         emit_status_attrs: false,

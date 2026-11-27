@@ -4,10 +4,13 @@ use crate::{
     dialog::{
         Dialog, DialogCloseAttributes, DialogContentAttributes, DialogDescriptionAttributes,
         DialogLifecycle, DialogMountedHandle, DialogOverlayAttributes, DialogPortalAttributes,
-        DialogRelationships, DialogRootAttributes, DialogTitleAttributes, DialogTriggerAttributes,
-        DialogRuntime, use_dialog_runtime,
+        DialogRelationships, DialogRootAttributes, DialogRuntime, DialogTitleAttributes,
+        DialogTriggerAttributes, use_dialog_runtime,
     },
-    foundation::{overlay::PortalHost, shared::ScopeHandle, state::DataState},
+    foundation::{
+        shared::ScopeHandle,
+        state::{DataState, use_controllable_signal},
+    },
 };
 
 pub use ui_sdk::alert_dialog::*;
@@ -174,29 +177,27 @@ impl AlertDialogRuntime {
 }
 
 pub use crate::dialog::{
-    AlertDialogAction, AlertDialogCancel, CloseAutoFocusEvent, DialogClose, DialogContent,
-    DialogDescription, DialogOverlay, DialogPortal, DialogTitle, DialogTrigger, EscapeKeyDownEvent,
-    FocusOutsideEvent, InteractOutsideEvent, OpenAutoFocusEvent, PointerDownOutsideEvent,
-    PreventableEvent,
+    AlertDialogAction, AlertDialogActionProps, AlertDialogCancel, AlertDialogCancelProps,
+    CloseAutoFocusEvent, DialogClose, DialogCloseProps, DialogContent, DialogContentProps,
+    DialogDescription, DialogDescriptionProps, DialogOverlay, DialogOverlayProps, DialogPortal,
+    DialogPortalProps, DialogTitle, DialogTitleProps, DialogTrigger, DialogTriggerProps,
+    EscapeKeyDownEvent, FocusOutsideEvent, InteractOutsideEvent, OpenAutoFocusEvent,
+    PointerDownOutsideEvent, PreventableEvent,
 };
 pub type AlertDialogPreventableEvent = PreventableEvent<()>;
 
 #[derive(Clone, PartialEq, Props)]
 pub struct AlertDialogRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default)]
-    pub open: Option<Signal<bool>>,
-    #[props(default)]
-    pub default_open: Option<bool>,
+    pub open: Option<bool>,
+    #[props(default = false)]
+    pub default_open: bool,
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
     #[props(default)]
-    pub portal_host: Option<PortalHost>,
-    #[props(default)]
-    pub prevent_body_pointer_events: Option<bool>,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
+    pub on_open_change_complete: Option<EventHandler<bool>>,
     pub children: Element,
 }
 
@@ -207,33 +208,24 @@ pub fn AlertDialogRoot(props: AlertDialogRootProps) -> Element {
         open,
         default_open,
         on_open_change,
-        portal_host,
-        prevent_body_pointer_events,
-        attributes,
+        on_open_change_complete,
         children,
     } = props;
-    let fallback_open = use_signal(|| default_open.unwrap_or(false));
-    let open_signal = open.unwrap_or(fallback_open);
+    let open_ctl = use_controllable_signal(open, default_open, on_open_change);
+    let open_signal = open_ctl.signal();
     let scope_id =
         crate::foundation::shared::use_stable_id(id.clone().map(std::borrow::Cow::Owned));
     let scope = ScopeHandle::root("alert-dialog").child(scope_id);
 
-    let mut alert = AlertDialog::new(scope, open_signal());
-    if let Some(ph) = portal_host {
-        alert = alert.with_portal_host(ph);
-    }
-    if let Some(pbpe) = prevent_body_pointer_events {
-        alert
-            .dialog_mut()
-            .lifecycle_mut()
-            .scroll_lock_policy_mut()
-            .set_prevent_body_pointer_events(pbpe);
-    }
+    let alert = AlertDialog::new(scope, open_signal());
 
     let alert_runtime = use_alert_dialog_runtime(alert);
     alert_runtime
         .dialog_runtime()
         .set_on_open_change(on_open_change);
+    alert_runtime
+        .dialog_runtime()
+        .set_on_open_change_complete(on_open_change_complete);
     let mut runtime_sig = use_signal(|| alert_runtime.dialog_runtime().clone());
     if runtime_sig.peek().dialog() != alert_runtime.dialog_runtime().dialog() {
         runtime_sig.set(alert_runtime.dialog_runtime().clone());
@@ -246,6 +238,7 @@ pub fn AlertDialogRoot(props: AlertDialogRootProps) -> Element {
     use_context_provider(|| crate::dialog::DialogContext {
         runtime: runtime_sig,
         open: open_signal,
+        open_ctl,
         on_open_change,
         is_alert_dialog: true,
         trigger_id,
@@ -253,21 +246,7 @@ pub fn AlertDialogRoot(props: AlertDialogRootProps) -> Element {
         description_id,
     });
 
-    let attrs = alert_runtime.root();
-    let merged = crate::foundation::compose::merge_global_attributes(
-        None,
-        Some("display: contents;"),
-        attributes,
-    );
-
     rsx! {
-        div {
-            id: "{attrs.id()}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            "data-state": attrs.data_state().as_str(),
-            ..merged.rest,
-            {children}
-        }
+        {children}
     }
 }

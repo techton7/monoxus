@@ -9,40 +9,31 @@ use crate::context_menu::{
     CONTEXT_MENU_LONG_PRESS_DELAY_MS, CONTEXT_MENU_TOUCH_CALLOUT_STYLE,
     ContextMenuTriggerAttributes,
 };
-use crate::foundation::browser::spawn_root_task;
-use crate::menu::{
-    MenuOpenFocusTarget, MenuPart, MenuRootContext, MenuVariant, merge_attributes_with_part,
+use crate::foundation::{
+    browser::spawn_root_task,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
+    state::sync_signal,
 };
-
-/// Render props passed to `render_child` when `ContextMenuTrigger` uses `as_child: true`.
-#[derive(Clone, PartialEq)]
-pub struct ContextMenuTriggerRenderProps {
-    pub attrs: ContextMenuTriggerAttributes,
-    pub class: Option<String>,
-    pub style: String,
-    pub on_context_menu: EventHandler<MouseEvent>,
-    pub on_pointer_down: EventHandler<PointerEvent>,
-    pub on_pointer_move: EventHandler<PointerEvent>,
-    pub on_pointer_up: EventHandler<PointerEvent>,
-    pub on_pointer_cancel: EventHandler<PointerEvent>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
+use crate::menu::{MenuOpenFocusTarget, MenuPart, MenuRootContext, MenuVariant};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ContextMenuTriggerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<ContextMenuTriggerRenderProps, Element>>,
+    pub on_click: Option<EventHandler<MouseEvent>>,
+    #[props(default)]
+    pub on_key_down: Option<EventHandler<KeyboardEvent>>,
+    #[props(default)]
+    pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -58,9 +49,7 @@ pub fn ContextMenuTrigger(props: ContextMenuTriggerProps) -> Element {
 
     {
         let mut tid = root.trigger_id;
-        if tid.try_peek().is_ok_and(|g| *g != id) {
-            let _ = tid.try_write().map(|mut w| *w = id.clone());
-        }
+        sync_signal(&mut tid, id.clone());
     }
 
     let lp_gen = use_hook(|| Rc::new(Cell::new(0u64)));
@@ -88,14 +77,6 @@ pub fn ContextMenuTrigger(props: ContextMenuTriggerProps) -> Element {
 
     let is_open = root.is_open();
     let attrs = ContextMenuTriggerAttributes::from_parts(id, is_open, props.disabled);
-    let merged_attrs = merge_attributes_with_part(
-        props.attributes,
-        MenuPart::Trigger.static_data_attr_name(MenuVariant::ContextMenu),
-    );
-    let merged_style = match props.style.as_deref() {
-        Some(custom) if !custom.is_empty() => format!("{CONTEXT_MENU_TOUCH_CALLOUT_STYLE} {custom}"),
-        _ => CONTEXT_MENU_TOUCH_CALLOUT_STYLE.to_owned(),
-    };
 
     let cm_root = root.clone();
     let cm_cancel = cancel_lp.clone();
@@ -167,36 +148,39 @@ pub fn ContextMenuTrigger(props: ContextMenuTriggerProps) -> Element {
         pc_cancel();
     });
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(ContextMenuTriggerRenderProps {
-            attrs,
-            class: props.class,
-            style: merged_style,
-            on_context_menu,
-            on_pointer_down,
-            on_pointer_move,
-            on_pointer_up,
-            on_pointer_cancel,
-            attributes: merged_attrs,
-            children: props.children,
-        });
+    let data_state_str = attrs.data_state.as_str();
+    let part_attr = MenuPart::Trigger.static_data_attr_name(MenuVariant::ContextMenu);
+
+    let mut base = Vec::with_capacity(11);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new(
+        "style",
+        CONTEXT_MENU_TOUCH_CALLOUT_STYLE,
+        None,
+        false,
+    ));
+    base.push(Attribute::new("data-state", data_state_str, None, false));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    base.push(Attribute::new(part_attr, "", None, false));
+    push_event_handler::<MouseData>(&mut base, "oncontextmenu", Some(on_context_menu));
+    push_event_handler::<PointerData>(&mut base, "onpointerdown", Some(on_pointer_down));
+    push_event_handler::<PointerData>(&mut base, "onpointermove", Some(on_pointer_move));
+    push_event_handler::<PointerData>(&mut base, "onpointerup", Some(on_pointer_up));
+    push_event_handler::<PointerData>(&mut base, "onpointercancel", Some(on_pointer_cancel));
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler::<MouseData>(&mut user, "onclick", props.on_click);
+    push_event_handler::<KeyboardData>(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler::<MountedData>(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: "{merged_style}",
-            "data-state": "{attrs.data_state.as_str()}",
-            "data-disabled": attrs.data_disabled,
-            oncontextmenu: move |evt| on_context_menu.call(evt),
-            onpointerdown: move |evt| on_pointer_down.call(evt),
-            onpointermove: move |evt| on_pointer_move.call(evt),
-            onpointerup: move |evt| on_pointer_up.call(evt),
-            onpointercancel: move |evt| on_pointer_cancel.call(evt),
-            ..merged_attrs,
+            ..merged,
             {props.children}
         }
     }

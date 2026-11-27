@@ -1,41 +1,33 @@
 use dioxus::html::input_data::MouseButton;
 use dioxus::prelude::*;
 
-use crate::menu::{MenuOpenFocusTarget, MenuPart, MenuVariant, merge_attributes_with_part};
-use crate::menubar::{MenubarRuntimeContext, MenubarTriggerAttributes};
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
+    state::sync_signal,
+};
+use crate::menu::{MenuOpenFocusTarget, MenuPart, MenuVariant};
+use crate::menubar::MenubarRuntimeContext;
 
 use super::menu::MenubarSingleMenuContext;
 
-/// Render props passed to `render_child` when `MenubarTrigger` uses `as_child: true`.
-#[derive(Clone, PartialEq)]
-pub struct MenubarTriggerRenderProps {
-    pub attrs: MenubarTriggerAttributes,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub on_pointer_down: EventHandler<PointerEvent>,
-    pub on_click: EventHandler<MouseEvent>,
-    pub on_pointer_enter: EventHandler<PointerEvent>,
-    pub on_focus: EventHandler<FocusEvent>,
-    pub on_blur: EventHandler<FocusEvent>,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 #[derive(Props, Clone, PartialEq)]
 pub struct MenubarTriggerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<MenubarTriggerRenderProps, Element>>,
+    pub on_click: Option<EventHandler<MouseEvent>>,
+    #[props(default)]
+    pub on_key_down: Option<EventHandler<KeyboardEvent>>,
+    #[props(default)]
+    pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -52,13 +44,9 @@ pub fn MenubarTrigger(props: MenubarTriggerProps) -> Element {
 
     {
         let mut tid = single.trigger_id;
-        if tid.try_peek().is_ok_and(|g| *g != id) {
-            let _ = tid.try_write().map(|mut w| *w = id.clone());
-        }
+        sync_signal(&mut tid, id.clone());
         let mut dis = single.disabled;
-        if dis.try_peek().is_ok_and(|g| *g != props.disabled) {
-            let _ = dis.try_write().map(|mut w| *w = props.disabled);
-        }
+        sync_signal(&mut dis, props.disabled);
     }
 
     let content_id = single.content_id.read().clone();
@@ -66,10 +54,6 @@ pub fn MenubarTrigger(props: MenubarTriggerProps) -> Element {
         .state
         .read()
         .trigger_attrs(&single.value, id, &content_id, props.disabled);
-    let merged_attrs = merge_attributes_with_part(
-        props.attributes,
-        MenuPart::Trigger.static_data_attr_name(MenuVariant::Menubar),
-    );
 
     let toggled_on_pointer_down = use_signal(|| false);
 
@@ -155,48 +139,56 @@ pub fn MenubarTrigger(props: MenubarTriggerProps) -> Element {
         kd_mb.on_trigger_key(&kd_val, &evt);
     });
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(MenubarTriggerRenderProps {
-            attrs,
-            class: props.class,
-            style: props.style,
-            on_pointer_down,
-            on_click,
-            on_pointer_enter,
-            on_focus,
-            on_blur,
-            on_key_down,
-            attributes: merged_attrs,
-            children: props.children,
-        });
+    let data_state_str = attrs.data_state.as_str();
+    let part_attr = MenuPart::Trigger.static_data_attr_name(MenuVariant::Menubar);
+
+    let mut base = Vec::with_capacity(22);
+    base.push(Attribute::new("type", "button", None, false));
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new("tabindex", attrs.tabindex, None, false));
+    if attrs.disabled {
+        base.push(Attribute::new("disabled", true, None, false));
+    }
+    base.push(Attribute::new(
+        "aria-haspopup",
+        attrs.aria_haspopup,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-expanded",
+        if attrs.aria_expanded { "true" } else { "false" },
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "aria-controls", attrs.aria_controls);
+    push_attr_opt(&mut base, "aria-disabled", attrs.aria_disabled);
+    base.push(Attribute::new("data-state", data_state_str, None, false));
+    push_attr_opt(&mut base, "data-highlighted", attrs.data_highlighted);
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    base.push(Attribute::new(part_attr, "", None, false));
+    push_event_handler::<PointerData>(&mut base, "onpointerdown", Some(on_pointer_down));
+    push_event_handler::<MouseData>(&mut base, "onclick", Some(on_click));
+    push_event_handler::<PointerData>(&mut base, "onpointerenter", Some(on_pointer_enter));
+    push_event_handler::<PointerData>(&mut base, "onpointermove", Some(on_pointer_enter));
+    push_event_handler::<FocusData>(&mut base, "onfocus", Some(on_focus));
+    push_event_handler::<FocusData>(&mut base, "onblur", Some(on_blur));
+    push_event_handler::<KeyboardData>(&mut base, "onkeydown", Some(on_key_down));
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler::<MouseData>(&mut user, "onclick", props.on_click);
+    push_event_handler::<KeyboardData>(&mut user, "onkeydown", props.on_key_down);
+    push_event_handler::<MountedData>(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
 
     rsx! {
         button {
-            r#type: "button",
-            id: "{attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
-            role: "{attrs.role}",
-            tabindex: "{attrs.tabindex}",
-            disabled: attrs.disabled,
-            "aria-haspopup": "{attrs.aria_haspopup}",
-            "aria-expanded": "{attrs.aria_expanded}",
-            "aria-controls": attrs.aria_controls.as_deref(),
-            "aria-disabled": attrs.aria_disabled,
-            "data-state": "{attrs.data_state.as_str()}",
-            "data-highlighted": attrs.data_highlighted,
-            "data-disabled": attrs.data_disabled,
-            onpointerdown: move |evt| on_pointer_down.call(evt),
-            onclick: move |evt| on_click.call(evt),
-            onpointerenter: move |evt| on_pointer_enter.call(evt),
-            onpointermove: move |evt| on_pointer_enter.call(evt),
-            onfocus: move |evt| on_focus.call(evt),
-            onblur: move |evt| on_blur.call(evt),
-            onkeydown: move |evt| on_key_down.call(evt),
-            ..merged_attrs,
+            ..merged,
             {props.children}
         }
     }

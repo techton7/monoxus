@@ -3,11 +3,17 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::{merge_attributes_with_part, merge_global_attributes},
+    compose::{
+        FloatingContentChildProps, collect_user_attrs, merge_props, push_attr_opt,
+        push_event_handler,
+    },
     keyboard::is_ime_composing_key,
-    overlay::{PlacementAlign, PlacementSide, Point2D, StickyStrategy, use_cancellable_delay},
+    overlay::{
+        DismissBehavior, PlacementAlign, PlacementSide, Point2D, StickyStrategy,
+        use_cancellable_delay,
+    },
     shared::{Direction, use_stable_id},
-    state::sync_signal,
+    state::{sync_signal, use_controllable_signal},
 };
 use crate::menu::{
     ActiveCorridorSubmenu, MenuItemKind, MenuKey, MenuOpenFocusTarget, MenuPart,
@@ -17,7 +23,7 @@ use crate::menu::{
 };
 
 use super::{
-    content::{MenuContentRenderProps, MenuSurfaceViewSpec, render_menu_surface},
+    content::{MenuSurfaceChild, MenuSurfaceViewSpec, render_menu_surface},
     item::{is_descendant_owning_focus, use_menu_item_registration},
     portal::MenuActivePortalSurface,
 };
@@ -44,11 +50,8 @@ pub fn MenuSub(props: MenuSubProps) -> Element {
     let sub_token = use_stable_id(None);
     let rels = use_hook(|| MenuSubRelationships::new(root.relationships.scope().child(sub_token)));
 
-    let is_controlled = props.open.is_some();
-    let mut open_sig = use_signal(|| props.open.unwrap_or(props.default_open));
-    if let Some(controlled) = props.open {
-        sync_signal(&mut open_sig, controlled);
-    }
+    let open_state = use_controllable_signal(props.open, props.default_open, props.on_open_change);
+    let open_sig = open_state.signal();
 
     let default_side = match root.direction() {
         Direction::Ltr => PlacementSide::Right,
@@ -75,17 +78,14 @@ pub fn MenuSub(props: MenuSubProps) -> Element {
 
     let hover_delay = use_cancellable_delay();
     let opened_by_pointer_move = use_signal(|| false);
-    let mut on_open_change_slot = use_hook(|| CopyValue::new(props.on_open_change));
-    on_open_change_slot.set(props.on_open_change);
 
     let sub_ctx = MenuSubContext {
         sub_id: rels.root_id().to_owned(),
         trigger_id: rels.trigger_id().to_owned(),
         content_id: rels.content_id().to_owned(),
         wrapper_id: rels.wrapper_id().to_owned(),
+        open_state,
         open: open_sig,
-        is_controlled,
-        on_open_change: on_open_change_slot,
         open_delay_ms,
         parent_surface: parent_surface.clone(),
         surface: surface.clone(),
@@ -156,40 +156,24 @@ pub fn MenuSub(props: MenuSubProps) -> Element {
     rsx! { {props.children} }
 }
 
-/// Render props passed to `render_child` when `SubTrigger` uses `as_child: true`.
-#[derive(Clone, PartialEq)]
-pub struct MenuSubTriggerRenderProps {
-    pub attrs: MenuSubTriggerAttributes,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub on_click: EventHandler<MouseEvent>,
-    pub on_pointer_move: EventHandler<PointerEvent>,
-    pub on_pointer_leave: EventHandler<PointerEvent>,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 #[derive(Props, Clone, PartialEq)]
 pub struct MenuSubTriggerProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub text_value: Option<String>,
     #[props(default)]
     pub open_delay_ms: Option<u64>,
     #[props(default)]
     pub on_select: Option<EventHandler<MenuSelectEvent>>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<MenuSubTriggerRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -252,15 +236,6 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
         props.disabled,
         highlighted,
         root.variant,
-    );
-    let merged_part_attrs = merge_attributes_with_part(
-        props.attributes,
-        MenuPart::SubTrigger.static_data_attr_name(root.variant),
-    );
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        merged_part_attrs,
     );
 
     let open_delay_ms = props.open_delay_ms.unwrap_or(sub.open_delay_ms);
@@ -383,42 +358,52 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
         }
     });
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(MenuSubTriggerRenderProps {
-            attrs,
-            class: merged.class,
-            style: merged.style,
-            on_click,
-            on_pointer_move,
-            on_pointer_leave,
-            on_key_down,
-            attributes: merged.rest,
-            children: props.children,
-        });
+    let data_state_str = attrs.data_state.as_str();
+    let part_attr = MenuPart::SubTrigger.static_data_attr_name(root.variant);
+
+    let mut base = Vec::with_capacity(18);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new("tabindex", attrs.tabindex, None, false));
+    base.push(Attribute::new(
+        "aria-haspopup",
+        attrs.aria_haspopup,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "aria-expanded",
+        if attrs.aria_expanded { "true" } else { "false" },
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "aria-controls", attrs.aria_controls);
+    push_attr_opt(&mut base, "aria-disabled", attrs.aria_disabled);
+    base.push(Attribute::new("data-state", data_state_str, None, false));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-highlighted", attrs.data_highlighted);
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(part_attr, "", None, false));
+    push_event_handler::<MouseData>(&mut base, "onclick", Some(on_click));
+    push_event_handler::<PointerData>(&mut base, "onpointermove", Some(on_pointer_move));
+    push_event_handler::<PointerData>(&mut base, "onpointerleave", Some(on_pointer_leave));
+    push_event_handler::<KeyboardData>(&mut base, "onkeydown", Some(on_key_down));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            role: "{attrs.role}",
-            tabindex: "{attrs.tabindex}",
-            "aria-haspopup": "{attrs.aria_haspopup}",
-            "aria-expanded": "{attrs.aria_expanded}",
-            "aria-controls": attrs.aria_controls.as_deref(),
-            "aria-disabled": attrs.aria_disabled,
-            "data-state": "{attrs.data_state.as_str()}",
-            "data-disabled": attrs.data_disabled,
-            "data-highlighted": attrs.data_highlighted,
-            "data-orientation": "{attrs.data_orientation}",
-            onclick: move |evt| on_click.call(evt),
-            onpointermove: move |evt| on_pointer_move.call(evt),
-            onpointerleave: move |evt| on_pointer_leave.call(evt),
-            onkeydown: move |evt| on_key_down.call(evt),
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }
@@ -426,12 +411,14 @@ pub fn MenuSubTrigger(props: MenuSubTriggerProps) -> Element {
 
 #[derive(Props, Clone, PartialEq)]
 pub struct MenuSubContentProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default, into)]
+    pub custom_anchor: Option<String>,
     #[props(default)]
     pub side: Option<PlacementSide>,
     #[props(default)]
@@ -452,16 +439,18 @@ pub struct MenuSubContentProps {
     pub hide_when_detached: bool,
     #[props(default = false)]
     pub force_mount: bool,
+    #[props(default = false)]
+    pub keep_mounted: bool,
+    #[props(default)]
+    pub escape_key_down_behavior: DismissBehavior,
     #[props(default)]
     pub loop_focus: Option<bool>,
     #[props(default)]
     pub on_escape_key_down: Option<EventHandler<MenuPreventableEvent>>,
     #[props(default)]
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<MenuContentRenderProps, Element>>,
+    pub child: Option<Callback<FloatingContentChildProps, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -495,6 +484,9 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
             sub.parent_surface.register_child_subcontent(resolved_id);
         }
 
+        let mut ca_sig = surface.custom_anchor;
+        sync_signal(&mut ca_sig, props.custom_anchor.clone());
+
         let default_side = match root.direction() {
             Direction::Ltr => PlacementSide::Right,
             Direction::Rtl => PlacementSide::Left,
@@ -525,6 +517,10 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
         let effective_loop = props.loop_focus.unwrap_or_else(|| *root.loop_focus.read());
         let mut fm_sig = surface.force_mount;
         sync_signal(&mut fm_sig, props.force_mount);
+        let mut km_sig = surface.keep_mounted;
+        sync_signal(&mut km_sig, props.keep_mounted);
+        let mut eb_sig = surface.escape_key_down_behavior;
+        sync_signal(&mut eb_sig, props.escape_key_down_behavior);
         let mut lf_sig = surface.loop_focus;
         sync_signal(&mut lf_sig, effective_loop);
 
@@ -597,8 +593,7 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
         on_pointer_enter: Some(on_pointer_enter),
         on_pointer_move: Some(on_pointer_move),
         on_pointer_leave: Some(on_pointer_leave),
-        as_child: props.as_child,
-        render_child: props.render_child,
+        child: MenuSurfaceChild::Floating(props.child),
         attributes: props.attributes,
         children: props.children,
     })
@@ -606,24 +601,26 @@ pub fn MenuSubContent(props: MenuSubContentProps) -> Element {
 
 #[derive(Props, Clone, PartialEq)]
 pub struct MenuSubContentStaticProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
+    #[props(default = false)]
+    pub keep_mounted: bool,
+    #[props(default)]
+    pub escape_key_down_behavior: DismissBehavior,
     #[props(default)]
     pub loop_focus: Option<bool>,
     #[props(default)]
     pub on_escape_key_down: Option<EventHandler<MenuPreventableEvent>>,
     #[props(default)]
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<MenuContentRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -658,6 +655,10 @@ pub fn MenuSubContentStatic(props: MenuSubContentStaticProps) -> Element {
         }
         let mut fm = surface.force_mount;
         sync_signal(&mut fm, props.force_mount);
+        let mut km = surface.keep_mounted;
+        sync_signal(&mut km, props.keep_mounted);
+        let mut eb = surface.escape_key_down_behavior;
+        sync_signal(&mut eb, props.escape_key_down_behavior);
         let effective_loop = props.loop_focus.unwrap_or_else(|| *root.loop_focus.read());
         let mut lf = surface.loop_focus;
         sync_signal(&mut lf, effective_loop);
@@ -692,8 +693,7 @@ pub fn MenuSubContentStatic(props: MenuSubContentStaticProps) -> Element {
         on_pointer_enter: None,
         on_pointer_move: None,
         on_pointer_leave: None,
-        as_child: props.as_child,
-        render_child: props.render_child,
+        child: MenuSurfaceChild::Static(props.child),
         attributes: props.attributes,
         children: props.children,
     })

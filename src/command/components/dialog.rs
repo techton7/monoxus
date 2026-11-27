@@ -200,11 +200,9 @@ pub fn CommandDialog(props: CommandDialogProps) -> Element {
     rsx! {
         DialogRoot {
             id: props.id.clone(),
-            open: props.open,
-            default_open: props.default_open,
+            open: props.open.map(|sig| sig()),
+            default_open: props.default_open.unwrap_or(false),
             on_open_change: Some(stable_on_open_change),
-            open_focus,
-            portal_host: props.portal_host.clone(),
             DialogPortal {
                 host: props.portal_host,
                 DialogOverlay {
@@ -219,6 +217,7 @@ pub fn CommandDialog(props: CommandDialogProps) -> Element {
                         id: props.content_id,
                         class: props.content_class,
                         style: resolved_content_style,
+                        open_focus,
                         "data-command-dialog": "",
                         VisuallyHidden {
                             DialogTitle { "{props.title}" }

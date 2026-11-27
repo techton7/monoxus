@@ -3,11 +3,15 @@ use std::rc::Rc;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::{join_styles, merge_attributes_with_part, merge_global_attributes},
+    compose::{
+        FloatingContentChildProps, collect_user_attrs, join_styles, merge_props, push_attr_opt,
+        push_event_handler,
+    },
     overlay::{
-        FloatingPlacement, FloatingReadiness, OverlayBranchContext, PlacementAlign, PlacementSide,
-        StickyStrategy, is_modal_pointer_lock_active, serialize_css_custom_properties,
-        use_overlay_branch_provider, use_register_parent_overlay_branches,
+        DismissBehavior, FloatingPlacement, FloatingReadiness, OverlayBranchContext,
+        PlacementAlign, PlacementSide, StickyStrategy, is_modal_pointer_lock_active,
+        serialize_css_custom_properties, use_overlay_branch_provider,
+        use_register_parent_overlay_branches,
     },
     shared::Direction,
     state::sync_signal,
@@ -34,15 +38,10 @@ pub fn build_menu_wrapper_style(
     format!("{base_style}{vars_buf}")
 }
 
-/// Render props passed to `render_child` when `Content` uses `as_child: true`.
-#[derive(Clone, PartialEq)]
-pub struct MenuContentRenderProps {
-    pub attrs: MenuContentAttributes,
-    pub style: String,
-    pub class: Option<String>,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
+/// Child composition callback variant for floating vs static menu surfaces.
+pub(crate) enum MenuSurfaceChild {
+    Floating(Option<Callback<FloatingContentChildProps, Element>>),
+    Static(Option<Callback<Vec<Attribute>, Element>>),
 }
 
 /// Plain Rust specification for [`render_menu_surface`] shared by `MenuContent`, `MenuContentStatic`,
@@ -64,8 +63,7 @@ pub(crate) struct MenuSurfaceViewSpec {
     pub on_pointer_enter: Option<EventHandler<PointerEvent>>,
     pub on_pointer_move: Option<EventHandler<PointerEvent>>,
     pub on_pointer_leave: Option<EventHandler<PointerEvent>>,
-    pub as_child: bool,
-    pub render_child: Option<Callback<MenuContentRenderProps, Element>>,
+    pub child: MenuSurfaceChild,
     pub attributes: Vec<Attribute>,
     pub children: Element,
 }
@@ -157,6 +155,10 @@ pub(crate) fn render_menu_surface(spec: MenuSurfaceViewSpec) -> Element {
         spec.part,
     );
 
+    let data_starting_style = spec.surface.data_starting_style();
+    let data_ending_style = spec.surface.data_ending_style();
+    let is_presence_hidden = spec.surface.is_presence_hidden();
+
     let has_pointer_events = spec
         .style
         .as_deref()
@@ -176,12 +178,7 @@ pub(crate) fn render_menu_surface(spec: MenuSurfaceViewSpec) -> Element {
         } else {
             "pointer-events: none; outline: none;"
         };
-        join_styles([
-            vars_inline.as_str(),
-            pointer_events_part,
-            hidden_part,
-            spec.style.as_deref().unwrap_or_default(),
-        ])
+        join_styles([vars_inline.as_str(), pointer_events_part, hidden_part])
     } else {
         let pointer_events_part = if !spec.is_open {
             "pointer-events: none;"
@@ -190,105 +187,59 @@ pub(crate) fn render_menu_surface(spec: MenuSurfaceViewSpec) -> Element {
         } else {
             ""
         };
-        join_styles([
-            pointer_events_part,
-            spec.style.as_deref().unwrap_or_default(),
-        ])
+        join_styles([pointer_events_part])
     };
-
-    let part_attrs = merge_attributes_with_part(
-        spec.attributes,
-        spec.part.static_data_attr_name(spec.root.variant),
-    );
-    let merged = merge_global_attributes(
-        spec.class.as_deref(),
-        base_content_style.as_deref(),
-        part_attrs,
-    );
 
     let kd_surface = spec.surface.clone();
     let kd_root = spec.root.clone();
-    let user_kd = spec.on_key_down;
-    let on_key_down = EventHandler::new(move |evt: KeyboardEvent| {
-        if let Some(cb) = user_kd.as_ref() {
-            cb.call(evt.clone());
-        }
+    let on_key_down_base = EventHandler::new(move |evt: KeyboardEvent| {
         kd_surface.handle_keydown(&evt, &kd_root);
     });
 
-    let on_pointer_enter = spec.on_pointer_enter;
-    let on_pointer_move = spec.on_pointer_move;
-    let on_pointer_leave = spec.on_pointer_leave;
+    let part_attr = spec.part.static_data_attr_name(spec.root.variant);
+    let data_state_str = attrs.data_state.as_str();
 
-    let inner = if spec.as_child
-        && let Some(render_child) = spec.render_child.as_ref()
-    {
-        render_child.call(MenuContentRenderProps {
-            attrs,
-            style: merged.style.unwrap_or_default(),
-            class: merged.class,
-            on_key_down,
-            attributes: merged.rest,
-            children: spec.children,
-        })
-    } else if spec.is_floating {
+    let mut base = Vec::with_capacity(20);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    push_attr_opt(&mut base, "style", base_content_style);
+    if is_presence_hidden {
+        base.push(Attribute::new("hidden", true, None, false));
+    }
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new("tabindex", attrs.tabindex, None, false));
+    base.push(Attribute::new("dir", attrs.dir, None, false));
+    base.push(Attribute::new(
+        "aria-orientation",
+        attrs.aria_orientation,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "aria-labelledby", attrs.aria_labelledby);
+    base.push(Attribute::new("data-state", data_state_str, None, false));
+    base.push(Attribute::new("data-side", attrs.data_side, None, false));
+    base.push(Attribute::new("data-align", attrs.data_align, None, false));
+    push_attr_opt(&mut base, "data-starting-style", data_starting_style);
+    push_attr_opt(&mut base, "data-ending-style", data_ending_style);
+    base.push(Attribute::new(part_attr, "", None, false));
+
+    if spec.is_floating {
         let mount_surface = spec.surface.clone();
-        rsx! {
-            div {
-                id: "{attrs.id}",
-                class: merged.class.as_deref(),
-                style: merged.style.as_deref(),
-                role: "{attrs.role}",
-                tabindex: "{attrs.tabindex}",
-                dir: "{attrs.dir}",
-                "aria-orientation": "{attrs.aria_orientation}",
-                "aria-labelledby": attrs.aria_labelledby.as_deref(),
-                "data-state": "{attrs.data_state.as_str()}",
-                "data-side": "{attrs.data_side}",
-                "data-align": "{attrs.data_align}",
-                onmounted: move |evt: MountedEvent| {
-                    mount_surface.capture_content_mount(evt.data());
-                },
-                onkeydown: move |evt| on_key_down.call(evt),
-                onpointerenter: move |evt| {
-                    if let Some(cb) = on_pointer_enter.as_ref() {
-                        cb.call(evt);
-                    }
-                },
-                onpointermove: move |evt| {
-                    if let Some(cb) = on_pointer_move.as_ref() {
-                        cb.call(evt);
-                    }
-                },
-                onpointerleave: move |evt| {
-                    if let Some(cb) = on_pointer_leave.as_ref() {
-                        cb.call(evt);
-                    }
-                },
-                ..merged.rest,
-                {spec.children}
-            }
-        }
-    } else {
-        rsx! {
-            div {
-                id: "{attrs.id}",
-                class: merged.class.as_deref(),
-                style: merged.style.as_deref(),
-                role: "{attrs.role}",
-                tabindex: "{attrs.tabindex}",
-                dir: "{attrs.dir}",
-                "aria-orientation": "{attrs.aria_orientation}",
-                "aria-labelledby": attrs.aria_labelledby.as_deref(),
-                "data-state": "{attrs.data_state.as_str()}",
-                "data-side": "{attrs.data_side}",
-                "data-align": "{attrs.data_align}",
-                onkeydown: move |evt| on_key_down.call(evt),
-                ..merged.rest,
-                {spec.children}
-            }
-        }
-    };
+        push_event_handler::<MountedData>(
+            &mut base,
+            "onmounted",
+            Some(EventHandler::new(move |evt: MountedEvent| {
+                mount_surface.capture_content_mount(evt.data());
+            })),
+        );
+        push_event_handler::<PointerData>(&mut base, "onpointerenter", spec.on_pointer_enter);
+        push_event_handler::<PointerData>(&mut base, "onpointermove", spec.on_pointer_move);
+        push_event_handler::<PointerData>(&mut base, "onpointerleave", spec.on_pointer_leave);
+    }
+    push_event_handler::<KeyboardData>(&mut base, "onkeydown", Some(on_key_down_base));
+
+    let mut user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+    push_event_handler::<KeyboardData>(&mut user, "onkeydown", spec.on_key_down);
+    let merged_content = merge_props(base, user);
 
     if spec.is_floating {
         let content_z_index = spec.surface.content_z_index();
@@ -306,28 +257,65 @@ pub(crate) fn render_menu_surface(spec: MenuSurfaceViewSpec) -> Element {
                 wrapper_style.push_str(" pointer-events: none;");
             }
         }
+        let mut wrapper_props = Vec::with_capacity(5);
+        wrapper_props.push(Attribute::new("id", wrapper_id, None, false));
+        wrapper_props.push(Attribute::new(
+            "data-monoxus-floating-content-wrapper",
+            "",
+            None,
+            false,
+        ));
+        wrapper_props.push(Attribute::new("style", wrapper_style, None, false));
+        wrapper_props.push(Attribute::new(
+            "data-positioning",
+            readiness.positioning_state(),
+            None,
+            false,
+        ));
+        if is_presence_hidden {
+            wrapper_props.push(Attribute::new("hidden", true, None, false));
+        }
+
+        if let MenuSurfaceChild::Floating(Some(child)) = spec.child {
+            return child.call(FloatingContentChildProps::new(
+                wrapper_props,
+                merged_content,
+            ));
+        }
+
         rsx! {
             div {
-                id: "{wrapper_id}",
-                "data-monoxus-floating-content-wrapper": "",
-                style: "{wrapper_style}",
-                "data-positioning": readiness.positioning_state(),
-                {inner}
+                ..wrapper_props,
+                div {
+                    ..merged_content,
+                    {spec.children}
+                }
             }
         }
     } else {
-        inner
+        if let MenuSurfaceChild::Static(Some(child)) = spec.child {
+            return child.call(merged_content);
+        }
+
+        rsx! {
+            div {
+                ..merged_content,
+                {spec.children}
+            }
+        }
     }
 }
 
 #[derive(Props, Clone, PartialEq)]
 pub struct MenuContentProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
+    #[props(default, into)]
+    pub custom_anchor: Option<String>,
     #[props(default)]
     pub side: Option<PlacementSide>,
     #[props(default)]
@@ -348,6 +336,12 @@ pub struct MenuContentProps {
     pub hide_when_detached: bool,
     #[props(default = false)]
     pub force_mount: bool,
+    #[props(default = false)]
+    pub keep_mounted: bool,
+    #[props(default)]
+    pub escape_key_down_behavior: DismissBehavior,
+    #[props(default)]
+    pub interact_outside_behavior: DismissBehavior,
     #[props(default)]
     pub loop_focus: Option<bool>,
     #[props(default = false)]
@@ -368,10 +362,8 @@ pub struct MenuContentProps {
     pub on_close_auto_focus: Option<EventHandler<MenuPreventableEvent>>,
     #[props(default)]
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<MenuContentRenderProps, Element>>,
+    pub child: Option<Callback<FloatingContentChildProps, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -395,6 +387,8 @@ pub fn MenuContent(props: MenuContentProps) -> Element {
         let resolved_anchor = root.resolved_anchor_id();
         let mut aid = surface.anchor_id;
         sync_signal(&mut aid, resolved_anchor);
+        let mut ca_sig = surface.custom_anchor;
+        sync_signal(&mut ca_sig, props.custom_anchor.clone());
 
         let default_side = match root.variant {
             MenuVariant::ContextMenu => PlacementSide::Right,
@@ -429,6 +423,12 @@ pub fn MenuContent(props: MenuContentProps) -> Element {
         sync_signal(&mut hwd_sig, props.hide_when_detached);
         let mut fm_sig = surface.force_mount;
         sync_signal(&mut fm_sig, props.force_mount);
+        let mut km_sig = surface.keep_mounted;
+        sync_signal(&mut km_sig, props.keep_mounted);
+        let mut eb_sig = surface.escape_key_down_behavior;
+        sync_signal(&mut eb_sig, props.escape_key_down_behavior);
+        let mut ob_sig = surface.interact_outside_behavior;
+        sync_signal(&mut ob_sig, props.interact_outside_behavior);
         let effective_loop = props.loop_focus.unwrap_or_else(|| *root.loop_focus.read());
         let mut ps_sig = surface.prevent_scroll;
         sync_signal(&mut ps_sig, props.prevent_scroll);
@@ -476,8 +476,7 @@ pub fn MenuContent(props: MenuContentProps) -> Element {
         on_pointer_enter: None,
         on_pointer_move: None,
         on_pointer_leave: None,
-        as_child: props.as_child,
-        render_child: props.render_child,
+        child: MenuSurfaceChild::Floating(props.child),
         attributes: props.attributes,
         children: props.children,
     })

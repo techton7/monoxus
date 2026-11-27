@@ -3,14 +3,13 @@ use std::borrow::Cow;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     shared::{Direction, Orientation, ScopeHandle, use_direction_context, use_stable_id},
+    state::use_controllable_signal,
 };
 
 use super::super::{
-    runtime::{
-        NavigationMenuInContent, NavigationMenuRootRenderProps, use_navigation_menu_root_runtime,
-    },
+    runtime::{NavigationMenuInContent, use_navigation_menu_root_runtime},
     types::{
         NAVIGATION_MENU_DEFAULT_DELAY_MS, NAVIGATION_MENU_DEFAULT_SKIP_DELAY_MS,
         NavigationMenuActivationMode,
@@ -19,15 +18,15 @@ use super::super::{
 
 #[derive(Clone, PartialEq, Props)]
 pub struct NavigationMenuRootProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
-    pub value: Option<Signal<String>>,
-    #[props(default)]
+    #[props(default, into)]
+    pub value: Option<String>,
+    #[props(default, into)]
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
@@ -41,12 +40,10 @@ pub struct NavigationMenuRootProps {
     pub orientation: Orientation,
     #[props(default)]
     pub activation_mode: NavigationMenuActivationMode,
-    #[props(default = Some("Main".to_string()))]
+    #[props(default = Some("Main".to_string()), into)]
     pub aria_label: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<NavigationMenuRootRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -61,8 +58,11 @@ pub fn NavigationMenuRoot(props: NavigationMenuRootProps) -> Element {
     let scope_id = stable_id.into_owned();
     let scope = ScopeHandle::root("navigation-menu").child(scope_id);
 
-    let fallback_value = use_signal(|| props.default_value.clone().unwrap_or_default());
-    let value_signal = props.value.unwrap_or(fallback_value);
+    let value_state = use_controllable_signal(
+        props.value,
+        props.default_value.unwrap_or_default(),
+        props.on_value_change,
+    );
 
     let initial_rels = super::super::relationships::NavigationMenuRelationships::new(scope.clone());
     let dom_id = props
@@ -73,8 +73,7 @@ pub fn NavigationMenuRoot(props: NavigationMenuRootProps) -> Element {
     let ctx = use_navigation_menu_root_runtime(
         scope,
         dom_id.clone(),
-        value_signal,
-        props.on_value_change,
+        value_state,
         props.delay_duration,
         props.skip_delay_duration,
         resolved_dir,
@@ -85,7 +84,6 @@ pub fn NavigationMenuRoot(props: NavigationMenuRootProps) -> Element {
 
     ctx.sync_root_props(
         &dom_id,
-        props.on_value_change,
         props.delay_duration,
         props.skip_delay_duration,
         resolved_dir,
@@ -99,43 +97,38 @@ pub fn NavigationMenuRoot(props: NavigationMenuRootProps) -> Element {
 
     let root_attrs = ctx.root_attributes(Some(dom_id));
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(NavigationMenuRootRenderProps {
-                attrs: root_attrs,
-                class: props.class,
-                style: props.style,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::NavigationMenuRoot: as_child requires render_child; rendering the default nav"
-        );
-    }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
+    let mut base = Vec::with_capacity(6);
+    base.push(Attribute::new("id", root_attrs.id().to_owned(), None, false));
+    push_attr_opt(
+        &mut base,
+        "aria-label",
+        root_attrs.aria_label().map(str::to_owned),
     );
+    base.push(Attribute::new("dir", root_attrs.dir(), None, false));
+    base.push(Attribute::new(
+        "data-orientation",
+        root_attrs.data_orientation(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-monoxus-navigation-menu-root",
+        root_attrs.data_monoxus_navigation_menu_root(),
+        None,
+        false,
+    ));
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler::<MountedData>(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         nav {
-            id: "{root_attrs.id()}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            aria_label: root_attrs.aria_label(),
-            dir: "{root_attrs.dir()}",
-            "data-orientation": "{root_attrs.data_orientation()}",
-            "data-monoxus-navigation-menu-root": "{root_attrs.data_monoxus_navigation_menu_root()}",
-            onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

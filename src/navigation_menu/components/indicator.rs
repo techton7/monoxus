@@ -2,32 +2,30 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::spawn_root_task,
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     overlay::{use_presence, use_watcher_slot},
 };
 
 use super::super::{
     runtime::{
-        IndicatorMountData, NavigationMenuContext, NavigationMenuIndicatorRenderProps,
-        measure_indicator_offset_position, start_offset_resize_observer,
+        IndicatorMountData, NavigationMenuContext, measure_indicator_offset_position,
+        start_offset_resize_observer,
     },
     types::NavigationMenuIndicatorPosition,
 };
 
 #[derive(Clone, PartialEq, Props)]
 pub struct NavigationMenuIndicatorProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<NavigationMenuIndicatorRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -45,8 +43,7 @@ pub fn NavigationMenuIndicator(props: NavigationMenuIndicatorProps) -> Element {
         class: props.class,
         style: props.style,
         force_mount: props.force_mount,
-        as_child: props.as_child,
-        render_child: props.render_child,
+        child: props.child,
         on_mounted: props.on_mounted,
         attributes: props.attributes,
         children: props.children,
@@ -61,7 +58,7 @@ pub fn NavigationMenuIndicator(props: NavigationMenuIndicatorProps) -> Element {
 }
 
 #[component]
-pub fn NavigationMenuIndicatorSlot() -> Element {
+pub(crate) fn NavigationMenuIndicatorSlot() -> Element {
     let ctx = use_context::<NavigationMenuContext>();
     let data_opt = ctx.indicator_config.read().clone();
 
@@ -170,47 +167,47 @@ pub fn NavigationMenuIndicatorSlot() -> Element {
         return rsx! {};
     };
 
-    let attrs =
-        ctx.indicator_attributes(is_visible, pos, Some(indicator_id), data.style.as_deref());
+    let attrs = ctx.indicator_attributes(is_visible, pos, Some(indicator_id), None);
+    let base_style = {
+        let s = attrs.style();
+        (!s.trim().is_empty()).then(|| s.to_owned())
+    };
 
-    if data.as_child {
-        if let Some(render_child) = data.render_child.as_ref() {
-            return render_child.call(NavigationMenuIndicatorRenderProps {
-                attrs,
-                is_visible,
-                class: data.class,
-                style: data.style,
-                attributes: data.attributes,
-                children: data.children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::NavigationMenuIndicator: as_child requires render_child; rendering the default div"
-        );
-    }
-
-    let merged = merge_global_attributes(
-        data.class.as_deref(),
-        Some(attrs.style()),
-        data.attributes,
+    let mut base = Vec::with_capacity(9);
+    base.push(Attribute::new("id", attrs.id().to_owned(), None, false));
+    push_attr_opt(&mut base, "style", base_style);
+    base.push(Attribute::new("aria-hidden", attrs.aria_hidden(), None, false));
+    base.push(Attribute::new("data-state", attrs.data_state(), None, false));
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation(),
+        None,
+        false,
+    ));
+    push_attr_opt(
+        &mut base,
+        "data-starting-style",
+        presence.data_starting_style(),
     );
+    push_attr_opt(&mut base, "data-ending-style", presence.data_ending_style());
+    base.push(Attribute::new(
+        "data-monoxus-navigation-menu-indicator",
+        attrs.data_monoxus_navigation_menu_indicator(),
+        None,
+        false,
+    ));
+
+    let mut user = collect_user_attrs(data.class, data.style, data.attributes);
+    push_event_handler::<MountedData>(&mut user, "onmounted", data.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = data.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id()}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            aria_hidden: "{attrs.aria_hidden()}",
-            "data-state": "{attrs.data_state()}",
-            "data-orientation": "{attrs.data_orientation()}",
-            "data-monoxus-navigation-menu-indicator": "{attrs.data_monoxus_navigation_menu_indicator()}",
-            onmounted: move |evt| {
-                if let Some(ref handler) = data.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {data.children}
         }
     }

@@ -1,24 +1,22 @@
 use dioxus::prelude::*;
 
-use crate::foundation::compose::merge_global_attributes;
+use crate::foundation::compose::{collect_user_attrs, merge_props, push_event_handler};
 
 use super::{
-    super::runtime::{NavigationMenuContext, NavigationMenuInContent, NavigationMenuListRenderProps},
+    super::runtime::{NavigationMenuContext, NavigationMenuInContent},
     indicator::NavigationMenuIndicatorSlot,
 };
 
 #[derive(Clone, PartialEq, Props)]
 pub struct NavigationMenuListProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<NavigationMenuListRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -45,58 +43,37 @@ pub fn NavigationMenuList(props: NavigationMenuListProps) -> Element {
         cleanup_ctx.unregister_track_id(&cleanup_track_id);
     });
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            let list_el = render_child.call(NavigationMenuListRenderProps {
-                attrs: list_attrs,
-                track_attrs: track_attrs.clone(),
-                class: props.class,
-                style: props.style,
-                attributes: props.attributes,
-                children: props.children,
-                indicator: rsx! { NavigationMenuIndicatorSlot {} },
-            });
-            return rsx! {
-                div {
-                    id: "{track_attrs.id()}",
-                    style: "{track_attrs.style()}",
-                    "data-monoxus-navigation-menu-track": "{track_attrs.data_monoxus_navigation_menu_track()}",
-                    {list_el}
-                    NavigationMenuIndicatorSlot {}
-                }
-            };
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::NavigationMenuList: as_child requires render_child; rendering the default ul"
-        );
-    }
+    let base = vec![
+        Attribute::new("id", list_attrs.id().to_owned(), None, false),
+        Attribute::new("data-orientation", list_attrs.data_orientation(), None, false),
+        Attribute::new(
+            "data-monoxus-navigation-menu-list",
+            list_attrs.data_monoxus_navigation_menu_list(),
+            None,
+            false,
+        ),
+    ];
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler::<MountedData>(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let list_el = if let Some(child) = props.child {
+        child.call(merged)
+    } else {
+        rsx! {
+            ul {
+                ..merged,
+                {props.children}
+            }
+        }
+    };
 
     rsx! {
         div {
             id: "{track_attrs.id()}",
             style: "{track_attrs.style()}",
             "data-monoxus-navigation-menu-track": "{track_attrs.data_monoxus_navigation_menu_track()}",
-            ul {
-                id: "{list_attrs.id()}",
-                class: merged.class.as_deref().unwrap_or_default(),
-                style: merged.style.as_deref().unwrap_or_default(),
-                "data-orientation": "{list_attrs.data_orientation()}",
-                "data-monoxus-navigation-menu-list": "{list_attrs.data_monoxus_navigation_menu_list()}",
-                onmounted: move |evt| {
-                    if let Some(ref handler) = props.on_mounted {
-                        handler.call(evt);
-                    }
-                },
-                ..merged.rest,
-                {props.children}
-            }
+            {list_el}
             NavigationMenuIndicatorSlot {}
         }
     }

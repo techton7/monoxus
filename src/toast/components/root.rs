@@ -1,6 +1,13 @@
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
+use dioxus::prelude::*;
+
 use crate::foundation::{
     browser::{try_release_pointer_capture, try_set_pointer_capture},
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt},
     overlay::Point2D,
 };
 use crate::toast::attrs::ToastRootAttrs;
@@ -8,9 +15,6 @@ use crate::toast::gesture::{SwipeAction, SwipeAxis, SwipeGestureReducer, SwipeRe
 use crate::toast::layout::ToastComputedStyle;
 use crate::toast::runtime::{TOAST_STORE, toast, toast_now_ms};
 use crate::toast::types::{ToastId, ToastPhase, ToastPosition, ToastType};
-use dioxus::prelude::*;
-use std::cell::RefCell;
-use std::rc::Rc;
 
 fn is_button_target(evt: &PointerData) -> bool {
     oxidase::dom::is_interactive_button_target(evt)
@@ -64,8 +68,51 @@ fn blur_toast_card_if_active(dom_id: &str) -> bool {
 #[derive(Props, Clone, PartialEq)]
 pub struct ToastRootProps {
     pub id: ToastId,
-    #[props(default)]
+    #[props(default, into)]
     pub dom_id: Option<String>,
+    #[props(default)]
+    pub toast_type: ToastType,
+    #[props(default)]
+    pub phase: ToastPhase,
+    #[props(default = true)]
+    pub dismissible: bool,
+    #[props(default)]
+    pub position: Option<ToastPosition>,
+    #[props(default, into)]
+    pub class: Option<String>,
+    #[props(default, into)]
+    pub style: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
+    #[props(extends = GlobalAttributes)]
+    pub attributes: Vec<Attribute>,
+    #[props(default)]
+    pub children: Element,
+}
+
+pub(crate) struct ToastRootSpec {
+    pub id: ToastId,
+    pub dom_id: Option<String>,
+    pub toast_type: ToastType,
+    pub phase: ToastPhase,
+    pub index: usize,
+    pub visible_limit: usize,
+    pub expanded: bool,
+    pub dismissible: bool,
+    pub position: Option<ToastPosition>,
+    pub test_id: Option<String>,
+    pub class: Option<String>,
+    pub style: Option<String>,
+    pub computed_style: Option<ToastComputedStyle>,
+    pub content_generation: u64,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
+    pub attributes: Vec<Attribute>,
+    pub children: Element,
+}
+
+#[derive(Props, Clone, PartialEq)]
+pub(crate) struct ManagedToastRootProps {
+    pub id: ToastId,
     #[props(default)]
     pub toast_type: ToastType,
     #[props(default)]
@@ -83,35 +130,74 @@ pub struct ToastRootProps {
     #[props(default)]
     pub test_id: Option<String>,
     #[props(default)]
-    pub class: Option<String>,
-    #[props(default)]
-    pub style: Option<String>,
-    #[props(default)]
     pub computed_style: Option<ToastComputedStyle>,
     #[props(default)]
     pub content_generation: u64,
-    #[props(extends = GlobalAttributes)]
-    pub attributes: Vec<Attribute>,
     #[props(default)]
     pub children: Element,
+}
+
+#[component]
+pub(crate) fn ManagedToastRoot(props: ManagedToastRootProps) -> Element {
+    render_toast_root(ToastRootSpec {
+        id: props.id,
+        dom_id: None,
+        toast_type: props.toast_type,
+        phase: props.phase,
+        index: props.index,
+        visible_limit: props.visible_limit,
+        expanded: props.expanded,
+        dismissible: props.dismissible,
+        position: props.position,
+        test_id: props.test_id,
+        class: None,
+        style: None,
+        computed_style: props.computed_style,
+        content_generation: props.content_generation,
+        child: None,
+        attributes: Vec::new(),
+        children: props.children,
+    })
 }
 
 /// Headless toast item container (<li role="status" / role="alert">) with gesture-driven swipe dismissal.
 #[component]
 pub fn ToastRoot(props: ToastRootProps) -> Element {
-    let dom_id = props
+    render_toast_root(ToastRootSpec {
+        id: props.id,
+        dom_id: props.dom_id,
+        toast_type: props.toast_type,
+        phase: props.phase,
+        index: 0,
+        visible_limit: 3,
+        expanded: false,
+        dismissible: props.dismissible,
+        position: props.position,
+        test_id: None,
+        class: props.class,
+        style: props.style,
+        computed_style: None,
+        content_generation: 0,
+        child: props.child,
+        attributes: props.attributes,
+        children: props.children,
+    })
+}
+
+pub(crate) fn render_toast_root(spec: ToastRootSpec) -> Element {
+    let dom_id = spec
         .dom_id
         .clone()
-        .unwrap_or_else(|| format!("monoxus-toast-{}", props.id.0));
-    let effective_dismissible = props.dismissible && props.toast_type != ToastType::Loading;
-    let position = props.position.unwrap_or(ToastPosition::BottomRight);
+        .unwrap_or_else(|| format!("monoxus-toast-{}", spec.id.0));
+    let effective_dismissible = spec.dismissible && spec.toast_type != ToastType::Loading;
+    let position = spec.position.unwrap_or(ToastPosition::BottomRight);
     let attrs = ToastRootAttrs::with_options_and_position(
-        props.toast_type,
-        props.phase,
-        props.index,
-        props.visible_limit,
-        props.test_id.clone(),
-        props.expanded,
+        spec.toast_type,
+        spec.phase,
+        spec.index,
+        spec.visible_limit,
+        spec.test_id,
+        spec.expanded,
         position,
     )
     .with_dismissible(effective_dismissible);
@@ -132,16 +218,16 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
         ))
     });
 
-    let needs_measurement = props.computed_style.is_some_and(|cs| cs.height <= 0.0);
+    let needs_measurement = spec.computed_style.is_some_and(|cs| cs.height <= 0.0);
 
     {
         let dom_id_for_remeasure = dom_id.clone();
-        let toast_id = props.id;
+        let toast_id = spec.id;
         let last_unmeasured = use_hook(|| std::cell::Cell::new(false));
-        let last_content_gen = use_hook(|| std::cell::Cell::new(props.content_generation));
+        let last_content_gen = use_hook(|| std::cell::Cell::new(spec.content_generation));
         let was_unmeasured = last_unmeasured.replace(needs_measurement);
         let content_gen_changed =
-            props.content_generation != last_content_gen.replace(props.content_generation);
+            spec.content_generation != last_content_gen.replace(spec.content_generation);
         if mounted_root.borrow().is_some()
             && ((needs_measurement && !was_unmeasured) || content_gen_changed)
         {
@@ -172,7 +258,7 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
         let root_cell = mounted_root.clone();
         let captured_pid_cell = captured_pointer_id.clone();
         let guard_cell = pointer_stream_guard.clone();
-        let toast_id = props.id;
+        let toast_id = spec.id;
         let effective_position = position;
         let dom_id_for_down = dom_id.clone();
 
@@ -213,7 +299,6 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
             };
             *captured_pid_cell.borrow_mut() = captured_pid;
             if captured_pid.is_none() {
-                // Substrate resilience: activate generic document pointer stream from foundation/browser/
                 let reducer_for_stream = reducer_cell.clone();
                 let mut sx = swipe_delta_x;
                 let mut sy = swipe_delta_y;
@@ -275,7 +360,6 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
         let dom_id_for_end = dom_id.clone();
 
         move |evt_opt: Option<&PointerEvent>, is_cancel: bool| {
-            // Drop document pointer stream guard
             guard_cell.borrow_mut().take();
 
             let pid = captured_pid_cell.borrow_mut().take();
@@ -350,139 +434,219 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
     let swipe_out_val = *swipe_out.read();
     let swipe_dir_val = *swipe_direction_name.read();
 
-    let mut inline_style = String::from("pointer-events: auto; ");
-    if let Some(ref cs) = props.computed_style {
-        inline_style.push_str(&cs.to_style_string());
-        inline_style.push(' ');
+    let mut base_style = String::from("pointer-events: auto; ");
+    if let Some(ref cs) = spec.computed_style {
+        base_style.push_str(&cs.to_style_string());
+        base_style.push(' ');
     }
     let drag_offset = if sx_val.abs() > sy_val.abs() {
         sx_val
     } else {
         sy_val
     };
-    inline_style.push_str(&format!(
-        "--swipe-amount-x: {sx_val}px; --swipe-amount-y: {sy_val}px; --drag-offset: {drag_offset}px; "
+    base_style.push_str(&format!(
+        "--swipe-amount-x: {sx_val}px; --swipe-amount-y: {sy_val}px; --drag-offset: {drag_offset}px;"
     ));
-    if let Some(s) = props.style.as_deref() {
-        inline_style.push_str(s);
-    }
-    let combined_style = if inline_style.trim().is_empty() {
-        None
-    } else {
-        Some(inline_style)
-    };
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        combined_style.as_deref(),
-        props.attributes,
-    );
 
     let dom_id_for_mount = dom_id.clone();
+    let toast_id = spec.id;
+    let mounted_flag = if *is_mounted.read() { "true" } else { "false" };
+    let data_swipe_out = if swipe_out_val {
+        "true"
+    } else {
+        attrs.data_swipe_out
+    };
+    let data_testid = attrs.data_testid.filter(|tid| !tid.is_empty());
+
+    let on_pointer_down = onpointerdown;
+    let mut on_pointer_move = onpointermove;
+    let mut end_for_up = handle_pointer_end.clone();
+    let mut end_for_cancel = handle_pointer_end.clone();
+    let mut end_for_lost = handle_pointer_end;
+    let reducer_for_lost = active_reducer.clone();
+    let captured_for_lost = captured_pointer_id.clone();
+    let root_for_mount = mounted_root.clone();
+
+    let mut base = Vec::with_capacity(32);
+    base.push(Attribute::new("id", dom_id, None, false));
+    base.push(Attribute::new("tabindex", "0", None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new("aria-live", attrs.aria_live, None, false));
+    base.push(Attribute::new("aria-atomic", attrs.aria_atomic, None, false));
+    base.push(Attribute::new("data-sonner-toast", "", None, false));
+    base.push(Attribute::new("data-mounted", mounted_flag, None, false));
+    base.push(Attribute::new("data-id", toast_id.0.to_string(), None, false));
+    base.push(Attribute::new("data-state", attrs.data_state, None, false));
+    base.push(Attribute::new("data-type", attrs.data_type, None, false));
+    base.push(Attribute::new("data-visible", attrs.data_visible, None, false));
+    base.push(Attribute::new("data-front", attrs.data_front, None, false));
+    base.push(Attribute::new("data-expanded", attrs.data_expanded, None, false));
+    base.push(Attribute::new(
+        "data-dismissible",
+        attrs.data_dismissible,
+        None,
+        false,
+    ));
+    base.push(Attribute::new("data-position", attrs.data_position, None, false));
+    base.push(Attribute::new(
+        "data-x-position",
+        attrs.data_x_position,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-y-position",
+        attrs.data_y_position,
+        None,
+        false,
+    ));
+    base.push(Attribute::new("data-swipe-out", data_swipe_out, None, false));
+    push_attr_opt(&mut base, "data-swipe-direction", swipe_dir_val);
+    push_attr_opt(
+        &mut base,
+        "data-swiping",
+        is_swiping_val.then_some("true"),
+    );
+    push_attr_opt(&mut base, "data-swiped", is_swiping_val.then_some("true"));
+    base.push(Attribute::new("data-index", attrs.data_index, None, false));
+    push_attr_opt(&mut base, "data-testid", data_testid);
+    base.push(Attribute::new("style", base_style, None, false));
+    // NOTE(ah:01M7BTR8FNX62N461B3Q6837YJ): See ui/shadcn-dioxus/docs/shadcn_toast_styling_capability_ledger.md
+    // (Section 4 Note 6) for co-applying measure_toast_auto_height -> next_frame -> is_mounted.set(true).
+    base.push(Attribute::new(
+        "onmounted",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                let mounted_evt = evt.map(|d| MountedData::from(d));
+                let mounted_el = oxidase::Element::from_mounted(mounted_evt.data());
+                *root_for_mount.borrow_mut() = Some(mounted_el);
+                is_mounted.set(true);
+
+                if let Some(h) = measure_toast_auto_height(&dom_id_for_mount) {
+                    try_record_toast_height(toast_id, h);
+                }
+
+                let dom_id_async = dom_id_for_mount.clone();
+                crate::foundation::browser::spawn_root_task(async move {
+                    let _ = oxidase::frame::next_frame().await;
+                    if let Some(h) = measure_toast_auto_height(&dom_id_async) {
+                        try_record_toast_height(toast_id, h);
+                    }
+                });
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerdown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_pointer_down(evt.map(|d| PointerData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointermove",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_pointer_move(evt.map(|d| PointerData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerup",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                let ptr_evt = evt.map(|d| PointerData::from(d));
+                end_for_up(Some(&ptr_evt), false);
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointercancel",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                let ptr_evt = evt.map(|d| PointerData::from(d));
+                end_for_cancel(Some(&ptr_evt), true);
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onlostpointercapture",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_evt: Event<PlatformEventData>| {
+                *captured_for_lost.borrow_mut() = None;
+                if reducer_for_lost.borrow().is_some() {
+                    end_for_lost(None, true);
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onanimationend",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_evt: Event<PlatformEventData>| {
+                if TOAST_STORE
+                    .peek()
+                    .toasts
+                    .iter()
+                    .any(|t| t.id == toast_id && t.phase == ToastPhase::Dismissing)
+                {
+                    TOAST_STORE.write().remove_toast_if_dismissing(toast_id);
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "ontransitionend",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_evt: Event<PlatformEventData>| {
+                if TOAST_STORE
+                    .peek()
+                    .toasts
+                    .iter()
+                    .any(|t| t.id == toast_id && t.phase == ToastPhase::Dismissing)
+                {
+                    TOAST_STORE.write().remove_toast_if_dismissing(toast_id);
+                }
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = spec.child {
+        return child.call(merged);
+    }
 
     rsx! {
         li {
-            id: "{dom_id}",
-            tabindex: "0",
-            role: "{attrs.role}",
-            aria_live: "{attrs.aria_live}",
-            aria_atomic: "{attrs.aria_atomic}",
-            "data-sonner-toast": "",
-            "data-mounted": if *is_mounted.read() { "true" } else { "false" },
-            "data-id": "{props.id.0}",
-            "data-state": "{attrs.data_state}",
-            "data-type": "{attrs.data_type}",
-            "data-visible": "{attrs.data_visible}",
-            "data-front": "{attrs.data_front}",
-            "data-expanded": "{attrs.data_expanded}",
-            "data-dismissible": "{attrs.data_dismissible}",
-            "data-position": "{attrs.data_position}",
-            "data-x-position": "{attrs.data_x_position}",
-            "data-y-position": "{attrs.data_y_position}",
-            "data-swipe-out": if swipe_out_val { "true" } else { attrs.data_swipe_out },
-            "data-swipe-direction": swipe_dir_val,
-            "data-swiping": if is_swiping_val { Some("true") } else { None },
-            "data-swiped": if is_swiping_val { Some("true") } else { None },
-            "data-index": "{attrs.data_index}",
-            "data-testid": attrs.data_testid.as_deref().unwrap_or_default(),
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref(),
-            // NOTE(ah:01M7BTR8FNX62N461B3Q6837YJ): See ui/shadcn-dioxus/docs/shadcn_toast_styling_capability_ledger.md
-            // (Section 4 Note 6). When wiring downstream <Toaster /> CSS entrance transitions ([data-mounted="false" -> "true"]),
-            // reorder this block to: (1) measure_toast_auto_height while data-mounted="false", (2) await next_frame().await,
-            // and (3) is_mounted.set(true) without a post-flip re-measurement pass (advancing tests/native_data_gesture_test.rs:1568-1572
-            // by 1 frame). This prevents Blitz Native poll coalescing (dioxus_document.rs:254-259) and frame-1 transition: none
-            // cancellation from Document::measure_auto_height (oxidase native.rs:464-481, 503-525).
-            onmounted: {
-                let root_cell = mounted_root.clone();
-                let toast_id = props.id;
-                move |evt: MountedEvent| {
-                    let mounted_el = oxidase::Element::from_mounted(evt.data());
-                    *root_cell.borrow_mut() = Some(mounted_el);
-                    is_mounted.set(true);
-
-                    if let Some(h) = measure_toast_auto_height(&dom_id_for_mount) {
-                        try_record_toast_height(toast_id, h);
-                    }
-
-                    let dom_id_async = dom_id_for_mount.clone();
-                    crate::foundation::browser::spawn_root_task(async move {
-                        let _ = oxidase::frame::next_frame().await;
-                        if let Some(h) = measure_toast_auto_height(&dom_id_async) {
-                            try_record_toast_height(toast_id, h);
-                        }
-                    });
-                }
-            },
-            onpointerdown,
-            onpointermove,
-            onpointerup: {
-                let mut end_fn = handle_pointer_end.clone();
-                move |evt: PointerEvent| end_fn(Some(&evt), false)
-            },
-            onpointercancel: {
-                let mut end_fn = handle_pointer_end.clone();
-                move |evt: PointerEvent| end_fn(Some(&evt), true)
-            },
-            onlostpointercapture: {
-                let reducer_cell = active_reducer.clone();
-                let captured_pid_cell = captured_pointer_id.clone();
-                let mut end_fn = handle_pointer_end.clone();
-                move |_evt: PointerEvent| {
-                    *captured_pid_cell.borrow_mut() = None;
-                    if reducer_cell.borrow().is_some() {
-                        end_fn(None, true);
-                    }
-                }
-            },
-            onanimationend: {
-                let toast_id = props.id;
-                move |_evt: AnimationEvent| {
-                    if TOAST_STORE
-                        .peek()
-                        .toasts
-                        .iter()
-                        .any(|t| t.id == toast_id && t.phase == ToastPhase::Dismissing)
-                    {
-                        TOAST_STORE.write().remove_toast_if_dismissing(toast_id);
-                    }
-                }
-            },
-            ontransitionend: {
-                let toast_id = props.id;
-                move |_evt: TransitionEvent| {
-                    if TOAST_STORE
-                        .peek()
-                        .toasts
-                        .iter()
-                        .any(|t| t.id == toast_id && t.phase == ToastPhase::Dismissing)
-                    {
-                        TOAST_STORE.write().remove_toast_if_dismissing(toast_id);
-                    }
-                }
-            },
-            ..merged.rest,
-            {props.children}
+            ..merged,
+            {spec.children}
         }
     }
 }

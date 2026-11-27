@@ -1,23 +1,33 @@
-use crate::foundation::compose::merge_global_attributes;
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
+use dioxus::prelude::*;
+
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props, push_attr_opt},
+    shared::Direction,
+};
 use crate::toast::attrs::ToastViewportAttrs;
-use crate::toast::components::{ToastAction, ToastClose, ToastDescription, ToastRoot, ToastTitle};
+use crate::toast::components::{
+    ToastAction, ToastClose, ToastDescription, ToastTitle, root::ManagedToastRoot,
+};
 use crate::toast::layout::ToastStackLayout;
 use crate::toast::runtime::TOAST_STORE;
-use crate::toast::types::ToastPosition;
-use dioxus::prelude::*;
+use crate::toast::types::{ToastActionEvent, ToastPosition};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToastViewportProps {
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
     #[props(default)]
-    pub dir: Option<String>,
-    #[props(default)]
+    pub dir: Option<Direction>,
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub position: Option<ToastPosition>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -102,7 +112,7 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
     let is_expanded = store.expanded;
     let dir = props
         .dir
-        .as_deref()
+        .map(|d| d.as_str())
         .unwrap_or_else(|| store.config.dir.as_str());
     let effective_position = props.position.unwrap_or(store.config.position);
 
@@ -121,25 +131,14 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
         front_toast_height,
     );
 
-    let computed_styles = ToastStackLayout::compute(
-        &heights,
-        store.config.gap,
-        is_expanded,
-    );
-
-    let combined_style = match (&props.style, attrs.style.is_empty()) {
-        (Some(s), false) => format!("{} {}", attrs.style, s),
-        (Some(s), true) => s.clone(),
-        (None, false) => attrs.style.clone(),
-        (None, true) => String::new(),
-    };
+    let computed_styles = ToastStackLayout::compute(&heights, store.config.gap, is_expanded);
 
     let content = if let Some(children) = props.children {
         children
     } else {
         rsx! {
             for (idx, (item, _visible)) in visible_items.into_iter().enumerate() {
-                ToastRoot {
+                ManagedToastRoot {
                     key: "{item.id.0}",
                     id: item.id,
                     toast_type: item.toast_type,
@@ -168,7 +167,15 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
                             ToastAction {
                                 alt_text: action.alt_text.clone(),
                                 toast_id: Some(item.id),
-                                on_click: action.on_click,
+                                on_click: action.on_click.map(|cb| {
+                                    EventHandler::new(move |evt: MouseEvent| {
+                                        let action_evt = ToastActionEvent::new();
+                                        cb.call(action_evt.clone());
+                                        if action_evt.is_default_prevented() {
+                                            evt.prevent_default();
+                                        }
+                                    })
+                                }),
                                 "{action.label}"
                             }
                         }
@@ -176,7 +183,15 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
                             ToastAction {
                                 alt_text: cancel.alt_text.clone(),
                                 toast_id: Some(item.id),
-                                on_click: cancel.on_click,
+                                on_click: cancel.on_click.map(|cb| {
+                                    EventHandler::new(move |evt: MouseEvent| {
+                                        let action_evt = ToastActionEvent::new();
+                                        cb.call(action_evt.clone());
+                                        if action_evt.is_default_prevented() {
+                                            evt.prevent_default();
+                                        }
+                                    })
+                                }),
                                 cancel: true,
                                 "{cancel.label}"
                             }
@@ -198,73 +213,144 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
         }
     };
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        (!combined_style.is_empty()).then_some(combined_style.as_str()),
-        props.attributes,
-    );
-
     let vp_id_for_focusout = viewport_id.clone();
+    let base_style = (!attrs.style.is_empty()).then_some(attrs.style);
 
-    rsx! {
-        ol {
-            role: "{attrs.role}",
-            aria_label: "{attrs.aria_label}",
-            tabindex: "{attrs.tabindex}",
-            dir: "{attrs.dir}",
-            "data-sonner-toaster": "true",
-            "data-expanded": "{attrs.data_expanded}",
-            "data-position": "{attrs.data_position}",
-            "data-x-position": "{attrs.data_x_position}",
-            "data-y-position": "{attrs.data_y_position}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            id: "{viewport_id}",
-            style: merged.style.as_deref(),
-            onmouseenter: move |_| {
+    let mut base = Vec::with_capacity(19);
+    base.push(Attribute::new("id", viewport_id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new("aria-label", attrs.aria_label, None, false));
+    base.push(Attribute::new("tabindex", attrs.tabindex, None, false));
+    base.push(Attribute::new("dir", attrs.dir, None, false));
+    base.push(Attribute::new("data-sonner-toaster", "true", None, false));
+    base.push(Attribute::new("data-expanded", attrs.data_expanded, None, false));
+    base.push(Attribute::new("data-position", attrs.data_position, None, false));
+    base.push(Attribute::new(
+        "data-x-position",
+        attrs.data_x_position,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-y-position",
+        attrs.data_y_position,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "style", base_style);
+    base.push(Attribute::new(
+        "onmouseenter",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
                 if TOAST_STORE.peek().has_active_toasts() {
                     TOAST_STORE.write().set_hovered(true);
                 }
-            },
-            onmousemove: move |_| {
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onmousemove",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
                 if TOAST_STORE.peek().has_active_toasts()
                     && !TOAST_STORE.peek().interaction_state.hovered
                 {
                     TOAST_STORE.write().set_hovered(true);
                 }
-            },
-            onmouseleave: move |_| {
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onmouseleave",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
                 TOAST_STORE.write().handle_viewport_mouse_leave();
                 if !TOAST_STORE.peek().interaction_state.swiping {
                     schedule_viewport_pointer_press_release();
                 }
-            },
-            onpointerup: move |_| {
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerup",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
                 schedule_viewport_pointer_press_release();
-            },
-            onpointercancel: move |_| {
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointercancel",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
                 schedule_viewport_pointer_press_release();
-            },
-            onfocusin: move |_| {
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onfocusin",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
                 if TOAST_STORE.peek().has_active_toasts()
                     && !TOAST_STORE.peek().pointer_down_in_viewport
                 {
                     TOAST_STORE.write().set_focused(true);
                 }
-            },
-            onfocusout: move |_| {
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onfocusout",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |_: Event<PlatformEventData>| {
                 let vp_check = vp_id_for_focusout.clone();
                 crate::foundation::browser::spawn_root_task(async move {
                     let _ = futures_util::future::select(
                         Box::pin(oxidase::frame::next_frame()),
-                        Box::pin(futures_timer::Delay::new(std::time::Duration::from_millis(10))),
+                        Box::pin(futures_timer::Delay::new(std::time::Duration::from_millis(
+                            10,
+                        ))),
                     )
                     .await;
                     if !crate::toast::hotkey::is_focus_within_element(&vp_check) {
                         TOAST_STORE.write().set_focused(false);
                     }
                 });
-            },
-            ..merged.rest,
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
+
+    rsx! {
+        ol {
+            ..merged,
             {content}
         }
     }

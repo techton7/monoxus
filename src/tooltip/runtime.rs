@@ -13,13 +13,17 @@ use crate::foundation::{
     },
     keyboard::{is_escape_key, is_ime_composing_key},
     overlay::{
-        CancellableDelay, DismissCallbacks, DismissConfig, DismissEvent, DismissLayerHandle,
-        FloatingHandle, FloatingMonitorSpec, FloatingPlacement, FloatingReadiness,
-        FloatingScrollPolicy, GeometryVars, GraceCorridorHandle, GraceCorridorOutcome,
-        GraceTransit, GraceTransitStatus, Point2D, PresenceHandle, Rect, Rect2D, Size, WatcherSlot,
+        CancellableDelay, DismissBehavior, DismissCallbacks, DismissConfig, DismissEvent,
+        DismissLayerHandle, FloatingHandle, FloatingLayer, FloatingMonitorSpec, FloatingPlacement,
+        FloatingReadiness, FloatingScrollPolicy, GeometryVars, GraceCorridorHandle,
+        GraceCorridorOutcome, GraceTransit, GraceTransitStatus, PlacementAlign, PlacementSide,
+        Point2D, PresenceHandle, Rect, Rect2D, Size, StickyStrategy, WatcherSlot,
         active_overlay_layers_snapshot, is_overlay_escape_consumed, is_topmost_overlay_layer,
         mark_overlay_escape_consumed, use_cancellable_delay, use_dismissable_layer,
-        use_floating_layer, use_grace_corridor, use_presence, use_watcher_slot,
+        use_floating_layer, use_grace_corridor, use_presence_with_keep_mounted, use_watcher_slot,
+    },
+    shared::{
+        EscapeKeyDownEvent, InteractOutsideEvent, PointerDownOutsideEvent, PreventableEvent,
     },
     state::{DataState, sync_signal},
 };
@@ -88,6 +92,38 @@ pub fn use_tooltip_provider_runtime(provider: TooltipProvider) -> TooltipProvide
 impl TooltipProviderRuntime {
     pub fn provider(&self) -> &TooltipProvider {
         &self.provider
+    }
+
+    /// Returns a derived [`TooltipProviderRuntime`] with per-root configuration overrides
+    /// while preserving the parent provider's shared skip-delay and active-tooltip state (`LD-09`).
+    pub fn with_overrides(
+        &self,
+        delay_duration: Option<u64>,
+        skip_delay_duration: Option<u64>,
+        disable_hoverable_content: Option<bool>,
+        close_on_trigger_click: Option<bool>,
+        ignore_non_keyboard_focus: Option<bool>,
+    ) -> Self {
+        let mut provider = self.provider.clone();
+        if let Some(delay) = delay_duration {
+            provider = provider.with_delay_duration_ms(delay);
+        }
+        if let Some(skip) = skip_delay_duration {
+            provider = provider.with_skip_delay_duration_ms(skip);
+        }
+        if let Some(dhc) = disable_hoverable_content {
+            provider = provider.with_disable_hoverable_content(dhc);
+        }
+        if let Some(cotc) = close_on_trigger_click {
+            provider = provider.with_close_on_trigger_click(cotc);
+        }
+        if let Some(inkf) = ignore_non_keyboard_focus {
+            provider = provider.with_ignore_non_keyboard_focus(inkf);
+        }
+        Self {
+            provider,
+            state: self.state,
+        }
     }
 
     pub fn is_alive(&self) -> bool {
@@ -246,6 +282,85 @@ impl TooltipGraceTransit {
     }
 }
 
+/// Dedicated floating root context for Tooltip (`LD-08`), isolated from general
+/// `FloatingRootContext` so composing `TooltipTrigger` with `PopoverTrigger` or
+/// `DropdownMenuTrigger` on a shared element never clobbers the outer overlay anchor.
+#[derive(Clone, Copy, PartialEq)]
+pub struct FloatingTooltipRootContext {
+    pub trigger_id: Signal<Option<String>>,
+    pub custom_anchor_id: Signal<Option<String>>,
+    pub trigger_handle: Signal<Option<Rc<MountedData>>>,
+}
+
+impl FloatingTooltipRootContext {
+    pub fn register_trigger_id(&self, id: impl Into<String>) {
+        let mut sig = self.trigger_id;
+        sync_signal(&mut sig, Some(id.into()));
+    }
+
+    pub fn unregister_trigger_id(&self, id: &str) {
+        let mut sig = self.trigger_id;
+        if sig.try_peek().is_ok_and(|c| c.as_deref() == Some(id))
+            && let Ok(mut w) = sig.try_write()
+        {
+            *w = None;
+        }
+    }
+
+    pub fn set_custom_anchor(&self, id: Option<String>) {
+        let normalized = id.filter(|s| !s.is_empty());
+        let mut sig = self.custom_anchor_id;
+        sync_signal(&mut sig, normalized);
+    }
+
+    pub fn effective_anchor_id(&self, default_trigger_id: &str) -> String {
+        if let Ok(Some(anchor)) = self.custom_anchor_id.try_peek().map(|g| g.clone())
+            && !anchor.is_empty()
+        {
+            return anchor;
+        }
+        if let Ok(Some(trigger)) = self.trigger_id.try_peek().map(|g| g.clone())
+            && !trigger.is_empty()
+        {
+            return trigger;
+        }
+        default_trigger_id.to_owned()
+    }
+
+    pub fn set_trigger_handle(&self, handle: Rc<MountedData>) {
+        let mut sig = self.trigger_handle;
+        let _ = sig.try_write().map(|mut w| *w = Some(handle));
+    }
+
+    pub fn trigger_handle(&self) -> Option<Rc<MountedData>> {
+        self.trigger_handle.try_peek().ok().and_then(|h| h.clone())
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TooltipFloatingOverrides {
+    pub side: Option<PlacementSide>,
+    pub side_offset: Option<f32>,
+    pub align: Option<PlacementAlign>,
+    pub align_offset: Option<f32>,
+    pub avoid_collisions: Option<bool>,
+    pub collision_boundary: Option<String>,
+    pub collision_padding: Option<f32>,
+    pub arrow_padding: Option<f32>,
+    pub sticky: Option<StickyStrategy>,
+    pub hide_when_detached: Option<bool>,
+    pub custom_anchor: Option<String>,
+}
+
+#[derive(Clone, Copy, Default, PartialEq)]
+pub struct TooltipDismissConfig {
+    pub escape_key_down_behavior: DismissBehavior,
+    pub interact_outside_behavior: DismissBehavior,
+    pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
+    pub on_pointer_down_outside: Option<EventHandler<PointerDownOutsideEvent>>,
+    pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
+}
+
 #[derive(Clone, Copy)]
 struct TooltipRuntimeState {
     live_tooltip: Signal<Tooltip>,
@@ -266,10 +381,12 @@ struct TooltipRuntimeState {
     opened_via_focus: CopyValue<bool>,
     last_pointer_type: CopyValue<Option<String>>,
     registered_trigger_id: Signal<Option<String>>,
+    custom_anchor_id: Signal<Option<String>>,
     content_id: Signal<Option<String>>,
     measurement_id: Signal<Option<String>>,
-    collision_boundary: Signal<Option<String>>,
-    collision_padding: Signal<Option<f32>>,
+    floating_overrides: Signal<TooltipFloatingOverrides>,
+    dismiss_config: CopyValue<TooltipDismissConfig>,
+    keep_mounted: Signal<bool>,
     alive: CopyValue<bool>,
 }
 
@@ -285,6 +402,18 @@ pub fn use_tooltip_runtime<F>(
     tooltip: Tooltip,
     provider_runtime: Option<TooltipProviderRuntime>,
     on_open_change: F,
+) -> TooltipRuntime
+where
+    F: Fn(bool) + 'static,
+{
+    use_tooltip_runtime_with_complete(tooltip, provider_runtime, on_open_change, None)
+}
+
+pub fn use_tooltip_runtime_with_complete<F>(
+    tooltip: Tooltip,
+    provider_runtime: Option<TooltipProviderRuntime>,
+    on_open_change: F,
+    on_open_change_complete: Option<EventHandler<bool>>,
 ) -> TooltipRuntime
 where
     F: Fn(bool) + 'static,
@@ -305,16 +434,23 @@ where
     let opened_via_focus = use_hook(|| CopyValue::new(false));
     let last_pointer_type = use_hook(|| CopyValue::new(Option::<String>::None));
     let registered_trigger_id = use_signal(|| None::<String>);
+    let custom_anchor_id = use_signal(|| None::<String>);
     let content_id = use_signal(|| None::<String>);
     let measurement_id = use_signal(|| None::<String>);
-    let collision_boundary = use_signal(|| None::<String>);
-    let collision_padding = use_signal(|| None::<f32>);
+    let floating_overrides = use_signal(TooltipFloatingOverrides::default);
+    let dismiss_config_slot = use_hook(|| CopyValue::new(TooltipDismissConfig::default()));
+    let keep_mounted = use_signal(|| false);
     let mut alive = use_hook(|| CopyValue::new(true));
 
     let effective_trigger_id = registered_trigger_id
         .read()
         .clone()
         .unwrap_or_else(|| tooltip.relationships().trigger_id().to_owned());
+    let effective_anchor_id = custom_anchor_id
+        .read()
+        .clone()
+        .filter(|id| !id.is_empty())
+        .unwrap_or_else(|| effective_trigger_id.clone());
     let effective_content_id = content_id
         .read()
         .clone()
@@ -325,11 +461,12 @@ where
         .filter(|id| !id.is_empty())
         .unwrap_or(effective_content_id.as_str());
 
-    let presence = use_presence(
+    let presence = use_presence_with_keep_mounted(
         tooltip.is_open(),
         presence_target_id,
         tooltip.lifecycle().presence().retain_mount(),
-        None,
+        *keep_mounted.read(),
+        on_open_change_complete,
     );
 
     let mut provider_slot = use_hook(|| CopyValue::new(provider_runtime.clone()));
@@ -359,22 +496,23 @@ where
         })
     });
 
-    let floating_cfg = tooltip.lifecycle().floating();
+    let overrides = floating_overrides.read().clone();
+    let effective_floating = compute_effective_tooltip_floating_layer(&tooltip, &overrides);
     let mut floating_spec =
-        FloatingMonitorSpec::new(effective_trigger_id.clone(), effective_content_id.clone());
+        FloatingMonitorSpec::new(effective_anchor_id, effective_content_id.clone());
     floating_spec.measurement_id = effective_measurement_id;
     floating_spec.arrow_id = Some(tooltip.relationships().arrow_id().to_owned());
-    floating_spec.boundary_id = collision_boundary.read().clone();
-    floating_spec.side = floating_cfg.side();
-    floating_spec.align = floating_cfg.align();
-    floating_spec.direction = floating_cfg.direction();
-    floating_spec.side_offset = floating_cfg.side_offset();
-    floating_spec.align_offset = floating_cfg.align_offset();
-    floating_spec.avoid_collisions = true;
-    floating_spec.collision_padding = (*collision_padding.read()).unwrap_or(0.0);
-    floating_spec.arrow_padding = 4.0;
-    floating_spec.hide_when_detached = floating_cfg.hide_when_detached();
-    floating_spec.sticky = false;
+    floating_spec.boundary_id = overrides.collision_boundary.clone();
+    floating_spec.side = effective_floating.side();
+    floating_spec.align = effective_floating.align();
+    floating_spec.direction = effective_floating.direction();
+    floating_spec.side_offset = effective_floating.side_offset();
+    floating_spec.align_offset = effective_floating.align_offset();
+    floating_spec.avoid_collisions = effective_floating.avoid_collisions();
+    floating_spec.collision_padding = effective_floating.collision_padding();
+    floating_spec.arrow_padding = overrides.arrow_padding.unwrap_or(4.0);
+    floating_spec.hide_when_detached = effective_floating.hide_when_detached();
+    floating_spec.sticky = effective_floating.sticky() == StickyStrategy::Always;
     floating_spec.namespace = Some(TOOLTIP_GEOMETRY_NAMESPACE.to_owned());
     floating_spec.scroll_policy = FloatingScrollPolicy::CloseOnScrollUnlessGuarded;
 
@@ -388,6 +526,40 @@ where
     let hover_transfer_delay = use_cancellable_delay();
     let standalone_open_delay = use_cancellable_delay();
     let pointer_up_watcher = use_watcher_slot();
+
+    let on_escape_bridge = use_hook(move || {
+        EventHandler::new(move |evt: EscapeKeyDownEvent| {
+            let cfg = dismiss_config_slot.try_read().map(|g| *g).unwrap_or_default();
+            if let Some(handler) = cfg.on_escape_key_down {
+                handler.call(evt.clone());
+            }
+            if !cfg.escape_key_down_behavior.dismisses() {
+                evt.prevent_default();
+            }
+        })
+    });
+    let on_ptr_down_bridge = use_hook(move || {
+        EventHandler::new(move |evt: PointerDownOutsideEvent| {
+            let cfg = dismiss_config_slot.try_read().map(|g| *g).unwrap_or_default();
+            if let Some(handler) = cfg.on_pointer_down_outside {
+                handler.call(evt.clone());
+            }
+            if !cfg.interact_outside_behavior.dismisses() {
+                evt.prevent_default();
+            }
+        })
+    });
+    let on_interact_bridge = use_hook(move || {
+        EventHandler::new(move |evt: InteractOutsideEvent| {
+            let cfg = dismiss_config_slot.try_read().map(|g| *g).unwrap_or_default();
+            if let Some(handler) = cfg.on_interact_outside {
+                handler.call(evt.clone());
+            }
+            if !cfg.interact_outside_behavior.dismisses() {
+                evt.prevent_default();
+            }
+        })
+    });
 
     let on_dismiss_escape = use_hook(move || {
         EventHandler::new(move |_event: DismissEvent| {
@@ -419,17 +591,17 @@ where
         .with_boundaries(vec![effective_trigger_id])
         .with_modal(false)
         .with_listen_escape(true)
-        .with_listen_pointer_down_outside(false)
+        .with_listen_pointer_down_outside(true)
         .with_listen_focus_outside(false);
 
     let dismiss = use_dismissable_layer(
         tooltip.is_open(),
         dismiss_config,
         DismissCallbacks {
-            on_escape_key_down: None,
-            on_pointer_down_outside: None,
+            on_escape_key_down: Some(on_escape_bridge),
+            on_pointer_down_outside: Some(on_ptr_down_bridge),
             on_focus_outside: None,
-            on_interact_outside: None,
+            on_interact_outside: Some(on_interact_bridge),
             on_dismiss: Some(on_dismiss_escape),
         },
     );
@@ -452,10 +624,12 @@ where
         opened_via_focus,
         last_pointer_type,
         registered_trigger_id,
+        custom_anchor_id,
         content_id,
         measurement_id,
-        collision_boundary,
-        collision_padding,
+        floating_overrides,
+        dismiss_config: dismiss_config_slot,
+        keep_mounted,
         alive,
     };
 
@@ -590,11 +764,64 @@ impl TooltipRuntime {
         self.state.presence.should_render()
     }
 
+    pub fn data_starting_style(&self) -> Option<&'static str> {
+        self.state.presence.data_starting_style()
+    }
+
+    pub fn data_ending_style(&self) -> Option<&'static str> {
+        self.state.presence.data_ending_style()
+    }
+
+    pub fn is_presence_hidden(&self) -> bool {
+        self.state.presence.is_hidden()
+    }
+
+    pub fn set_keep_mounted(&self, keep_mounted: bool) {
+        let mut sig = self.state.keep_mounted;
+        sync_signal(&mut sig, keep_mounted);
+    }
+
+    pub fn floating_tooltip_context(&self) -> FloatingTooltipRootContext {
+        FloatingTooltipRootContext {
+            trigger_id: self.state.registered_trigger_id,
+            custom_anchor_id: self.state.custom_anchor_id,
+            trigger_handle: self.state.trigger_handle,
+        }
+    }
+
+    pub fn set_floating_overrides(&self, overrides: TooltipFloatingOverrides) {
+        let mut anchor_sig = self.state.custom_anchor_id;
+        sync_signal(
+            &mut anchor_sig,
+            overrides.custom_anchor.clone().filter(|s| !s.is_empty()),
+        );
+        let mut sig = self.state.floating_overrides;
+        sync_signal(&mut sig, overrides);
+    }
+
+    pub fn set_dismiss_config(&self, config: TooltipDismissConfig) {
+        let mut slot = self.state.dismiss_config;
+        let _ = slot.try_write().map(|mut w| *w = config);
+    }
+
+    pub fn effective_arrow_padding(&self) -> f32 {
+        self.state
+            .floating_overrides
+            .read()
+            .arrow_padding
+            .unwrap_or(4.0)
+    }
+
     pub fn content(&self) -> TooltipContentAttributes {
         let mut content = self.tooltip.content();
         if let Some(placement) = self.placement() {
             content.data_side = placement.side().as_str();
             content.data_align = placement.align().as_str();
+        } else {
+            let overrides = self.state.floating_overrides.read().clone();
+            let effective = compute_effective_tooltip_floating_layer(&self.tooltip, &overrides);
+            content.data_side = effective.data_side();
+            content.data_align = effective.data_align();
         }
         content
     }
@@ -604,6 +831,11 @@ impl TooltipRuntime {
         if let Some(placement) = self.placement() {
             arrow.data_side = placement.side().as_str();
             arrow.data_align = placement.align().as_str();
+        } else {
+            let overrides = self.state.floating_overrides.read().clone();
+            let effective = compute_effective_tooltip_floating_layer(&self.tooltip, &overrides);
+            arrow.data_side = effective.data_side();
+            arrow.data_align = effective.data_align();
         }
         arrow
     }
@@ -699,13 +931,21 @@ impl TooltipRuntime {
     }
 
     pub fn set_collision_boundary(&self, boundary: Option<String>) {
-        let mut sig = self.state.collision_boundary;
-        sync_signal(&mut sig, boundary);
+        let mut sig = self.state.floating_overrides;
+        if let Ok(mut w) = sig.try_write()
+            && w.collision_boundary != boundary
+        {
+            w.collision_boundary = boundary;
+        }
     }
 
     pub fn set_collision_padding(&self, padding: Option<f32>) {
-        let mut sig = self.state.collision_padding;
-        sync_signal(&mut sig, padding);
+        let mut sig = self.state.floating_overrides;
+        if let Ok(mut w) = sig.try_write()
+            && w.collision_padding != padding
+        {
+            w.collision_padding = padding;
+        }
     }
 
     pub fn set_measurement_id(&self, id: Option<String>) {
@@ -847,8 +1087,23 @@ impl TooltipRuntime {
             layer.set_id(active_cid);
             layer.should_dismiss_escape(&stack)
         };
-        if should_dismiss {
-            mark_overlay_escape_consumed();
+        if !should_dismiss {
+            return false;
+        }
+        let cfg = self
+            .state
+            .dismiss_config
+            .try_read()
+            .map(|c| *c)
+            .unwrap_or_default();
+        let esc_evt: EscapeKeyDownEvent = PreventableEvent::empty();
+        if let Some(handler) = cfg.on_escape_key_down {
+            handler.call(esc_evt.clone());
+        }
+        if cfg.escape_key_down_behavior.dismisses() && !esc_evt.is_default_prevented() {
+            if !cfg.escape_key_down_behavior.bubbles() {
+                mark_overlay_escape_consumed();
+            }
             self.request_close();
             return true;
         }
@@ -1242,6 +1497,54 @@ impl TooltipRuntime {
             active
         }
     }
+}
+
+fn compute_effective_tooltip_floating_layer(
+    tooltip: &Tooltip,
+    overrides: &TooltipFloatingOverrides,
+) -> FloatingLayer {
+    let base = tooltip.lifecycle().floating().clone();
+    let mut layer = if let Some(side) = overrides.side {
+        FloatingLayer::new(side)
+            .with_align(base.align())
+            .with_direction(base.direction())
+            .with_side_offset(base.side_offset())
+            .with_align_offset(base.align_offset())
+            .with_avoid_collisions(base.avoid_collisions())
+            .with_collision_padding(base.collision_padding())
+            .with_arrow_padding(base.arrow_padding())
+            .with_sticky(base.sticky())
+            .with_hide_when_detached(base.hide_when_detached())
+            .with_namespace(TOOLTIP_GEOMETRY_NAMESPACE)
+    } else {
+        base
+    };
+
+    if let Some(align) = overrides.align {
+        layer = layer.with_align(align);
+    }
+    if let Some(side_offset) = overrides.side_offset {
+        layer = layer.with_side_offset(side_offset);
+    }
+    if let Some(align_offset) = overrides.align_offset {
+        layer = layer.with_align_offset(align_offset);
+    }
+    if let Some(avoid_collisions) = overrides.avoid_collisions {
+        layer = layer.with_avoid_collisions(avoid_collisions);
+    }
+    if let Some(collision_padding) = overrides.collision_padding {
+        layer = layer.with_collision_padding(collision_padding);
+    }
+    if let Some(arrow_padding) = overrides.arrow_padding {
+        layer = layer.with_arrow_padding(arrow_padding);
+    }
+    if let Some(sticky) = overrides.sticky {
+        layer = layer.with_sticky(sticky);
+    }
+    if let Some(hide_when_detached) = overrides.hide_when_detached {
+        layer = layer.with_hide_when_detached(hide_when_detached);
+    }
+    layer
 }
 
 fn tooltip_content_css_variables(geometry: &GeometryVars) -> Vec<(String, String)> {

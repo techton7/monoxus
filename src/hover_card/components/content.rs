@@ -1,12 +1,17 @@
 use std::{cell::RefCell, rc::Rc};
 
+use dioxus::core::{AttributeValue, Event, ListenerCallback};
+use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::{join_styles, merge_global_attributes},
+    compose::{
+        FloatingContentChildProps, collect_user_attrs, join_styles, merge_props, push_attr_opt,
+    },
     overlay::{
-        OverlayBranchContext, PlacementAlign, PlacementSide, is_modal_pointer_lock_active,
-        use_overlay_branch_provider, use_register_parent_overlay_branches,
+        DismissBehavior, OverlayBranchContext, PlacementAlign, PlacementSide, StickyStrategy,
+        is_modal_pointer_lock_active, use_overlay_branch_provider,
+        use_register_parent_overlay_branches,
     },
     shared::{
         Direction, EscapeKeyDownEvent, InteractOutsideEvent, PointerDownOutsideEvent,
@@ -16,37 +21,43 @@ use crate::foundation::{
 use crate::hover_card::{
     components::HoverCardRootContext,
     runtime::{HoverCardFloatingOverrides, HoverCardOutsideConfig},
-    types::HoverCardOutsideBehavior,
+    types::HOVER_CARD_DEFAULT_SIDE_OFFSET,
 };
 
 #[derive(Clone, PartialEq, Props)]
 pub struct HoverCardContentProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
-    #[props(default)]
-    pub side: Option<PlacementSide>,
-    #[props(default)]
-    pub side_offset: Option<f32>,
-    #[props(default)]
-    pub align: Option<PlacementAlign>,
-    #[props(default)]
-    pub align_offset: Option<f32>,
+    #[props(default = false)]
+    pub keep_mounted: bool,
+    #[props(default = PlacementSide::Bottom)]
+    pub side: PlacementSide,
+    #[props(default = HOVER_CARD_DEFAULT_SIDE_OFFSET)]
+    pub side_offset: f32,
+    #[props(default = PlacementAlign::Center)]
+    pub align: PlacementAlign,
+    #[props(default = 0.0)]
+    pub align_offset: f32,
     #[props(default = true)]
     pub avoid_collisions: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub collision_boundary: Option<String>,
-    #[props(default)]
-    pub collision_padding: Option<f32>,
+    #[props(default = 0.0)]
+    pub collision_padding: f32,
     #[props(default = 0.0)]
     pub arrow_padding: f32,
+    #[props(default)]
+    pub sticky: StickyStrategy,
     #[props(default = false)]
     pub hide_when_detached: bool,
+    #[props(default, into)]
+    pub custom_anchor: Option<String>,
     #[props(default)]
     pub dir: Option<Direction>,
     #[props(default)]
@@ -56,12 +67,20 @@ pub struct HoverCardContentProps {
     #[props(default)]
     pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
     #[props(default)]
-    pub escape_keydown_behavior: HoverCardOutsideBehavior,
+    pub escape_key_down_behavior: DismissBehavior,
     #[props(default)]
-    pub interact_outside_behavior: HoverCardOutsideBehavior,
+    pub interact_outside_behavior: DismissBehavior,
+    #[props(default)]
+    pub child: Option<Callback<FloatingContentChildProps, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
+    #[props(default)]
     pub children: Element,
+}
+
+pub(crate) enum HoverCardSurfaceChild {
+    Floating(Callback<FloatingContentChildProps, Element>),
+    Static(Callback<Vec<Attribute>, Element>),
 }
 
 /// Plain Rust specification for [`render_hover_card_surface`] (zero internal `#[component]`,
@@ -71,10 +90,12 @@ pub(crate) struct HoverCardSurfaceSpec {
     pub class: Option<String>,
     pub style: Option<String>,
     pub force_mount: bool,
+    pub keep_mounted: bool,
     pub floating: bool,
     pub floating_overrides: Option<HoverCardFloatingOverrides>,
     pub dir: Option<Direction>,
     pub outside_config: HoverCardOutsideConfig,
+    pub child: Option<HoverCardSurfaceChild>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
 }
@@ -83,7 +104,14 @@ pub(crate) struct HoverCardSurfaceSpec {
 pub(crate) fn render_hover_card_surface(spec: HoverCardSurfaceSpec) -> Element {
     let ctx = use_context::<HoverCardRootContext>();
     let runtime = ctx.runtime.read().clone();
-    let should_render = spec.force_mount || runtime.should_render_content();
+
+    runtime.set_keep_mounted(spec.keep_mounted);
+    if let Some(overrides) = spec.floating_overrides {
+        runtime.set_floating_overrides(overrides);
+    }
+    runtime.set_outside_config(spec.outside_config);
+
+    let should_render = spec.force_mount || spec.keep_mounted || runtime.should_render_content();
     let is_open = runtime.is_open();
 
     let (default_id, wrapper_id_opt, data_state, data_side, data_align, tabindex, part_attr) =
@@ -147,12 +175,8 @@ pub(crate) fn render_hover_card_surface(spec: HoverCardSurfaceSpec) -> Element {
             cleanup_runtime.set_floating_overrides(HoverCardFloatingOverrides::default());
         }
         cleanup_runtime.set_outside_config(HoverCardOutsideConfig::default());
+        cleanup_runtime.set_keep_mounted(false);
     });
-
-    if let Some(overrides) = spec.floating_overrides {
-        runtime.set_floating_overrides(overrides);
-    }
-    runtime.set_outside_config(spec.outside_config);
 
     let rt_reg = runtime.clone();
     let rt_unreg = runtime.clone();
@@ -172,14 +196,9 @@ pub(crate) fn render_hover_card_surface(spec: HoverCardSurfaceSpec) -> Element {
         String::new()
     };
 
-    let mut style_parts: Vec<&str> = Vec::with_capacity(4);
+    let mut style_parts: Vec<&str> = Vec::with_capacity(3);
     if !css_vars.trim().is_empty() {
         style_parts.push(css_vars.as_str());
-    }
-    if let Some(custom_style) = spec.style.as_deref()
-        && !custom_style.trim().is_empty()
-    {
-        style_parts.push(custom_style);
     }
     let has_user_select = spec
         .style
@@ -199,54 +218,125 @@ pub(crate) fn render_hover_card_surface(spec: HoverCardSurfaceSpec) -> Element {
     }
     let base_style = join_styles(style_parts);
 
-    let merged = merge_global_attributes(
-        spec.class.as_deref(),
-        base_style.as_deref(),
-        spec.attributes,
-    );
-
+    let is_hidden = runtime.is_presence_hidden() && !spec.force_mount;
     let dir_str = spec.dir.map(|d| d.as_str());
-    let is_floating = spec.floating;
     let rt_mount = runtime.clone();
+    let mut on_pointer_down = runtime.content_pointer_down();
+    let mut on_pointer_enter = runtime.content_pointer_enter();
+    let mut on_pointer_leave = runtime.content_pointer_leave();
+    let mut on_key_down = runtime.escape_keydown();
 
-    let inner = rsx! {
-        div {
-            id: "{content_id}",
-            class: merged.class.as_deref(),
-            style: merged.style.as_deref(),
-            dir: dir_str,
-            tabindex: "{tabindex}",
-            "data-state": data_state.as_str(),
-            "data-side": data_side,
-            "data-align": data_align,
-            "data-monoxus-hover-card-content": part_attr,
-            onmounted: move |evt| {
+    let mut base = Vec::with_capacity(18);
+    base.push(Attribute::new("id", content_id, None, false));
+    push_attr_opt(&mut base, "style", base_style);
+    push_attr_opt(&mut base, "dir", dir_str);
+    base.push(Attribute::new("tabindex", tabindex.to_string(), None, false));
+    if is_hidden {
+        base.push(Attribute::new("hidden", true, None, false));
+    }
+    base.push(Attribute::new("data-state", data_state.as_str(), None, false));
+    push_attr_opt(&mut base, "data-side", data_side);
+    push_attr_opt(&mut base, "data-align", data_align);
+    push_attr_opt(&mut base, "data-starting-style", runtime.data_starting_style());
+    push_attr_opt(&mut base, "data-ending-style", runtime.data_ending_style());
+    base.push(Attribute::new(
+        "data-monoxus-hover-card-content",
+        part_attr,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onmounted",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                let mounted_evt = evt.map(|d| MountedData::from(d));
                 if is_floating {
-                    rt_mount.mount_content()(evt);
+                    rt_mount.mount_content()(mounted_evt);
                 } else {
-                    rt_mount.mount_content_static()(evt);
+                    rt_mount.mount_content_static()(mounted_evt);
                 }
-            },
-            onpointerdown: runtime.content_pointer_down(),
-            onpointerenter: runtime.content_pointer_enter(),
-            onpointerleave: runtime.content_pointer_leave(),
-            onkeydown: runtime.escape_keydown(),
-            ..merged.rest,
-            {spec.children}
-        }
-    };
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerdown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_pointer_down(evt.map(|d| PointerData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerenter",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_pointer_enter(evt.map(|d| PointerData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onpointerleave",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_pointer_leave(evt.map(|d| PointerData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "onkeydown",
+        AttributeValue::Listener(
+            ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+                on_key_down(evt.map(|d| KeyboardData::from(d)));
+            })
+            .erase(),
+        ),
+        None,
+        false,
+    ));
+
+    let user = collect_user_attrs(spec.class, spec.style, spec.attributes);
+    let merged = merge_props(base, user);
 
     if let (Some(wid), Some(ws)) = (wrapper_id_opt, wrapper_style) {
+        let wrapper_props = vec![
+            Attribute::new("id", wid, None, false),
+            Attribute::new("data-monoxus-floating-content-wrapper", "", None, false),
+            Attribute::new("style", ws, None, false),
+        ];
+        if let Some(HoverCardSurfaceChild::Floating(child)) = spec.child {
+            return child.call(FloatingContentChildProps::new(wrapper_props, merged));
+        }
         rsx! {
             div {
-                id: "{wid}",
-                "data-monoxus-floating-content-wrapper": "",
-                style: "{ws}",
-                {inner}
+                ..wrapper_props,
+                div {
+                    ..merged,
+                    {spec.children}
+                }
             }
         }
     } else {
-        inner
+        if let Some(HoverCardSurfaceChild::Static(child)) = spec.child {
+            return child.call(merged);
+        }
+        rsx! {
+            div {
+                ..merged,
+                {spec.children}
+            }
+        }
     }
 }
 
@@ -257,27 +347,31 @@ pub fn HoverCardContent(props: HoverCardContentProps) -> Element {
         class: props.class,
         style: props.style,
         force_mount: props.force_mount,
+        keep_mounted: props.keep_mounted,
         floating: true,
         floating_overrides: Some(HoverCardFloatingOverrides {
-            side: props.side,
-            side_offset: props.side_offset,
-            align: props.align,
-            align_offset: props.align_offset,
+            side: Some(props.side),
+            side_offset: Some(props.side_offset),
+            align: Some(props.align),
+            align_offset: Some(props.align_offset),
             avoid_collisions: Some(props.avoid_collisions),
             collision_boundary: props.collision_boundary,
-            collision_padding: props.collision_padding,
+            collision_padding: Some(props.collision_padding),
             arrow_padding: Some(props.arrow_padding),
+            sticky: Some(props.sticky),
             hide_when_detached: Some(props.hide_when_detached),
+            custom_anchor: props.custom_anchor,
             dir: props.dir,
         }),
         dir: props.dir,
         outside_config: HoverCardOutsideConfig {
-            escape_keydown_behavior: props.escape_keydown_behavior,
+            escape_key_down_behavior: props.escape_key_down_behavior,
             interact_outside_behavior: props.interact_outside_behavior,
             on_escape_key_down: props.on_escape_key_down,
             on_pointer_down_outside: props.on_pointer_down_outside,
             on_interact_outside: props.on_interact_outside,
         },
+        child: props.child.map(HoverCardSurfaceChild::Floating),
         attributes: props.attributes,
         children: props.children,
     })

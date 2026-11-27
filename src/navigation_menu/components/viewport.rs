@@ -2,15 +2,14 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     browser::spawn_root_task,
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     overlay::{use_presence, use_watcher_slot},
 };
 
 use super::{
     super::{
         runtime::{
-            NavigationMenuContext, NavigationMenuViewportRenderProps, measure_viewport_offset_size,
-            start_offset_resize_observer,
+            NavigationMenuContext, measure_viewport_offset_size, start_offset_resize_observer,
         },
         types::NavigationMenuViewportSize,
     },
@@ -19,18 +18,16 @@ use super::{
 
 #[derive(Clone, PartialEq, Props)]
 pub struct NavigationMenuViewportProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default = false)]
     pub force_mount: bool,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<NavigationMenuViewportRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -142,31 +139,69 @@ pub fn NavigationMenuViewport(props: NavigationMenuViewportProps) -> Element {
         return rsx! {};
     }
 
-    let vp_attrs = ctx.viewport_attributes(
-        is_open,
-        *size.read(),
-        Some(viewport_id),
-        props.style.as_deref(),
-    );
+    let vp_attrs = ctx.viewport_attributes(is_open, *size.read(), Some(viewport_id), None);
 
     let on_pointer_enter = {
         let ctx = ctx.clone();
-        move |_: Event<PointerData>| {
+        EventHandler::new(move |_: PointerEvent| {
             ctx.on_content_enter();
-        }
+        })
     };
 
     let on_pointer_leave = {
         let ctx = ctx.clone();
-        move |evt: Event<PointerData>| {
+        EventHandler::new(move |evt: PointerEvent| {
             if evt.pointer_type() != "mouse" {
                 return;
             }
             if ctx.active_item_open_on_hover() {
                 ctx.on_content_leave(ctx.active_item_open_on_hover_opt());
             }
-        }
+        })
     };
+
+    let base_style = {
+        let s = vp_attrs.style();
+        (!s.trim().is_empty()).then(|| s.to_owned())
+    };
+
+    let mut base = Vec::with_capacity(10);
+    base.push(Attribute::new("id", vp_attrs.id().to_owned(), None, false));
+    push_attr_opt(&mut base, "style", base_style);
+    base.push(Attribute::new(
+        "data-state",
+        vp_attrs.data_state().as_str(),
+        None,
+        false,
+    ));
+    base.push(Attribute::new(
+        "data-orientation",
+        vp_attrs.data_orientation(),
+        None,
+        false,
+    ));
+    push_attr_opt(
+        &mut base,
+        "data-starting-style",
+        presence.data_starting_style(),
+    );
+    push_attr_opt(&mut base, "data-ending-style", presence.data_ending_style());
+    base.push(Attribute::new(
+        "data-monoxus-navigation-menu-viewport",
+        vp_attrs.data_monoxus_navigation_menu_viewport(),
+        None,
+        false,
+    ));
+    push_event_handler::<PointerData>(&mut base, "onpointerenter", Some(on_pointer_enter));
+    push_event_handler::<PointerData>(&mut base, "onpointerleave", Some(on_pointer_leave));
+
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler::<MountedData>(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     let combined_children = rsx! {
         {props.children}
@@ -180,45 +215,9 @@ pub fn NavigationMenuViewport(props: NavigationMenuViewportProps) -> Element {
         }
     };
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(NavigationMenuViewportRenderProps {
-                attrs: vp_attrs,
-                is_open,
-                class: props.class,
-                style: props.style,
-                attributes: props.attributes,
-                children: combined_children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::NavigationMenuViewport: as_child requires render_child; rendering the default div"
-        );
-    }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        Some(vp_attrs.style()),
-        props.attributes,
-    );
-
     rsx! {
         div {
-            id: "{vp_attrs.id()}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            "data-state": vp_attrs.data_state().as_str(),
-            "data-orientation": "{vp_attrs.data_orientation()}",
-            "data-monoxus-navigation-menu-viewport": "{vp_attrs.data_monoxus_navigation_menu_viewport()}",
-            onpointerenter: on_pointer_enter,
-            onpointerleave: on_pointer_leave,
-            onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {combined_children}
         }
     }
@@ -266,6 +265,8 @@ fn NavigationMenuViewportItem(props: NavigationMenuViewportItemProps) -> Element
             item_state: entry.item_state,
             is_open: props.is_item_open,
             inline_mode: false,
+            data_starting_style: presence.data_starting_style(),
+            data_ending_style: presence.data_ending_style(),
             class: entry.class,
             style: entry.style,
             on_escape_key_down: entry.on_escape_key_down,
@@ -274,8 +275,7 @@ fn NavigationMenuViewportItem(props: NavigationMenuViewportItemProps) -> Element
             on_interact_outside: entry.on_interact_outside,
             escape_keydown_behavior: entry.escape_keydown_behavior,
             interact_outside_behavior: entry.interact_outside_behavior,
-            as_child: entry.as_child,
-            render_child: entry.render_child,
+            child: entry.child,
             on_mounted: entry.on_mounted,
             attributes: entry.attributes,
             children: entry.children,

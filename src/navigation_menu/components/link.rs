@@ -2,41 +2,36 @@ use dioxus::prelude::keyboard_types::Modifiers;
 use dioxus::prelude::*;
 
 use crate::foundation::{
-    compose::merge_global_attributes,
+    compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::use_stable_id,
 };
 
 use super::super::{
-    runtime::{
-        NavigationMenuContext, NavigationMenuInContent, NavigationMenuItemContext,
-        NavigationMenuLinkRenderProps,
-    },
+    runtime::{NavigationMenuContext, NavigationMenuInContent, NavigationMenuItemContext},
     types::{NavigationMenuLinkSelectDetail, NavigationMenuLinkSelectEvent},
 };
 
 #[derive(Clone, PartialEq, Props)]
 pub struct NavigationMenuLinkProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub href: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub target: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub rel: Option<String>,
     #[props(default = false)]
     pub active: bool,
     #[props(default)]
     pub on_select: Option<EventHandler<NavigationMenuLinkSelectEvent>>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<NavigationMenuLinkRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
@@ -80,13 +75,9 @@ pub fn NavigationMenuLink(props: NavigationMenuLinkProps) -> Element {
 
     let on_click = {
         let ctx = ctx.clone();
-        let consumer_on_click = props.on_click;
         let on_select = props.on_select;
         let href = props.href.clone();
-        move |evt: MouseEvent| {
-            if let Some(ref handler) = consumer_on_click {
-                handler.call(evt.clone());
-            }
+        EventHandler::new(move |evt: MouseEvent| {
             let select_event = NavigationMenuLinkSelectEvent::new(NavigationMenuLinkSelectDetail {
                 href: href.clone(),
                 meta_key: evt.modifiers().contains(Modifiers::META),
@@ -100,37 +91,37 @@ pub fn NavigationMenuLink(props: NavigationMenuLinkProps) -> Element {
                 }
                 ctx.dismiss_root();
             }
-        }
+        })
     };
 
     let on_key_down = {
         let ctx = ctx.clone();
         let roving_key = roving_key.clone();
-        move |evt: KeyboardEvent| {
+        EventHandler::new(move |evt: KeyboardEvent| {
             if in_content {
                 return;
             }
             ctx.roving
                 .handle_keydown(Some(&roving_key), &evt, None::<fn(&str)>);
-        }
+        })
     };
 
     let on_focus = {
         let ctx = ctx.clone();
         let link_id = link_id.clone();
         let roving_key = roving_key.clone();
-        move |_| {
+        EventHandler::new(move |_: FocusEvent| {
             is_focused.set(true);
             ctx.record_element_focus(&link_id);
             if !in_content {
                 ctx.roving.handle_item_focus(&roving_key, true);
             }
-        }
+        })
     };
 
-    let on_blur = move |_| {
+    let on_blur = EventHandler::new(move |_: FocusEvent| {
         is_focused.set(false);
-    };
+    });
 
     let handle_pointer_dismiss = {
         let ctx = ctx.clone();
@@ -155,69 +146,54 @@ pub fn NavigationMenuLink(props: NavigationMenuLinkProps) -> Element {
 
     let on_pointer_enter = {
         let dismiss = handle_pointer_dismiss.clone();
-        move |_: Event<PointerData>| {
+        EventHandler::new(move |_: PointerEvent| {
             dismiss();
-        }
+        })
     };
 
     let on_pointer_move = {
         let dismiss = handle_pointer_dismiss;
-        move |evt: Event<PointerData>| {
+        EventHandler::new(move |evt: PointerEvent| {
             if evt.pointer_type() == "mouse" {
                 dismiss();
             }
-        }
+        })
     };
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(NavigationMenuLinkRenderProps {
-                attrs: link_attrs,
-                active: props.active,
-                is_focused: *is_focused.read(),
-                class: props.class,
-                style: props.style,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::NavigationMenuLink: as_child requires render_child; rendering the default a"
-        );
-    }
+    let mut base = Vec::with_capacity(16);
+    base.push(Attribute::new("id", link_attrs.id().to_owned(), None, false));
+    push_attr_opt(&mut base, "href", link_attrs.href().map(str::to_owned));
+    push_attr_opt(&mut base, "target", link_attrs.target().map(str::to_owned));
+    push_attr_opt(&mut base, "rel", link_attrs.rel().map(str::to_owned));
+    base.push(Attribute::new("tabindex", link_attrs.tabindex(), None, false));
+    push_attr_opt(&mut base, "aria-current", link_attrs.aria_current());
+    push_attr_opt(&mut base, "data-active", link_attrs.data_active());
+    push_attr_opt(&mut base, "data-focused", link_attrs.data_focused());
+    base.push(Attribute::new(
+        "data-monoxus-navigation-menu-link",
+        link_attrs.data_monoxus_navigation_menu_link(),
+        None,
+        false,
+    ));
+    push_event_handler::<MouseData>(&mut base, "onclick", Some(on_click));
+    push_event_handler::<KeyboardData>(&mut base, "onkeydown", Some(on_key_down));
+    push_event_handler::<FocusData>(&mut base, "onfocus", Some(on_focus));
+    push_event_handler::<FocusData>(&mut base, "onblur", Some(on_blur));
+    push_event_handler::<PointerData>(&mut base, "onpointerenter", Some(on_pointer_enter));
+    push_event_handler::<PointerData>(&mut base, "onpointermove", Some(on_pointer_move));
 
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler::<MouseData>(&mut user, "onclick", props.on_click);
+    push_event_handler::<MountedData>(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         a {
-            id: "{link_attrs.id()}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            href: link_attrs.href(),
-            target: link_attrs.target(),
-            rel: link_attrs.rel(),
-            tabindex: "{link_attrs.tabindex()}",
-            "aria-current": link_attrs.aria_current(),
-            "data-active": link_attrs.data_active(),
-            "data-focused": link_attrs.data_focused(),
-            "data-monoxus-navigation-menu-link": "{link_attrs.data_monoxus_navigation_menu_link()}",
-            onclick: on_click,
-            onkeydown: on_key_down,
-            onfocus: on_focus,
-            onblur: on_blur,
-            onpointerenter: on_pointer_enter,
-            onpointermove: on_pointer_move,
-            onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

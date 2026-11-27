@@ -1,27 +1,26 @@
 use dioxus::prelude::*;
 
-use crate::foundation::{compose::merge_global_attributes, shared::use_stable_id};
-
-use super::super::runtime::{
-    NavigationMenuContext, NavigationMenuItemContext, NavigationMenuItemRenderProps,
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props, push_event_handler},
+    shared::use_stable_id,
 };
+
+use super::super::runtime::{NavigationMenuContext, NavigationMenuItemContext};
 
 #[derive(Clone, PartialEq, Props)]
 pub struct NavigationMenuItemProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub value: Option<String>,
     #[props(default)]
     pub open_on_hover: Option<bool>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<NavigationMenuItemRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -62,44 +61,27 @@ pub fn NavigationMenuItem(props: NavigationMenuItemProps) -> Element {
     use_context_provider(|| item_ctx);
 
     let item_attrs = ctx.item_attributes(&resolved_value, props.id.clone());
-    let is_open = ctx.current_value() == resolved_value;
 
-    if props.as_child {
-        if let Some(render_child) = props.render_child.as_ref() {
-            return render_child.call(NavigationMenuItemRenderProps {
-                attrs: item_attrs,
-                value: resolved_value,
-                is_open,
-                class: props.class,
-                style: props.style,
-                attributes: props.attributes,
-                children: props.children,
-            });
-        }
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "monoxus::NavigationMenuItem: as_child requires render_child; rendering the default li"
-        );
+    let base = vec![
+        Attribute::new("id", item_attrs.id().to_owned(), None, false),
+        Attribute::new(
+            "data-monoxus-navigation-menu-item",
+            item_attrs.data_monoxus_navigation_menu_item(),
+            None,
+            false,
+        ),
+    ];
+    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    push_event_handler::<MountedData>(&mut user, "onmounted", props.on_mounted);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
-
-    let merged = merge_global_attributes(
-        props.class.as_deref(),
-        props.style.as_deref(),
-        props.attributes,
-    );
 
     rsx! {
         li {
-            id: "{item_attrs.id()}",
-            class: merged.class.as_deref().unwrap_or_default(),
-            style: merged.style.as_deref().unwrap_or_default(),
-            "data-monoxus-navigation-menu-item": "{item_attrs.data_monoxus_navigation_menu_item()}",
-            onmounted: move |evt| {
-                if let Some(ref handler) = props.on_mounted {
-                    handler.call(evt);
-                }
-            },
-            ..merged.rest,
+            ..merged,
             {props.children}
         }
     }

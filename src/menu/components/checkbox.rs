@@ -2,22 +2,26 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-use crate::foundation::{shared::use_stable_id, state::sync_signal};
+use crate::foundation::{
+    compose::{collect_user_attrs, merge_props, push_attr_opt},
+    shared::use_stable_id,
+    state::{sync_signal, use_controllable_signal},
+};
 use crate::menu::{
     CheckedState, MenuCheckboxGroupContext, MenuCheckboxItemAttributes, MenuGroupAttributes,
     MenuIndicatorContext, MenuItemKind, MenuPart, MenuRootContext, MenuSelectEvent,
-    MenuSurfaceContext, merge_attributes_with_part, toggle_checkbox_group_value,
+    MenuSurfaceContext, toggle_checkbox_group_value,
 };
 
-use super::item::{build_leaf_item_handlers, use_menu_item_registration};
+use super::item::{build_leaf_item_handlers, push_leaf_item_handlers, use_menu_item_registration};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct MenuCheckboxGroupProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     #[props(default)]
     pub value: Option<Vec<String>>,
@@ -27,8 +31,10 @@ pub struct MenuCheckboxGroupProps {
     pub on_value_change: Option<EventHandler<Vec<String>>>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub aria_labelledby: Option<String>,
+    #[props(default)]
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -39,34 +45,15 @@ pub struct MenuCheckboxGroupProps {
 pub fn MenuCheckboxGroup(props: MenuCheckboxGroupProps) -> Element {
     let root = use_context::<MenuRootContext>();
     let id = use_stable_id(props.id.map(Into::into)).into_owned();
-    let is_controlled = props.value.is_some();
-    let value_sig = use_signal(|| {
-        props
-            .value
-            .clone()
-            .or_else(|| props.default_value.clone())
-            .unwrap_or_default()
-    });
-    let disabled_sig = use_signal(|| props.disabled);
+    let value_state = use_controllable_signal(
+        props.value,
+        props.default_value.unwrap_or_default(),
+        props.on_value_change,
+    );
+    let value_sig = value_state.signal();
+    let mut disabled_sig = use_signal(|| props.disabled);
+    sync_signal(&mut disabled_sig, props.disabled);
 
-    if let Some(controlled) = props.value.as_ref() {
-        let mut s = value_sig;
-        if s.try_peek().is_ok_and(|cur| *cur != *controlled) {
-            let _ = s.try_write().map(|mut w| *w = controlled.clone());
-        }
-    }
-    {
-        let mut ds = disabled_sig;
-        if ds.try_peek().is_ok_and(|cur| *cur != props.disabled) {
-            let _ = ds.try_write().map(|mut w| *w = props.disabled);
-        }
-    }
-
-    let mut is_controlled_slot = use_hook(|| CopyValue::new(is_controlled));
-    is_controlled_slot.set(is_controlled);
-    let mut on_value_change_slot = use_hook(|| CopyValue::new(props.on_value_change));
-    on_value_change_slot.set(props.on_value_change);
-    let toggle_sig = value_sig;
     let toggle_disabled = disabled_sig;
     use_context_provider(|| MenuCheckboxGroupContext {
         value: value_sig,
@@ -75,16 +62,9 @@ pub fn MenuCheckboxGroup(props: MenuCheckboxGroupProps) -> Element {
             if toggle_disabled.try_read().map(|g| *g).unwrap_or(false) {
                 return;
             }
-            let current = toggle_sig.try_read().map(|g| g.clone()).unwrap_or_default();
+            let current = value_state.try_peek_cloned().unwrap_or_default();
             let next = toggle_checkbox_group_value(&current, item_val);
-            let controlled = is_controlled_slot.try_read().map(|g| *g).unwrap_or(false);
-            if !controlled {
-                let mut w = toggle_sig;
-                let _ = w.try_write().map(|mut dst| *dst = next.clone());
-            }
-            if let Some(cb) = on_value_change_slot.try_read().ok().and_then(|s| *s) {
-                cb.call(next);
-            }
+            value_state.set(next);
         }),
     });
 
@@ -94,50 +74,39 @@ pub fn MenuCheckboxGroup(props: MenuCheckboxGroupProps) -> Element {
         root.variant,
         MenuPart::CheckboxGroup,
     );
-    let merged_attrs = merge_attributes_with_part(
-        props.attributes,
-        MenuPart::CheckboxGroup.static_data_attr_name(root.variant),
-    );
+    let part_attr = MenuPart::CheckboxGroup.static_data_attr_name(root.variant);
+
+    let mut base = Vec::with_capacity(4);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    push_attr_opt(&mut base, "aria-labelledby", attrs.aria_labelledby);
+    base.push(Attribute::new(part_attr, "", None, false));
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
+    }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
-            role: "{attrs.role}",
-            "aria-labelledby": attrs.aria_labelledby.as_deref(),
-            ..merged_attrs,
+            ..merged,
             {props.children}
         }
     }
 }
 
-/// Render props passed to `render_child` when `CheckboxItem` uses `as_child: true`.
-#[derive(Clone, PartialEq)]
-pub struct MenuCheckboxItemRenderProps {
-    pub attrs: MenuCheckboxItemAttributes,
-    pub class: Option<String>,
-    pub style: Option<String>,
-    pub on_pointer_down: EventHandler<PointerEvent>,
-    pub on_pointer_up: EventHandler<PointerEvent>,
-    pub on_click: EventHandler<MouseEvent>,
-    pub on_pointer_move: EventHandler<PointerEvent>,
-    pub on_pointer_leave: EventHandler<PointerEvent>,
-    pub on_key_down: EventHandler<KeyboardEvent>,
-    pub attributes: Vec<Attribute>,
-    pub children: Element,
-}
-
 #[derive(Props, Clone, PartialEq)]
 pub struct MenuCheckboxItemProps {
-    #[props(default)]
+    #[props(default, into)]
     pub id: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub class: Option<String>,
-    #[props(default)]
+    #[props(default, into)]
     pub style: Option<String>,
     /// Optional value key when participating in an enclosing `CheckboxGroup` (`3B D-4`).
-    #[props(default)]
+    #[props(default, into)]
     pub value: Option<String>,
     /// Standalone controlled `CheckedState` (`Unchecked | Checked | Indeterminate`).
     #[props(default)]
@@ -148,16 +117,14 @@ pub struct MenuCheckboxItemProps {
     pub on_checked_change: Option<EventHandler<CheckedState>>,
     #[props(default = false)]
     pub disabled: bool,
-    #[props(default)]
+    #[props(default, into)]
     pub text_value: Option<String>,
     #[props(default = true)]
     pub close_on_select: bool,
     #[props(default)]
     pub on_select: Option<EventHandler<MenuSelectEvent>>,
-    #[props(default = false)]
-    pub as_child: bool,
     #[props(default)]
-    pub render_child: Option<Callback<MenuCheckboxItemRenderProps, Element>>,
+    pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -173,14 +140,11 @@ pub fn MenuCheckboxItem(props: MenuCheckboxItemProps) -> Element {
     let id = use_stable_id(props.id.map(Into::into)).into_owned();
 
     let is_group_member = group_ctx.is_some() && props.value.is_some();
-    let is_controlled = props.checked.is_some();
-    let local_checked = use_signal(|| props.checked.unwrap_or(props.default_checked));
-    if let Some(c) = props.checked {
-        let mut s = local_checked;
-        if s.try_peek().is_ok_and(|cur| *cur != c) {
-            let _ = s.try_write().map(|mut w| *w = c);
-        }
-    }
+    let local_checked = use_controllable_signal(
+        props.checked,
+        props.default_checked,
+        props.on_checked_change,
+    );
 
     let current_checked = if is_group_member {
         let group = group_ctx.as_ref().unwrap();
@@ -191,7 +155,7 @@ pub fn MenuCheckboxItem(props: MenuCheckboxItemProps) -> Element {
             CheckedState::Unchecked
         }
     } else {
-        *local_checked.read()
+        local_checked.get()
     };
 
     let effective_disabled = props.disabled
@@ -226,12 +190,9 @@ pub fn MenuCheckboxItem(props: MenuCheckboxItemProps) -> Element {
         highlighted,
         root.variant,
     );
-    let merged_attrs = merge_attributes_with_part(
-        props.attributes,
-        MenuPart::CheckboxItem.static_data_attr_name(root.variant),
-    );
+    let part_attr = MenuPart::CheckboxItem.static_data_attr_name(root.variant);
+    let data_state_str = attrs.data_state.as_str();
 
-    let on_checked_change = props.on_checked_change;
     let on_select = props.on_select;
     let group_for_activate = group_ctx.clone();
     let item_value = props.value.clone();
@@ -250,56 +211,45 @@ pub fn MenuCheckboxItem(props: MenuCheckboxItemProps) -> Element {
                     (g.on_toggle)(v);
                 }
             } else {
-                let next = local_checked.try_read().map(|g| *g).unwrap_or_default().toggle();
-                if !is_controlled {
-                    let mut w = local_checked;
-                    let _ = w.try_write().map(|mut dst| *dst = next);
-                }
-                if let Some(cb) = on_checked_change.as_ref() {
-                    cb.call(next);
-                }
+                let next = local_checked.try_peek_cloned().unwrap_or_default().toggle();
+                local_checked.set(next);
             }
         }),
     );
 
-    if props.as_child
-        && let Some(render_child) = props.render_child.as_ref()
-    {
-        return render_child.call(MenuCheckboxItemRenderProps {
-            attrs,
-            class: props.class,
-            style: props.style,
-            on_pointer_down: handlers.on_pointer_down,
-            on_pointer_up: handlers.on_pointer_up,
-            on_click: handlers.on_click,
-            on_pointer_move: handlers.on_pointer_move,
-            on_pointer_leave: handlers.on_pointer_leave,
-            on_key_down: handlers.on_key_down,
-            attributes: merged_attrs,
-            children: props.children,
-        });
+    let mut base = Vec::with_capacity(16);
+    base.push(Attribute::new("id", attrs.id, None, false));
+    base.push(Attribute::new("role", attrs.role, None, false));
+    base.push(Attribute::new("tabindex", attrs.tabindex, None, false));
+    base.push(Attribute::new(
+        "aria-checked",
+        attrs.aria_checked,
+        None,
+        false,
+    ));
+    push_attr_opt(&mut base, "aria-disabled", attrs.aria_disabled);
+    base.push(Attribute::new("data-state", data_state_str, None, false));
+    push_attr_opt(&mut base, "data-disabled", attrs.data_disabled);
+    push_attr_opt(&mut base, "data-highlighted", attrs.data_highlighted);
+    base.push(Attribute::new(
+        "data-orientation",
+        attrs.data_orientation,
+        None,
+        false,
+    ));
+    base.push(Attribute::new(part_attr, "", None, false));
+    push_leaf_item_handlers(&mut base, handlers);
+
+    let user = collect_user_attrs(props.class, props.style, props.attributes);
+    let merged = merge_props(base, user);
+
+    if let Some(child) = props.child {
+        return child.call(merged);
     }
 
     rsx! {
         div {
-            id: "{attrs.id}",
-            class: props.class.as_deref().unwrap_or_default(),
-            style: props.style.as_deref().unwrap_or_default(),
-            role: "{attrs.role}",
-            tabindex: "{attrs.tabindex}",
-            "aria-checked": "{attrs.aria_checked}",
-            "aria-disabled": attrs.aria_disabled,
-            "data-state": "{attrs.data_state.as_str()}",
-            "data-disabled": attrs.data_disabled,
-            "data-highlighted": attrs.data_highlighted,
-            "data-orientation": "{attrs.data_orientation}",
-            onpointerdown: move |evt| handlers.on_pointer_down.call(evt),
-            onpointerup: move |evt| handlers.on_pointer_up.call(evt),
-            onclick: move |evt| handlers.on_click.call(evt),
-            onpointermove: move |evt| handlers.on_pointer_move.call(evt),
-            onpointerleave: move |evt| handlers.on_pointer_leave.call(evt),
-            onkeydown: move |evt| handlers.on_key_down.call(evt),
-            ..merged_attrs,
+            ..merged,
             {props.children}
         }
     }

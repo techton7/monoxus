@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use crate::foundation::shared::{Direction, ScopeHandle, use_direction_context, use_stable_id};
+use crate::foundation::{
+    shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
+    state::{sync_signal, use_controllable_signal},
+};
 use crate::menu::{
     MenuActivePortalSurface, MenuRelationships, MenuRootContext, MenuVariant,
     use_menu_surface_lifecycle,
@@ -32,23 +35,14 @@ pub struct DropdownMenuRootProps {
 pub fn DropdownMenuRoot(props: DropdownMenuRootProps) -> Element {
     let effective_dir = use_direction_context(props.dir);
     let token = use_stable_id(None);
-    let relationships = use_hook(|| MenuRelationships::new(ScopeHandle::root("dropdown-menu").child(token)));
-    let is_controlled = props.open.is_some();
-    let open_sig = use_signal(|| props.open.unwrap_or(props.default_open));
-
-    if let Some(controlled) = props.open {
-        let mut s = open_sig;
-        if s.try_peek().is_ok_and(|cur| *cur != controlled) {
-            let _ = s.try_write().map(|mut w| *w = controlled);
-        }
-    }
+    let relationships =
+        use_hook(|| MenuRelationships::new(ScopeHandle::root("dropdown-menu").child(token)));
+    let open_state = use_controllable_signal(props.open, props.default_open, props.on_open_change);
 
     let root = MenuRootContext::new(
         MenuVariant::DropdownMenu,
         relationships,
-        open_sig,
-        is_controlled,
-        props.on_open_change,
+        open_state,
         props.on_open_change_complete,
         props.modal,
         effective_dir,
@@ -59,17 +53,11 @@ pub fn DropdownMenuRoot(props: DropdownMenuRootProps) -> Element {
 
     {
         let mut m = root.modal;
-        if m.try_peek().is_ok_and(|cur| *cur != props.modal) {
-            let _ = m.try_write().map(|mut w| *w = props.modal);
-        }
+        sync_signal(&mut m, props.modal);
         let mut d = root.dir;
-        if d.try_peek().is_ok_and(|cur| *cur != effective_dir) {
-            let _ = d.try_write().map(|mut w| *w = effective_dir);
-        }
+        sync_signal(&mut d, effective_dir);
         let mut lf = root.loop_focus;
-        if lf.try_peek().is_ok_and(|cur| *cur != props.loop_focus) {
-            let _ = lf.try_write().map(|mut w| *w = props.loop_focus);
-        }
+        sync_signal(&mut lf, props.loop_focus);
     }
 
     use_menu_surface_lifecycle(root.root_surface.clone(), root.clone());

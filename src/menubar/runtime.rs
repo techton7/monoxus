@@ -4,7 +4,7 @@ use crate::foundation::{
     browser::{FocusOptions, focus_element_sync_or_defer, query_descendant_order},
     keyboard::is_ime_composing_key,
     shared::Direction,
-    state::sync_signal,
+    state::{ControllableSignal, sync_signal},
 };
 use crate::menu::{MenuKey, MenuOpenFocusTarget, translate_menu_key};
 
@@ -27,41 +27,36 @@ pub struct MenubarMenuHandles {
 pub struct MenubarRuntimeContext {
     pub relationships: MenubarRelationships,
     pub root_id: Signal<String>,
+    pub value_state: ControllableSignal<String>,
     pub state: Signal<MenubarState>,
     pub handles: Signal<Vec<MenubarMenuHandles>>,
-    pub is_controlled: CopyValue<bool>,
-    pub on_value_change: CopyValue<Option<EventHandler<String>>>,
     pub submenu_open_delay_ms: Signal<Option<u64>>,
 }
 
 impl MenubarRuntimeContext {
     pub fn new(
         relationships: MenubarRelationships,
-        initial_active: Option<String>,
-        is_controlled: bool,
-        on_value_change: Option<EventHandler<String>>,
+        value_state: ControllableSignal<String>,
         dir: Direction,
         loop_focus: bool,
         submenu_open_delay_ms: Option<u64>,
     ) -> Self {
+        let initial_active = value_state
+            .try_peek_cloned()
+            .filter(|v| !v.is_empty());
         let initial_state = MenubarState::new(relationships.clone())
             .with_active_value(initial_active)
             .with_direction(dir)
             .with_loop_focus(loop_focus);
         let root_id_sig = use_signal(|| relationships.root_id().to_owned());
-        let mut is_controlled_slot = use_hook(|| CopyValue::new(is_controlled));
-        is_controlled_slot.set(is_controlled);
-        let mut on_value_change_slot = use_hook(|| CopyValue::new(on_value_change));
-        on_value_change_slot.set(on_value_change);
         let mut delay_sig = use_signal(|| submenu_open_delay_ms);
         sync_signal(&mut delay_sig, submenu_open_delay_ms);
         Self {
             relationships,
             root_id: root_id_sig,
+            value_state,
             state: use_signal(|| initial_state),
             handles: use_signal(Vec::new),
-            is_controlled: is_controlled_slot,
-            on_value_change: on_value_change_slot,
             submenu_open_delay_ms: delay_sig,
         }
     }
@@ -209,8 +204,7 @@ impl MenubarRuntimeContext {
         {
             self.mark_fast_swap_cleanup(prev_val);
         }
-        let is_controlled = self.is_controlled.try_read().map(|g| *g).unwrap_or(false);
-        if !is_controlled {
+        if !self.value_state.is_controlled() {
             let mut st = self.state;
             let _ = st.try_write().map(|mut w| w.open_menu(value));
         } else {
@@ -219,11 +213,7 @@ impl MenubarRuntimeContext {
                 .try_write()
                 .map(|mut w| w.set_current_tabstop_value(Some(value.to_owned())));
         }
-        if prev.as_deref() != Some(value)
-            && let Some(cb) = self.on_value_change.try_read().ok().and_then(|s| *s)
-        {
-            cb.call(value.to_owned());
-        }
+        self.value_state.set(value.to_owned());
     }
 
     pub fn close_menu(&self, value: &str) {
@@ -233,17 +223,11 @@ impl MenubarRuntimeContext {
     }
 
     pub fn close_all(&self) {
-        let was_active = self.active_value().is_some();
-        let is_controlled = self.is_controlled.try_read().map(|g| *g).unwrap_or(false);
-        if !is_controlled {
+        if !self.value_state.is_controlled() {
             let mut st = self.state;
             let _ = st.try_write().map(|mut w| w.close_all());
         }
-        if was_active
-            && let Some(cb) = self.on_value_change.try_read().ok().and_then(|s| *s)
-        {
-            cb.call(String::new());
-        }
+        self.value_state.set(String::new());
     }
 
     pub fn on_trigger_pointer_enter(&self, value: &str) {
