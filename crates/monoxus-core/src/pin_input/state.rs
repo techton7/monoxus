@@ -721,6 +721,7 @@ pub struct PinInputDefinition {
     disabled: bool,
     read_only: bool,
     required: bool,
+    invalid: bool,
     auto_focus: bool,
     placeholder: Option<String>,
     name: Option<String>,
@@ -741,6 +742,7 @@ impl PinInputDefinition {
             disabled: false,
             read_only: false,
             required: false,
+            invalid: false,
             auto_focus: false,
             placeholder: None,
             name: None,
@@ -794,6 +796,10 @@ impl PinInputDefinition {
 
     pub const fn is_required(&self) -> bool {
         self.required
+    }
+
+    pub const fn is_invalid(&self) -> bool {
+        self.invalid
     }
 
     pub const fn is_auto_focus(&self) -> bool {
@@ -862,6 +868,11 @@ impl PinInputDefinition {
         self
     }
 
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.invalid = invalid;
+        self
+    }
+
     pub fn with_auto_focus(mut self, auto_focus: bool) -> Self {
         self.auto_focus = auto_focus;
         self
@@ -909,7 +920,7 @@ impl PinInputDefinition {
 
     pub fn root_attributes(&self, custom_id: Option<String>) -> PinInputRootAttributes {
         let id = custom_id.unwrap_or_else(|| self.relationships.root_id().to_string());
-        PinInputRootAttributes::new(id, self.disabled)
+        PinInputRootAttributes::new(id, self.disabled).with_invalid(self.invalid)
     }
 
     pub fn input_attributes(
@@ -939,6 +950,7 @@ impl PinInputDefinition {
             selection.start,
             selection.end,
         )
+        .with_invalid(self.invalid)
     }
 
     pub fn cell_attributes(
@@ -948,7 +960,7 @@ impl PinInputDefinition {
         is_active: bool,
     ) -> PinInputCellAttributes {
         let id = custom_id.unwrap_or_else(|| self.relationships.cell_id(index));
-        PinInputCellAttributes::new(id, index, is_active, self.disabled)
+        PinInputCellAttributes::new(id, index, is_active, self.disabled).with_invalid(self.invalid)
     }
 }
 

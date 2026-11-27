@@ -1,6 +1,4 @@
-use crate::foundation::{
-    shared::data_disabled_attr,
-};
+use crate::foundation::shared::{data_disabled_attr, data_invalid_attr};
 
 /// Attribute publisher for `PinInputRoot`.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -9,6 +7,7 @@ pub struct PinInputRootAttributes {
     pub style: String,
     pub aria_disabled: Option<&'static str>,
     pub data_disabled: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_monoxus_pin_input_root: &'static str,
 }
 
@@ -22,8 +21,14 @@ impl PinInputRootAttributes {
             ),
             aria_disabled: disabled.then_some("true"),
             data_disabled: data_disabled_attr(disabled),
+            data_invalid: None,
             data_monoxus_pin_input_root: "",
         }
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.data_invalid = data_invalid_attr(invalid);
+        self
     }
 
     pub fn id(&self) -> &str {
@@ -40,6 +45,14 @@ impl PinInputRootAttributes {
 
     pub fn data_disabled(&self) -> Option<&'static str> {
         self.data_disabled
+    }
+
+    pub fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
+    }
+
+    pub fn is_invalid(&self) -> bool {
+        self.data_invalid.is_some()
     }
 
     pub fn data_monoxus_pin_input_root(&self) -> &'static str {
@@ -64,6 +77,11 @@ pub struct PinInputInputAttributes {
     pub autofocus: bool,
     pub name: Option<String>,
     pub form: Option<String>,
+    pub aria_invalid: Option<&'static str>,
+    pub aria_describedby: Option<String>,
+    pub aria_labelledby: Option<String>,
+    pub aria_label: Option<String>,
+    pub data_invalid: Option<&'static str>,
     pub style: String,
     pub data_monoxus_pin_input_input: &'static str,
     pub data_pin_input_input_mss: Option<String>,
@@ -115,11 +133,37 @@ impl PinInputInputAttributes {
             autofocus,
             name: name.filter(|s| !s.is_empty()),
             form: form.filter(|s| !s.is_empty()),
+            aria_invalid: None,
+            aria_describedby: None,
+            aria_labelledby: None,
+            aria_label: None,
+            data_invalid: None,
             style,
             data_monoxus_pin_input_input: "",
             data_pin_input_input_mss: selection_start.map(|s| s.to_string()),
             data_pin_input_input_mse: selection_end.map(|e| e.to_string()),
         }
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.aria_invalid = invalid.then_some("true");
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, aria_describedby: Option<String>) -> Self {
+        self.aria_describedby = aria_describedby;
+        self
+    }
+
+    pub fn with_aria_labelledby(mut self, aria_labelledby: Option<String>) -> Self {
+        self.aria_labelledby = aria_labelledby;
+        self
+    }
+
+    pub fn with_aria_label(mut self, aria_label: Option<String>) -> Self {
+        self.aria_label = aria_label;
+        self
     }
 
     pub fn id(&self) -> &str {
@@ -150,6 +194,26 @@ impl PinInputInputAttributes {
         &self.value
     }
 
+    pub fn aria_invalid(&self) -> Option<&'static str> {
+        self.aria_invalid
+    }
+
+    pub fn aria_describedby(&self) -> Option<&str> {
+        self.aria_describedby.as_deref()
+    }
+
+    pub fn aria_labelledby(&self) -> Option<&str> {
+        self.aria_labelledby.as_deref()
+    }
+
+    pub fn aria_label(&self) -> Option<&str> {
+        self.aria_label.as_deref()
+    }
+
+    pub fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
+    }
+
     pub fn style(&self) -> &str {
         &self.style
     }
@@ -167,6 +231,7 @@ pub struct PinInputCellAttributes {
     pub data_active: Option<&'static str>,
     pub data_inactive: Option<&'static str>,
     pub data_disabled: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_monoxus_pin_input_cell: &'static str,
 }
 
@@ -179,8 +244,14 @@ impl PinInputCellAttributes {
             data_active: data_disabled_attr(active),
             data_inactive: data_disabled_attr(!active),
             data_disabled: data_disabled_attr(disabled),
+            data_invalid: None,
             data_monoxus_pin_input_cell: "",
         }
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.data_invalid = data_invalid_attr(invalid);
+        self
     }
 
     pub fn id(&self) -> &str {
@@ -203,6 +274,10 @@ impl PinInputCellAttributes {
         self.data_disabled.is_some()
     }
 
+    pub fn is_invalid(&self) -> bool {
+        self.data_invalid.is_some()
+    }
+
     pub fn data_active(&self) -> Option<&'static str> {
         self.data_active
     }
@@ -213,6 +288,10 @@ impl PinInputCellAttributes {
 
     pub fn data_disabled(&self) -> Option<&'static str> {
         self.data_disabled
+    }
+
+    pub fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
     }
 
     pub fn data_monoxus_pin_input_cell(&self) -> &'static str {

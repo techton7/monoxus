@@ -38,11 +38,11 @@ impl SelectRuntime {
             return f.recalculate_sync();
         }
 
-        let trigger_id = self.relationships().trigger_id();
+        let trigger_id = self.current_trigger_id();
         let content_id = self.relationships().content_id();
         let boundary_id = self.collision_boundary();
         let custom_anchor_id = self.custom_anchor();
-        let anchor_id = custom_anchor_id.as_deref().unwrap_or(trigger_id);
+        let anchor_id = custom_anchor_id.as_deref().unwrap_or(trigger_id.as_str());
         let arrow_id = self.arrow_id();
 
         let config = OverlayPositionConfig {
@@ -90,22 +90,52 @@ impl SelectRuntime {
     }
 
     pub fn handle_form_reset(&self) {
-        let mode = self.select.read().mode();
+        let select_def = self.select.read();
+        let mode = select_def.mode();
+        let value_controlled = select_def.is_value_controlled();
+        let values_controlled = select_def.is_values_controlled();
+        drop(select_def);
+
         match mode {
             SelectMode::Single { .. } => {
                 let default_val = self.default_value();
-                let mut val_sig = self.state.value;
-                val_sig.set(default_val.clone());
+                if self.value() == default_val {
+                    return;
+                }
+                if !value_controlled {
+                    let mut val_sig = self.state.value;
+                    val_sig.set(default_val.clone());
+                    let mut vals_sig = self.state.values;
+                    vals_sig.set(
+                        default_val
+                            .as_ref()
+                            .map(|v| vec![v.clone()])
+                            .unwrap_or_default(),
+                    );
+                }
                 if let Some(cb) = self.on_value_change.try_read().ok().and_then(|g| g.clone()) {
-                    cb(default_val);
+                    cb(default_val.clone());
+                }
+                if let Some(cb) = self.on_values_change.try_read().ok().and_then(|g| g.clone()) {
+                    cb(default_val.map(|v| vec![v]).unwrap_or_default());
                 }
             }
             SelectMode::Multiple => {
                 let default_vals = self.default_values();
-                let mut vals_sig = self.state.values;
-                vals_sig.set(default_vals.clone());
+                if self.values() == default_vals {
+                    return;
+                }
+                if !values_controlled {
+                    let mut vals_sig = self.state.values;
+                    vals_sig.set(default_vals.clone());
+                    let mut val_sig = self.state.value;
+                    val_sig.set(default_vals.first().cloned());
+                }
                 if let Some(cb) = self.on_values_change.try_read().ok().and_then(|g| g.clone()) {
-                    cb(default_vals);
+                    cb(default_vals.clone());
+                }
+                if let Some(cb) = self.on_value_change.try_read().ok().and_then(|g| g.clone()) {
+                    cb(default_vals.first().cloned());
                 }
             }
         }

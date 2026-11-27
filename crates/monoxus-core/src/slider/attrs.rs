@@ -1,4 +1,4 @@
-use crate::foundation::shared::data_disabled_attr;
+use crate::foundation::shared::{data_disabled_attr, data_invalid_attr, data_required_attr};
 
 use super::types::{Direction, Orientation, SliderLabelPosition};
 
@@ -9,9 +9,14 @@ pub struct SliderRootAttributes {
     pub orientation: Orientation,
     pub direction: Direction,
     pub disabled: bool,
+    pub required: bool,
+    pub invalid: bool,
     pub aria_disabled: Option<&'static str>,
+    pub aria_describedby: Option<String>,
     pub data_orientation: &'static str,
     pub data_disabled: Option<&'static str>,
+    pub data_required: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub style: &'static str,
 }
 
@@ -30,11 +35,33 @@ impl SliderRootAttributes {
             orientation,
             direction,
             disabled,
+            required: false,
+            invalid: false,
             aria_disabled,
+            aria_describedby: None,
             data_orientation,
             data_disabled,
+            data_required: None,
+            data_invalid: None,
             style,
         }
+    }
+
+    pub fn with_required(mut self, required: bool) -> Self {
+        self.required = required;
+        self.data_required = data_required_attr(required);
+        self
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.invalid = invalid;
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, aria_describedby: Option<String>) -> Self {
+        self.aria_describedby = aria_describedby;
+        self
     }
 
     pub fn id(&self) -> &str {
@@ -49,8 +76,20 @@ impl SliderRootAttributes {
         self.data_disabled
     }
 
+    pub fn data_required(&self) -> Option<&'static str> {
+        self.data_required
+    }
+
+    pub fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
+    }
+
     pub fn aria_disabled(&self) -> Option<&'static str> {
         self.aria_disabled
+    }
+
+    pub fn aria_describedby(&self) -> Option<&str> {
+        self.aria_describedby.as_deref()
     }
 
     pub fn style(&self) -> &'static str {
@@ -217,10 +256,16 @@ pub struct SliderThumbAttributes {
     pub aria_valuetext: Option<String>,
     pub aria_orientation: &'static str,
     pub aria_disabled: Option<&'static str>,
+    pub aria_invalid: Option<&'static str>,
+    pub aria_describedby: Option<String>,
     pub aria_label: Option<String>,
     pub aria_labelledby: Option<String>,
+    pub required: bool,
+    pub invalid: bool,
     pub data_orientation: &'static str,
     pub data_disabled: Option<&'static str>,
+    pub data_required: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_value: String,
     pub data_active: Option<&'static str>,
     pub style: String,
@@ -290,14 +335,38 @@ impl SliderThumbAttributes {
             aria_valuetext,
             aria_orientation: data_orientation,
             aria_disabled,
+            aria_invalid: None,
+            aria_describedby: None,
             aria_label,
             aria_labelledby,
+            required: false,
+            invalid: false,
             data_orientation,
             data_disabled,
+            data_required: None,
+            data_invalid: None,
             data_value,
             data_active,
             style,
         }
+    }
+
+    pub fn with_required(mut self, required: bool) -> Self {
+        self.required = required;
+        self.data_required = data_required_attr(required);
+        self
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.invalid = invalid;
+        self.aria_invalid = invalid.then_some("true");
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, aria_describedby: Option<String>) -> Self {
+        self.aria_describedby = aria_describedby;
+        self
     }
 
     pub fn id(&self) -> &str {
@@ -312,12 +381,28 @@ impl SliderThumbAttributes {
         self.tabindex
     }
 
+    pub fn aria_invalid(&self) -> Option<&'static str> {
+        self.aria_invalid
+    }
+
+    pub fn aria_describedby(&self) -> Option<&str> {
+        self.aria_describedby.as_deref()
+    }
+
     pub fn data_orientation(&self) -> &'static str {
         self.data_orientation
     }
 
     pub fn data_disabled(&self) -> Option<&'static str> {
         self.data_disabled
+    }
+
+    pub fn data_required(&self) -> Option<&'static str> {
+        self.data_required
+    }
+
+    pub fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
     }
 
     pub fn data_value(&self) -> &str {

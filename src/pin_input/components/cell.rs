@@ -115,6 +115,7 @@ pub fn PinInputCell(props: PinInputCellProps) -> Element {
             "data-active": cell_attrs.data_active,
             "data-inactive": cell_attrs.data_inactive,
             "data-disabled": cell_attrs.data_disabled,
+            "data-invalid": cell_attrs.data_invalid,
             "data-monoxus-pin-input-cell": "{cell_attrs.data_monoxus_pin_input_cell}",
             onmounted: move |evt| {
                 if let Some(ref handler) = props.on_mounted {

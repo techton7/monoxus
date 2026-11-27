@@ -57,6 +57,10 @@ pub struct PinInputRuntime {
     pub disabled: Signal<bool>,
     pub read_only: Signal<bool>,
     pub required: Signal<bool>,
+    pub invalid: Signal<bool>,
+    pub aria_describedby: Signal<Option<String>>,
+    pub aria_labelledby: Signal<Option<String>>,
+    pub aria_label: Signal<Option<String>>,
     pub auto_focus: Signal<bool>,
     pub placeholder: Signal<Option<String>>,
     pub name: Signal<Option<String>>,
@@ -95,6 +99,7 @@ impl PinInputRuntime {
             .with_disabled((self.disabled)())
             .with_read_only((self.read_only)())
             .with_required((self.required)())
+            .with_invalid((self.invalid)())
             .with_auto_focus((self.auto_focus)())
             .with_placeholder((self.placeholder)())
             .with_name((self.name)())
@@ -144,12 +149,16 @@ impl PinInputRuntime {
     /// Derives [`PinInputInputAttributes`] for the internal `<input>`.
     pub fn input_attributes(&self) -> PinInputInputAttributes {
         let html_pattern = self.pattern.borrow().html_pattern();
-        self.definition().input_attributes(
-            Some((self.input_dom_id)()),
-            &(self.value)(),
-            (self.selection)(),
-            html_pattern,
-        )
+        self.definition()
+            .input_attributes(
+                Some((self.input_dom_id)()),
+                &(self.value)(),
+                (self.selection)(),
+                html_pattern,
+            )
+            .with_aria_describedby((self.aria_describedby)())
+            .with_aria_labelledby((self.aria_labelledby)())
+            .with_aria_label((self.aria_label)())
     }
 
     /// Derives [`PinInputCellAttributes`] for `PinInputCell` at `index`.
@@ -702,6 +711,10 @@ pub fn use_pin_input_runtime(
         disabled: use_signal(|| disabled),
         read_only: use_signal(|| read_only),
         required: use_signal(|| required),
+        invalid: use_signal(|| false),
+        aria_describedby: use_signal(|| None),
+        aria_labelledby: use_signal(|| None),
+        aria_label: use_signal(|| None),
         auto_focus: use_signal(|| auto_focus),
         placeholder: use_signal(|| placeholder.clone()),
         name: use_signal(|| name.clone()),

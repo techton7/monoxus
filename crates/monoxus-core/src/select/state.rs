@@ -21,8 +21,10 @@ pub struct Select {
     mode: SelectMode,
     value: Option<String>,
     default_value: Option<String>,
+    value_controlled: bool,
     values: Vec<String>,
     default_values: Vec<String>,
+    values_controlled: bool,
     open: bool,
     disabled: bool,
     required: bool,
@@ -47,8 +49,10 @@ impl Select {
             mode: SelectMode::default(),
             value: None,
             default_value: None,
+            value_controlled: false,
             values: Vec::new(),
             default_values: Vec::new(),
+            values_controlled: false,
             open: false,
             disabled: false,
             required: false,
@@ -88,6 +92,16 @@ impl Select {
         self
     }
 
+    pub fn with_value_controlled(mut self, controlled: bool) -> Self {
+        self.value_controlled = controlled;
+        self
+    }
+
+    pub fn with_values_controlled(mut self, controlled: bool) -> Self {
+        self.values_controlled = controlled;
+        self
+    }
+
     pub fn with_value(mut self, val: Option<String>) -> Self {
         self.value = val.clone();
         if self.default_value.is_none() {
@@ -100,7 +114,7 @@ impl Select {
 
     pub fn with_default_value(mut self, val: Option<String>) -> Self {
         self.default_value = val.clone();
-        if self.value.is_none() {
+        if self.value.is_none() && !self.value_controlled {
             self.value = val.clone();
             self.values = val.map(|v| vec![v]).unwrap_or_default();
             self.default_values = self.values.clone();
@@ -120,7 +134,7 @@ impl Select {
 
     pub fn with_default_values(mut self, vals: Vec<String>) -> Self {
         self.default_values = vals.clone();
-        if self.values.is_empty() {
+        if self.values.is_empty() && !self.values_controlled {
             self.value = vals.first().cloned();
             self.default_value = self.value.clone();
             self.values = vals;
@@ -233,6 +247,14 @@ impl Select {
         &self.default_values
     }
 
+    pub fn is_value_controlled(&self) -> bool {
+        self.value_controlled
+    }
+
+    pub fn is_values_controlled(&self) -> bool {
+        self.values_controlled
+    }
+
     pub fn items(&self) -> &[SelectItemData] {
         &self.items
     }
@@ -296,6 +318,7 @@ impl Select {
                 DataState::Closed
             },
             disabled: self.disabled,
+            invalid: false,
         }
     }
 
@@ -318,6 +341,9 @@ impl Select {
             content_id: self.relationships.content_id().to_owned(),
             aria_disabled: if self.disabled { Some("true") } else { None },
             aria_required: if self.required { Some("true") } else { None },
+            aria_invalid: None,
+            aria_describedby: None,
+            aria_labelledby: None,
             data_state: if self.open {
                 DataState::Open
             } else {
@@ -325,6 +351,8 @@ impl Select {
             },
             data_placeholder: is_placeholder,
             disabled: self.disabled,
+            invalid: false,
+            data_invalid: None,
             tabindex: if self.disabled { -1 } else { 0 },
         }
     }

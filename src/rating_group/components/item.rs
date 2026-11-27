@@ -181,6 +181,7 @@ pub fn RatingGroupItem(props: RatingGroupItemProps) -> Element {
             "data-orientation": item_attrs.data_orientation,
             "data-disabled": item_attrs.data_disabled,
             "data-readonly": item_attrs.data_readonly,
+            "data-invalid": item_attrs.data_invalid,
             "data-state": item_attrs.data_state.as_str(),
             "data-rating-group-item": item_attrs.data_rating_group_item,
             onclick: move |evt| on_click.call(evt),

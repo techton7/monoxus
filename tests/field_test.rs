@@ -27,6 +27,145 @@ fn BoundInput(
 }
 
 #[test]
+fn m2b_core_builders_and_controlled_select_flags_contract() {
+    use monoxus::foundation::shared::ScopeHandle;
+    use monoxus::pin_input::{PinInputDefinition, PinInputSelection};
+    use monoxus::rating_group::{
+        Direction as RatingDirection, Orientation as RatingOrientation, RatingGroupItemAttributes,
+        RatingGroupItemState, RatingGroupRootAttributes,
+    };
+    use monoxus::select::{Select, SelectMode};
+    use monoxus::slider::{
+        Direction as SliderDirection, Orientation as SliderOrientation, SliderRootAttributes,
+        SliderThumbAttributes,
+    };
+
+    // 1. Select controlled flags & empty values regression guard
+    let sel_scope = ScopeHandle::root("m2b-core").child("select");
+    let controlled_empty_multi = Select::new(sel_scope.clone())
+        .with_mode(SelectMode::Multiple)
+        .with_values_controlled(true)
+        .with_values(Vec::new())
+        .with_default_values(vec!["a".to_string()]);
+    assert!(controlled_empty_multi.is_values_controlled());
+    assert!(controlled_empty_multi.values().is_empty());
+    assert_eq!(controlled_empty_multi.default_values(), &["a"]);
+    assert_eq!(
+        controlled_empty_multi
+            .trigger_attributes()
+            .data_placeholder_str(),
+        "true"
+    );
+
+    let sel_root_inv = controlled_empty_multi.root_attributes().with_invalid(true);
+    assert_eq!(sel_root_inv.data_invalid(), Some(""));
+    assert_eq!(
+        controlled_empty_multi
+            .root_attributes()
+            .with_invalid(false)
+            .data_invalid(),
+        None
+    );
+
+    let sel_trig_inv = controlled_empty_multi
+        .trigger_attributes()
+        .with_invalid(true)
+        .with_aria_describedby(Some("desc-1 err-1".to_string()))
+        .with_aria_labelledby(Some("lbl-1".to_string()));
+    assert_eq!(sel_trig_inv.aria_invalid(), Some("true"));
+    assert_eq!(sel_trig_inv.data_invalid(), Some(""));
+    assert_eq!(sel_trig_inv.aria_describedby(), Some("desc-1 err-1"));
+    assert_eq!(sel_trig_inv.aria_labelledby(), Some("lbl-1"));
+
+    // 2. Slider root & thumb additive builders (zero aria-required on role="slider")
+    let slider_root = SliderRootAttributes::new(
+        "s-root".to_string(),
+        SliderOrientation::Horizontal,
+        SliderDirection::Ltr,
+        false,
+    )
+    .with_required(true)
+    .with_invalid(true)
+    .with_aria_describedby(Some("s-desc".to_string()));
+    assert_eq!(slider_root.data_required(), Some(""));
+    assert_eq!(slider_root.data_invalid(), Some(""));
+    assert_eq!(slider_root.aria_describedby(), Some("s-desc"));
+
+    let slider_thumb = SliderThumbAttributes::new(
+        "s-thumb".to_string(),
+        25.0,
+        0.0,
+        100.0,
+        SliderOrientation::Horizontal,
+        SliderDirection::Ltr,
+        false,
+        false,
+        false,
+        25.0,
+        None,
+        None,
+        None,
+    )
+    .with_required(true)
+    .with_invalid(true)
+    .with_aria_describedby(Some("s-desc".to_string()));
+    assert_eq!(slider_thumb.role(), "slider");
+    assert_eq!(slider_thumb.aria_invalid(), Some("true"));
+    assert_eq!(slider_thumb.data_invalid(), Some(""));
+    assert_eq!(slider_thumb.data_required(), Some(""));
+    assert_eq!(slider_thumb.aria_describedby(), Some("s-desc"));
+
+    // 3. PinInput definition & attrs
+    let pin_scope = ScopeHandle::root("m2b-core").child("pin");
+    let pin_def = PinInputDefinition::new(pin_scope).with_invalid(true);
+    assert!(pin_def.is_invalid());
+    assert_eq!(pin_def.root_attributes(None).data_invalid(), Some(""));
+    assert_eq!(pin_def.cell_attributes(0, None, false).data_invalid(), Some(""));
+    let pin_in = pin_def
+        .input_attributes(None, "12", PinInputSelection::empty(), None)
+        .with_aria_describedby(Some("pin-d".to_string()))
+        .with_aria_labelledby(Some("pin-l".to_string()))
+        .with_aria_label(Some("OTP".to_string()));
+    assert_eq!(pin_in.aria_invalid(), Some("true"));
+    assert_eq!(pin_in.data_invalid(), Some(""));
+    assert_eq!(pin_in.aria_describedby(), Some("pin-d"));
+    assert_eq!(pin_in.aria_labelledby(), Some("pin-l"));
+    assert_eq!(pin_in.aria_label(), Some("OTP"));
+
+    // 4. RatingGroup root & item attrs
+    let rg_root = RatingGroupRootAttributes::new(
+        "rg-root".to_string(),
+        3.0,
+        0.0,
+        5,
+        RatingOrientation::Horizontal,
+        RatingDirection::Ltr,
+        false,
+        false,
+        true,
+        None,
+        None,
+        None,
+    )
+    .with_invalid(true)
+    .with_aria_describedby(Some("rg-d".to_string()));
+    assert_eq!(rg_root.aria_invalid, Some("true"));
+    assert_eq!(rg_root.data_invalid, Some(""));
+    assert_eq!(rg_root.aria_describedby.as_deref(), Some("rg-d"));
+
+    let rg_item = RatingGroupItemAttributes::new(
+        "rg-item-0".to_string(),
+        0,
+        RatingOrientation::Horizontal,
+        false,
+        false,
+        RatingGroupItemState::Active,
+    )
+    .with_invalid(true);
+    assert_eq!(rg_item.data_invalid, Some(""));
+}
+
+#[test]
 fn field_root_and_field_alias_mount_in_vdom() {
     #[component]
     fn App() -> Element {
@@ -1088,6 +1227,892 @@ mod native_tests {
                     "{sel} must propagate data-invalid=\"\""
                 );
             }
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Wave M2 Slice M2-B Failure-Mode Gates (FM-CTL-01, FM-CTL-03, FM-CTL-04)
+    // -------------------------------------------------------------------------
+
+    /// FM-CTL-01: SelectRoot Pattern C controlled rejection (zero desync),
+    /// empty controlled `values: Some(vec![])` regression, synchronous same-frame
+    /// value update/reset (zero 1-frame lag), and controlled `<form>` reset baseline.
+    #[component]
+    fn M2bSelectControlledScenario() -> Element {
+        use monoxus::button::{Button, ButtonType};
+        use monoxus::select::{
+            SelectContentStatic, SelectItem, SelectRoot, SelectTrigger, SelectValue,
+        };
+
+        let mut rejected_log = use_signal(Vec::<String>::new);
+        let mut accepted_val = use_signal(|| "a".to_string());
+        let mut form_val = use_signal(|| "a".to_string());
+        let mut form_reset_log = use_signal(Vec::<String>::new);
+
+        rsx! {
+            div { style: "padding: 16px; display: flex; flex-direction: column; gap: 12px;",
+                div {
+                    id: "m2b-sel-probe",
+                    "data-rejected": "{rejected_log.read().join(\",\")}",
+                    "data-accepted": "{accepted_val()}",
+                    "data-form-val": "{form_val()}",
+                    "data-form-reset-log": "{form_reset_log.read().join(\",\")}",
+                }
+
+                // 1. Rejecting controlled parent: always pinned to Some("a")
+                SelectRoot {
+                    id: "m2b-sel-reject",
+                    name: Some("reject_sel".to_string()),
+                    value: Some("a".to_string()),
+                    items: Some(vec![
+                        monoxus::select::SelectItemData::new("a", "Alpha", false),
+                        monoxus::select::SelectItemData::new("b", "Beta", false),
+                    ]),
+                    on_value_change: move |v: Option<String>| {
+                        rejected_log.write().push(v.unwrap_or_else(|| "none".to_string()));
+                    },
+                    SelectTrigger {
+                        id: "m2b-sel-reject-trig",
+                        style: "width: 140px; height: 30px;",
+                        SelectValue { id: "m2b-sel-reject-val", placeholder: "Pick" }
+                    }
+                    SelectContentStatic {
+                        SelectItem { "data-probe": "m2b-sel-reject-a", value: "a", text: "Alpha", "Alpha" }
+                        SelectItem { "data-probe": "m2b-sel-reject-b", value: "b", text: "Beta", "Beta" }
+                    }
+                }
+
+                // 2. Accepting controlled parent with synchronous reset button
+                button {
+                    id: "m2b-sel-accept-reset-btn",
+                    r#type: "button",
+                    style: "width: 100px; height: 24px;",
+                    onclick: move |_| accepted_val.set("a".to_string()),
+                    "Reset A"
+                }
+                SelectRoot {
+                    id: "m2b-sel-accept",
+                    name: Some("accept_sel".to_string()),
+                    value: Some(accepted_val()),
+                    items: Some(vec![
+                        monoxus::select::SelectItemData::new("a", "Alpha", false),
+                        monoxus::select::SelectItemData::new("b", "Beta", false),
+                    ]),
+                    on_value_change: move |v: Option<String>| {
+                        if let Some(next) = v {
+                            accepted_val.set(next);
+                        }
+                    },
+                    SelectTrigger {
+                        id: "m2b-sel-accept-trig",
+                        style: "width: 140px; height: 30px;",
+                        SelectValue { id: "m2b-sel-accept-val", placeholder: "Pick" }
+                    }
+                    SelectContentStatic {
+                        SelectItem { "data-probe": "m2b-sel-accept-a", value: "a", text: "Alpha", "Alpha" }
+                        SelectItem { "data-probe": "m2b-sel-accept-b", value: "b", text: "Beta", "Beta" }
+                    }
+                }
+
+                // 3. Controlled empty multiple values: Some(vec![]) must NOT fall back to default_values
+                SelectRoot {
+                    id: "m2b-sel-empty-multi",
+                    multiple: true,
+                    name: Some("multi_sel".to_string()),
+                    values: Some(Vec::new()),
+                    default_values: Some(vec!["a".to_string()]),
+                    SelectTrigger {
+                        id: "m2b-sel-empty-multi-trig",
+                        style: "width: 140px; height: 30px;",
+                        SelectValue { id: "m2b-sel-empty-multi-val", placeholder: "Empty" }
+                    }
+                    SelectContentStatic {
+                        force_mount: true,
+                        SelectItem { "data-probe": "m2b-sel-empty-multi-a", value: "a", text: "Alpha", "Alpha" }
+                    }
+                }
+
+                // 4. Controlled form reset baseline frozen at mount ("a"), even after parent updates to "b"
+                form {
+                    id: "m2b-sel-form",
+                    button {
+                        id: "m2b-sel-form-set-b",
+                        r#type: "button",
+                        style: "width: 80px; height: 24px;",
+                        onclick: move |_| form_val.set("b".to_string()),
+                        "Set B"
+                    }
+                    SelectRoot {
+                        id: "m2b-sel-form-root",
+                        name: Some("form_sel".to_string()),
+                        value: Some(form_val()),
+                        default_value: Some("c".to_string()),
+                        on_value_change: move |v: Option<String>| {
+                            // Deliberately reject reset mutation to verify controlled state stays untouched
+                            form_reset_log.write().push(v.unwrap_or_else(|| "none".to_string()));
+                        },
+                        SelectTrigger {
+                            id: "m2b-sel-form-trig",
+                            style: "width: 140px; height: 30px;",
+                            SelectValue { id: "m2b-sel-form-val", placeholder: "Pick" }
+                        }
+                        SelectContentStatic {
+                            SelectItem { value: "a", text: "Alpha", "Alpha" }
+                            SelectItem { value: "b", text: "Beta", "Beta" }
+                            SelectItem { value: "c", text: "Gamma", "Gamma" }
+                        }
+                    }
+                    Button {
+                        id: "m2b-sel-form-reset".to_string(),
+                        r#type: ButtonType::Reset,
+                        style: "width: 80px; height: 24px;".to_string(),
+                        "Reset"
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn m2b_fm_ctl_01_select_controlled_rejection_empty_values_and_zero_lag() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(M2bSelectControlledScenario);
+        drain_polls_and_resolve(&mut harness);
+
+        // 3. Verify controlled empty multiple initialized empty (not ["a"] from default_values)
+        {
+            let base = harness.base();
+            let trig = base
+                .get_node(harness.node("#m2b-sel-empty-multi-trig"))
+                .unwrap();
+            assert_eq!(trig.attr("data-placeholder".into()), Some("true"));
+            let item_a = base
+                .get_node(harness.node("[data-probe='m2b-sel-empty-multi-a']"))
+                .unwrap();
+            assert_eq!(item_a.attr("aria-selected".into()), Some("false"));
+            let hidden = base
+                .get_node(harness.node("input[name='multi_sel']"))
+                .unwrap();
+            assert_eq!(hidden.attr("value".into()), Some(""));
+        }
+
+        // 1. Rejecting parent: open dropdown, click "b", verify callback fired & zero DOM desync
+        click_and_pump(&mut harness, "#m2b-sel-reject-trig");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "[data-probe='m2b-sel-reject-b']");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2b-sel-probe")).unwrap();
+            assert_eq!(probe.attr("data-rejected".into()), Some("b"));
+            let val_node = base
+                .get_node(harness.node("#m2b-sel-reject-val"))
+                .unwrap();
+            assert_eq!(val_node.text_content().trim(), "Alpha");
+            let hidden = base
+                .get_node(harness.node("input[name='reject_sel']"))
+                .unwrap();
+            assert_eq!(
+                hidden.attr("value".into()),
+                Some("a"),
+                "Rejecting controlled SelectRoot must keep hidden input at 'a'"
+            );
+            let trig = base
+                .get_node(harness.node("#m2b-sel-reject-trig"))
+                .unwrap();
+            assert_eq!(trig.attr("data-state".into()), Some("closed"));
+        }
+        // Re-open rejecting select and verify aria-selected is still on 'a', not 'b'
+        click_and_pump(&mut harness, "#m2b-sel-reject-trig");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let item_a = base
+                .get_node(harness.node("[data-probe='m2b-sel-reject-a']"))
+                .unwrap();
+            let item_b = base
+                .get_node(harness.node("[data-probe='m2b-sel-reject-b']"))
+                .unwrap();
+            assert_eq!(item_a.attr("aria-selected".into()), Some("true"));
+            assert_eq!(item_b.attr("aria-selected".into()), Some("false"));
+        }
+
+        // 2. Accepting parent: "a" -> "b" -> "a" synchronously with zero 1-frame reset lag
+        click_and_pump(&mut harness, "#m2b-sel-accept-trig");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "[data-probe='m2b-sel-accept-b']");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let val_node = base
+                .get_node(harness.node("#m2b-sel-accept-val"))
+                .unwrap();
+            assert_eq!(val_node.text_content().trim(), "Beta");
+            let hidden = base
+                .get_node(harness.node("input[name='accept_sel']"))
+                .unwrap();
+            assert_eq!(hidden.attr("value".into()), Some("b"));
+        }
+        click_and_pump(&mut harness, "#m2b-sel-accept-reset-btn");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let val_node = base
+                .get_node(harness.node("#m2b-sel-accept-val"))
+                .unwrap();
+            assert_eq!(
+                val_node.text_content().trim(),
+                "Alpha",
+                "Synchronous render-time sync must reflect reset back to 'a' immediately"
+            );
+            let hidden = base
+                .get_node(harness.node("input[name='accept_sel']"))
+                .unwrap();
+            assert_eq!(hidden.attr("value".into()), Some("a"));
+        }
+
+        // 4. Controlled form reset baseline frozen at mount ("a") and controlled signal untouched on reject
+        click_and_pump(&mut harness, "#m2b-sel-form-set-b");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m2b-sel-form-reset");
+        advance_frame_and_pump(&mut harness, 0.016);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2b-sel-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-form-reset-log".into()),
+                Some("a"),
+                "Controlled SelectRoot form reset must emit mount-time 'a' (not default_value 'c' or mutated 'b')"
+            );
+            let hidden = base
+                .get_node(harness.node("input[name='form_sel']"))
+                .unwrap();
+            assert_eq!(
+                hidden.attr("value".into()),
+                Some("b"),
+                "Controlled SelectRoot form reset must not mutate internal signal when parent rejects"
+            );
+        }
+    }
+
+    /// Helper probing `SliderRuntime::focused_thumb` inside consumer `SliderThumb::on_blur`.
+    #[component]
+    fn SliderBlurOrderThumb(
+        index: usize,
+        id: String,
+        mut blur_saw_none: Signal<Option<bool>>,
+        attach_blur: bool,
+    ) -> Element {
+        use monoxus::slider::{SliderThumb, use_slider_context};
+        let slider_ctx = use_slider_context();
+        let on_blur = attach_blur.then(|| {
+            EventHandler::new(move |_: FocusEvent| {
+                let is_none = slider_ctx.0.focused_thumb.peek().is_none();
+                blur_saw_none.set(Some(is_none));
+            })
+        });
+        rsx! {
+            SliderThumb {
+                index,
+                id,
+                on_blur,
+                style: "width: 24px; height: 24px;",
+            }
+        }
+    }
+
+    /// Helper probing `PinInputRuntime::is_focused` inside consumer `PinInputRoot::on_blur`.
+    #[component]
+    fn PinBlurObserver(
+        mut blur_saw_unfocused: Signal<Option<bool>>,
+        mut attach_blur: Signal<bool>,
+    ) -> Element {
+        use monoxus::pin_input::{PinInputCell, PinInputRoot, try_use_pin_input_context};
+
+        // Inner bridge reading PinInputContext into a CopyValue accessible from root's on_blur
+        #[component]
+        fn CapturePinCtx(
+            mut rt_slot: Signal<Option<monoxus::pin_input::PinInputRuntime>>,
+        ) -> Element {
+            let ctx = try_use_pin_input_context();
+            if let Some(c) = ctx
+                && rt_slot.peek().is_none()
+            {
+                rt_slot.set(Some(c.runtime));
+            }
+            rsx! {}
+        }
+
+        let rt_slot = use_signal(|| None::<monoxus::pin_input::PinInputRuntime>);
+        let on_blur = attach_blur().then(|| {
+            EventHandler::new(move |_: FocusEvent| {
+                let unfocused = rt_slot
+                    .peek()
+                    .as_ref()
+                    .is_some_and(|rt| !*rt.is_focused.peek());
+                blur_saw_unfocused.set(Some(unfocused));
+            })
+        });
+
+        rsx! {
+            PinInputRoot {
+                id: "m2b-pin-blur-root",
+                input_id: "m2b-pin-blur-input",
+                max_length: 4,
+                on_blur,
+                style: "width: 160px; height: 32px; display: flex;",
+                CapturePinCtx { rt_slot }
+                PinInputCell { index: 0, style: "width: 32px; height: 32px;" }
+                PinInputCell { index: 1, style: "width: 32px; height: 32px;" }
+            }
+        }
+    }
+
+    /// FM-CTL-03 (M2-B): Internal-first blur ordering on SliderThumb & PinInputRoot,
+    /// composite `on_focus_out` on multi-thumb Slider & portaled Select, and `#5894` toggle safety.
+    #[component]
+    fn M2bBlurAndCompositeFocusScenario() -> Element {
+        use monoxus::rating_group::{RatingGroupItem, RatingGroupRoot};
+        use monoxus::select::{
+            SelectContent, SelectItem, SelectPortal, SelectRoot, SelectTrigger, SelectValue,
+        };
+        use monoxus::slider::{SliderRange, SliderRoot, SliderTrack, SliderValue};
+
+        let slider_blur_saw_none = use_signal(|| None::<bool>);
+        let pin_blur_saw_unfocused = use_signal(|| None::<bool>);
+        let mut slider_focus_outs = use_signal(|| 0_u32);
+        let mut select_focus_outs = use_signal(|| 0_u32);
+        let mut attach_handlers = use_signal(|| true);
+
+        let slider_focus_out = attach_handlers().then(|| {
+            EventHandler::new(move |_: FocusEvent| {
+                slider_focus_outs += 1;
+            })
+        });
+        let select_focus_out = attach_handlers().then(|| {
+            EventHandler::new(move |_: FocusEvent| {
+                select_focus_outs += 1;
+            })
+        });
+        let generic_blur = attach_handlers().then(|| EventHandler::new(move |_: FocusEvent| {}));
+        let generic_focus = attach_handlers().then(|| EventHandler::new(move |_: FocusEvent| {}));
+
+        rsx! {
+            div { style: "padding: 20px; display: flex; flex-direction: column; gap: 16px;",
+                div {
+                    id: "m2b-blur-probe",
+                    "data-slider-blur-none": "{slider_blur_saw_none():?}",
+                    "data-pin-blur-unfocused": "{pin_blur_saw_unfocused():?}",
+                    "data-slider-focus-out": "{slider_focus_outs()}",
+                    "data-select-focus-out": "{select_focus_outs()}",
+                    "data-attached": "{attach_handlers()}",
+                }
+                button {
+                    id: "m2b-ext-btn",
+                    r#type: "button",
+                    style: "width: 90px; height: 28px;",
+                    "External"
+                }
+                button {
+                    id: "m2b-toggle-5894",
+                    r#type: "button",
+                    style: "width: 120px; height: 28px;",
+                    onclick: move |_| attach_handlers.toggle(),
+                    "Toggle Handlers"
+                }
+
+                // Multi-thumb Slider with composite focus-out + internal-first thumb blur
+                SliderRoot {
+                    id: "m2b-slider-multi",
+                    default_value: SliderValue::Multiple(vec![20.0, 80.0]),
+                    on_focus_out: slider_focus_out,
+                    style: "width: 240px; height: 32px;",
+                    SliderTrack {
+                        style: "width: 240px; height: 8px;",
+                        SliderRange {}
+                    }
+                    SliderBlurOrderThumb {
+                        index: 0,
+                        id: "m2b-slider-thumb-0".to_string(),
+                        blur_saw_none: slider_blur_saw_none,
+                        attach_blur: attach_handlers(),
+                    }
+                    SliderBlurOrderThumb {
+                        index: 1,
+                        id: "m2b-slider-thumb-1".to_string(),
+                        blur_saw_none: use_signal(|| None::<bool>),
+                        attach_blur: attach_handlers(),
+                    }
+                }
+
+                // PinInput internal-first blur order
+                PinBlurObserver {
+                    blur_saw_unfocused: pin_blur_saw_unfocused,
+                    attach_blur: attach_handlers,
+                }
+
+                // Portaled Select composite focus-out
+                SelectRoot {
+                    id: "m2b-select-comp",
+                    on_focus_out: select_focus_out,
+                    SelectTrigger {
+                        id: "m2b-select-comp-trig",
+                        on_blur: generic_blur,
+                        on_focus: generic_focus,
+                        style: "width: 140px; height: 30px;",
+                        SelectValue { placeholder: "Open" }
+                    }
+                    SelectPortal {
+                        SelectContent {
+                            SelectItem { id: "m2b-select-comp-a", value: "a", "Alpha" }
+                            SelectItem { id: "m2b-select-comp-b", value: "b", "Beta" }
+                        }
+                    }
+                }
+
+                // RatingGroup #5894 toggle target
+                RatingGroupRoot {
+                    id: "m2b-rg-5894",
+                    on_blur: generic_blur,
+                    on_focus: generic_focus,
+                    RatingGroupItem { index: 0, "★" }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn m2b_fm_ctl_03_blur_order_composite_focus_out_and_5894() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(M2bBlurAndCompositeFocusScenario);
+        drain_polls_and_resolve(&mut harness);
+
+        // 1. Multi-thumb Slider: thumb 0 -> thumb 1 must NOT fire on_focus_out,
+        //    and thumb 0 on_blur must observe focused_thumb == None already!
+        focus_node(&mut harness, "#m2b-slider-thumb-0");
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m2b-slider-thumb-1");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2b-blur-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-slider-blur-none".into()),
+                Some("Some(true)"),
+                "SliderThumb consumer on_blur must run AFTER runtime.focused_thumb.set(None)"
+            );
+            assert_eq!(
+                probe.attr("data-slider-focus-out".into()),
+                Some("0"),
+                "Moving focus between Slider thumbs must not fire on_focus_out"
+            );
+        }
+
+        // Leave Slider to external button -> on_focus_out fires once
+        click_and_pump(&mut harness, "#m2b-ext-btn");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2b-blur-probe")).unwrap();
+            assert_eq!(probe.attr("data-slider-focus-out".into()), Some("1"));
+        }
+
+        // 2. PinInputRoot: focus input then blur to external button -> consumer on_blur sees is_focused == false
+        focus_node(&mut harness, "#m2b-pin-blur-input");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m2b-ext-btn");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2b-blur-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-pin-blur-unfocused".into()),
+                Some("Some(true)"),
+                "PinInputRoot consumer on_blur must run AFTER runtime.handle_blur()"
+            );
+        }
+
+        // 3. Portaled Select: opening listbox moves focus to portaled content -> must NOT fire on_focus_out
+        click_and_pump(&mut harness, "#m2b-select-comp-trig");
+        advance_frame_and_pump(&mut harness, 0.03);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2b-blur-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-select-focus-out".into()),
+                Some("0"),
+                "Opening Select listbox must not fire false composite on_focus_out"
+            );
+        }
+        // Moving focus out of the portaled listbox to external button fires on_focus_out once
+        focus_node(&mut harness, "#m2b-ext-btn");
+        advance_frame_and_pump(&mut harness, 0.03);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2b-blur-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-select-focus-out".into()),
+                Some("1"),
+                "Leaving Select to external button must fire composite on_focus_out once"
+            );
+        }
+
+        // 4. Dioxus #5894 toggle Some <-> None across renders on all 4 M2-B controls -> zero panic
+        click_and_pump(&mut harness, "#m2b-toggle-5894");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m2b-toggle-5894");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2b-blur-probe")).unwrap();
+            assert_eq!(probe.attr("data-attached".into()), Some("true"));
+        }
+    }
+
+    /// FM-CTL-04 (M2-B): SelectTrigger custom `id` (placement/dismiss/focus-restore/label),
+    /// PinInput `<input>` ARIA forwarding & FieldControl binding, Slider `required` + controlled
+    /// reset baseline + FieldControl thumb-0 binding, and RatingGroup Field/ARIA/blur.
+    #[component]
+    fn M2bFmCtl04Scenario() -> Element {
+        use monoxus::button::{Button, ButtonType};
+        use monoxus::label::Label;
+        use monoxus::pin_input::{PinInputCell, PinInputRoot};
+        use monoxus::rating_group::{RatingGroupItem, RatingGroupRoot};
+        use monoxus::select::{
+            SelectContent, SelectItem, SelectPortal, SelectRoot, SelectTrigger, SelectValue,
+        };
+        use monoxus::slider::{SliderRange, SliderRoot, SliderThumb, SliderTrack, SliderValue};
+
+        let mut slider_val = use_signal(|| 20.0_f64);
+        let mut slider_reset_log = use_signal(Vec::<String>::new);
+        let mut rating_focus_events = use_signal(Vec::<String>::new);
+
+        rsx! {
+            div { style: "padding: 24px; display: flex; flex-direction: column; gap: 18px;",
+                div {
+                    id: "m2b-ctl04-probe",
+                    "data-slider-val": "{slider_val()}",
+                    "data-slider-reset-log": "{slider_reset_log.read().join(\",\")}",
+                    "data-rating-events": "{rating_focus_events.read().join(\",\")}",
+                }
+                button {
+                    id: "m2b-ctl04-outside",
+                    r#type: "button",
+                    style: "width: 90px; height: 28px;",
+                    "Outside"
+                }
+
+                // 1. SelectTrigger { id: "custom-sel" } + <label for="custom-sel"> + FieldRoot invalid/desc
+                FieldRoot {
+                    id: "m2b-f-sel",
+                    invalid: true,
+                    FieldLabel { id: "m2b-l-sel", "Country" }
+                    SelectRoot {
+                        id: "m2b-sel-custom-root",
+                        SelectTrigger {
+                            id: "custom-sel",
+                            style: "width: 160px; height: 32px;",
+                            SelectValue { placeholder: "Choose" }
+                        }
+                        SelectPortal {
+                            SelectContent {
+                                SelectItem { value: "kr", "Korea" }
+                                SelectItem { value: "us", "USA" }
+                            }
+                        }
+                    }
+                    FieldDescription { id: "m2b-d-sel", "Select country" }
+                    FieldError { id: "m2b-e-sel", "Country required" }
+                }
+
+                // 2a. PinInputRoot with GlobalAttributes ARIA forwarding to focusable <input>
+                PinInputRoot {
+                    id: "m2b-pin-global-root",
+                    input_id: "m2b-pin-global-input",
+                    max_length: 4,
+                    "aria-invalid": "true",
+                    "aria-describedby": "pin-ext-desc",
+                    "aria-label": "OTP code",
+                    style: "width: 160px; height: 32px; display: flex;",
+                    PinInputCell { id: "m2b-pin-global-cell-0", index: 0, style: "width: 32px; height: 32px;" }
+                }
+
+                // 2b. PinInputRoot inside FieldRoot + FieldControl (auto-binds input id)
+                FieldRoot {
+                    id: "m2b-f-pin",
+                    invalid: true,
+                    FieldControl {
+                        FieldLabel { id: "m2b-l-pin", "Passcode" }
+                        PinInputRoot {
+                            id: "m2b-pin-field-root",
+                            max_length: 4,
+                            style: "width: 160px; height: 32px; display: flex;",
+                            PinInputCell { id: "m2b-pin-field-cell-0", index: 0, style: "width: 32px; height: 32px;" }
+                        }
+                    }
+                    FieldDescription { id: "m2b-d-pin", "4 digits" }
+                    FieldError { id: "m2b-e-pin", "Invalid code" }
+                }
+
+                // 3. Controlled SliderRoot inside <form> + FieldRoot: required + reset baseline + FieldControl thumb 0
+                form {
+                    id: "m2b-slider-form",
+                    button {
+                        id: "m2b-slider-set-75",
+                        r#type: "button",
+                        style: "width: 90px; height: 24px;",
+                        onclick: move |_| slider_val.set(75.0),
+                        "Set 75"
+                    }
+                    FieldRoot {
+                        id: "m2b-f-slider",
+                        invalid: true,
+                        FieldControl {
+                            Label { id: "m2b-l-slider", "Volume" }
+                            SliderRoot {
+                                id: "m2b-slider-root",
+                                name: Some("vol".to_string()),
+                                required: true,
+                                value: SliderValue::Single(slider_val()),
+                                default_value: SliderValue::Single(5.0),
+                                on_value_change: move |v: SliderValue| {
+                                    let first = v.to_vec().first().copied().unwrap_or(0.0);
+                                    slider_reset_log.write().push(first.to_string());
+                                },
+                                style: "width: 200px; height: 32px;",
+                                SliderTrack {
+                                    style: "width: 200px; height: 8px;",
+                                    SliderRange {}
+                                }
+                                SliderThumb {
+                                    index: 0,
+                                    "data-probe": "m2b-slider-thumb0",
+                                    style: "width: 20px; height: 20px;",
+                                }
+                            }
+                        }
+                        FieldDescription { id: "m2b-d-slider", "Adjust volume" }
+                        FieldError { id: "m2b-e-slider", "Volume error" }
+                    }
+                    Button {
+                        id: "m2b-slider-reset-btn".to_string(),
+                        r#type: ButtonType::Reset,
+                        style: "width: 80px; height: 24px;".to_string(),
+                        "Reset"
+                    }
+                }
+
+                // 4. RatingGroup inside FieldRoot: ARIA/data-invalid/FieldLabel + focus/blur
+                FieldRoot {
+                    id: "m2b-f-rg",
+                    invalid: true,
+                    FieldLabel { id: "m2b-l-rg", "Score" }
+                    RatingGroupRoot {
+                        "data-probe": "m2b-rg-root",
+                        on_focus: move |_| rating_focus_events.write().push("focus".to_string()),
+                        on_blur: move |_| rating_focus_events.write().push("blur".to_string()),
+                        style: "width: 140px; height: 28px;",
+                        RatingGroupItem { id: "m2b-rg-item-0", index: 0, "★" }
+                        RatingGroupItem { id: "m2b-rg-item-1", index: 1, "★" }
+                    }
+                    FieldDescription { id: "m2b-d-rg", "Rate 1-5" }
+                    FieldError { id: "m2b-e-rg", "Score required" }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn m2b_fm_ctl_04_select_trigger_id_pin_input_aria_slider_required_reset_and_rating_group() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(M2bFmCtl04Scenario);
+        advance_frame_and_pump(&mut harness, 0.016);
+        drain_polls_and_resolve(&mut harness);
+
+        // 1. SelectTrigger { id: "custom-sel" }: label pairing, Field ARIA, placement, Escape focus restore, outside dismiss
+        {
+            let base = harness.base();
+            let trig = base.get_node(harness.node("#custom-sel")).unwrap();
+            let lbl = base.get_node(harness.node("#m2b-l-sel")).unwrap();
+            assert_eq!(lbl.attr("for".into()), Some("custom-sel"));
+            assert_eq!(trig.attr("aria-invalid".into()), Some("true"));
+            assert_eq!(trig.attr("data-invalid".into()), Some(""));
+            assert_eq!(
+                trig.attr("aria-describedby".into()),
+                Some("m2b-d-sel m2b-e-sel")
+            );
+            assert_eq!(trig.attr("aria-labelledby".into()), Some("m2b-l-sel"));
+        }
+        // Clicking <label for="custom-sel"> activates/opens the trigger
+        click_and_pump(&mut harness, "#m2b-l-sel");
+        advance_frame_and_pump(&mut harness, 0.03);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let trig = base.get_node(harness.node("#custom-sel")).unwrap();
+            assert_eq!(
+                trig.attr("data-state".into()),
+                Some("open"),
+                "Clicking <label for=\"custom-sel\"> must activate #custom-sel"
+            );
+            let content = base.get_node(harness.node("[role='listbox']")).unwrap();
+            assert_eq!(content.attr("data-state".into()), Some("open"));
+            assert_eq!(
+                content.attr("data-positioning-state".into()),
+                Some("positioned")
+            );
+        }
+        // Escape closes and restores focus to #custom-sel
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+        for _ in 0..4 {
+            advance_frame_and_pump(&mut harness, 0.016);
+        }
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let trig = base.get_node(harness.node("#custom-sel")).unwrap();
+            assert_eq!(trig.attr("data-state".into()), Some("closed"));
+        }
+        assert_native_focus_id(&harness, "custom-sel");
+
+        // Re-open and click outside to verify dismiss boundary recognizes #custom-sel
+        click_and_pump(&mut harness, "#custom-sel");
+        advance_frame_and_pump(&mut harness, 0.03);
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m2b-ctl04-outside");
+        advance_frame_and_pump(&mut harness, 0.03);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let trig = base.get_node(harness.node("#custom-sel")).unwrap();
+            assert_eq!(trig.attr("data-state".into()), Some("closed"));
+        }
+
+        // 2a. PinInput GlobalAttributes ARIA forwarding to focusable <input> + data-invalid across parts
+        focus_node(&mut harness, "#m2b-pin-global-input");
+        drain_polls_and_resolve(&mut harness);
+        assert_native_focus_id(&harness, "m2b-pin-global-input");
+        {
+            let base = harness.base();
+            let pin_root = base
+                .get_node(harness.node("#m2b-pin-global-root"))
+                .unwrap();
+            let pin_input = base
+                .get_node(harness.node("#m2b-pin-global-input"))
+                .unwrap();
+            let pin_cell = base
+                .get_node(harness.node("#m2b-pin-global-cell-0"))
+                .unwrap();
+            assert_eq!(pin_input.attr("aria-invalid".into()), Some("true"));
+            assert_eq!(
+                pin_input.attr("aria-describedby".into()),
+                Some("pin-ext-desc")
+            );
+            assert_eq!(pin_input.attr("aria-label".into()), Some("OTP code"));
+            assert_eq!(pin_input.attr("data-invalid".into()), Some(""));
+            assert_eq!(pin_root.attr("data-invalid".into()), Some(""));
+            assert_eq!(pin_cell.attr("data-invalid".into()), Some(""));
+            // Must NOT leave aria-invalid/aria-describedby duplicated on outer wrapper div
+            assert_eq!(pin_root.attr("aria-invalid".into()), None);
+            assert_eq!(pin_root.attr("aria-describedby".into()), None);
+        }
+
+        // 2b. PinInput inside FieldControl auto-binds input id to FieldControl::control_id
+        {
+            let base = harness.base();
+            let lbl = base.get_node(harness.node("#m2b-l-pin")).unwrap();
+            let pin_input = base
+                .get_node(harness.node("#m2b-pin-field-root input"))
+                .unwrap();
+            let pin_cell = base
+                .get_node(harness.node("#m2b-pin-field-cell-0"))
+                .unwrap();
+            assert_eq!(lbl.attr("for".into()), pin_input.attr("id".into()));
+            assert_eq!(pin_input.attr("aria-invalid".into()), Some("true"));
+            assert_eq!(
+                pin_input.attr("aria-describedby".into()),
+                Some("m2b-d-pin m2b-e-pin")
+            );
+            assert_eq!(pin_input.attr("data-invalid".into()), Some(""));
+            assert_eq!(pin_cell.attr("data-invalid".into()), Some(""));
+        }
+
+        // 3. Slider required + FieldControl thumb-0 binding + omit aria-required + controlled reset baseline
+        {
+            let base = harness.base();
+            let slider_root = base.get_node(harness.node("#m2b-slider-root")).unwrap();
+            let thumb = base
+                .get_node(harness.node("[data-probe='m2b-slider-thumb0']"))
+                .unwrap();
+            let lbl = base.get_node(harness.node("#m2b-l-slider")).unwrap();
+            let hidden = base.get_node(harness.node("input[name='vol']")).unwrap();
+
+            assert_eq!(lbl.attr("for".into()), thumb.attr("id".into()));
+            assert_eq!(slider_root.attr("data-required".into()), Some(""));
+            assert_eq!(slider_root.attr("data-invalid".into()), Some(""));
+            assert_eq!(thumb.attr("data-required".into()), Some(""));
+            assert_eq!(thumb.attr("data-invalid".into()), Some(""));
+            assert_eq!(thumb.attr("aria-invalid".into()), Some("true"));
+            assert_eq!(
+                thumb.attr("aria-describedby".into()),
+                Some("m2b-d-slider m2b-e-slider")
+            );
+            assert_eq!(
+                thumb.attr("aria-required".into()),
+                None,
+                "role=\"slider\" must omit disallowed aria-required per WAI-ARIA 1.2"
+            );
+            assert!(
+                hidden.attr("required".into()).is_some(),
+                "HiddenFormInputs must receive required attribute"
+            );
+        }
+        // Mutate controlled slider to 75.0, then reset form -> must emit mount-time 20.0
+        click_and_pump(&mut harness, "#m2b-slider-set-75");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m2b-slider-reset-btn");
+        advance_frame_and_pump(&mut harness, 0.016);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2b-ctl04-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-slider-reset-log".into()),
+                Some("20"),
+                "Controlled SliderRoot form reset must emit mount-time 20 (not default_value 5 or mutated 75)"
+            );
+        }
+
+        // 4. RatingGroup inside FieldRoot: ARIA/data-invalid/FieldLabel + focus/blur
+        {
+            let base = harness.base();
+            let rg_root = base
+                .get_node(harness.node("[data-probe='m2b-rg-root']"))
+                .unwrap();
+            let rg_item = base.get_node(harness.node("#m2b-rg-item-0")).unwrap();
+            let lbl = base.get_node(harness.node("#m2b-l-rg")).unwrap();
+            assert_eq!(lbl.attr("for".into()), rg_root.attr("id".into()));
+            assert_eq!(rg_root.attr("aria-invalid".into()), Some("true"));
+            assert_eq!(rg_root.attr("data-invalid".into()), Some(""));
+            assert_eq!(
+                rg_root.attr("aria-describedby".into()),
+                Some("m2b-d-rg m2b-e-rg")
+            );
+            assert_eq!(rg_item.attr("data-invalid".into()), Some(""));
+        }
+        focus_node(&mut harness, "[data-probe='m2b-rg-root']");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m2b-ctl04-outside");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2b-ctl04-probe")).unwrap();
+            assert_eq!(probe.attr("data-rating-events".into()), Some("focus,blur"));
         }
     }
 }

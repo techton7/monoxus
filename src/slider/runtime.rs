@@ -578,6 +578,20 @@ pub fn use_slider_context() -> SliderContext {
     use_context::<SliderContext>()
 }
 
+/// Internal reactive form/ARIA state propagated from `SliderRoot` to `SliderThumb` without
+/// modifying `SliderRuntime`'s public struct layout.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) struct SliderFieldState {
+    pub required: Signal<bool>,
+    pub invalid: Signal<bool>,
+    pub invalid_override: Signal<Option<bool>>,
+    pub aria_describedby: Signal<Option<String>>,
+}
+
+pub(crate) fn try_use_slider_field_state() -> Option<SliderFieldState> {
+    try_consume_context::<SliderFieldState>()
+}
+
 /// Initializes and binds the reactive slider runtime hook.
 pub fn use_slider_runtime(
     mut def: SliderDefinition,
