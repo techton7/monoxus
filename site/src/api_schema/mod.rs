@@ -5,14 +5,76 @@ mod tabs;
 mod tooltip;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PropGroup {
+    Core,
+    Common,
+    HtmlAria,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PropDoc {
     pub name: &'static str,
     pub type_simple: &'static str,
     pub type_full: &'static str,
     pub default: Option<&'static str>,
     pub required: bool,
+    pub group: PropGroup,
     pub description: &'static str,
 }
+
+pub(super) const PROP_ID: PropDoc = prop_id("Custom DOM element ID.");
+
+pub(super) const fn prop_id(description: &'static str) -> PropDoc {
+    PropDoc {
+        name: "id",
+        type_simple: "String",
+        type_full: "Option<String>",
+        default: None,
+        required: false,
+        group: PropGroup::Common,
+        description,
+    }
+}
+
+pub(super) const PROP_CLASS: PropDoc = PropDoc {
+    name: "class",
+    type_simple: "String",
+    type_full: "Option<String>",
+    default: None,
+    required: false,
+    group: PropGroup::Common,
+    description: "CSS class names.",
+};
+
+pub(super) const PROP_STYLE: PropDoc = PropDoc {
+    name: "style",
+    type_simple: "String",
+    type_full: "Option<String>",
+    default: None,
+    required: false,
+    group: PropGroup::Common,
+    description: "Inline CSS styles.",
+};
+
+pub(super) const PROP_ATTRIBUTES: PropDoc = PropDoc {
+    name: "attributes",
+    type_simple: "Vec<Attribute>",
+    type_full: "Vec<Attribute> (#[props(extends = GlobalAttributes)])",
+    default: None,
+    required: false,
+    group: PropGroup::Common,
+    description: "Additional global HTML/ARIA attributes forwarded to the element.",
+};
+
+pub(super) const PROP_ON_MOUNTED: PropDoc = PropDoc {
+    name: "on_mounted",
+    type_simple: "EventHandler<MountedEvent>",
+    type_full: "Option<EventHandler<MountedEvent>>",
+    default: None,
+    required: false,
+    group: PropGroup::Common,
+    description: "Invoked when the underlying DOM element mounts.",
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DataAttrDoc {
@@ -105,16 +167,18 @@ pub fn component_to_markdown(doc: &ComponentDoc, demo_source: &str) -> String {
         md.push_str(&format!("### {}\n\n{}\n\n", part.name, part.description));
         if !part.props.is_empty() {
             md.push_str("| Prop | Type | Default | Description |\n|---|---|---|---|\n");
-            for prop in part.props {
-                let def = if prop.required {
-                    "Required".to_string()
-                } else {
-                    prop.default.unwrap_or("—").to_string()
-                };
-                md.push_str(&format!(
-                    "| `{}` | `{}` | `{}` | {} |\n",
-                    prop.name, prop.type_simple, def, prop.description
-                ));
+            for group in [PropGroup::Core, PropGroup::Common, PropGroup::HtmlAria] {
+                for prop in part.props.iter().filter(|p| p.group == group) {
+                    let def = if prop.required {
+                        "Required".to_string()
+                    } else {
+                        prop.default.unwrap_or("—").to_string()
+                    };
+                    md.push_str(&format!(
+                        "| `{}` | `{}` | `{}` | {} |\n",
+                        prop.name, prop.type_simple, def, prop.description
+                    ));
+                }
             }
             md.push('\n');
         }

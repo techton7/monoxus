@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
-use monoxus::collapsible::{CollapsibleContent, CollapsibleRoot, CollapsibleTrigger};
 use monoxus::foundation::overlay::PlacementSide;
+use monoxus::scroll_area::{
+    Orientation, ScrollAreaRoot, ScrollAreaScrollbar, ScrollAreaThumb, ScrollAreaType,
+    ScrollAreaViewport,
+};
 use monoxus::tabs::{TabsContent, TabsList, TabsRoot, TabsTrigger};
 use monoxus::tooltip::{TooltipContent, TooltipPortal, TooltipRoot, TooltipTrigger};
 
@@ -12,8 +15,8 @@ use crate::theme::copy_to_clipboard;
 
 /// Live component preview box paired with an expandable syntax-highlighted code panel.
 #[component]
-pub fn ComponentPreview(slug: String, #[props(default = true)] default_open: bool) -> Element {
-    let code_open = use_signal(|| default_open);
+pub fn ComponentPreview(slug: String, #[props(default = false)] default_open: bool) -> Element {
+    let mut code_open = use_signal(|| default_open);
     let mut copied = use_signal(|| false);
     let active_tab = use_signal(|| "demo".to_string());
 
@@ -38,101 +41,147 @@ pub fn ComponentPreview(slug: String, #[props(default = true)] default_open: boo
                 {render_demo(&slug)}
             }
 
-            // Attached Collapsible Code Tabs
+            // Attached Expandable Code Tabs
             TabsRoot {
                 value: Some(active_tab),
-                CollapsibleRoot {
-                    open: Some(code_open),
+                div {
+                    class: "border-t border-border-card bg-background",
                     div {
-                        class: "border-t border-border-card bg-background",
+                        class: "flex flex-wrap items-center justify-between gap-2 border-b border-border-card bg-muted/30 px-3 py-2",
+                        TabsList {
+                            class: "inline-flex items-center gap-1 rounded-button bg-muted/80 p-0.5",
+                            TabsTrigger {
+                                value: "demo".to_string(),
+                                class: "rounded-[4px] px-2.5 py-1 font-mono text-xs font-medium text-foreground-alt transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-mini",
+                                "{filename}"
+                            }
+                            TabsTrigger {
+                                value: "css".to_string(),
+                                class: "rounded-[4px] px-2.5 py-1 font-mono text-xs font-medium text-foreground-alt transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-mini",
+                                "tokens.css"
+                            }
+                        }
+
                         div {
-                            class: "flex flex-wrap items-center justify-between gap-2 border-b border-border-card bg-muted/30 px-3 py-2",
-                            TabsList {
-                                class: "inline-flex items-center gap-1 rounded-button bg-muted/80 p-0.5",
-                                TabsTrigger {
-                                    value: "demo".to_string(),
-                                    class: "rounded-[4px] px-2.5 py-1 font-mono text-xs font-medium text-foreground-alt transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-mini",
-                                    "{filename}"
+                            class: "flex items-center gap-2",
+                            TooltipRoot {
+                                side: PlacementSide::Top,
+                                side_offset: 6.0,
+                                span {
+                                    class: "inline-flex",
+                                    onclick: move |_| {
+                                        copy_to_clipboard(copy_target);
+                                        copied.set(true);
+                                        schedule_copied_reset(copied);
+                                    },
+                                    TooltipTrigger {
+                                        class: "inline-flex h-7 items-center gap-1.5 rounded-button border border-border-input bg-background px-2.5 text-xs font-medium text-foreground-alt transition-colors hover:border-border-input-hover hover:text-foreground",
+                                        if copied() {
+                                            CheckIcon { class: "h-3.5 w-3.5 text-foreground" }
+                                            span { "Copied" }
+                                        } else {
+                                            CopyIcon { class: "h-3.5 w-3.5" }
+                                            span { "Copy" }
+                                        }
+                                    }
                                 }
-                                TabsTrigger {
-                                    value: "css".to_string(),
-                                    class: "rounded-[4px] px-2.5 py-1 font-mono text-xs font-medium text-foreground-alt transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-mini",
-                                    "tokens.css"
+                                TooltipPortal {
+                                    TooltipContent {
+                                        class: "relative z-50 rounded-button border border-border-card bg-dark px-2.5 py-1 text-xs font-medium text-background shadow-popover",
+                                        if copied() {
+                                            "Copied to clipboard"
+                                        } else {
+                                            "Copy active snippet"
+                                        }
+                                    }
                                 }
                             }
 
-                            div {
-                                class: "flex items-center gap-2",
-                                TooltipRoot {
-                                    side: PlacementSide::Top,
-                                    side_offset: 6.0,
-                                    span {
-                                        class: "inline-flex",
-                                        onclick: move |_| {
-                                            copy_to_clipboard(copy_target);
-                                            copied.set(true);
-                                            schedule_copied_reset(copied);
-                                        },
-                                        TooltipTrigger {
-                                            class: "inline-flex h-7 items-center gap-1.5 rounded-button border border-border-input bg-background px-2.5 text-xs font-medium text-foreground-alt transition-colors hover:border-border-input-hover hover:text-foreground",
-                                            if copied() {
-                                                CheckIcon { class: "h-3.5 w-3.5 text-foreground" }
-                                                span { "Copied" }
-                                            } else {
-                                                CopyIcon { class: "h-3.5 w-3.5" }
-                                                span { "Copy" }
-                                            }
-                                        }
-                                    }
-                                    TooltipPortal {
-                                        TooltipContent {
-                                            class: "relative z-50 rounded-button border border-border-card bg-dark px-2.5 py-1 text-xs font-medium text-background shadow-popover",
-                                            if copied() {
-                                                "Copied to clipboard"
-                                            } else {
-                                                "Copy active snippet"
-                                            }
+                            button {
+                                r#type: "button",
+                                onclick: move |_| code_open.toggle(),
+                                class: "inline-flex h-7 items-center gap-1.5 rounded-button border border-border-input bg-background px-2.5 text-xs font-medium text-foreground-alt transition-colors hover:border-border-input-hover hover:text-foreground",
+                                CodeIcon { class: "h-3.5 w-3.5" }
+                                span {
+                                    if code_open() { "Collapse code" } else { "Expand code" }
+                                }
+                                ChevronDownIcon {
+                                    class: if code_open() {
+                                        "h-3.5 w-3.5 rotate-180 transition-transform duration-150"
+                                    } else {
+                                        "h-3.5 w-3.5 transition-transform duration-150"
+                                    },
+                                }
+                            }
+                        }
+                    }
+
+                    div {
+                        class: if code_open() {
+                            "relative max-h-none bg-zinc-50/60 dark:bg-neutral-900/70"
+                        } else {
+                            "relative max-h-[236px] overflow-hidden bg-zinc-50/60 dark:bg-neutral-900/70"
+                        },
+                        TabsContent {
+                            value: "demo".to_string(),
+                            class: "outline-hidden",
+                            ScrollAreaRoot {
+                                r#type: ScrollAreaType::Hover,
+                                class: "w-full",
+                                ScrollAreaViewport {
+                                    class: "w-full",
+                                    pre {
+                                        class: "p-4 font-mono text-[13px] leading-relaxed text-foreground",
+                                        code {
+                                            dangerous_inner_html: "{highlighted_demo}",
                                         }
                                     }
                                 }
-
-                                CollapsibleTrigger {
-                                    class: "inline-flex h-7 items-center gap-1.5 rounded-button border border-border-input bg-background px-2.5 text-xs font-medium text-foreground-alt transition-colors hover:border-border-input-hover hover:text-foreground",
-                                    CodeIcon { class: "h-3.5 w-3.5" }
-                                    span {
-                                        if code_open() { "Hide code" } else { "View code" }
-                                    }
-                                    ChevronDownIcon {
-                                        class: if code_open() {
-                                            "h-3.5 w-3.5 rotate-180 transition-transform duration-150"
-                                        } else {
-                                            "h-3.5 w-3.5 transition-transform duration-150"
-                                        },
+                                ScrollAreaScrollbar {
+                                    orientation: Orientation::Horizontal,
+                                    class: "flex h-2.5 touch-none select-none p-0.5 opacity-0 transition-opacity duration-150 data-[state=visible]:opacity-100",
+                                    ScrollAreaThumb {
+                                        class: "relative flex-1 rounded-full bg-dark-40 hover:bg-foreground/60",
                                     }
                                 }
                             }
                         }
-
-                        CollapsibleContent {
-                            class: "overflow-hidden data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up",
-                            TabsContent {
-                                value: "demo".to_string(),
-                                class: "outline-hidden",
-                                pre {
-                                    class: "max-h-[460px] overflow-auto bg-zinc-50/60 p-4 font-mono text-[13px] leading-relaxed text-foreground dark:bg-neutral-900/70",
-                                    code {
-                                        dangerous_inner_html: "{highlighted_demo}",
+                        TabsContent {
+                            value: "css".to_string(),
+                            class: "outline-hidden",
+                            ScrollAreaRoot {
+                                r#type: ScrollAreaType::Hover,
+                                class: "w-full",
+                                ScrollAreaViewport {
+                                    class: "w-full",
+                                    pre {
+                                        class: "p-4 font-mono text-[13px] leading-relaxed text-foreground",
+                                        code {
+                                            dangerous_inner_html: "{highlighted_css}",
+                                        }
+                                    }
+                                }
+                                ScrollAreaScrollbar {
+                                    orientation: Orientation::Horizontal,
+                                    class: "flex h-2.5 touch-none select-none p-0.5 opacity-0 transition-opacity duration-150 data-[state=visible]:opacity-100",
+                                    ScrollAreaThumb {
+                                        class: "relative flex-1 rounded-full bg-dark-40 hover:bg-foreground/60",
                                     }
                                 }
                             }
-                            TabsContent {
-                                value: "css".to_string(),
-                                class: "outline-hidden",
-                                pre {
-                                    class: "max-h-[460px] overflow-auto bg-zinc-50/60 p-4 font-mono text-[13px] leading-relaxed text-foreground dark:bg-neutral-900/70",
-                                    code {
-                                        dangerous_inner_html: "{highlighted_css}",
-                                    }
+                        }
+                        if !code_open() {
+                            div {
+                                class: "pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-zinc-50 via-zinc-50/80 to-transparent dark:from-neutral-900 dark:via-neutral-900/80",
+                            }
+                            div {
+                                class: "absolute inset-x-0 bottom-3 flex justify-center",
+                                button {
+                                    r#type: "button",
+                                    onclick: move |_| code_open.set(true),
+                                    class: "inline-flex h-8 items-center gap-1.5 rounded-button border border-border-input bg-background/95 px-3 text-xs font-medium text-foreground shadow-mini backdrop-blur-xs transition-colors hover:border-border-input-hover hover:bg-muted",
+                                    span { "Expand code" }
+                                    ChevronDownIcon { class: "h-3.5 w-3.5" }
                                 }
                             }
                         }

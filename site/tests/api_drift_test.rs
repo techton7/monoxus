@@ -277,9 +277,9 @@ fn public_llms_and_search_index_exist_and_non_empty() {
 
 #[test]
 fn docs_data_navigation_search_and_highlighting_work() {
-    assert_eq!(all_markdown_docs().len(), 6);
+    assert_eq!(all_markdown_docs().len(), 5);
     assert!(find_markdown_doc("overview", "introduction").is_some());
-    assert!(find_markdown_doc("overview", "roadmap").is_some());
+    assert!(find_markdown_doc("overview", "getting-started").is_some());
     assert!(find_markdown_doc("guides", "styling").is_some());
     assert_eq!(sidebar_groups().len(), 3);
     assert_eq!(sidebar_groups()[2].items.len(), all_component_docs().len());

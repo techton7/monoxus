@@ -11,6 +11,9 @@ const EXPECTED: Array<[string, number, string]> = [
 	["/docs/", 308, "/docs/overview/introduction"],
 	["/docs/introduction", 308, "/docs/overview/introduction"],
 	["/docs/getting-started", 308, "/docs/overview/getting-started"],
+	["/docs/roadmap", 308, "/docs/overview/introduction"],
+	["/docs/overview/roadmap", 308, "/docs/overview/introduction"],
+	["/docs/overview/roadmap/", 308, "/docs/overview/introduction"],
 	["/docs/components", 308, "/docs/components/button"],
 ];
 

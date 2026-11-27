@@ -35,9 +35,9 @@ pub fn ComponentDocPage(slug: String) -> Element {
                             "View Button"
                         }
                         Link {
-                            to: Route::OverviewDoc { slug: "roadmap".to_string() },
+                            to: Route::OverviewDoc { slug: "introduction".to_string() },
                             class: "inline-flex h-9 items-center rounded-button border border-border-input bg-background px-4 text-xs font-medium text-foreground hover:bg-muted",
-                            "Full Roadmap"
+                            "Introduction"
                         }
                     }
                 }
@@ -102,7 +102,6 @@ pub fn ComponentDocPage(slug: String) -> Element {
             // Hero Demo + Collapsible Source
             ComponentPreview {
                 slug: doc.slug.to_string(),
-                default_open: true,
             }
 
             // Features
@@ -142,7 +141,7 @@ pub fn ComponentDocPage(slug: String) -> Element {
                     "Import the primitive parts and compose them in your Dioxus component:"
                 }
                 pre {
-                    class: "mt-4 overflow-x-auto rounded-card-sm border border-border-card bg-zinc-50 p-4 font-mono text-[13px] leading-relaxed text-foreground dark:bg-neutral-900/80",
+                    class: "code-block-scroll mt-4 overflow-x-auto rounded-card-sm border border-border-card bg-zinc-50 p-4 font-mono text-[13px] leading-relaxed text-foreground dark:bg-neutral-900/80",
                     code {
                         dangerous_inner_html: "{highlighted_anatomy}",
                     }

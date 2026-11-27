@@ -48,6 +48,9 @@
 	--hl-mac: #0184bc;
 	--hl-num: #b76b01;
 	--hl-attr: #e45649;
+
+	/* Scrollbar thumb (contrast >= 3:1 against zinc-50) */
+	--scrollbar-thumb: rgba(24, 24, 27, 0.45);
 }
 
 .dark {
@@ -91,6 +94,9 @@
 	--hl-mac: #56b6c2;
 	--hl-num: #d19a66;
 	--hl-attr: #e06c75;
+
+	/* Scrollbar thumb (contrast >= 3:1 against neutral-900) */
+	--scrollbar-thumb: rgba(244, 244, 245, 0.45);
 }
 
 @theme inline {
@@ -371,5 +377,53 @@
 	}
 	.hl-attr {
 		color: var(--hl-attr);
+	}
+
+	/* Hide native scrollbars on Monoxus ScrollArea viewports on legacy WebKit */
+	@supports not (scrollbar-width: none) {
+		[data-monoxus-scroll-area-viewport]::-webkit-scrollbar {
+			display: none;
+		}
+	}
+
+	/* Hover-only slim scrollbars for markdown and anatomy code blocks */
+	.prose-monoxus pre,
+	.code-block-scroll {
+		scrollbar-width: thin;
+		scrollbar-color: transparent transparent;
+	}
+
+	.prose-monoxus pre:hover,
+	.code-block-scroll:hover {
+		scrollbar-color: var(--scrollbar-thumb) transparent;
+	}
+
+	@supports not (scrollbar-color: auto) {
+		.prose-monoxus pre,
+		.code-block-scroll {
+			scrollbar-width: auto;
+		}
+
+		.prose-monoxus pre::-webkit-scrollbar,
+		.code-block-scroll::-webkit-scrollbar {
+			height: 8px;
+			width: 8px;
+		}
+
+		.prose-monoxus pre::-webkit-scrollbar-track,
+		.code-block-scroll::-webkit-scrollbar-track {
+			background: transparent;
+		}
+
+		.prose-monoxus pre::-webkit-scrollbar-thumb,
+		.code-block-scroll::-webkit-scrollbar-thumb {
+			border-radius: 9999px;
+			background: transparent;
+		}
+
+		.prose-monoxus pre:hover::-webkit-scrollbar-thumb,
+		.code-block-scroll:hover::-webkit-scrollbar-thumb {
+			background: var(--scrollbar-thumb);
+		}
 	}
 }

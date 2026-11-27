@@ -113,11 +113,6 @@ pub fn Home() -> Element {
                             class: "transition-colors hover:text-foreground",
                             "GitHub"
                         }
-                        Link {
-                            to: Route::OverviewDoc { slug: "roadmap".to_string() },
-                            class: "transition-colors hover:text-foreground",
-                            "Roadmap"
-                        }
                     }
                 }
             }

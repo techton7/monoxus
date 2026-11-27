@@ -18,6 +18,8 @@ export const REDIRECT_RULES: readonly RedirectRule[] = [
 	{ from: "/docs", to: "/docs/overview/introduction", status: 308 },
 	{ from: "/docs/introduction", to: "/docs/overview/introduction", status: 308 },
 	{ from: "/docs/getting-started", to: "/docs/overview/getting-started", status: 308 },
+	{ from: "/docs/roadmap", to: "/docs/overview/introduction", status: 308 },
+	{ from: "/docs/overview/roadmap", to: "/docs/overview/introduction", status: 308 },
 	{ from: "/docs/components", to: "/docs/components/button", status: 308 },
 ];
 

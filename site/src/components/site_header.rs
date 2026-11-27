@@ -73,11 +73,6 @@ pub fn SiteHeader() -> Element {
                             class: "text-foreground-alt transition-colors hover:text-foreground",
                             "Components"
                         }
-                        Link {
-                            to: Route::OverviewDoc { slug: "roadmap".to_string() },
-                            class: "text-foreground-alt transition-colors hover:text-foreground",
-                            "Roadmap"
-                        }
                     }
                 }
 
@@ -172,12 +167,6 @@ pub fn SiteHeader() -> Element {
                                             onclick: move |_| mobile_open.set(false),
                                             class: "rounded-button border border-border-card px-2.5 py-1.5 text-foreground hover:bg-muted",
                                             "Components"
-                                        }
-                                        Link {
-                                            to: Route::OverviewDoc { slug: "roadmap".to_string() },
-                                            onclick: move |_| mobile_open.set(false),
-                                            class: "rounded-button border border-border-card px-2.5 py-1.5 text-foreground hover:bg-muted",
-                                            "Roadmap"
                                         }
                                     }
 

@@ -59,11 +59,6 @@ static SIDEBAR_GROUPS: &[NavGroup] = &[
                 path: "/docs/overview/accessibility",
                 badge: None,
             },
-            NavItem {
-                title: "Roadmap",
-                path: "/docs/overview/roadmap",
-                badge: Some("44"),
-            },
         ],
     },
     NavGroup {

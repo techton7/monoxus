@@ -1,24 +1,64 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use dioxus::prelude::*;
+
+static MARK_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 #[component]
 pub fn MonoxusMark(#[props(default = "h-5 w-5".to_string())] class: String) -> Element {
+    let instance_id = use_hook(|| MARK_ID_COUNTER.fetch_add(1, Ordering::Relaxed));
+    let clip_id = format!("monoxus-mark-horizontal-cut-{instance_id}");
+    let mask_id = format!("monoxus-mark-strand-cutout-{instance_id}");
+    let mask_url = format!("url(#{mask_id})");
+    let clip_url = format!("url(#{clip_id})");
+    let strand_path = "M 184, 12 C 184, 55 135, 76 92, 106 C 66, 120 66, 136 92, 150 C 135, 180 184, 201 184, 244";
+
     rsx! {
         svg {
             class: "{class}",
-            view_box: "0 0 24 24",
-            fill: "none",
+            view_box: "0 0 256 256",
             "aria-hidden": "true",
-            rect {
-                x: "2",
-                y: "2",
-                width: "20",
-                height: "20",
-                rx: "5",
-                fill: "currentColor",
+            defs {
+                clipPath {
+                    id: "{clip_id}",
+                    rect { x: "0", y: "24", width: "256", height: "208" }
+                }
+                mask {
+                    id: "{mask_id}",
+                    rect { width: "256", height: "256", fill: "white" }
+                    path {
+                        d: "{strand_path}",
+                        fill: "none",
+                        stroke: "black",
+                        stroke_width: "42",
+                        stroke_linecap: "butt",
+                        stroke_linejoin: "round",
+                    }
+                }
             }
-            path {
-                d: "M7 16.5v-9h2.2l2.8 4.6 2.8-4.6H17v9h-2v-5.2l-2.3 3.7h-1.4L9 11.3v5.2H7Z",
-                fill: "var(--background)",
+            g {
+                class: "base-bars",
+                "mask": "{mask_url}",
+                stroke: "currentColor",
+                stroke_width: "16",
+                stroke_linecap: "butt",
+                line { x1: "68", y1: "52", x2: "188", y2: "52" }
+                line { x1: "68", y1: "84", x2: "188", y2: "84" }
+                line { x1: "68", y1: "116", x2: "188", y2: "116" }
+                line { x1: "68", y1: "148", x2: "188", y2: "148" }
+                line { x1: "68", y1: "180", x2: "188", y2: "180" }
+                line { x1: "68", y1: "212", x2: "188", y2: "212" }
+            }
+            g {
+                "clip-path": "{clip_url}",
+                path {
+                    d: "{strand_path}",
+                    fill: "none",
+                    stroke: "#00a8d6",
+                    stroke_width: "26",
+                    stroke_linecap: "butt",
+                    stroke_linejoin: "round",
+                }
             }
         }
     }

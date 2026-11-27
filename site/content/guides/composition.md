@@ -5,6 +5,13 @@ description: Compose custom elements, portals, text direction, and mount presenc
 
 Monoxus separates behavior from DOM structure using compound parts and foundation composition utilities in `monoxus::foundation`.
 
+## Controlled and Uncontrolled State
+
+Stateful primitives such as `DialogRoot`, `TabsRoot`, and `TooltipRoot` support both modes:
+
+- **Uncontrolled**: Pass `default_open: Some(true)` or `default_value: Some("account".into())` and let the primitive manage its internal signal.
+- **Controlled**: Pass your own `Signal<T>` via `open` or `value`, and optionally react to changes with `on_open_change` or `on_value_change`.
+
 ## AsChildSlot and Slottable
 
 When building your own design system wrapper on top of Monoxus, `AsChildSlot` and `Slottable` (in `monoxus::foundation::compose`) let you project primitive attributes and event handlers onto a single child target without adding extra wrapper elements:

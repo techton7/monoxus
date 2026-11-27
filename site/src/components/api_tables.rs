@@ -1,9 +1,10 @@
 use dioxus::prelude::*;
+use monoxus::collapsible::{CollapsibleContent, CollapsibleRoot, CollapsibleTrigger};
 use monoxus::foundation::overlay::PlacementSide;
 use monoxus::popover::{PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger};
 
-use crate::api_schema::{CssVarDoc, DataAttrDoc, KeyboardDoc, PropDoc};
-use crate::components::icons::InfoIcon;
+use crate::api_schema::{CssVarDoc, DataAttrDoc, KeyboardDoc, PropDoc, PropGroup};
+use crate::components::icons::{ChevronDownIcon, InfoIcon};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct PropsTableProps {
@@ -11,87 +12,148 @@ pub struct PropsTableProps {
     pub props: &'static [PropDoc],
 }
 
-/// Compact Radix-style Props reference table with expandable Popover details.
-#[component]
-pub fn PropsTable(props: PropsTableProps) -> Element {
-    let _part_name = props.part_name;
-    let props = props.props;
-    if props.is_empty() {
-        return rsx! {
-            p { class: "text-sm text-muted-foreground", "No component-specific props." }
-        };
-    }
-
+fn render_props_table(rows: &[&PropDoc]) -> Element {
     rsx! {
-        div {
-            class: "my-4 overflow-x-auto rounded-card-sm border border-border-card",
-            table {
-                class: "w-full border-collapse text-left text-sm",
-                thead {
-                    class: "border-b border-border-card bg-muted/50",
-                    tr {
-                        th { class: "px-4 py-2.5 text-xs font-semibold tracking-wide text-foreground uppercase", "Prop" }
-                        th { class: "px-4 py-2.5 text-xs font-semibold tracking-wide text-foreground uppercase", "Type" }
-                        th { class: "px-4 py-2.5 text-xs font-semibold tracking-wide text-foreground uppercase", "Default" }
-                    }
+        table {
+            class: "w-full border-collapse text-left text-sm",
+            thead {
+                class: "border-b border-border-card bg-muted/50",
+                tr {
+                    th { class: "px-4 py-2.5 text-xs font-semibold tracking-wide text-foreground uppercase", "Prop" }
+                    th { class: "px-4 py-2.5 text-xs font-semibold tracking-wide text-foreground uppercase", "Type" }
+                    th { class: "px-4 py-2.5 text-xs font-semibold tracking-wide text-foreground uppercase", "Default" }
                 }
-                tbody {
-                    for prop in props.iter() {
-                        tr {
-                            key: "{prop.name}",
-                            class: "border-t border-border-card transition-colors hover:bg-muted/25",
-                            td {
-                                class: "whitespace-nowrap px-4 py-2.5 align-middle",
-                                div {
-                                    class: "inline-flex items-center gap-1.5",
-                                    code {
-                                        class: "rounded bg-muted px-1.5 py-0.5 font-mono text-xs font-semibold text-foreground",
-                                        "{prop.name}"
-                                        if prop.required {
-                                            span { class: "ml-0.5 text-destructive", "*" }
-                                        }
+            }
+            tbody {
+                for prop in rows.iter().copied() {
+                    tr {
+                        key: "{prop.name}",
+                        class: "border-t border-border-card transition-colors hover:bg-muted/25",
+                        td {
+                            class: "whitespace-nowrap px-4 py-2.5 align-middle",
+                            div {
+                                class: "inline-flex items-center gap-1.5",
+                                code {
+                                    class: "rounded bg-muted px-1.5 py-0.5 font-mono text-xs font-semibold text-foreground",
+                                    "{prop.name}"
+                                    if prop.required {
+                                        span { class: "ml-0.5 text-destructive", "*" }
                                     }
-                                    PopoverRoot {
-                                        side: PlacementSide::Top,
-                                        side_offset: 6.0,
-                                        PopoverTrigger {
-                                            class: "inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
-                                            span { class: "sr-only", "Details for {prop.name}" }
-                                            InfoIcon { class: "h-3.5 w-3.5" }
-                                        }
-                                        PopoverPortal {
-                                            PopoverContent {
-                                                class: "z-50 w-72 rounded-card-sm border border-border-card bg-background p-3.5 text-xs leading-relaxed text-foreground shadow-popover outline-hidden",
-                                                div {
-                                                    class: "mb-1.5 font-mono text-[11px] font-semibold text-foreground",
-                                                    "{prop.name}: {prop.type_full}"
-                                                }
-                                                p {
-                                                    class: "text-foreground-alt",
-                                                    "{prop.description}"
-                                                }
+                                }
+                                PopoverRoot {
+                                    side: PlacementSide::Top,
+                                    side_offset: 6.0,
+                                    PopoverTrigger {
+                                        class: "inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                                        span { class: "sr-only", "Details for {prop.name}" }
+                                        InfoIcon { class: "h-3.5 w-3.5" }
+                                    }
+                                    PopoverPortal {
+                                        PopoverContent {
+                                            class: "z-50 w-72 rounded-card-sm border border-border-card bg-background p-3.5 text-xs leading-relaxed text-foreground shadow-popover outline-hidden",
+                                            div {
+                                                class: "mb-1.5 font-mono text-[11px] font-semibold text-foreground",
+                                                "{prop.name}: {prop.type_full}"
+                                            }
+                                            p {
+                                                class: "text-foreground-alt",
+                                                "{prop.description}"
                                             }
                                         }
                                     }
                                 }
                             }
-                            td {
-                                class: "px-4 py-2.5 align-middle",
-                                code {
-                                    class: "rounded border border-border-card bg-background-alt px-1.5 py-0.5 font-mono text-xs text-foreground-alt",
-                                    "{prop.type_simple}"
-                                }
+                        }
+                        td {
+                            class: "px-4 py-2.5 align-middle",
+                            code {
+                                class: "rounded border border-border-card bg-background-alt px-1.5 py-0.5 font-mono text-xs text-foreground-alt",
+                                "{prop.type_simple}"
                             }
-                            td {
-                                class: "whitespace-nowrap px-4 py-2.5 align-middle font-mono text-xs text-foreground-alt",
-                                if prop.required {
+                        }
+                        td {
+                            class: "whitespace-nowrap px-4 py-2.5 align-middle font-mono text-xs text-foreground-alt",
+                            if prop.required {
+                                span {
+                                    class: "rounded bg-destructive/10 px-1.5 py-0.5 text-[11px] font-medium text-destructive",
                                     "Required"
-                                } else {
-                                    "{prop.default.unwrap_or(\"—\")}"
                                 }
+                            } else {
+                                "{prop.default.unwrap_or(\"—\")}"
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+/// Compact Radix/Bits-style Props reference table with Core vs HTML & Global Attributes grouping
+/// and expandable Popover details.
+#[component]
+pub fn PropsTable(props: PropsTableProps) -> Element {
+    let _part_name = props.part_name;
+    let all_props = props.props;
+
+    let core_props: Vec<&PropDoc> = all_props
+        .iter()
+        .filter(|p| p.group == PropGroup::Core)
+        .collect();
+    let secondary_props: Vec<&PropDoc> = all_props
+        .iter()
+        .filter(|p| matches!(p.group, PropGroup::Common | PropGroup::HtmlAria))
+        .collect();
+
+    let secondary_hint = {
+        let preview: Vec<&str> = secondary_props.iter().take(4).map(|p| p.name).collect();
+        if secondary_props.len() > 4 {
+            format!("{}, ...", preview.join(", "))
+        } else {
+            preview.join(", ")
+        }
+    };
+
+    rsx! {
+        if core_props.is_empty() {
+            p {
+                class: "my-3 text-xs text-muted-foreground",
+                "Accepts standard HTML & GlobalAttributes."
+            }
+        } else {
+            div {
+                class: "my-4 overflow-x-auto rounded-card-sm border border-border-card",
+                {render_props_table(&core_props)}
+            }
+        }
+        if !secondary_props.is_empty() {
+            CollapsibleRoot {
+                default_open: Some(false),
+                class: "my-3 rounded-card-sm border border-border-card bg-background",
+                CollapsibleTrigger {
+                    class: "group flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-xs font-medium text-foreground-alt transition-colors hover:bg-muted/40 hover:text-foreground",
+                    div {
+                        class: "flex items-center gap-2",
+                        ChevronDownIcon {
+                            class: "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform duration-150 group-data-[state=open]:rotate-180".to_string(),
+                        }
+                        span {
+                            class: "font-semibold text-foreground",
+                            "HTML & Global Attributes"
+                        }
+                        span {
+                            class: "inline-flex items-center rounded-full bg-muted px-2 py-0.5 font-mono text-[11px] font-medium text-foreground-alt",
+                            "{secondary_props.len()}"
+                        }
+                    }
+                    span {
+                        class: "hidden truncate font-mono text-[11px] text-muted-foreground sm:inline",
+                        "{secondary_hint}"
+                    }
+                }
+                CollapsibleContent {
+                    class: "overflow-x-auto border-t border-border-card",
+                    {render_props_table(&secondary_props)}
                 }
             }
         }

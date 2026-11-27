@@ -44,10 +44,10 @@ pub fn DocPageHeader(
                     on_click: on_copy_md,
                     if copied() {
                         CheckIcon { class: "h-3.5 w-3.5 text-foreground" }
-                        span { "Copied Markdown" }
+                        span { "Copied" }
                     } else {
                         CopyIcon { class: "h-3.5 w-3.5 text-foreground-alt" }
-                        span { "Copy Markdown" }
+                        span { "Copy Page" }
                     }
                 }
 
