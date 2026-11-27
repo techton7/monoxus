@@ -32,6 +32,7 @@ pub struct ToggleGroupRuntime {
     pub roving_focus: Signal<bool>,
     pub loop_focus: Signal<bool>,
     pub disabled: Signal<bool>,
+    pub invalid: Signal<bool>,
     pub root_id: Signal<String>,
     pub root_dom_id: Signal<String>,
 }
@@ -81,6 +82,7 @@ pub fn use_toggle_group_runtime(
         roving_focus: use_signal(|| roving_focus),
         loop_focus: use_signal(|| loop_focus),
         disabled: use_signal(|| disabled),
+        invalid: use_signal(|| false),
         root_id: use_signal(|| root_id),
         root_dom_id: roving.root_dom_id,
     };
@@ -127,6 +129,10 @@ impl ToggleGroupRuntime {
 
     pub fn is_effective_disabled(&self, item_disabled: bool) -> bool {
         (self.disabled)() || item_disabled
+    }
+
+    pub fn is_invalid(&self) -> bool {
+        (self.invalid)()
     }
 
     pub fn register_item(&self, item: ToggleGroupItemRegistration) {

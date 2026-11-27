@@ -1,3 +1,5 @@
+use crate::foundation::shared::{data_disabled_attr, data_invalid_attr, data_required_attr};
+
 /// CSS selector matching interactive controls that should not have their text selection
 /// or native activation suppressed when nested inside a `<label>`.
 pub const LABEL_INTERACTIVE_TARGET_SELECTOR: &str = "button, input, select, textarea";
@@ -29,6 +31,9 @@ impl Label {
         LabelAttributes {
             id: self.id.clone(),
             r#for: self.html_for.clone(),
+            data_invalid: None,
+            data_disabled: None,
+            data_required: None,
             data_label_root: "",
         }
     }
@@ -39,7 +44,27 @@ impl Label {
 pub struct LabelAttributes {
     pub id: Option<String>,
     pub r#for: Option<String>,
+    pub data_invalid: Option<&'static str>,
+    pub data_disabled: Option<&'static str>,
+    pub data_required: Option<&'static str>,
     pub data_label_root: &'static str,
+}
+
+impl LabelAttributes {
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_disabled(mut self, disabled: bool) -> Self {
+        self.data_disabled = data_disabled_attr(disabled);
+        self
+    }
+
+    pub fn with_required(mut self, required: bool) -> Self {
+        self.data_required = data_required_attr(required);
+        self
+    }
 }
 
 #[cfg(test)]
@@ -82,5 +107,26 @@ mod tests {
             LABEL_INTERACTIVE_TARGET_SELECTOR,
             "button, input, select, textarea"
         );
+    }
+
+    #[test]
+    fn label_struct_literal_and_state_builders() {
+        let label = Label {
+            id: Some("l-1".to_string()),
+            html_for: Some("ctrl-1".to_string()),
+        };
+        let attrs = label
+            .attributes()
+            .with_invalid(true)
+            .with_disabled(true)
+            .with_required(true);
+        assert_eq!(attrs.data_invalid, Some(""));
+        assert_eq!(attrs.data_disabled, Some(""));
+        assert_eq!(attrs.data_required, Some(""));
+
+        let clean = label.attributes().with_invalid(false).with_disabled(false).with_required(false);
+        assert_eq!(clean.data_invalid, None);
+        assert_eq!(clean.data_disabled, None);
+        assert_eq!(clean.data_required, None);
     }
 }

@@ -26,6 +26,7 @@ pub struct RadioGroupRuntime {
     pub disabled: Signal<bool>,
     pub required: Signal<bool>,
     pub read_only: Signal<bool>,
+    pub invalid: Signal<bool>,
     pub name: Signal<Option<String>>,
     pub form: Signal<Option<String>>,
     pub autocomplete: Signal<Option<String>>,
@@ -82,6 +83,7 @@ pub fn use_radio_group_runtime(
         disabled: use_signal(|| disabled),
         required: use_signal(|| required),
         read_only: use_signal(|| read_only),
+        invalid: use_signal(|| false),
         name: use_signal(|| name.clone()),
         form: use_signal(|| form.clone()),
         autocomplete: use_signal(|| autocomplete.clone()),
@@ -137,6 +139,10 @@ impl RadioGroupRuntime {
 
     pub fn is_read_only(&self) -> bool {
         (self.read_only)()
+    }
+
+    pub fn is_invalid(&self) -> bool {
+        (self.invalid)()
     }
 
     /// Selects an item if enabled and not read-only.

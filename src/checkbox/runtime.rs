@@ -15,6 +15,7 @@ pub struct CheckboxContext {
     pub(crate) disabled: Signal<bool>,
     pub(crate) required: Signal<bool>,
     pub(crate) read_only: Signal<bool>,
+    pub(crate) invalid: Signal<bool>,
 }
 
 impl CheckboxContext {
@@ -44,6 +45,10 @@ impl CheckboxContext {
 
     pub fn is_read_only(&self) -> bool {
         *self.read_only.read()
+    }
+
+    pub fn is_invalid(&self) -> bool {
+        *self.invalid.read()
     }
 
     pub fn root_id(&self) -> &str {
@@ -76,6 +81,7 @@ pub struct CheckboxGroupContext {
     pub(crate) disabled: Signal<bool>,
     pub(crate) required: Signal<bool>,
     pub(crate) read_only: Signal<bool>,
+    pub(crate) invalid: Signal<bool>,
     pub(crate) values: Signal<Vec<String>>,
     pub(crate) values_ctl: ControllableSignal<Vec<String>>,
     pub(crate) label_id: Signal<Option<String>>,
@@ -117,6 +123,10 @@ impl CheckboxGroupContext {
 
     pub fn is_read_only(&self) -> bool {
         *self.read_only.read()
+    }
+
+    pub fn is_invalid(&self) -> bool {
+        *self.invalid.read()
     }
 
     pub fn values(&self) -> Vec<String> {

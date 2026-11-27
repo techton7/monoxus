@@ -2,8 +2,13 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
+use crate::field::try_use_field_context;
 use crate::foundation::{
-    compose::{join_styles, merge_global_attributes},
+    browser::focus::use_composite_focus_out,
+    compose::{
+        extract_aria_invalid_and_describedby, join_styles, merge_global_attributes,
+        resolve_invalid_and_describedby,
+    },
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
     keyboard::is_enter_key,
     overlay::use_presence,
@@ -82,6 +87,12 @@ pub struct RadioGroupRootProps {
     #[props(default = false)]
     pub read_only: bool,
     #[props(default)]
+    pub invalid: Option<bool>,
+    #[props(default)]
+    pub aria_describedby: Option<String>,
+    #[props(default)]
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
+    #[props(default)]
     pub orientation: Option<RadioGroupOrientation>,
     #[props(default)]
     pub dir: Option<Direction>,
@@ -102,6 +113,15 @@ pub struct RadioGroupRootProps {
 
 #[component]
 pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
+    let field_ctx = try_use_field_context();
+    let effective_name = props
+        .name
+        .clone()
+        .or_else(|| field_ctx.and_then(|f| f.name()));
+    let effective_disabled = props.disabled || field_ctx.is_some_and(|f| f.is_disabled());
+    let effective_required = props.required || field_ctx.is_some_and(|f| f.is_required());
+    let effective_read_only = props.read_only || field_ctx.is_some_and(|f| f.is_read_only());
+
     let resolved_dir = use_direction_context(props.dir);
     let stable_id = use_stable_id(props.id.clone().map(Cow::Owned));
     let scope_id = stable_id.into_owned();
@@ -109,6 +129,18 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
         let scope = ScopeHandle::root("radio-group").child(scope_id.clone());
         RadioGroupRelationships::new(scope).root_id().to_string()
     });
+
+    let extracted = extract_aria_invalid_and_describedby(props.attributes);
+    let field_describedby = field_ctx.and_then(|f| f.aria_describedby(None));
+    let (effective_invalid, effective_describedby) = resolve_invalid_and_describedby(
+        props.invalid,
+        extracted.aria_invalid,
+        field_ctx.map(|f| f.is_invalid()),
+        false,
+        props.aria_describedby.as_deref(),
+        extracted.aria_describedby.as_deref(),
+        field_describedby.as_deref(),
+    );
 
     let controlled_val = props.value.clone().map(|v| (!v.is_empty()).then_some(v));
     let default_val = props.default_value.clone().filter(|v| !v.is_empty());
@@ -127,10 +159,10 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
         props.orientation,
         resolved_dir,
         props.loop_focus,
-        props.disabled,
-        props.required,
-        props.read_only,
-        props.name.clone(),
+        effective_disabled,
+        effective_required,
+        effective_read_only,
+        effective_name.clone(),
         props.form.clone(),
         props.autocomplete.clone(),
         scope_id,
@@ -138,6 +170,7 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
         false,
         props.on_value_change,
     );
+    sync_signal(&mut runtime.invalid, effective_invalid);
 
     if value_ctl.is_controlled() {
         let mut prev_slot = prev_controlled_val;
@@ -153,7 +186,7 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
     let reset_initial = initial_val_for_reset;
     let (should_render_hidden, reset_epoch) = use_form_control_sync_with_epoch(
         &resolved_id,
-        props.name.as_deref(),
+        effective_name.as_deref(),
         props.form.as_deref(),
         move || {
             reset_runtime.reset_to(reset_initial.clone());
@@ -166,12 +199,18 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
         runtime: runtime.clone(),
     });
 
-    let root_attrs = runtime.root_attributes(None);
+    let (handle_focus_in, handle_focus_out) =
+        use_composite_focus_out(vec![resolved_id.clone()], props.on_focus_out);
+
+    let root_attrs = runtime
+        .root_attributes(None)
+        .with_invalid(effective_invalid)
+        .with_aria_describedby(effective_describedby);
     let resolved_role = props.role.as_deref().unwrap_or(root_attrs.role());
     let merged = merge_global_attributes(
         props.class.as_deref(),
         props.style.as_deref(),
-        props.attributes,
+        extracted.rest,
     );
 
     rsx! {
@@ -185,11 +224,16 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
             "aria-required": root_attrs.aria_required,
             "aria-disabled": root_attrs.aria_disabled,
             "aria-readonly": root_attrs.aria_readonly,
+            "aria-invalid": root_attrs.aria_invalid,
+            "aria-describedby": root_attrs.aria_describedby.as_deref(),
             "data-orientation": root_attrs.data_orientation,
             "data-disabled": root_attrs.data_disabled,
             "data-required": root_attrs.data_required,
             "data-readonly": root_attrs.data_readonly,
+            "data-invalid": root_attrs.data_invalid,
             "data-radio-group-root": "{root_attrs.data_radio_group_root}",
+            onfocusin: handle_focus_in,
+            onfocusout: handle_focus_out,
             ..merged.rest,
             {props.children}
         }
@@ -215,6 +259,8 @@ pub struct RadioGroupItemProps {
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default)]
     pub on_focus: Option<EventHandler<FocusEvent>>,
+    #[props(default)]
+    pub on_blur: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
@@ -253,7 +299,12 @@ pub fn RadioGroupItem(props: RadioGroupItemProps) -> Element {
         disabled_sig: item_disabled_sig,
     });
 
-    let item_attrs = runtime.item_attributes(&props.value, Some(item_id.clone()), props.disabled);
+    let mut on_blur_slot = use_hook(|| CopyValue::new(props.on_blur));
+    on_blur_slot.set(props.on_blur);
+
+    let item_attrs = runtime
+        .item_attributes(&props.value, Some(item_id.clone()), props.disabled)
+        .with_invalid(runtime.is_invalid());
 
     let on_click = {
         let runtime = runtime.clone();
@@ -315,6 +366,12 @@ pub fn RadioGroupItem(props: RadioGroupItemProps) -> Element {
         }
     };
 
+    let on_blur = move |evt: FocusEvent| {
+        if let Some(handler) = on_blur_slot.try_read().ok().and_then(|s| *s) {
+            handler.call(evt);
+        }
+    };
+
     let on_mounted = {
         let consumer_on_mounted = props.on_mounted;
         move |evt: MountedEvent| {
@@ -349,12 +406,14 @@ pub fn RadioGroupItem(props: RadioGroupItemProps) -> Element {
             "data-state": item_attrs.data_state.as_str(),
             "data-disabled": item_attrs.data_disabled,
             "data-readonly": item_attrs.data_readonly,
+            "data-invalid": item_attrs.data_invalid,
             "data-orientation": item_attrs.data_orientation,
             "data-value": "{item_attrs.data_value}",
             "data-radio-group-item": "{item_attrs.data_radio_group_item}",
             onclick: on_click,
             onkeydown: on_key_down,
             onfocus: on_focus,
+            onblur: on_blur,
             onmounted: on_mounted,
             ..merged.rest,
             {props.children}

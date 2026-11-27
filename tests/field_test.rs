@@ -504,4 +504,590 @@ mod native_tests {
             assert_eq!(li_nodes.len(), 2, "Duplicate error messages must be deduplicated");
         }
     }
+
+    /// FM-CTL-04 (M2-A): Controlled CheckboxRoot, CheckboxGroup, and SwitchRoot freeze
+    /// mount-time initial values on `<form>` reset (never `default_*` or later prop mutations).
+    #[component]
+    fn M2aControlledResetScenario() -> Element {
+        use monoxus::button::{Button, ButtonType};
+        use monoxus::checkbox::{CheckboxGroup, CheckboxIndicator};
+        use monoxus::switch::{SwitchRoot, SwitchThumb};
+
+        let mut cb_checked = use_signal(|| CheckedState::Checked);
+        let mut sw_checked = use_signal(|| true);
+        let mut grp_values = use_signal(|| vec![String::from("a")]);
+        let mut last_cb_reset = use_signal(|| String::from("none"));
+        let mut last_sw_reset = use_signal(|| String::from("none"));
+        let mut last_grp_reset = use_signal(|| String::from("none"));
+
+        rsx! {
+            div {
+                style: "width: 800px; height: 600px;",
+                div {
+                    id: "m2a-reset-probe",
+                    "data-cb": cb_checked().aria_checked(),
+                    "data-sw": if sw_checked() { "true" } else { "false" },
+                    "data-grp": grp_values().join(","),
+                    "data-last-cb": last_cb_reset(),
+                    "data-last-sw": last_sw_reset(),
+                    "data-last-grp": last_grp_reset(),
+                }
+                form {
+                    id: "m2a-reset-form",
+                    CheckboxRoot {
+                        id: "m2a-reset-cb",
+                        name: "agree",
+                        checked: Some(cb_checked()),
+                        default_checked: CheckedState::Unchecked,
+                        on_checked_change: move |next: CheckedState| {
+                            last_cb_reset.set(next.aria_checked().to_string());
+                            cb_checked.set(next);
+                        },
+                        style: "width: 40px; height: 24px;",
+                        CheckboxIndicator { "v" }
+                    }
+                    SwitchRoot {
+                        id: "m2a-reset-sw",
+                        name: "alerts",
+                        checked: Some(sw_checked()),
+                        default_checked: false,
+                        on_checked_change: move |next: bool| {
+                            last_sw_reset.set(next.to_string());
+                            sw_checked.set(next);
+                        },
+                        style: "width: 40px; height: 24px;",
+                        SwitchThumb {}
+                    }
+                    CheckboxGroup {
+                        id: "m2a-reset-grp",
+                        name: "tags",
+                        values: Some(grp_values()),
+                        default_values: vec![],
+                        on_values_change: move |next: Vec<String>| {
+                            last_grp_reset.set(next.join(","));
+                            grp_values.set(next);
+                        },
+                        CheckboxRoot {
+                            id: "m2a-reset-grp-a",
+                            value: "a",
+                            style: "width: 40px; height: 24px;",
+                            "A"
+                        }
+                        CheckboxRoot {
+                            id: "m2a-reset-grp-b",
+                            value: "b",
+                            style: "width: 40px; height: 24px;",
+                            "B"
+                        }
+                    }
+                    Button {
+                        id: "m2a-reset-btn".to_string(),
+                        r#type: ButtonType::Reset,
+                        style: "width: 80px; height: 28px;".to_string(),
+                        "Reset"
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn m2a_controlled_reset_baselines_freeze_mount_time_values() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(M2aControlledResetScenario);
+        advance_frame_and_pump(&mut harness, 0.016);
+
+        // Mutate all 3 controlled widgets away from their mount-time initial values
+        click_and_pump(&mut harness, "#m2a-reset-cb");
+        click_and_pump(&mut harness, "#m2a-reset-sw");
+        click_and_pump(&mut harness, "#m2a-reset-grp-a");
+        click_and_pump(&mut harness, "#m2a-reset-grp-b");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2a-reset-probe")).unwrap();
+            assert_eq!(probe.attr("data-cb".into()), Some("false"));
+            assert_eq!(probe.attr("data-sw".into()), Some("false"));
+            assert_eq!(probe.attr("data-grp".into()), Some("b"));
+        }
+
+        // Trigger `<form>` reset -> must restore mount-time initial values (`true`, `true`, `"a"`)
+        click_and_pump(&mut harness, "#m2a-reset-btn");
+        advance_frame_and_pump(&mut harness, 0.016);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2a-reset-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-cb".into()),
+                Some("true"),
+                "Controlled CheckboxRoot reset must emit mount-time Checked (not default Unchecked)"
+            );
+            assert_eq!(
+                probe.attr("data-sw".into()),
+                Some("true"),
+                "Controlled SwitchRoot reset must emit mount-time true (not default false)"
+            );
+            assert_eq!(
+                probe.attr("data-grp".into()),
+                Some("a"),
+                "Controlled CheckboxGroup reset must emit mount-time ['a'] (not default [])"
+            );
+        }
+    }
+
+    /// FM-CTL-03 (M2-A): Composite `on_focus_out` on RadioGroup / ToggleGroup / CheckboxGroup
+    /// never fires on internal item-to-item focus moves, fires once when leaving to an external
+    /// button, and toggling `on_blur: Some <-> None` never panics (`Dioxus #5894`).
+    #[component]
+    fn M2aCompositeFocusOutAndBlurScenario() -> Element {
+        use monoxus::checkbox::CheckboxGroup;
+        use monoxus::radio_group::{RadioGroupItem, RadioGroupRoot};
+        use monoxus::switch::SwitchRoot;
+        use monoxus::toggle::Toggle;
+        use monoxus::toggle_group::{ToggleGroupItem, ToggleGroupMode, ToggleGroupRoot};
+
+        let mut rg_focus_outs = use_signal(|| 0_u32);
+        let mut tg_focus_outs = use_signal(|| 0_u32);
+        let mut cg_focus_outs = use_signal(|| 0_u32);
+        let mut item_blurs = use_signal(|| 0_u32);
+        let mut attach_blur = use_signal(|| true);
+
+        let mk_blur = move || {
+            if attach_blur() {
+                Some(EventHandler::new(move |_: FocusEvent| {
+                    item_blurs += 1;
+                }))
+            } else {
+                None
+            }
+        };
+
+        rsx! {
+            div {
+                style: "width: 800px; height: 600px;",
+                div {
+                    id: "m2a-focus-probe",
+                    "data-rg-out": "{rg_focus_outs}",
+                    "data-tg-out": "{tg_focus_outs}",
+                    "data-cg-out": "{cg_focus_outs}",
+                    "data-blurs": "{item_blurs}",
+                    "data-attached": if attach_blur() { "true" } else { "false" },
+                }
+                button {
+                    id: "m2a-toggle-blur-handler",
+                    r#type: "button",
+                    style: "width: 100px; height: 28px;",
+                    onclick: move |_| attach_blur.toggle(),
+                    "Toggle Blur"
+                }
+                button {
+                    id: "m2a-ext-btn",
+                    r#type: "button",
+                    style: "width: 100px; height: 28px;",
+                    "External"
+                }
+
+                RadioGroupRoot {
+                    id: "m2a-rg",
+                    default_value: Some(String::from("a")),
+                    on_focus_out: move |_| rg_focus_outs += 1,
+                    RadioGroupItem {
+                        id: "m2a-rg-a",
+                        value: "a",
+                        on_blur: mk_blur(),
+                        style: "width: 60px; height: 28px;",
+                        "A"
+                    }
+                    RadioGroupItem {
+                        id: "m2a-rg-b",
+                        value: "b",
+                        on_blur: mk_blur(),
+                        style: "width: 60px; height: 28px;",
+                        "B"
+                    }
+                }
+
+                ToggleGroupRoot {
+                    id: "m2a-tg",
+                    r#type: ToggleGroupMode::Single,
+                    on_focus_out: move |_| tg_focus_outs += 1,
+                    ToggleGroupItem {
+                        id: "m2a-tg-1",
+                        value: "1",
+                        on_blur: mk_blur(),
+                        style: "width: 60px; height: 28px;",
+                        "1"
+                    }
+                    ToggleGroupItem {
+                        id: "m2a-tg-2",
+                        value: "2",
+                        on_blur: mk_blur(),
+                        style: "width: 60px; height: 28px;",
+                        "2"
+                    }
+                }
+
+                CheckboxGroup {
+                    id: "m2a-cg",
+                    on_focus_out: move |_| cg_focus_outs += 1,
+                    CheckboxRoot {
+                        id: "m2a-cg-1",
+                        value: "one",
+                        on_blur: mk_blur(),
+                        style: "width: 60px; height: 28px;",
+                        "One"
+                    }
+                    CheckboxRoot {
+                        id: "m2a-cg-2",
+                        value: "two",
+                        on_blur: mk_blur(),
+                        style: "width: 60px; height: 28px;",
+                        "Two"
+                    }
+                }
+
+                SwitchRoot {
+                    id: "m2a-blur-sw",
+                    on_blur: mk_blur(),
+                    style: "width: 60px; height: 28px;",
+                    "Sw"
+                }
+                Toggle {
+                    id: "m2a-blur-toggle",
+                    on_blur: mk_blur(),
+                    style: "width: 60px; height: 28px;",
+                    "Tg"
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn m2a_composite_focus_out_and_blur_5894_safety() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(M2aCompositeFocusOutAndBlurScenario);
+        drain_polls_and_resolve(&mut harness);
+
+        // 1. RadioGroup internal focus move A -> B must NOT fire on_focus_out
+        click_and_pump(&mut harness, "#m2a-rg-a");
+        click_and_pump(&mut harness, "#m2a-rg-b");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2a-focus-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-rg-out".into()),
+                Some("0"),
+                "Internal RadioGroup item move must not fire on_focus_out"
+            );
+        }
+
+        // Leave RadioGroup to external button -> fires on_focus_out exactly once
+        click_and_pump(&mut harness, "#m2a-ext-btn");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2a-focus-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-rg-out".into()),
+                Some("1"),
+                "Leaving RadioGroup to external button must fire on_focus_out once"
+            );
+        }
+
+        // 2. ToggleGroup internal focus move 1 -> 2 must NOT fire on_focus_out
+        click_and_pump(&mut harness, "#m2a-tg-1");
+        click_and_pump(&mut harness, "#m2a-tg-2");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2a-focus-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-tg-out".into()),
+                Some("0"),
+                "Internal ToggleGroup item move must not fire on_focus_out"
+            );
+        }
+
+        // Leave ToggleGroup to external button -> fires on_focus_out exactly once
+        click_and_pump(&mut harness, "#m2a-ext-btn");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2a-focus-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-tg-out".into()),
+                Some("1"),
+                "Leaving ToggleGroup to external button must fire on_focus_out once"
+            );
+        }
+
+        // 3. CheckboxGroup internal focus move 1 -> 2 must NOT fire on_focus_out, leaving fires once
+        click_and_pump(&mut harness, "#m2a-cg-1");
+        click_and_pump(&mut harness, "#m2a-cg-2");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2a-focus-probe")).unwrap();
+            assert_eq!(probe.attr("data-cg-out".into()), Some("0"));
+        }
+        click_and_pump(&mut harness, "#m2a-ext-btn");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2a-focus-probe")).unwrap();
+            assert_eq!(probe.attr("data-cg-out".into()), Some("1"));
+        }
+
+        // 4. Toggle on_blur Some <-> None across renders -> zero Dioxus #5894 panic
+        click_and_pump(&mut harness, "#m2a-toggle-blur-handler");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m2a-toggle-blur-handler");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m2a-focus-probe")).unwrap();
+            assert_eq!(probe.attr("data-attached".into()), Some("true"));
+        }
+    }
+
+    /// FM-FLD-03 + FieldContext/FieldControl wiring + Label auto-`for` across all 6 M2-A controls.
+    #[component]
+    fn M2aFieldWiringScenario() -> Element {
+        use monoxus::checkbox::{CheckboxGroup, CheckboxIndicator};
+        use monoxus::label::Label;
+        use monoxus::radio_group::{RadioGroupItem, RadioGroupRoot};
+        use monoxus::switch::{SwitchRoot, SwitchThumb};
+        use monoxus::toggle::Toggle;
+        use monoxus::toggle_group::{ToggleGroupItem, ToggleGroupMode, ToggleGroupRoot};
+
+        let mut invalid = use_signal(|| false);
+
+        rsx! {
+            div {
+                button {
+                    id: "m2a-wire-toggle-invalid",
+                    onclick: move |_| invalid.toggle(),
+                    "Toggle Invalid"
+                }
+
+                // 1. Standalone CheckboxRoot + CheckboxIndicator + Label inside FieldRoot
+                FieldRoot {
+                    id: "m2a-f-cb",
+                    invalid: invalid(),
+                    required: true,
+                    Label { id: "m2a-l-cb", "Accept" }
+                    CheckboxRoot {
+                        "data-probe": "m2a-cb",
+                        default_checked: CheckedState::Checked,
+                        CheckboxIndicator {
+                            id: "m2a-cb-ind",
+                            "v"
+                        }
+                    }
+                    FieldDescription { id: "m2a-d-cb", "Desc" }
+                    FieldError { id: "m2a-e-cb", "Err" }
+                }
+
+                // 2. SwitchRoot + SwitchThumb + Label inside FieldRoot
+                FieldRoot {
+                    id: "m2a-f-sw",
+                    invalid: invalid(),
+                    Label { id: "m2a-l-sw", "Notifications" }
+                    SwitchRoot {
+                        "data-probe": "m2a-sw",
+                        SwitchThumb { id: "m2a-sw-thumb" }
+                    }
+                    FieldDescription { id: "m2a-d-sw", "Desc" }
+                    FieldError { id: "m2a-e-sw", "Err" }
+                }
+
+                // 3. RadioGroupRoot + RadioGroupItem inside FieldRoot
+                FieldRoot {
+                    id: "m2a-f-rg",
+                    invalid: invalid(),
+                    RadioGroupRoot {
+                        id: "m2a-rg-root",
+                        RadioGroupItem { id: "m2a-rg-item", value: "x", "X" }
+                    }
+                    FieldDescription { id: "m2a-d-rg", "Desc" }
+                    FieldError { id: "m2a-e-rg", "Err" }
+                }
+
+                // 4. Toggle + Label inside FieldRoot
+                FieldRoot {
+                    id: "m2a-f-tg-single",
+                    invalid: invalid(),
+                    Label { id: "m2a-l-tg-single", "Bold" }
+                    Toggle {
+                        "data-probe": "m2a-toggle",
+                        "B"
+                    }
+                    FieldDescription { id: "m2a-d-tg-single", "Desc" }
+                    FieldError { id: "m2a-e-tg-single", "Err" }
+                }
+
+                // 5. ToggleGroupRoot + ToggleGroupItem inside FieldRoot
+                FieldRoot {
+                    id: "m2a-f-tg-grp",
+                    invalid: invalid(),
+                    ToggleGroupRoot {
+                        id: "m2a-tg-grp-root",
+                        r#type: ToggleGroupMode::Multiple,
+                        ToggleGroupItem { id: "m2a-tg-grp-item", value: "i", "I" }
+                    }
+                    FieldDescription { id: "m2a-d-tg-grp", "Desc" }
+                    FieldError { id: "m2a-e-tg-grp", "Err" }
+                }
+
+                // 6. FieldSet: Label directly inside omits `for`, Label inside FieldControl binds `for`,
+                //    CheckboxGroup suppresses CheckboxRoot auto-binding to FieldControl
+                FieldSet {
+                    id: "m2a-fs",
+                    invalid: invalid(),
+                    disabled: true,
+                    Label { id: "m2a-fs-direct-label", "Direct Label" }
+                    FieldControl {
+                        Label { id: "m2a-fs-ctrl-label", "Scoped Label" }
+                        CheckboxRoot {
+                            "data-probe": "m2a-fs-cb",
+                            "C"
+                        }
+                    }
+                    CheckboxGroup {
+                        id: "m2a-fs-cbg",
+                        CheckboxRoot {
+                            id: "m2a-fs-cbg-item",
+                            value: "g1",
+                            "G1"
+                        }
+                    }
+                    FieldDescription { id: "m2a-d-fs", "FS Desc" }
+                    FieldError { id: "m2a-e-fs", "FS Err" }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn m2a_field_wiring_data_invalid_hygiene_and_label_auto_for() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(M2aFieldWiringScenario);
+        drain_polls_and_resolve(&mut harness);
+
+        // 1. Valid state: auto-bound IDs & Label `for`, data-invalid & aria-invalid omitted everywhere
+        {
+            let base = harness.base();
+            let cb = base.get_node(harness.node("[data-probe='m2a-cb']")).unwrap();
+            let l_cb = base.get_node(harness.node("#m2a-l-cb")).unwrap();
+            let cb_ind = base.get_node(harness.node("#m2a-cb-ind")).unwrap();
+            assert_eq!(l_cb.attr("for".into()), cb.attr("id".into()));
+            assert_eq!(l_cb.attr("data-required".into()), Some(""));
+            assert_eq!(cb.attr("aria-describedby".into()), Some("m2a-d-cb"));
+            assert_eq!(cb.attr("aria-invalid".into()), None);
+            assert_eq!(cb.attr("data-invalid".into()), None);
+            assert_eq!(cb_ind.attr("data-invalid".into()), None);
+
+            let sw = base.get_node(harness.node("[data-probe='m2a-sw']")).unwrap();
+            let l_sw = base.get_node(harness.node("#m2a-l-sw")).unwrap();
+            let sw_thumb = base.get_node(harness.node("#m2a-sw-thumb")).unwrap();
+            assert_eq!(l_sw.attr("for".into()), sw.attr("id".into()));
+            assert_eq!(sw.attr("aria-describedby".into()), Some("m2a-d-sw"));
+            assert_eq!(sw.attr("aria-invalid".into()), None);
+            assert_eq!(sw.attr("data-invalid".into()), None);
+            assert_eq!(sw_thumb.attr("data-invalid".into()), None);
+
+            let rg = base.get_node(harness.node("#m2a-rg-root")).unwrap();
+            let rg_item = base.get_node(harness.node("#m2a-rg-item")).unwrap();
+            assert_eq!(rg.attr("aria-describedby".into()), Some("m2a-d-rg"));
+            assert_eq!(rg.attr("aria-invalid".into()), None);
+            assert_eq!(rg.attr("data-invalid".into()), None);
+            assert_eq!(rg_item.attr("data-invalid".into()), None);
+
+            let tgl = base.get_node(harness.node("[data-probe='m2a-toggle']")).unwrap();
+            let l_tgl = base.get_node(harness.node("#m2a-l-tg-single")).unwrap();
+            assert_eq!(l_tgl.attr("for".into()), tgl.attr("id".into()));
+            assert_eq!(tgl.attr("aria-describedby".into()), Some("m2a-d-tg-single"));
+            assert_eq!(tgl.attr("aria-invalid".into()), None);
+            assert_eq!(tgl.attr("data-invalid".into()), None);
+
+            let tg_grp = base.get_node(harness.node("#m2a-tg-grp-root")).unwrap();
+            let tg_item = base.get_node(harness.node("#m2a-tg-grp-item")).unwrap();
+            assert_eq!(tg_grp.attr("aria-describedby".into()), Some("m2a-d-tg-grp"));
+            assert_eq!(tg_grp.attr("aria-invalid".into()), None);
+            assert_eq!(tg_grp.attr("data-invalid".into()), None);
+            assert_eq!(tg_item.attr("data-invalid".into()), None);
+
+            // FieldSet Label auto-for rules + data-disabled inheritance
+            let fs_direct_lbl = base.get_node(harness.node("#m2a-fs-direct-label")).unwrap();
+            let fs_ctrl_lbl = base.get_node(harness.node("#m2a-fs-ctrl-label")).unwrap();
+            let fs_cb = base.get_node(harness.node("[data-probe='m2a-fs-cb']")).unwrap();
+            assert_eq!(
+                fs_direct_lbl.attr("for".into()),
+                None,
+                "Label directly inside FieldSet without FieldControl must omit `for`"
+            );
+            assert_eq!(fs_direct_lbl.attr("data-disabled".into()), Some(""));
+            assert_eq!(fs_ctrl_lbl.attr("for".into()), fs_cb.attr("id".into()));
+        }
+
+        // 2. Toggle invalid: true -> all 6 controls & subparts emit data-invalid="" & aria-invalid="true" + error ID in aria-describedby
+        click_and_pump(&mut harness, "#m2a-wire-toggle-invalid");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            for (sel, expected_desc) in [
+                ("[data-probe='m2a-cb']", "m2a-d-cb m2a-e-cb"),
+                ("[data-probe='m2a-sw']", "m2a-d-sw m2a-e-sw"),
+                ("#m2a-rg-root", "m2a-d-rg m2a-e-rg"),
+                ("[data-probe='m2a-toggle']", "m2a-d-tg-single m2a-e-tg-single"),
+                ("#m2a-tg-grp-root", "m2a-d-tg-grp m2a-e-tg-grp"),
+                ("#m2a-fs-cbg", "m2a-d-fs m2a-e-fs"),
+            ] {
+                let node = base.get_node(harness.node(sel)).unwrap();
+                assert_eq!(
+                    node.attr("aria-invalid".into()),
+                    Some("true"),
+                    "{sel} must emit aria-invalid=true"
+                );
+                assert_eq!(
+                    node.attr("data-invalid".into()),
+                    Some(""),
+                    "{sel} must emit empty-string data-invalid"
+                );
+                assert_eq!(
+                    node.attr("aria-describedby".into()),
+                    Some(expected_desc),
+                    "{sel} must include description + error IDs"
+                );
+            }
+
+            // Sub-parts and Labels must propagate data-invalid=""
+            for sel in [
+                "#m2a-cb-ind",
+                "#m2a-sw-thumb",
+                "#m2a-rg-item",
+                "#m2a-tg-grp-item",
+                "#m2a-l-cb",
+                "#m2a-l-sw",
+                "#m2a-l-tg-single",
+                "#m2a-fs-direct-label",
+                "#m2a-fs-ctrl-label",
+            ] {
+                let node = base.get_node(harness.node(sel)).unwrap();
+                assert_eq!(
+                    node.attr("data-invalid".into()),
+                    Some(""),
+                    "{sel} must propagate data-invalid=\"\""
+                );
+            }
+        }
+    }
 }

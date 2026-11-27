@@ -1,4 +1,5 @@
 use crate::foundation::{
+    shared::data_invalid_attr,
     state::DataState,
 };
 
@@ -7,12 +8,26 @@ pub struct ToggleGroupRootAttributes {
     pub id: String,
     pub role: &'static str,
     pub dir: &'static str,
+    pub aria_invalid: Option<&'static str>,
+    pub aria_describedby: Option<String>,
     pub data_orientation: &'static str,
     pub data_disabled: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_toggle_group_root: &'static str,
 }
 
 impl ToggleGroupRootAttributes {
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.aria_invalid = invalid.then_some("true");
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, describedby: Option<String>) -> Self {
+        self.aria_describedby = describedby.filter(|s| !s.trim().is_empty());
+        self
+    }
+
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -25,12 +40,24 @@ impl ToggleGroupRootAttributes {
         self.dir
     }
 
+    pub fn aria_invalid(&self) -> Option<&'static str> {
+        self.aria_invalid
+    }
+
+    pub fn aria_describedby(&self) -> Option<&str> {
+        self.aria_describedby.as_deref()
+    }
+
     pub fn data_orientation(&self) -> &'static str {
         self.data_orientation
     }
 
     pub fn data_disabled(&self) -> Option<&'static str> {
         self.data_disabled
+    }
+
+    pub fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
     }
 
     pub fn data_toggle_group_root(&self) -> &'static str {
@@ -47,6 +74,7 @@ pub struct ToggleGroupItemAttributes {
     pub tabindex: i32,
     pub disabled: bool,
     pub data_disabled: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_state: DataState,
     pub data_value: String,
     pub data_orientation: &'static str,
@@ -54,6 +82,11 @@ pub struct ToggleGroupItemAttributes {
 }
 
 impl ToggleGroupItemAttributes {
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -80,6 +113,10 @@ impl ToggleGroupItemAttributes {
 
     pub fn data_disabled(&self) -> Option<&'static str> {
         self.data_disabled
+    }
+
+    pub fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
     }
 
     pub fn data_state(&self) -> DataState {

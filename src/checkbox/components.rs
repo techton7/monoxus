@@ -3,8 +3,13 @@ use std::borrow::Cow;
 use dioxus::prelude::*;
 
 use crate::button::ButtonType;
+use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
-    compose::merge_global_attributes,
+    browser::focus::use_composite_focus_out,
+    compose::{
+        extract_aria_invalid_and_describedby, merge_global_attributes,
+        resolve_invalid_and_describedby,
+    },
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
     keyboard::is_enter_key,
     overlay::use_presence,
@@ -47,6 +52,10 @@ pub struct CheckboxRootProps {
     #[props(default = false)]
     pub read_only: bool,
     #[props(default)]
+    pub invalid: Option<bool>,
+    #[props(default)]
+    pub aria_describedby: Option<String>,
+    #[props(default)]
     pub name: Option<String>,
     #[props(default = String::from("on"))]
     pub value: String,
@@ -59,6 +68,8 @@ pub struct CheckboxRootProps {
     #[props(default)]
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default)]
+    pub on_blur: Option<EventHandler<FocusEvent>>,
+    #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
@@ -69,27 +80,59 @@ pub struct CheckboxRootProps {
 #[component]
 pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
     let group_ctx = try_use_checkbox_group_context();
+    let field_ctx = try_use_field_context();
+    let control_ctx = try_use_field_control_context();
 
     let effective_name = props
         .name
         .clone()
-        .or_else(|| group_ctx.as_ref().and_then(|g| g.reactive_name()));
+        .or_else(|| group_ctx.as_ref().and_then(|g| g.reactive_name()))
+        .or_else(|| field_ctx.and_then(|f| f.name()));
     let effective_form = props
         .form
         .clone()
         .or_else(|| group_ctx.as_ref().and_then(|g| g.reactive_form()));
-    let effective_disabled =
-        props.disabled || group_ctx.as_ref().is_some_and(|g| g.is_disabled());
-    let effective_required =
-        props.required || group_ctx.as_ref().is_some_and(|g| g.is_required());
-    let effective_read_only =
-        props.read_only || group_ctx.as_ref().is_some_and(|g| g.is_read_only());
+    let effective_disabled = props.disabled
+        || group_ctx.as_ref().is_some_and(|g| g.is_disabled())
+        || field_ctx.is_some_and(|f| f.is_disabled());
+    let effective_required = props.required
+        || group_ctx.as_ref().is_some_and(|g| g.is_required())
+        || field_ctx.is_some_and(|f| f.is_required());
+    let effective_read_only = props.read_only
+        || group_ctx.as_ref().is_some_and(|g| g.is_read_only())
+        || field_ctx.is_some_and(|f| f.is_read_only());
 
-    let stable_id = use_stable_id(props.id.clone().map(Cow::Owned));
+    let explicit_id = props.id.clone().filter(|id| !id.trim().is_empty());
+    let bound_field_id = if group_ctx.is_none() {
+        if let Some(ref explicit) = explicit_id {
+            if let Some(ctrl_ctx) = control_ctx {
+                if !ctrl_ctx.is_explicit_id_locked() {
+                    ctrl_ctx.sync_control_id(explicit.clone());
+                }
+            } else if let Some(f_ctx) = field_ctx
+                && !f_ctx.is_fieldset()
+            {
+                f_ctx.set_primary_control_id(Some(explicit.clone()));
+            }
+            Some(explicit.clone())
+        } else if let Some(ctrl_ctx) = control_ctx {
+            Some(ctrl_ctx.control_id())
+        } else if let Some(f_ctx) = field_ctx
+            && !f_ctx.is_fieldset()
+        {
+            Some(f_ctx.resolved_control_id())
+        } else {
+            None
+        }
+    } else {
+        explicit_id.clone()
+    };
+
+    let stable_id = use_stable_id(bound_field_id.clone().map(Cow::Owned));
     let relationships = {
         let scope = ScopeHandle::root("checkbox").child(stable_id);
-        if let Some(ref explicit_id) = props.id {
-            CheckboxRelationships::with_explicit_root_id(scope, explicit_id)
+        if let Some(ref resolved_explicit_id) = bound_field_id {
+            CheckboxRelationships::with_explicit_root_id(scope, resolved_explicit_id)
         } else {
             CheckboxRelationships::new(scope)
         }
@@ -98,6 +141,22 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
     let root_id = relationships.root_id().to_string();
     let indicator_id = relationships.indicator_id().to_string();
 
+    let extracted = extract_aria_invalid_and_describedby(props.attributes);
+    let field_describedby = field_ctx.and_then(|f| f.aria_describedby(None));
+    let inherited_invalid = group_ctx
+        .as_ref()
+        .map(|g| g.is_invalid())
+        .or_else(|| field_ctx.map(|f| f.is_invalid()));
+    let (effective_invalid, effective_describedby) = resolve_invalid_and_describedby(
+        props.invalid,
+        extracted.aria_invalid,
+        inherited_invalid,
+        false,
+        props.aria_describedby.as_deref(),
+        extracted.aria_describedby.as_deref(),
+        field_describedby.as_deref(),
+    );
+
     let is_in_group = group_ctx.is_some() && props.checked.is_none();
     let item_val_for_group = props.value.clone();
 
@@ -105,6 +164,8 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
         use_controllable_signal(props.checked, props.default_checked, props.on_checked_change);
     let mut on_checked_change_slot = use_hook(|| CopyValue::new(props.on_checked_change));
     on_checked_change_slot.set(props.on_checked_change);
+    let mut on_blur_slot = use_hook(|| CopyValue::new(props.on_blur));
+    on_blur_slot.set(props.on_blur);
 
     let current_checked = if is_in_group {
         let g = group_ctx.as_ref().unwrap();
@@ -117,7 +178,8 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
         standalone_ctl.get()
     };
 
-    let initial_checked_for_reset = props.default_checked;
+    let initial_checked_for_reset =
+        use_hook(|| props.checked.unwrap_or(props.default_checked));
     let on_reset_fn = {
         let has_group = group_ctx.is_some();
         move || {
@@ -144,6 +206,8 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
     sync_signal(&mut required_sig, effective_required);
     let mut read_only_sig = use_signal(|| effective_read_only);
     sync_signal(&mut read_only_sig, effective_read_only);
+    let mut invalid_sig = use_signal(|| effective_invalid);
+    sync_signal(&mut invalid_sig, effective_invalid);
 
     let context = CheckboxContext {
         root_id: root_id.clone(),
@@ -152,6 +216,7 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
         disabled: disabled_sig,
         required: required_sig,
         read_only: read_only_sig,
+        invalid: invalid_sig,
     };
     use_context_provider(|| context);
 
@@ -200,6 +265,12 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
         }
     };
 
+    let on_blur = move |evt: FocusEvent| {
+        if let Some(handler) = on_blur_slot.try_read().ok().and_then(|s| *s) {
+            handler.call(evt);
+        }
+    };
+
     let on_mounted = {
         let on_mounted = props.on_mounted;
         move |evt: MountedEvent| {
@@ -216,11 +287,13 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
         effective_disabled,
         effective_required,
         effective_read_only,
-    );
+    )
+    .with_invalid(effective_invalid)
+    .with_aria_describedby(effective_describedby);
     let merged = merge_global_attributes(
         props.class.as_deref(),
         props.style.as_deref(),
-        props.attributes,
+        extracted.rest,
     );
 
     rsx! {
@@ -233,15 +306,19 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
             "aria-checked": attrs.aria_checked,
             "aria-required": attrs.aria_required,
             "aria-readonly": attrs.aria_readonly,
+            "aria-invalid": attrs.aria_invalid,
+            "aria-describedby": attrs.aria_describedby.as_deref(),
             "data-state": attrs.data_state_str(),
             "data-disabled": attrs.data_disabled,
             "data-required": attrs.data_required,
             "data-readonly": attrs.data_readonly,
+            "data-invalid": attrs.data_invalid,
             "data-checkbox-root": attrs.data_checkbox_root,
             disabled: attrs.disabled,
             value: "{props.value}",
             onclick: on_click,
             onkeydown: on_key_down,
+            onblur: on_blur,
             onmounted: on_mounted,
             ..merged.rest,
             {props.children}
@@ -317,7 +394,8 @@ pub fn CheckboxIndicator(props: CheckboxIndicatorProps) -> Element {
         ctx.is_disabled(),
         ctx.is_read_only(),
         props.style.as_deref(),
-    );
+    )
+    .with_invalid(ctx.is_invalid());
     let merged = merge_global_attributes(
         props.class.as_deref(),
         Some(attrs.style.as_str()),
@@ -332,6 +410,7 @@ pub fn CheckboxIndicator(props: CheckboxIndicatorProps) -> Element {
             "data-state": attrs.data_state_str(),
             "data-disabled": attrs.data_disabled,
             "data-readonly": attrs.data_readonly,
+            "data-invalid": attrs.data_invalid,
             "data-checkbox-indicator": attrs.data_checkbox_indicator,
             onmounted: on_mounted,
             ..merged.rest,
@@ -365,6 +444,12 @@ pub struct CheckboxGroupProps {
     pub required: bool,
     #[props(default = false)]
     pub read_only: bool,
+    #[props(default)]
+    pub invalid: Option<bool>,
+    #[props(default)]
+    pub aria_describedby: Option<String>,
+    #[props(default)]
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -373,6 +458,15 @@ pub struct CheckboxGroupProps {
 /// Headless `<div role="group">` container managing multi-value checkbox membership and cascading attributes.
 #[component]
 pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
+    let field_ctx = try_use_field_context();
+    let effective_name = props
+        .name
+        .clone()
+        .or_else(|| field_ctx.and_then(|f| f.name()));
+    let effective_disabled = props.disabled || field_ctx.is_some_and(|f| f.is_disabled());
+    let effective_required = props.required || field_ctx.is_some_and(|f| f.is_required());
+    let effective_read_only = props.read_only || field_ctx.is_some_and(|f| f.is_read_only());
+
     let stable_id = use_stable_id(props.id.clone().map(Cow::Owned));
     let relationships = {
         let scope = ScopeHandle::root("checkbox-group").child(stable_id);
@@ -385,6 +479,18 @@ pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
 
     let group_id = relationships.group_id().to_string();
 
+    let extracted = extract_aria_invalid_and_describedby(props.attributes);
+    let field_describedby = field_ctx.and_then(|f| f.aria_describedby(None));
+    let (effective_invalid, effective_describedby) = resolve_invalid_and_describedby(
+        props.invalid,
+        extracted.aria_invalid,
+        field_ctx.map(|f| f.is_invalid()),
+        false,
+        props.aria_describedby.as_deref(),
+        extracted.aria_describedby.as_deref(),
+        field_describedby.as_deref(),
+    );
+
     let values_ctl = use_controllable_signal(
         props.values.clone(),
         props.default_values.clone(),
@@ -392,23 +498,30 @@ pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
     );
     let values_sig = values_ctl.signal();
 
-    let mut name_sig = use_signal(|| props.name.clone());
-    sync_signal(&mut name_sig, props.name.clone());
+    let mut name_sig = use_signal(|| effective_name.clone());
+    sync_signal(&mut name_sig, effective_name.clone());
     let mut form_sig = use_signal(|| props.form.clone());
     sync_signal(&mut form_sig, props.form.clone());
-    let mut disabled_sig = use_signal(|| props.disabled);
-    sync_signal(&mut disabled_sig, props.disabled);
-    let mut required_sig = use_signal(|| props.required);
-    sync_signal(&mut required_sig, props.required);
-    let mut read_only_sig = use_signal(|| props.read_only);
-    sync_signal(&mut read_only_sig, props.read_only);
+    let mut disabled_sig = use_signal(|| effective_disabled);
+    sync_signal(&mut disabled_sig, effective_disabled);
+    let mut required_sig = use_signal(|| effective_required);
+    sync_signal(&mut required_sig, effective_required);
+    let mut read_only_sig = use_signal(|| effective_read_only);
+    sync_signal(&mut read_only_sig, effective_read_only);
+    let mut invalid_sig = use_signal(|| effective_invalid);
+    sync_signal(&mut invalid_sig, effective_invalid);
 
     let label_id_sig = use_signal(|| None::<String>);
 
-    let initial_values = props.default_values.clone();
+    let initial_values = use_hook(|| {
+        props
+            .values
+            .clone()
+            .unwrap_or_else(|| props.default_values.clone())
+    });
     let (_, group_reset_epoch) = use_form_control_sync_with_epoch(
         &group_id,
-        props.name.as_deref(),
+        effective_name.as_deref(),
         props.form.as_deref(),
         move || {
             values_ctl.set(initial_values.clone());
@@ -419,13 +532,14 @@ pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
 
     let group_context = CheckboxGroupContext {
         group_id: group_id.clone(),
-        name: props.name.clone(),
+        name: effective_name,
         form: props.form.clone(),
         name_sig,
         form_sig,
         disabled: disabled_sig,
         required: required_sig,
         read_only: read_only_sig,
+        invalid: invalid_sig,
         values: values_sig,
         values_ctl,
         label_id: label_id_sig,
@@ -433,17 +547,22 @@ pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
     };
     use_context_provider(|| group_context);
 
+    let (handle_focus_in, handle_focus_out) =
+        use_composite_focus_out(vec![group_id.clone()], props.on_focus_out);
+
     let attrs = CheckboxGroupAttributes::new(
         Some(group_id),
         label_id_sig.read().clone(),
-        props.disabled,
-        props.required,
-        props.read_only,
-    );
+        effective_disabled,
+        effective_required,
+        effective_read_only,
+    )
+    .with_invalid(effective_invalid)
+    .with_aria_describedby(effective_describedby);
     let merged = merge_global_attributes(
         props.class.as_deref(),
         props.style.as_deref(),
-        props.attributes,
+        extracted.rest,
     );
 
     rsx! {
@@ -454,10 +573,15 @@ pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
             role: attrs.role,
             "aria-labelledby": attrs.aria_labelledby.as_deref(),
             "aria-readonly": attrs.aria_readonly,
+            "aria-invalid": attrs.aria_invalid,
+            "aria-describedby": attrs.aria_describedby.as_deref(),
             "data-disabled": attrs.data_disabled,
             "data-required": attrs.data_required,
             "data-readonly": attrs.data_readonly,
+            "data-invalid": attrs.data_invalid,
             "data-checkbox-group": attrs.data_checkbox_group,
+            onfocusin: handle_focus_in,
+            onfocusout: handle_focus_out,
             ..merged.rest,
             {props.children}
         }

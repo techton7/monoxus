@@ -1,5 +1,5 @@
 use crate::foundation::{
-    shared::data_disabled_attr,
+    shared::{data_disabled_attr, data_invalid_attr},
     state::DataState,
 };
 
@@ -50,10 +50,13 @@ pub struct CheckboxRootAttributes {
     pub aria_checked: &'static str,
     pub aria_required: Option<&'static str>,
     pub aria_readonly: Option<&'static str>,
+    pub aria_invalid: Option<&'static str>,
+    pub aria_describedby: Option<String>,
     pub data_state: DataState,
     pub data_disabled: Option<&'static str>,
     pub data_required: Option<&'static str>,
     pub data_readonly: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_checkbox_root: &'static str,
     pub disabled: bool,
 }
@@ -74,13 +77,27 @@ impl CheckboxRootAttributes {
             aria_checked: checked.aria_checked(),
             aria_required: aria_required_attr(required),
             aria_readonly: aria_readonly_attr(read_only, disabled),
+            aria_invalid: None,
+            aria_describedby: None,
             data_state: checked.data_state(),
             data_disabled: data_disabled_attr(disabled),
             data_required: data_required_attr(required),
             data_readonly: data_readonly_attr(read_only, disabled),
+            data_invalid: None,
             data_checkbox_root: "",
             disabled,
         }
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.aria_invalid = invalid.then_some("true");
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, describedby: Option<String>) -> Self {
+        self.aria_describedby = describedby.filter(|s| !s.trim().is_empty());
+        self
     }
 
     pub fn data_state_str(&self) -> &'static str {
@@ -100,6 +117,7 @@ pub struct CheckboxIndicatorAttributes {
     pub data_state: DataState,
     pub data_disabled: Option<&'static str>,
     pub data_readonly: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_checkbox_indicator: &'static str,
     pub style: String,
 }
@@ -129,9 +147,15 @@ impl CheckboxIndicatorAttributes {
             data_state: checked.data_state(),
             data_disabled: data_disabled_attr(disabled),
             data_readonly: data_readonly_attr(read_only, disabled),
+            data_invalid: None,
             data_checkbox_indicator: "",
             style,
         }
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.data_invalid = data_invalid_attr(invalid);
+        self
     }
 
     pub fn data_state_str(&self) -> &'static str {
@@ -151,9 +175,12 @@ pub struct CheckboxGroupAttributes {
     pub role: &'static str,
     pub aria_labelledby: Option<String>,
     pub aria_readonly: Option<&'static str>,
+    pub aria_invalid: Option<&'static str>,
+    pub aria_describedby: Option<String>,
     pub data_disabled: Option<&'static str>,
     pub data_required: Option<&'static str>,
     pub data_readonly: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_checkbox_group: &'static str,
 }
 
@@ -170,11 +197,25 @@ impl CheckboxGroupAttributes {
             role: "group",
             aria_labelledby: label_id,
             aria_readonly: aria_readonly_attr(read_only, disabled),
+            aria_invalid: None,
+            aria_describedby: None,
             data_disabled: data_disabled_attr(disabled),
             data_required: data_required_attr(required),
             data_readonly: data_readonly_attr(read_only, disabled),
+            data_invalid: None,
             data_checkbox_group: "",
         }
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.aria_invalid = invalid.then_some("true");
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, describedby: Option<String>) -> Self {
+        self.aria_describedby = describedby.filter(|s| !s.trim().is_empty());
+        self
     }
 }
 

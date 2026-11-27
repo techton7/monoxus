@@ -249,8 +249,11 @@ impl ToggleGroup {
             id: self.relationships.root_id().to_string(),
             role,
             dir: self.dir.as_str(),
+            aria_invalid: None,
+            aria_describedby: None,
             data_orientation: self.orientation.as_str(),
             data_disabled: data_disabled_attr(self.disabled),
+            data_invalid: None,
             data_toggle_group_root: "",
         }
     }
@@ -288,6 +291,7 @@ impl ToggleGroup {
             tabindex,
             disabled: effective_disabled,
             data_disabled: data_disabled_attr(effective_disabled),
+            data_invalid: None,
             data_state: if is_pressed {
                 DataState::On
             } else {
