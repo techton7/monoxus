@@ -151,7 +151,7 @@ pub(super) const TOOLTIP_DOC: ComponentDoc = ComponentDoc {
         },
     ],
     keyboard: &[
-        KeyboardDoc { key: "Tab / Shift+Tab", description: "Opens the tooltip when keyboard focus lands on TooltipTrigger." },
+        KeyboardDoc { key: "Focus (keyboard)", description: "Opens the tooltip when keyboard focus lands on TooltipTrigger." },
         KeyboardDoc { key: "Escape", description: "Closes the tooltip immediately." },
     ],
 };

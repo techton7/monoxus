@@ -151,7 +151,6 @@ pub(super) const DIALOG_DOC: ComponentDoc = ComponentDoc {
         },
     ],
     keyboard: &[
-        KeyboardDoc { key: "Space / Enter", description: "Opens the dialog when focus is on DialogTrigger, or closes it on DialogClose." },
         KeyboardDoc { key: "Tab / Shift+Tab", description: "Cycles focus within DialogContent when modal." },
         KeyboardDoc { key: "Escape", description: "Closes the dialog and restores focus to DialogTrigger." },
     ],

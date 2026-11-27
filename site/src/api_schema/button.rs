@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_ID, PROP_ON_MOUNTED, PartDoc,
-    PropDoc, PropGroup,
+    ComponentDoc, DataAttrDoc, PROP_ATTRIBUTES, PROP_ID, PROP_ON_MOUNTED, PartDoc, PropDoc,
+    PropGroup,
 };
 
 pub(super) const BUTTON_DOC: ComponentDoc = ComponentDoc {
@@ -221,14 +221,5 @@ pub(super) const BUTTON_DOC: ComponentDoc = ComponentDoc {
         ],
         css_vars: &[],
     }],
-    keyboard: &[
-        KeyboardDoc {
-            key: "Space",
-            description: "Activates the button (suppressed when disabled).",
-        },
-        KeyboardDoc {
-            key: "Enter",
-            description: "Activates the button or follows the anchor link (suppressed when disabled).",
-        },
-    ],
+    keyboard: &[],
 };

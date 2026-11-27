@@ -71,8 +71,8 @@ pub fn ComponentDocPage(slug: String) -> Element {
     }
     if !doc.keyboard.is_empty() {
         toc.push(TocItem {
-            id: "accessibility",
-            title: "Accessibility",
+            id: "keyboard-interactions",
+            title: "Keyboard Interactions",
             level: 2,
         });
     }
@@ -179,17 +179,13 @@ pub fn ComponentDocPage(slug: String) -> Element {
                 }
             }
 
-            // Accessibility / Keyboard Interactions
+            // Keyboard Interactions
             if !doc.keyboard.is_empty() {
                 section {
-                    id: "accessibility",
+                    id: "keyboard-interactions",
                     class: "mt-12 scroll-mt-24 space-y-4",
                     h2 {
                         class: "border-b border-border-card pb-2 text-2xl font-semibold tracking-tight text-foreground",
-                        "Accessibility"
-                    }
-                    h3 {
-                        class: "text-base font-semibold text-foreground",
                         "Keyboard Interactions"
                     }
                     KeyboardTable { keys: doc.keyboard }

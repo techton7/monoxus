@@ -186,6 +186,19 @@ pub fn ComponentPreview(slug: String, #[props(default = false)] default_open: bo
                             }
                         }
                     }
+
+                    if code_open() {
+                        div {
+                            class: "flex items-center justify-center border-t border-border-card bg-muted/30 px-3 py-2",
+                            button {
+                                r#type: "button",
+                                onclick: move |_| code_open.set(false),
+                                class: "inline-flex h-7 items-center gap-1.5 rounded-button border border-border-input bg-background px-2.5 text-xs font-medium text-foreground-alt transition-colors hover:border-border-input-hover hover:text-foreground",
+                                span { "Collapse code" }
+                                ChevronDownIcon { class: "h-3.5 w-3.5 rotate-180" }
+                            }
+                        }
+                    }
                 }
             }
         }
