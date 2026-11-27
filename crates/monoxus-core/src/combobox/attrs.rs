@@ -1,6 +1,6 @@
 use crate::foundation::{
     overlay::{PlacementAlign, PlacementSide},
-    shared::data_disabled_attr,
+    shared::{data_disabled_attr, data_invalid_attr},
     state::DataState,
 };
 
@@ -27,8 +27,12 @@ pub struct ComboboxInputAttrs {
     pub aria_expanded: &'static str,
     pub aria_controls: Option<String>,
     pub aria_activedescendant: Option<String>,
+    pub aria_invalid: Option<&'static str>,
+    pub aria_describedby: Option<String>,
+    pub aria_required: Option<&'static str>,
     pub disabled: bool,
     pub data_state: DataState,
+    pub data_invalid: Option<&'static str>,
     pub autocomplete: &'static str,
 }
 
@@ -47,14 +51,34 @@ impl ComboboxInputAttrs {
             aria_expanded: if is_open { "true" } else { "false" },
             aria_controls: content_id,
             aria_activedescendant: if is_open { highlighted_item_id } else { None },
+            aria_invalid: None,
+            aria_describedby: None,
+            aria_required: None,
             disabled,
             data_state: if is_open {
                 DataState::Open
             } else {
                 DataState::Closed
             },
+            data_invalid: None,
             autocomplete: "off",
         }
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.aria_invalid = if invalid { Some("true") } else { None };
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, describedby: Option<String>) -> Self {
+        self.aria_describedby = describedby.filter(|s| !s.trim().is_empty());
+        self
+    }
+
+    pub fn with_required(mut self, required: bool) -> Self {
+        self.aria_required = if required { Some("true") } else { None };
+        self
     }
 
     pub fn id(&self) -> &str {
@@ -81,6 +105,18 @@ impl ComboboxInputAttrs {
         self.aria_activedescendant.as_deref()
     }
 
+    pub const fn aria_invalid(&self) -> Option<&'static str> {
+        self.aria_invalid
+    }
+
+    pub fn aria_describedby(&self) -> Option<&str> {
+        self.aria_describedby.as_deref()
+    }
+
+    pub const fn aria_required(&self) -> Option<&'static str> {
+        self.aria_required
+    }
+
     pub const fn is_disabled(&self) -> bool {
         self.disabled
     }
@@ -91,6 +127,10 @@ impl ComboboxInputAttrs {
 
     pub const fn data_disabled(&self) -> Option<&'static str> {
         data_disabled_attr(self.disabled)
+    }
+
+    pub const fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
     }
 
     pub const fn autocomplete(&self) -> &'static str {
@@ -104,8 +144,12 @@ pub struct ComboboxTriggerAttrs {
     pub aria_haspopup: &'static str,
     pub aria_expanded: &'static str,
     pub aria_controls: Option<String>,
+    pub aria_invalid: Option<&'static str>,
+    pub aria_describedby: Option<String>,
+    pub aria_required: Option<&'static str>,
     pub disabled: bool,
     pub data_state: DataState,
+    pub data_invalid: Option<&'static str>,
 }
 
 impl ComboboxTriggerAttrs {
@@ -120,13 +164,33 @@ impl ComboboxTriggerAttrs {
             aria_haspopup: "listbox",
             aria_expanded: if is_open { "true" } else { "false" },
             aria_controls: content_id,
+            aria_invalid: None,
+            aria_describedby: None,
+            aria_required: None,
             disabled,
             data_state: if is_open {
                 DataState::Open
             } else {
                 DataState::Closed
             },
+            data_invalid: None,
         }
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.aria_invalid = if invalid { Some("true") } else { None };
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, describedby: Option<String>) -> Self {
+        self.aria_describedby = describedby.filter(|s| !s.trim().is_empty());
+        self
+    }
+
+    pub fn with_required(mut self, required: bool) -> Self {
+        self.aria_required = if required { Some("true") } else { None };
+        self
     }
 
     pub fn id(&self) -> &str {
@@ -145,6 +209,18 @@ impl ComboboxTriggerAttrs {
         self.aria_controls.as_deref()
     }
 
+    pub const fn aria_invalid(&self) -> Option<&'static str> {
+        self.aria_invalid
+    }
+
+    pub fn aria_describedby(&self) -> Option<&str> {
+        self.aria_describedby.as_deref()
+    }
+
+    pub const fn aria_required(&self) -> Option<&'static str> {
+        self.aria_required
+    }
+
     pub const fn is_disabled(&self) -> bool {
         self.disabled
     }
@@ -155,6 +231,10 @@ impl ComboboxTriggerAttrs {
 
     pub const fn data_disabled(&self) -> Option<&'static str> {
         data_disabled_attr(self.disabled)
+    }
+
+    pub const fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
     }
 }
 

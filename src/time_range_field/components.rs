@@ -12,6 +12,7 @@ use crate::{
             TimeRange, TimeValue,
         },
         shared::Direction,
+        state::ControlledBinding,
     },
     time_field::{TimeFieldInputRenderProps, TimeFieldSegmentItem, default_time_field_placeholder},
 };
@@ -54,6 +55,8 @@ pub struct TimeRangeFieldRootProps {
     #[props(default)]
     pub value: Option<Signal<TimeRange>>,
     #[props(default)]
+    pub controlled_value: Option<ReadSignal<TimeRange>>,
+    #[props(default)]
     pub default_value: TimeRange,
     #[props(default)]
     pub on_value_change: Option<EventHandler<TimeRange>>,
@@ -64,9 +67,13 @@ pub struct TimeRangeFieldRootProps {
     #[props(default)]
     pub placeholder: Option<Signal<TimeValue>>,
     #[props(default)]
+    pub controlled_placeholder: Option<ReadSignal<TimeValue>>,
+    #[props(default)]
     pub default_placeholder: Option<TimeValue>,
     #[props(default)]
     pub on_placeholder_change: Option<EventHandler<TimeValue>>,
+    #[props(default)]
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub granularity: TimeGranularity,
     #[props(default)]
@@ -110,13 +117,12 @@ pub struct TimeRangeFieldRootProps {
 /// Root group container (`<div role="group">`) for segmented time range fields.
 #[component]
 pub fn TimeRangeFieldRoot(props: TimeRangeFieldRootProps) -> Element {
-    let initial_value = props
-        .value
-        .map(|s| *s.peek())
-        .unwrap_or(props.default_value);
-    let initial_placeholder = props
-        .placeholder
-        .map(|s| *s.peek())
+    let value_binding = ControlledBinding::from_props(props.value, props.controlled_value);
+    let placeholder_binding =
+        ControlledBinding::from_props(props.placeholder, props.controlled_placeholder);
+    let initial_value = value_binding.initial_or(props.default_value);
+    let initial_placeholder = placeholder_binding
+        .peek_cloned()
         .or(props.default_placeholder)
         .unwrap_or_else(|| {
             default_time_field_placeholder(
@@ -133,12 +139,15 @@ pub fn TimeRangeFieldRoot(props: TimeRangeFieldRootProps) -> Element {
             class: props.class,
             style: props.style,
             value: props.value,
+            controlled_value: props.controlled_value,
             default_value: props.default_value,
             on_value_change: props.on_value_change,
             on_start_value_change: props.on_start_value_change,
             on_end_value_change: props.on_end_value_change,
             placeholder: props.placeholder,
+            controlled_placeholder: props.controlled_placeholder,
             on_placeholder_change: props.on_placeholder_change,
+            on_focus_out: props.on_focus_out,
             granularity: props.granularity,
             hour_cycle: props.hour_cycle,
             locale: props.locale,

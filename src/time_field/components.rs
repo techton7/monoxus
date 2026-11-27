@@ -13,6 +13,7 @@ use crate::{
             TimeGranularity, TimeValue,
         },
         shared::Direction,
+        state::ControlledBinding,
     },
 };
 
@@ -30,15 +31,21 @@ pub struct TimeFieldRootProps {
     #[props(default)]
     pub value: Option<Signal<Option<TimeValue>>>,
     #[props(default)]
+    pub controlled_value: Option<ReadSignal<Option<TimeValue>>>,
+    #[props(default)]
     pub default_value: Option<TimeValue>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<Option<TimeValue>>>,
     #[props(default)]
     pub placeholder: Option<Signal<TimeValue>>,
     #[props(default)]
+    pub controlled_placeholder: Option<ReadSignal<TimeValue>>,
+    #[props(default)]
     pub default_placeholder: Option<TimeValue>,
     #[props(default)]
     pub on_placeholder_change: Option<EventHandler<TimeValue>>,
+    #[props(default)]
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub granularity: TimeGranularity,
     #[props(default)]
@@ -87,13 +94,12 @@ pub struct TimeFieldRootProps {
 /// Root provider for segmented wall-clock time spinbutton fields.
 #[component]
 pub fn TimeFieldRoot(props: TimeFieldRootProps) -> Element {
-    let initial_value = props
-        .value
-        .and_then(|s| *s.peek())
-        .or(props.default_value);
-    let initial_placeholder = props
-        .placeholder
-        .map(|s| *s.peek())
+    let value_binding = ControlledBinding::from_props(props.value, props.controlled_value);
+    let placeholder_binding =
+        ControlledBinding::from_props(props.placeholder, props.controlled_placeholder);
+    let initial_value = value_binding.initial_or(props.default_value);
+    let initial_placeholder = placeholder_binding
+        .peek_cloned()
         .or(props.default_placeholder)
         .unwrap_or_else(|| {
             default_time_field_placeholder(initial_value, props.min_value, props.max_value)
@@ -103,10 +109,13 @@ pub fn TimeFieldRoot(props: TimeFieldRootProps) -> Element {
         SegmentFieldRootSpec {
             id: props.id,
             value: props.value,
+            controlled_value: props.controlled_value,
             default_value: props.default_value,
             on_value_change: props.on_value_change,
             placeholder: props.placeholder,
+            controlled_placeholder: props.controlled_placeholder,
             on_placeholder_change: props.on_placeholder_change,
+            on_focus_out: props.on_focus_out,
             granularity: props.granularity,
             hour_cycle: props.hour_cycle,
             locale: props.locale,
@@ -171,6 +180,8 @@ pub struct TimeFieldInputProps {
     #[props(default)]
     pub render_children: Option<Callback<Vec<TimeFieldSegmentItem>, Element>>,
     #[props(default)]
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
+    #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
@@ -191,6 +202,7 @@ pub fn TimeFieldInput(props: TimeFieldInputProps) -> Element {
             form: props.form,
             as_child: props.as_child,
             render_children: props.render_children,
+            on_focus_out: props.on_focus_out,
             on_mounted: props.on_mounted,
             attributes: props.attributes,
             children: props.children,

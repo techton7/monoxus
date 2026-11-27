@@ -69,6 +69,9 @@ pub(crate) struct PopoverTriggerSurfaceSpec {
     pub extra_data_attr: Option<&'static str>,
     pub on_click: Option<EventHandler<MouseEvent>>,
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
+    pub on_blur: Option<EventHandler<FocusEvent>>,
+    pub on_focus_in: Option<EventHandler<FocusEvent>>,
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -140,6 +143,12 @@ where
     let consumer_mounted = spec.on_mounted;
     let consumer_click = spec.on_click;
     let consumer_key_down = spec.on_key_down;
+    let mut blur_slot = use_hook(|| CopyValue::new(spec.on_blur));
+    blur_slot.set(spec.on_blur);
+    let mut focus_in_slot = use_hook(|| CopyValue::new(spec.on_focus_in));
+    focus_in_slot.set(spec.on_focus_in);
+    let mut focus_out_slot = use_hook(|| CopyValue::new(spec.on_focus_out));
+    focus_out_slot.set(spec.on_focus_out);
 
     let attrs_with_part = match spec.extra_data_attr {
         Some(part_attr) => merge_attributes_with_part(spec.attributes, part_attr),
@@ -257,6 +266,21 @@ where
                     handler.call(evt);
                 }
             },
+            onblur: move |evt: FocusEvent| {
+                if let Some(handler) = blur_slot.try_read().ok().and_then(|s| *s) {
+                    handler.call(evt);
+                }
+            },
+            onfocusin: move |evt: FocusEvent| {
+                if let Some(handler) = focus_in_slot.try_read().ok().and_then(|s| *s) {
+                    handler.call(evt);
+                }
+            },
+            onfocusout: move |evt: FocusEvent| {
+                if let Some(handler) = focus_out_slot.try_read().ok().and_then(|s| *s) {
+                    handler.call(evt);
+                }
+            },
             ..merged.rest,
             {spec.children}
         }
@@ -276,6 +300,9 @@ pub fn PopoverTrigger(props: PopoverTriggerProps) -> Element {
             extra_data_attr: None,
             on_click: props.on_click,
             on_key_down: props.on_key_down,
+            on_blur: None,
+            on_focus_in: None,
+            on_focus_out: None,
             on_mounted: props.on_mounted,
             attributes: props.attributes,
             children: props.children,

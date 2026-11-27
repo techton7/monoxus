@@ -198,6 +198,9 @@ pub(crate) fn render_combobox_surface(spec: ComboboxSurfaceSpec) -> Element {
             });
         }
 
+        let focus_in_rt = ctx.runtime.clone();
+        let focus_out_rt = ctx.runtime.clone();
+
         return rsx! {
             div {
                 id: "{attrs.id()}",
@@ -209,6 +212,8 @@ pub(crate) fn render_combobox_surface(spec: ComboboxSurfaceSpec) -> Element {
                 class: merged.class.as_deref(),
                 style: merged.style.as_deref(),
                 onkeydown: move |evt| on_key_down.call(evt),
+                onfocusin: move |evt| focus_in_rt.notify_composite_focus_in(evt),
+                onfocusout: move |evt| focus_out_rt.notify_composite_focus_out(evt),
                 ..merged.rest,
                 {spec.children}
             }
@@ -304,6 +309,9 @@ pub(crate) fn render_combobox_surface(spec: ComboboxSurfaceSpec) -> Element {
         };
     }
 
+    let focus_in_rt = ctx.runtime.clone();
+    let focus_out_rt = ctx.runtime.clone();
+
     rsx! {
         div {
             id: "{wrapper_id}",
@@ -322,6 +330,8 @@ pub(crate) fn render_combobox_surface(spec: ComboboxSurfaceSpec) -> Element {
                 class: merged.class.as_deref(),
                 style: merged.style.as_deref(),
                 onkeydown: move |evt| on_key_down.call(evt),
+                onfocusin: move |evt| focus_in_rt.notify_composite_focus_in(evt),
+                onfocusout: move |evt| focus_out_rt.notify_composite_focus_out(evt),
                 onmounted: move |evt| on_mounted.call(evt),
                 ..merged.rest,
                 {spec.children}

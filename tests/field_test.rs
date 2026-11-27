@@ -166,6 +166,67 @@ fn m2b_core_builders_and_controlled_select_flags_contract() {
 }
 
 #[test]
+fn m3a_core_builders_combobox_date_field_and_range_field_contract() {
+    use monoxus::combobox::{ComboboxInputAttrs, ComboboxTriggerAttrs};
+    use monoxus::date_field::DateFieldInputAttrs;
+    use monoxus::date_range_field::DateRangeFieldRootAttrs;
+    use monoxus::foundation::date_time::field_policy::FieldRangeRole;
+    use monoxus::foundation::shared::Direction;
+
+    let cbx_in = ComboboxInputAttrs::new("cbx-in", Some("cbx-ct".into()), true, None, false)
+        .with_invalid(true)
+        .with_aria_describedby(Some("d1 e1".into()))
+        .with_required(true);
+    assert_eq!(cbx_in.aria_invalid(), Some("true"));
+    assert_eq!(cbx_in.data_invalid(), Some(""));
+    assert_eq!(cbx_in.aria_describedby(), Some("d1 e1"));
+    assert_eq!(cbx_in.aria_required(), Some("true"));
+
+    let cbx_in_valid = cbx_in.clone().with_invalid(false).with_required(false);
+    assert_eq!(cbx_in_valid.aria_invalid(), None);
+    assert_eq!(cbx_in_valid.data_invalid(), None);
+    assert_eq!(cbx_in_valid.aria_required(), None);
+
+    let cbx_trig = ComboboxTriggerAttrs::new("cbx-tr", Some("cbx-ct".into()), false, false)
+        .with_invalid(true)
+        .with_aria_describedby(Some("d1 e1".into()))
+        .with_required(true);
+    assert_eq!(cbx_trig.aria_invalid(), Some("true"));
+    assert_eq!(cbx_trig.data_invalid(), Some(""));
+    assert_eq!(cbx_trig.aria_describedby(), Some("d1 e1"));
+    assert_eq!(cbx_trig.aria_required(), Some("true"));
+
+    let df_in = DateFieldInputAttrs::new(
+        "df-in".into(),
+        FieldRangeRole::Standalone,
+        Some("df-lbl".into()),
+        None,
+        Direction::Ltr,
+        true,
+        false,
+    )
+    .with_aria_describedby(Some("df-desc df-err".into()));
+    assert_eq!(df_in.aria_invalid, Some("true"));
+    assert_eq!(df_in.data_invalid, Some(""));
+    assert_eq!(df_in.aria_describedby.as_deref(), Some("df-desc df-err"));
+
+    let drf_root = DateRangeFieldRootAttrs::new(
+        "drf-root".into(),
+        "drf-lbl".into(),
+        Direction::Ltr,
+        true,
+        false,
+    )
+    .with_aria_describedby(Some("drf-desc drf-err".into()));
+    assert_eq!(drf_root.aria_invalid, Some("true"));
+    assert_eq!(drf_root.data_invalid, Some(""));
+    assert_eq!(
+        drf_root.aria_describedby.as_deref(),
+        Some("drf-desc drf-err")
+    );
+}
+
+#[test]
 fn field_root_and_field_alias_mount_in_vdom() {
     #[component]
     fn App() -> Element {
@@ -2114,5 +2175,1218 @@ mod native_tests {
             let probe = base.get_node(harness.node("#m2b-ctl04-probe")).unwrap();
             assert_eq!(probe.attr("data-rating-events".into()), Some("focus,blur"));
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // Wave M3 Slice M3-A Failure-Mode Gates (FM-CTL-02, FM-CTL-03, FM-CTL-04)
+    // -------------------------------------------------------------------------
+
+    fn m3a_date(y: i32, m: u8, d: u8) -> monoxus::foundation::date_time::DateValue {
+        monoxus::foundation::date_time::DateValue::Date(
+            monoxus::foundation::date_time::CalendarDate::new(y, m, d).unwrap(),
+        )
+    }
+
+    fn m3a_time(h: u8, m: u8) -> monoxus::foundation::date_time::TimeValue {
+        monoxus::foundation::date_time::TimeValue::Time(
+            monoxus::foundation::date_time::CalendarTime::from_hms(h, m, 0).unwrap(),
+        )
+    }
+
+    /// FM-CTL-02: All 7 Pattern B roots under unidirectional `controlled_value: Option<ReadSignal<T>>`
+    /// with rejecting `on_value_change`, `DateField` partial-digit entry preservation, and legacy
+    /// two-way `Option<Signal<T>>` compatibility.
+    #[component]
+    fn M3aFmCtl02Scenario() -> Element {
+        use monoxus::combobox::{
+            ComboboxContentStatic, ComboboxInput, ComboboxItem, ComboboxItemData, ComboboxRoot,
+            ComboboxTrigger,
+        };
+        use monoxus::date_field::{
+            DateFieldInput, DateFieldRoot, DateFieldSegment, DateFieldSegmentItem,
+        };
+        use monoxus::date_picker::{
+            DatePickerInput, DatePickerRoot, DatePickerSegment, DatePickerTrigger,
+        };
+        use monoxus::date_range_field::{
+            DateRangeFieldInput, DateRangeFieldRoot, DateRangeFieldSegment, RangeFieldInputKind,
+        };
+        use monoxus::date_range_picker::{
+            DateRangePickerInput, DateRangePickerRoot, DateRangePickerSegment,
+        };
+        use monoxus::foundation::date_time::{
+            CalendarLocale, DateValue, DateValueRange, TimeGranularity, TimeRange, TimeValue,
+        };
+        use monoxus::time_field::{
+            TimeFieldInput, TimeFieldRoot, TimeFieldSegment, TimeFieldSegmentItem,
+        };
+        use monoxus::time_range_field::{
+            TimeRangeFieldInput, TimeRangeFieldRoot, TimeRangeFieldSegment,
+        };
+
+        // 1. Combobox: ReadOnly controlled_value + legacy two-way Signal
+        let cbx_ro_src = use_signal(|| Some("a".to_string()));
+        let cbx_ro: ReadSignal<Option<String>> = cbx_ro_src.into();
+        let mut cbx_ro_proposed = use_signal(Vec::<String>::new);
+        let cbx_tw = use_signal(|| Some("a".to_string()));
+
+        // 2. DateField: ReadOnly controlled_value (complete + partial) + legacy two-way
+        let df_ro_src = use_signal(|| Some(m3a_date(2025, 5, 10)));
+        let df_ro: ReadSignal<Option<DateValue>> = df_ro_src.into();
+        let mut df_ro_proposed = use_signal(Vec::<String>::new);
+        let df_partial_src = use_signal(|| None::<DateValue>);
+        let df_partial_ro: ReadSignal<Option<DateValue>> = df_partial_src.into();
+        let mut df_partial_proposed = use_signal(Vec::<String>::new);
+        let df_tw = use_signal(|| Some(m3a_date(2025, 5, 10)));
+
+        // 3. TimeField: ReadOnly controlled_value + legacy two-way
+        let tf_ro_src = use_signal(|| Some(m3a_time(9, 30)));
+        let tf_ro: ReadSignal<Option<TimeValue>> = tf_ro_src.into();
+        let mut tf_ro_proposed = use_signal(Vec::<String>::new);
+        let tf_tw = use_signal(|| Some(m3a_time(9, 30)));
+
+        // 4. DateRangeField: ReadOnly controlled_value + legacy two-way
+        let drf_ro_src = use_signal(|| DateValueRange {
+            start: Some(m3a_date(2025, 5, 10)),
+            end: Some(m3a_date(2025, 5, 20)),
+        });
+        let drf_ro: ReadSignal<DateValueRange> = drf_ro_src.into();
+        let mut drf_ro_proposed = use_signal(Vec::<String>::new);
+        let drf_tw = use_signal(|| DateValueRange {
+            start: Some(m3a_date(2025, 5, 10)),
+            end: Some(m3a_date(2025, 5, 20)),
+        });
+
+        // 5. TimeRangeField: ReadOnly controlled_value + legacy two-way
+        let trf_ro_src = use_signal(|| TimeRange {
+            start: Some(m3a_time(9, 0)),
+            end: Some(m3a_time(17, 0)),
+        });
+        let trf_ro: ReadSignal<TimeRange> = trf_ro_src.into();
+        let mut trf_ro_proposed = use_signal(Vec::<String>::new);
+        let trf_tw = use_signal(|| TimeRange {
+            start: Some(m3a_time(9, 0)),
+            end: Some(m3a_time(17, 0)),
+        });
+
+        // 6. DatePicker: ReadOnly controlled_value + legacy two-way
+        let dp_ro_src = use_signal(|| Some(m3a_date(2025, 5, 10)));
+        let dp_ro: ReadSignal<Option<DateValue>> = dp_ro_src.into();
+        let mut dp_ro_proposed = use_signal(Vec::<String>::new);
+        let dp_tw = use_signal(|| Some(m3a_date(2025, 5, 10)));
+
+        // 7. DateRangePicker: ReadOnly controlled_value + legacy two-way
+        let drp_ro_src = use_signal(|| DateValueRange {
+            start: Some(m3a_date(2025, 5, 10)),
+            end: Some(m3a_date(2025, 5, 20)),
+        });
+        let drp_ro: ReadSignal<DateValueRange> = drp_ro_src.into();
+        let mut drp_ro_proposed = use_signal(Vec::<String>::new);
+        let drp_tw = use_signal(|| DateValueRange {
+            start: Some(m3a_date(2025, 5, 10)),
+            end: Some(m3a_date(2025, 5, 20)),
+        });
+
+        let fmt_opt_date = |v: Option<DateValue>| {
+            v.map(|d| d.to_iso_string())
+                .unwrap_or_else(|| "none".to_string())
+        };
+        let fmt_opt_time = |v: Option<TimeValue>| {
+            v.map(|t| t.time().to_iso_string())
+                .unwrap_or_else(|| "none".to_string())
+        };
+
+        rsx! {
+            div { style: "padding: 16px; display: flex; flex-direction: column; gap: 10px;",
+                div {
+                    id: "m3a-ctl02-probe",
+                    "data-cbx-ro-sig": "{cbx_ro_src().unwrap_or_default()}",
+                    "data-cbx-ro-prop": "{cbx_ro_proposed.read().join(\",\")}",
+                    "data-cbx-tw-sig": "{cbx_tw().unwrap_or_default()}",
+                    "data-df-ro-sig": "{fmt_opt_date(df_ro_src())}",
+                    "data-df-ro-prop": "{df_ro_proposed.read().join(\",\")}",
+                    "data-df-partial-sig": "{fmt_opt_date(df_partial_src())}",
+                    "data-df-partial-prop": "{df_partial_proposed.read().join(\",\")}",
+                    "data-df-tw-sig": "{fmt_opt_date(df_tw())}",
+                    "data-tf-ro-sig": "{fmt_opt_time(tf_ro_src())}",
+                    "data-tf-ro-prop": "{tf_ro_proposed.read().join(\",\")}",
+                    "data-tf-tw-sig": "{fmt_opt_time(tf_tw())}",
+                    "data-drf-ro-sig": "{fmt_opt_date(drf_ro_src().start)}..{fmt_opt_date(drf_ro_src().end)}",
+                    "data-drf-ro-prop": "{drf_ro_proposed.read().join(\",\")}",
+                    "data-drf-tw-sig": "{fmt_opt_date(drf_tw().start)}..{fmt_opt_date(drf_tw().end)}",
+                    "data-trf-ro-sig": "{fmt_opt_time(trf_ro_src().start)}..{fmt_opt_time(trf_ro_src().end)}",
+                    "data-trf-ro-prop": "{trf_ro_proposed.read().join(\",\")}",
+                    "data-trf-tw-sig": "{fmt_opt_time(trf_tw().start)}..{fmt_opt_time(trf_tw().end)}",
+                    "data-dp-ro-sig": "{fmt_opt_date(dp_ro_src())}",
+                    "data-dp-ro-prop": "{dp_ro_proposed.read().join(\",\")}",
+                    "data-dp-tw-sig": "{fmt_opt_date(dp_tw())}",
+                    "data-drp-ro-sig": "{fmt_opt_date(drp_ro_src().start)}..{fmt_opt_date(drp_ro_src().end)}",
+                    "data-drp-ro-prop": "{drp_ro_proposed.read().join(\",\")}",
+                    "data-drp-tw-sig": "{fmt_opt_date(drp_tw().start)}..{fmt_opt_date(drp_tw().end)}",
+                }
+
+                // 1a. Combobox ReadOnly rejecting
+                ComboboxRoot {
+                    id: "m3a-cbx-ro",
+                    name: Some("cbx_ro".to_string()),
+                    controlled_value: Some(cbx_ro),
+                    items: vec![
+                        ComboboxItemData::new("a", "Alpha", false),
+                        ComboboxItemData::new("b", "Beta", false),
+                    ],
+                    on_value_change: move |v: Option<String>| {
+                        cbx_ro_proposed.write().push(v.unwrap_or_else(|| "none".to_string()));
+                    },
+                    ComboboxInput { id: "m3a-cbx-ro-in", style: "width: 120px; height: 24px;" }
+                    ComboboxTrigger { id: "m3a-cbx-ro-trig", style: "width: 28px; height: 24px;", "v" }
+                    ComboboxContentStatic {
+                        ComboboxItem { id: "m3a-cbx-ro-a", value: "a", label: "Alpha", "Alpha" }
+                        ComboboxItem { id: "m3a-cbx-ro-b", value: "b", label: "Beta", "Beta" }
+                    }
+                }
+
+                // 1b. Combobox TwoWay legacy
+                ComboboxRoot {
+                    id: "m3a-cbx-tw",
+                    value: Some(cbx_tw),
+                    items: vec![
+                        ComboboxItemData::new("a", "Alpha", false),
+                        ComboboxItemData::new("b", "Beta", false),
+                    ],
+                    ComboboxInput { id: "m3a-cbx-tw-in", style: "width: 120px; height: 24px;" }
+                    ComboboxTrigger { id: "m3a-cbx-tw-trig", style: "width: 28px; height: 24px;", "v" }
+                    ComboboxContentStatic {
+                        ComboboxItem { id: "m3a-cbx-tw-b", value: "b", label: "Beta", "Beta" }
+                    }
+                }
+
+                // 2a. DateField ReadOnly rejecting
+                DateFieldRoot {
+                    id: "m3a-df-ro",
+                    locale: CalendarLocale::EnUs,
+                    controlled_value: Some(df_ro),
+                    on_value_change: move |v: Option<DateValue>| {
+                        df_ro_proposed.write().push(fmt_opt_date(v));
+                    },
+                    DateFieldInput {
+                        id: "m3a-df-ro-in",
+                        name: Some("df_ro".to_string()),
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-df-ro-seg-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2b. DateField ReadOnly partial-digit entry preservation
+                DateFieldRoot {
+                    id: "m3a-df-partial",
+                    locale: CalendarLocale::EnUs,
+                    controlled_value: Some(df_partial_ro),
+                    on_value_change: move |v: Option<DateValue>| {
+                        df_partial_proposed.write().push(fmt_opt_date(v));
+                    },
+                    DateFieldInput {
+                        id: "m3a-df-partial-in",
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-df-partial-seg-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2c. DateField TwoWay legacy
+                DateFieldRoot {
+                    id: "m3a-df-tw",
+                    locale: CalendarLocale::EnUs,
+                    value: Some(df_tw),
+                    DateFieldInput {
+                        id: "m3a-df-tw-in",
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-df-tw-seg-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3a. TimeField ReadOnly rejecting
+                TimeFieldRoot {
+                    id: "m3a-tf-ro",
+                    locale: CalendarLocale::Iso,
+                    granularity: TimeGranularity::Minute,
+                    controlled_value: Some(tf_ro),
+                    on_value_change: move |v: Option<TimeValue>| {
+                        tf_ro_proposed.write().push(fmt_opt_time(v));
+                    },
+                    TimeFieldInput {
+                        id: "m3a-tf-ro-in",
+                        render_children: move |segs: Vec<TimeFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                TimeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-tf-ro-seg-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3b. TimeField TwoWay legacy
+                TimeFieldRoot {
+                    id: "m3a-tf-tw",
+                    locale: CalendarLocale::Iso,
+                    granularity: TimeGranularity::Minute,
+                    value: Some(tf_tw),
+                    TimeFieldInput {
+                        id: "m3a-tf-tw-in",
+                        render_children: move |segs: Vec<TimeFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                TimeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-tf-tw-seg-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4a. DateRangeField ReadOnly rejecting
+                DateRangeFieldRoot {
+                    id: "m3a-drf-ro",
+                    locale: CalendarLocale::EnUs,
+                    controlled_value: Some(drf_ro),
+                    on_value_change: move |v: DateValueRange| {
+                        drf_ro_proposed.write().push(format!("{}..{}", fmt_opt_date(v.start), fmt_opt_date(v.end)));
+                    },
+                    DateRangeFieldInput {
+                        kind: RangeFieldInputKind::Start,
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-drf-ro-start-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                    DateRangeFieldInput {
+                        kind: RangeFieldInputKind::End,
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-drf-ro-end-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4b. DateRangeField TwoWay legacy
+                DateRangeFieldRoot {
+                    id: "m3a-drf-tw",
+                    locale: CalendarLocale::EnUs,
+                    value: Some(drf_tw),
+                    DateRangeFieldInput {
+                        kind: RangeFieldInputKind::Start,
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-drf-tw-start-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 5a. TimeRangeField ReadOnly rejecting
+                TimeRangeFieldRoot {
+                    id: "m3a-trf-ro",
+                    locale: CalendarLocale::Iso,
+                    granularity: TimeGranularity::Minute,
+                    controlled_value: Some(trf_ro),
+                    on_value_change: move |v: TimeRange| {
+                        trf_ro_proposed.write().push(format!("{}..{}", fmt_opt_time(v.start), fmt_opt_time(v.end)));
+                    },
+                    TimeRangeFieldInput {
+                        kind: RangeFieldInputKind::Start,
+                        render_children: move |segs: Vec<TimeFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                TimeRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-trf-ro-start-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 5b. TimeRangeField TwoWay legacy
+                TimeRangeFieldRoot {
+                    id: "m3a-trf-tw",
+                    locale: CalendarLocale::Iso,
+                    granularity: TimeGranularity::Minute,
+                    value: Some(trf_tw),
+                    TimeRangeFieldInput {
+                        kind: RangeFieldInputKind::Start,
+                        render_children: move |segs: Vec<TimeFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                TimeRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-trf-tw-start-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 6a. DatePicker ReadOnly rejecting
+                DatePickerRoot {
+                    id: "m3a-dp-ro",
+                    locale: CalendarLocale::EnUs,
+                    controlled_value: Some(dp_ro),
+                    on_value_change: move |v: Option<DateValue>| {
+                        dp_ro_proposed.write().push(fmt_opt_date(v));
+                    },
+                    DatePickerInput {
+                        id: "m3a-dp-ro-in",
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DatePickerSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-dp-ro-seg-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                    DatePickerTrigger { id: "m3a-dp-ro-trig", "Cal" }
+                }
+
+                // 6b. DatePicker TwoWay legacy
+                DatePickerRoot {
+                    id: "m3a-dp-tw",
+                    locale: CalendarLocale::EnUs,
+                    value: Some(dp_tw),
+                    DatePickerInput {
+                        id: "m3a-dp-tw-in",
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DatePickerSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-dp-tw-seg-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 7a. DateRangePicker ReadOnly rejecting
+                DateRangePickerRoot {
+                    id: "m3a-drp-ro",
+                    locale: CalendarLocale::EnUs,
+                    controlled_value: Some(drp_ro),
+                    on_value_change: move |v: DateValueRange| {
+                        drp_ro_proposed.write().push(format!("{}..{}", fmt_opt_date(v.start), fmt_opt_date(v.end)));
+                    },
+                    DateRangePickerInput {
+                        kind: RangeFieldInputKind::Start,
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateRangePickerSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-drp-ro-start-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 7b. DateRangePicker TwoWay legacy
+                DateRangePickerRoot {
+                    id: "m3a-drp-tw",
+                    locale: CalendarLocale::EnUs,
+                    value: Some(drp_tw),
+                    DateRangePickerInput {
+                        kind: RangeFieldInputKind::Start,
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateRangePickerSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-drp-tw-start-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn m3a_fm_ctl_02_pattern_b_read_only_rejection_partial_digits_and_two_way() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(M3aFmCtl02Scenario);
+        drain_polls_and_resolve(&mut harness);
+
+        // 1. Combobox: ReadOnly rejects "b" (proposes "b", signal & DOM stay at "a"/"Alpha"); TwoWay mutates
+        click_and_pump(&mut harness, "#m3a-cbx-ro-trig");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m3a-cbx-ro-b");
+        drain_polls_and_resolve(&mut harness);
+
+        click_and_pump(&mut harness, "#m3a-cbx-tw-trig");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m3a-cbx-tw-b");
+        drain_polls_and_resolve(&mut harness);
+
+        // 2a. DateField ReadOnly rejecting ArrowUp on day
+        focus_node(&mut harness, "#m3a-df-ro-seg-day");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        drain_polls_and_resolve(&mut harness);
+
+        // 2b. DateField ReadOnly partial digit entry ("0" in month) preserves local draft without firing on_value_change
+        focus_node(&mut harness, "#m3a-df-partial-seg-month");
+        send_key_and_pump(&mut harness, Key::Character("0".into()), Code::Digit0);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let df_partial_month = base
+                .get_node(harness.node("#m3a-df-partial-seg-month"))
+                .unwrap();
+            assert_eq!(
+                df_partial_month.text_content().trim(),
+                "0",
+                "Partial digit '0' in DateField month must stay intact while focused under ReadOnly"
+            );
+            let probe = base.get_node(harness.node("#m3a-ctl02-probe")).unwrap();
+            assert_eq!(probe.attr("data-df-partial-sig".into()), Some("none"));
+            assert_eq!(probe.attr("data-df-partial-prop".into()), Some(""));
+        }
+        // Complete the month digits ("3" -> "03") while day/year stay placeholder -> still None, draft stays "03"
+        send_key_and_pump(&mut harness, Key::Character("3".into()), Code::Digit3);
+        drain_polls_and_resolve(&mut harness);
+
+        // 2c. DateField TwoWay ArrowUp mutates caller signal
+        focus_node(&mut harness, "#m3a-df-tw-seg-day");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        drain_polls_and_resolve(&mut harness);
+
+        // 3. TimeField ReadOnly rejecting + TwoWay
+        focus_node(&mut harness, "#m3a-tf-ro-seg-hour");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m3a-tf-tw-seg-hour");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        drain_polls_and_resolve(&mut harness);
+
+        // 4. DateRangeField ReadOnly rejecting + TwoWay
+        focus_node(&mut harness, "#m3a-drf-ro-start-day");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m3a-drf-tw-start-day");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        drain_polls_and_resolve(&mut harness);
+
+        // 5. TimeRangeField ReadOnly rejecting + TwoWay
+        focus_node(&mut harness, "#m3a-trf-ro-start-hour");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m3a-trf-tw-start-hour");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        drain_polls_and_resolve(&mut harness);
+
+        // 6. DatePicker ReadOnly rejecting + TwoWay
+        focus_node(&mut harness, "#m3a-dp-ro-seg-day");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m3a-dp-tw-seg-day");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        drain_polls_and_resolve(&mut harness);
+
+        // 7. DateRangePicker ReadOnly rejecting + TwoWay
+        focus_node(&mut harness, "#m3a-drp-ro-start-day");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m3a-drp-tw-start-day");
+        send_key_and_pump(&mut harness, Key::Named(NamedKey::ArrowUp), Code::ArrowUp);
+        drain_polls_and_resolve(&mut harness);
+
+        let base = harness.base();
+        let probe = base.get_node(harness.node("#m3a-ctl02-probe")).unwrap();
+
+        // Verify Combobox
+        assert_eq!(probe.attr("data-cbx-ro-sig".into()), Some("a"));
+        assert_eq!(probe.attr("data-cbx-ro-prop".into()), Some("b"));
+        assert_eq!(probe.attr("data-cbx-tw-sig".into()), Some("b"));
+        let cbx_in = base.get_node(harness.node("#m3a-cbx-ro-in")).unwrap();
+        assert_eq!(cbx_in.attr("value".into()), Some("Alpha"));
+        let cbx_hidden = base.get_node(harness.node("input[name='cbx_ro']")).unwrap();
+        assert_eq!(cbx_hidden.attr("value".into()), Some("a"));
+
+        // Verify DateField ReadOnly rejection + partial draft + TwoWay
+        assert_eq!(probe.attr("data-df-ro-sig".into()), Some("2025-05-10"));
+        assert_eq!(probe.attr("data-df-ro-prop".into()), Some("2025-05-11"));
+        assert_eq!(probe.attr("data-df-tw-sig".into()), Some("2025-05-11"));
+        let df_day = base.get_node(harness.node("#m3a-df-ro-seg-day")).unwrap();
+        assert_eq!(df_day.text_content().trim(), "10");
+        assert_eq!(probe.attr("data-df-partial-sig".into()), Some("none"));
+        assert_eq!(probe.attr("data-df-partial-prop".into()), Some(""));
+        let df_partial_month = base
+            .get_node(harness.node("#m3a-df-partial-seg-month"))
+            .unwrap();
+        assert_eq!(
+            df_partial_month.text_content().trim(),
+            "03",
+            "Completed partial segment '03' in DateField month must stay intact under ReadOnly while full DateValue is None"
+        );
+
+        // Verify TimeField
+        assert_eq!(probe.attr("data-tf-ro-sig".into()), Some("09:30:00"));
+        assert_eq!(probe.attr("data-tf-ro-prop".into()), Some("10:30:00"));
+        assert_eq!(probe.attr("data-tf-tw-sig".into()), Some("10:30:00"));
+        let tf_hour = base.get_node(harness.node("#m3a-tf-ro-seg-hour")).unwrap();
+        assert_eq!(tf_hour.text_content().trim(), "09");
+
+        // Verify DateRangeField
+        assert_eq!(
+            probe.attr("data-drf-ro-sig".into()),
+            Some("2025-05-10..2025-05-20")
+        );
+        assert_eq!(
+            probe.attr("data-drf-ro-prop".into()),
+            Some("2025-05-11..2025-05-20")
+        );
+        assert_eq!(
+            probe.attr("data-drf-tw-sig".into()),
+            Some("2025-05-11..2025-05-20")
+        );
+        let drf_day = base
+            .get_node(harness.node("#m3a-drf-ro-start-day"))
+            .unwrap();
+        assert_eq!(drf_day.text_content().trim(), "10");
+
+        // Verify TimeRangeField
+        assert_eq!(
+            probe.attr("data-trf-ro-sig".into()),
+            Some("09:00:00..17:00:00")
+        );
+        assert_eq!(
+            probe.attr("data-trf-ro-prop".into()),
+            Some("10:00:00..17:00:00")
+        );
+        assert_eq!(
+            probe.attr("data-trf-tw-sig".into()),
+            Some("10:00:00..17:00:00")
+        );
+        let trf_hour = base
+            .get_node(harness.node("#m3a-trf-ro-start-hour"))
+            .unwrap();
+        assert_eq!(trf_hour.text_content().trim(), "09");
+
+        // Verify DatePicker
+        assert_eq!(probe.attr("data-dp-ro-sig".into()), Some("2025-05-10"));
+        assert_eq!(probe.attr("data-dp-ro-prop".into()), Some("2025-05-11"));
+        assert_eq!(probe.attr("data-dp-tw-sig".into()), Some("2025-05-11"));
+        let dp_day = base.get_node(harness.node("#m3a-dp-ro-seg-day")).unwrap();
+        assert_eq!(dp_day.text_content().trim(), "10");
+
+        // Verify DateRangePicker
+        assert_eq!(
+            probe.attr("data-drp-ro-sig".into()),
+            Some("2025-05-10..2025-05-20")
+        );
+        assert_eq!(
+            probe.attr("data-drp-ro-prop".into()),
+            Some("2025-05-11..2025-05-20")
+        );
+        assert_eq!(
+            probe.attr("data-drp-tw-sig".into()),
+            Some("2025-05-11..2025-05-20")
+        );
+        let drp_day = base
+            .get_node(harness.node("#m3a-drp-ro-start-day"))
+            .unwrap();
+        assert_eq!(drp_day.text_content().trim(), "10");
+    }
+
+    /// FM-CTL-03 (M3-A): Composite `on_focus_out` across Combobox (Input -> Trigger -> Content/Item),
+    /// DateField (month -> day), DateRangeField (start -> end), DatePicker (segment -> trigger -> calendar),
+    /// plus `#5894` toggle safety.
+    #[component]
+    fn M3aFmCtl03Scenario() -> Element {
+        use monoxus::combobox::{
+            ComboboxContentStatic, ComboboxInput, ComboboxItem, ComboboxRoot, ComboboxTrigger,
+        };
+        use monoxus::date_field::{
+            DateFieldInput, DateFieldRoot, DateFieldSegment, DateFieldSegmentItem,
+        };
+        use monoxus::date_picker::{
+            DatePickerContentStatic, DatePickerInput, DatePickerRoot, DatePickerSegment,
+            DatePickerTrigger,
+        };
+        use monoxus::date_range_field::{
+            DateRangeFieldInput, DateRangeFieldRoot, DateRangeFieldSegment, RangeFieldInputKind,
+        };
+        use monoxus::foundation::date_time::CalendarLocale;
+
+        let mut cbx_out = use_signal(|| 0_u32);
+        let mut cbx_input_blur = use_signal(|| 0_u32);
+        let mut df_out = use_signal(|| 0_u32);
+        let mut drf_out = use_signal(|| 0_u32);
+        let mut dp_out = use_signal(|| 0_u32);
+        let mut dp_trig_blur = use_signal(|| 0_u32);
+        let mut attach = use_signal(|| true);
+
+        let cbx_fo = attach().then(|| EventHandler::new(move |_: FocusEvent| cbx_out += 1));
+        let cbx_blur =
+            attach().then(|| EventHandler::new(move |_: FocusEvent| cbx_input_blur += 1));
+        let df_fo = attach().then(|| EventHandler::new(move |_: FocusEvent| df_out += 1));
+        let drf_fo = attach().then(|| EventHandler::new(move |_: FocusEvent| drf_out += 1));
+        let dp_fo = attach().then(|| EventHandler::new(move |_: FocusEvent| dp_out += 1));
+        let dp_blur = attach().then(|| EventHandler::new(move |_: FocusEvent| dp_trig_blur += 1));
+
+        rsx! {
+            div { style: "padding: 20px; display: flex; flex-direction: column; gap: 14px;",
+                div {
+                    id: "m3a-ctl03-probe",
+                    "data-cbx-out": "{cbx_out()}",
+                    "data-cbx-blur": "{cbx_input_blur()}",
+                    "data-df-out": "{df_out()}",
+                    "data-drf-out": "{drf_out()}",
+                    "data-dp-out": "{dp_out()}",
+                    "data-dp-trig-blur": "{dp_trig_blur()}",
+                    "data-attached": "{attach()}",
+                }
+                button {
+                    id: "m3a-ctl03-ext-btn",
+                    r#type: "button",
+                    style: "width: 90px; height: 28px;",
+                    "External"
+                }
+                button {
+                    id: "m3a-ctl03-toggle-5894",
+                    r#type: "button",
+                    style: "width: 120px; height: 28px;",
+                    onclick: move |_| attach.toggle(),
+                    "Toggle"
+                }
+
+                // 1. Combobox composite focus-out
+                ComboboxRoot {
+                    id: "m3a-f-cbx",
+                    default_open: true,
+                    on_focus_out: cbx_fo,
+                    ComboboxInput {
+                        id: "m3a-f-cbx-in",
+                        on_blur: cbx_blur,
+                        style: "width: 120px; height: 28px;",
+                    }
+                    ComboboxTrigger {
+                        id: "m3a-f-cbx-trig",
+                        style: "width: 28px; height: 28px;",
+                        "v"
+                    }
+                    ComboboxContentStatic {
+                        id: "m3a-f-cbx-content",
+                        ComboboxItem {
+                            id: "m3a-f-cbx-item-a",
+                            value: "a",
+                            tabindex: "0",
+                            "Alpha"
+                        }
+                    }
+                }
+
+                // 2. DateField composite focus-out (month -> day)
+                DateFieldRoot {
+                    id: "m3a-f-df",
+                    locale: CalendarLocale::EnUs,
+                    on_focus_out: df_fo,
+                    DateFieldInput {
+                        id: "m3a-f-df-in",
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-f-df-seg-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. DateRangeField composite focus-out (start -> end)
+                DateRangeFieldRoot {
+                    id: "m3a-f-drf",
+                    locale: CalendarLocale::EnUs,
+                    on_focus_out: drf_fo,
+                    DateRangeFieldInput {
+                        kind: RangeFieldInputKind::Start,
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-f-drf-start-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                    DateRangeFieldInput {
+                        kind: RangeFieldInputKind::End,
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateRangeFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-f-drf-end-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. DatePicker composite focus-out (segment -> trigger -> calendar content)
+                DatePickerRoot {
+                    id: "m3a-f-dp",
+                    locale: CalendarLocale::EnUs,
+                    on_focus_out: dp_fo,
+                    DatePickerInput {
+                        id: "m3a-f-dp-in",
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DatePickerSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-f-dp-seg-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                    DatePickerTrigger {
+                        id: "m3a-f-dp-trig",
+                        on_blur: dp_blur,
+                        style: "width: 48px; height: 28px;",
+                        "Pick"
+                    }
+                    DatePickerContentStatic {
+                        id: "m3a-f-dp-content",
+                        button {
+                            id: "m3a-f-dp-cal-cell",
+                            r#type: "button",
+                            style: "width: 32px; height: 28px;",
+                            "15"
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn m3a_fm_ctl_03_composite_focus_out_across_combobox_fields_and_pickers() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(M3aFmCtl03Scenario);
+        drain_polls_and_resolve(&mut harness);
+
+        // 1. Combobox: Input -> Trigger -> Item inside Content must NOT fire on_focus_out
+        focus_node(&mut harness, "#m3a-f-cbx-in");
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m3a-f-cbx-trig");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m3a-f-cbx-item-a");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m3a-ctl03-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-cbx-out".into()),
+                Some("0"),
+                "Combobox internal Input -> Trigger -> Item move must not fire on_focus_out"
+            );
+            assert_eq!(probe.attr("data-cbx-blur".into()), Some("1"));
+        }
+        // Leave Combobox to external button -> fires on_focus_out once
+        focus_node(&mut harness, "#m3a-ctl03-ext-btn");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m3a-ctl03-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-cbx-out".into()),
+                Some("1"),
+                "Leaving Combobox to external button must fire composite on_focus_out once"
+            );
+        }
+
+        // 2. DateField: month -> day must NOT fire on_focus_out; leaving fires once
+        focus_node(&mut harness, "#m3a-f-df-seg-month");
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m3a-f-df-seg-day");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m3a-ctl03-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-df-out".into()),
+                Some("0"),
+                "DateField month -> day move must not fire composite on_focus_out"
+            );
+        }
+        focus_node(&mut harness, "#m3a-ctl03-ext-btn");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m3a-ctl03-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-df-out".into()),
+                Some("1"),
+                "Leaving DateField to external button must fire composite on_focus_out once"
+            );
+        }
+
+        // 3. DateRangeField: start -> end must NOT fire on_focus_out; leaving fires once
+        focus_node(&mut harness, "#m3a-f-drf-start-month");
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m3a-f-drf-end-month");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m3a-ctl03-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-drf-out".into()),
+                Some("0"),
+                "DateRangeField start -> end move must not fire composite on_focus_out"
+            );
+        }
+        focus_node(&mut harness, "#m3a-ctl03-ext-btn");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m3a-ctl03-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-drf-out".into()),
+                Some("1"),
+                "Leaving DateRangeField to external button must fire composite on_focus_out once"
+            );
+        }
+
+        // 4. DatePicker: segment -> trigger -> calendar must NOT fire on_focus_out; leaving fires once
+        focus_node(&mut harness, "#m3a-f-dp-seg-month");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m3a-f-dp-trig");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m3a-f-dp-cal-cell");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m3a-ctl03-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-dp-out".into()),
+                Some("0"),
+                "DatePicker segment -> trigger -> calendar move must not fire composite on_focus_out"
+            );
+            assert_eq!(
+                probe.attr("data-dp-trig-blur".into()),
+                Some("1"),
+                "DatePickerTrigger on_blur must fire when focus moves to calendar cell"
+            );
+        }
+        focus_node(&mut harness, "#m3a-ctl03-ext-btn");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m3a-ctl03-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-dp-out".into()),
+                Some("1"),
+                "Leaving DatePicker to external button must fire composite on_focus_out once"
+            );
+        }
+
+        // 5. Dioxus #5894 toggle safety Some <-> None across renders
+        click_and_pump(&mut harness, "#m3a-ctl03-toggle-5894");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m3a-ctl03-toggle-5894");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m3a-ctl03-probe")).unwrap();
+            assert_eq!(probe.attr("data-attached".into()), Some("true"));
+        }
+    }
+
+    /// FM-CTL-04 (M3-A): `DatePickerRoot` & `DateRangePickerRoot` `is_invalid_override: Some(true)`
+    /// emitting `data-invalid=""` and `aria-invalid="true"` on rendered segments/inputs, plus
+    /// `FieldRoot` / `FieldContext` wiring on `Combobox`, `DateField`, `DateRangeField`, `DatePicker`,
+    /// and `DateRangePicker`.
+    #[component]
+    fn M3aFmCtl04Scenario() -> Element {
+        use monoxus::combobox::{ComboboxInput, ComboboxRoot, ComboboxTrigger};
+        use monoxus::date_field::{
+            DateFieldInput, DateFieldRoot, DateFieldSegment, DateFieldSegmentItem,
+        };
+        use monoxus::date_picker::{DatePickerInput, DatePickerRoot, DatePickerSegment};
+        use monoxus::date_range_field::{
+            DateRangeFieldInput, DateRangeFieldRoot, DateRangeFieldSegment, RangeFieldInputKind,
+        };
+        use monoxus::date_range_picker::{
+            DateRangePickerInput, DateRangePickerRoot, DateRangePickerSegment,
+        };
+        use monoxus::foundation::date_time::CalendarLocale;
+
+        rsx! {
+            div { style: "padding: 16px; display: flex; flex-direction: column; gap: 12px;",
+                // 1. DatePickerRoot with explicit is_invalid_override: Some(true)
+                DatePickerRoot {
+                    id: "m3a-inv-dp",
+                    locale: CalendarLocale::EnUs,
+                    is_invalid_override: Some(true),
+                    DatePickerInput {
+                        id: "m3a-inv-dp-in",
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DatePickerSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-inv-dp-seg-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. DateRangePickerRoot with explicit is_invalid_override: Some(true)
+                DateRangePickerRoot {
+                    id: "m3a-inv-drp",
+                    locale: CalendarLocale::EnUs,
+                    is_invalid_override: Some(true),
+                    DateRangePickerInput {
+                        kind: RangeFieldInputKind::Start,
+                        id: "m3a-inv-drp-start-in",
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateRangePickerSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-inv-drp-start-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                    DateRangePickerInput {
+                        kind: RangeFieldInputKind::End,
+                        id: "m3a-inv-drp-end-in",
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateRangePickerSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-inv-drp-end-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 3. Combobox inside FieldRoot + FieldControl
+                FieldRoot {
+                    id: "m3a-fld-cbx",
+                    invalid: true,
+                    required: true,
+                    FieldControl {
+                        FieldLabel { id: "m3a-lbl-cbx", "Fruit" }
+                        ComboboxRoot {
+                            id: "m3a-cbx-fld-root",
+                            ComboboxInput { "data-probe": "m3a-cbx-fld-in" }
+                            ComboboxTrigger { id: "m3a-cbx-fld-trig", "v" }
+                        }
+                    }
+                    FieldDescription { id: "m3a-desc-cbx", "Pick a fruit" }
+                    FieldError { id: "m3a-err-cbx", "Fruit required" }
+                }
+
+                // 4. DateField inside FieldRoot
+                FieldRoot {
+                    id: "m3a-fld-df",
+                    invalid: true,
+                    required: true,
+                    DateFieldRoot {
+                        id: "m3a-df-fld-root",
+                        locale: CalendarLocale::EnUs,
+                        DateFieldInput {
+                            id: "m3a-df-fld-in",
+                            render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segs {
+                                    DateFieldSegment {
+                                        key: "{seg.index}",
+                                        id: format!("m3a-df-fld-seg-{}", seg.kind().as_data_segment()),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    FieldDescription { id: "m3a-desc-df", "Enter DOB" }
+                    FieldError { id: "m3a-err-df", "DOB invalid" }
+                }
+
+                // 5. DateRangeField inside FieldRoot
+                FieldRoot {
+                    id: "m3a-fld-drf",
+                    invalid: true,
+                    DateRangeFieldRoot {
+                        id: "m3a-drf-fld-root",
+                        locale: CalendarLocale::EnUs,
+                        DateRangeFieldInput {
+                            kind: RangeFieldInputKind::Start,
+                            id: "m3a-drf-fld-start-in",
+                            render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segs {
+                                    DateRangeFieldSegment {
+                                        key: "{seg.index}",
+                                        id: format!("m3a-drf-fld-seg-{}", seg.kind().as_data_segment()),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    FieldDescription { id: "m3a-desc-drf", "Trip dates" }
+                    FieldError { id: "m3a-err-drf", "Invalid trip range" }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn m3a_fm_ctl_04_picker_invalid_override_and_field_context_wiring() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(M3aFmCtl04Scenario);
+        drain_polls_and_resolve(&mut harness);
+
+        let base = harness.base();
+
+        // 1. DatePickerRoot is_invalid_override: Some(true)
+        for sel in ["#m3a-inv-dp-in", "#m3a-inv-dp-seg-month", "#m3a-inv-dp-seg-day", "#m3a-inv-dp-seg-year"] {
+            let node = base.get_node(harness.node(sel)).unwrap();
+            assert_eq!(node.attr("data-invalid".into()), Some(""), "{sel} must emit data-invalid=\"\"");
+            assert_eq!(node.attr("aria-invalid".into()), Some("true"), "{sel} must emit aria-invalid=\"true\"");
+        }
+
+        // 2. DateRangePickerRoot is_invalid_override: Some(true)
+        for sel in [
+            "#m3a-inv-drp-start-in",
+            "#m3a-inv-drp-start-month",
+            "#m3a-inv-drp-end-in",
+            "#m3a-inv-drp-end-day",
+        ] {
+            let node = base.get_node(harness.node(sel)).unwrap();
+            assert_eq!(node.attr("data-invalid".into()), Some(""), "{sel} must emit data-invalid=\"\"");
+            assert_eq!(node.attr("aria-invalid".into()), Some("true"), "{sel} must emit aria-invalid=\"true\"");
+        }
+
+        // 3. Combobox inside FieldRoot + FieldControl
+        let cbx_lbl = base.get_node(harness.node("#m3a-lbl-cbx")).unwrap();
+        let cbx_in = base
+            .get_node(harness.node("[data-probe='m3a-cbx-fld-in']"))
+            .unwrap();
+        let cbx_trig = base.get_node(harness.node("#m3a-cbx-fld-trig")).unwrap();
+        assert_eq!(cbx_lbl.attr("for".into()), cbx_in.attr("id".into()));
+        for node in [cbx_in, cbx_trig] {
+            assert_eq!(node.attr("aria-invalid".into()), Some("true"));
+            assert_eq!(node.attr("data-invalid".into()), Some(""));
+            assert_eq!(node.attr("aria-required".into()), Some("true"));
+            assert_eq!(
+                node.attr("aria-describedby".into()),
+                Some("m3a-desc-cbx m3a-err-cbx")
+            );
+        }
+
+        // 4. DateField inside FieldRoot
+        let df_in = base.get_node(harness.node("#m3a-df-fld-in")).unwrap();
+        let df_seg = base.get_node(harness.node("#m3a-df-fld-seg-month")).unwrap();
+        assert_eq!(df_in.attr("aria-invalid".into()), Some("true"));
+        assert_eq!(df_in.attr("data-invalid".into()), Some(""));
+        assert_eq!(df_in.attr("aria-required".into()), Some("true"));
+        assert_eq!(
+            df_in.attr("aria-describedby".into()),
+            Some("m3a-desc-df m3a-err-df")
+        );
+        assert_eq!(df_seg.attr("aria-invalid".into()), Some("true"));
+        assert_eq!(df_seg.attr("data-invalid".into()), Some(""));
+
+        // 5. DateRangeField inside FieldRoot
+        let drf_root = base.get_node(harness.node("#m3a-drf-fld-root")).unwrap();
+        let drf_seg = base.get_node(harness.node("#m3a-drf-fld-seg-month")).unwrap();
+        assert_eq!(drf_root.attr("aria-invalid".into()), Some("true"));
+        assert_eq!(drf_root.attr("data-invalid".into()), Some(""));
+        assert_eq!(
+            drf_root.attr("aria-describedby".into()),
+            Some("m3a-desc-drf m3a-err-drf")
+        );
+        assert_eq!(drf_seg.attr("aria-invalid".into()), Some("true"));
+        assert_eq!(drf_seg.attr("data-invalid".into()), Some(""));
     }
 }

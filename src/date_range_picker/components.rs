@@ -18,8 +18,9 @@ use crate::{
         },
         try_use_date_range_field_context,
     },
+    field::try_use_field_context,
     foundation::{
-        browser::local_today,
+        browser::{focus::use_composite_focus_out_tracked, local_today},
         date_time::{
             CalendarConfig, CalendarDate, CalendarLocale, DateValue, DateValueRange,
             EditableSegmentKind, FieldInvalidEvent, Granularity, HourCycle, MonthFormat, Weekday,
@@ -27,6 +28,7 @@ use crate::{
         },
         overlay::{PlacementAlign, PlacementSide, PortalHost},
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
+        state::ControlledBinding,
     },
     popover::{
         CloseAutoFocusEvent, EscapeKeyDownEvent, InteractOutsideEvent, OpenAutoFocusEvent,
@@ -61,31 +63,45 @@ pub struct DateRangePickerRootProps {
     #[props(default)]
     pub value: Option<Signal<DateValueRange>>,
     #[props(default)]
+    pub controlled_value: Option<ReadSignal<DateValueRange>>,
+    #[props(default)]
     pub default_value: DateValueRange,
     #[props(default)]
     pub on_value_change: Option<EventHandler<DateValueRange>>,
     #[props(default)]
     pub start_value: Option<Signal<Option<DateValue>>>,
     #[props(default)]
+    pub controlled_start_value: Option<ReadSignal<Option<DateValue>>>,
+    #[props(default)]
     pub on_start_value_change: Option<EventHandler<Option<DateValue>>>,
     #[props(default)]
     pub end_value: Option<Signal<Option<DateValue>>>,
     #[props(default)]
+    pub controlled_end_value: Option<ReadSignal<Option<DateValue>>>,
+    #[props(default)]
     pub on_end_value_change: Option<EventHandler<Option<DateValue>>>,
     #[props(default)]
     pub placeholder: Option<Signal<DateValue>>,
+    #[props(default)]
+    pub controlled_placeholder: Option<ReadSignal<DateValue>>,
     #[props(default)]
     pub default_placeholder: Option<DateValue>,
     #[props(default)]
     pub on_placeholder_change: Option<EventHandler<DateValue>>,
     #[props(default)]
     pub open: Option<Signal<bool>>,
+    #[props(default)]
+    pub controlled_open: Option<ReadSignal<bool>>,
     #[props(default = false)]
     pub default_open: bool,
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
     #[props(default)]
     pub on_open_change_complete: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
+    #[props(default)]
+    pub is_invalid_override: Option<bool>,
     #[props(default = true)]
     pub close_on_range_select: bool,
     #[props(default)]
@@ -189,26 +205,38 @@ pub struct DateRangePickerRootProps {
 /// Root provider composing `DateRangeFieldRoot`, `PopoverRoot`, and `RangeCalendarRoot` state.
 #[component]
 pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
+    let field_ctx = try_use_field_context();
+    let effective_disabled = props.disabled || field_ctx.is_some_and(|f| f.is_disabled());
+    let effective_read_only = props.read_only || field_ctx.is_some_and(|f| f.is_read_only());
+    let effective_required = props.required || field_ctx.is_some_and(|f| f.is_required());
+    let effective_invalid_override = props
+        .is_invalid_override
+        .or_else(|| field_ctx.map(|f| f.is_invalid()));
+
     let resolved_dir = use_direction_context(props.dir);
     let stable_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
     let scope = use_hook(|| ScopeHandle::root("date-range-picker").child(stable_id.clone()));
     let rels = use_hook(|| DateRangePickerRelationships::new(scope.clone()));
     let today = use_hook(local_today);
 
-    let mut initial_value = props
-        .value
-        .map(|s| *s.peek())
-        .unwrap_or(props.default_value);
-    if let Some(s) = props.start_value {
-        initial_value.start = *s.peek();
+    let value_binding = ControlledBinding::from_props(props.value, props.controlled_value);
+    let start_binding =
+        ControlledBinding::from_props(props.start_value, props.controlled_start_value);
+    let end_binding = ControlledBinding::from_props(props.end_value, props.controlled_end_value);
+    let placeholder_binding =
+        ControlledBinding::from_props(props.placeholder, props.controlled_placeholder);
+    let open_binding = ControlledBinding::from_props(props.open, props.controlled_open);
+
+    let mut initial_value = value_binding.initial_or(props.default_value);
+    if let Some(s) = start_binding.peek_cloned() {
+        initial_value.start = s;
     }
-    if let Some(e) = props.end_value {
-        initial_value.end = *e.peek();
+    if let Some(e) = end_binding.peek_cloned() {
+        initial_value.end = e;
     }
 
-    let initial_placeholder = props
-        .placeholder
-        .map(|s| *s.peek())
+    let initial_placeholder = placeholder_binding
+        .peek_cloned()
         .or(props.default_placeholder)
         .unwrap_or_else(|| {
             default_date_field_placeholder(
@@ -219,16 +247,13 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
                 today,
             )
         });
-    let initial_open = props
-        .open
-        .map(|s| *s.peek())
-        .unwrap_or(props.default_open);
+    let initial_open = open_binding.initial_or(props.default_open);
 
     let def = DateRangePickerDefinition::new()
         .with_close_on_range_select(props.close_on_range_select)
-        .with_disabled(props.disabled)
-        .with_read_only(props.read_only)
-        .with_required(props.required)
+        .with_disabled(effective_disabled)
+        .with_read_only(effective_read_only)
+        .with_required(effective_required)
         .with_dir(resolved_dir);
 
     let state = use_signal(|| {
@@ -241,14 +266,16 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
     let calendar_end_sig = use_signal(|| initial_cal_range.end);
     let placeholder_sig = use_signal(|| initial_placeholder);
     let calendar_placeholder_sig = use_signal(|| initial_placeholder.date());
-    let open_sig = use_signal(|| if props.disabled { false } else { initial_open });
+    let open_sig = use_signal(|| if effective_disabled { false } else { initial_open });
+    let trigger_dom_id = use_signal(|| None::<String>);
+    let content_dom_id = use_signal(|| None::<String>);
 
     let next_cal_cfg = DateRangePickerCalendarConfig {
         config: CalendarConfig::new()
             .with_min_value(props.min_value.map(|v| v.date()))
             .with_max_value(props.max_value.map(|v| v.date()))
-            .with_disabled(props.disabled)
-            .with_read_only(props.read_only)
+            .with_disabled(effective_disabled)
+            .with_read_only(effective_read_only)
             .with_prevent_deselect(props.prevent_deselect)
             .with_paged_navigation(props.paged_navigation)
             .with_fixed_weeks(props.fixed_weeks)
@@ -268,16 +295,16 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
     };
     let calendar_config = use_signal(|| next_cal_cfg.clone());
 
-    let mut controlled_value = use_hook(|| CopyValue::new(props.value));
-    controlled_value.set(props.value);
-    let mut controlled_start_value = use_hook(|| CopyValue::new(props.start_value));
-    controlled_start_value.set(props.start_value);
-    let mut controlled_end_value = use_hook(|| CopyValue::new(props.end_value));
-    controlled_end_value.set(props.end_value);
-    let mut controlled_placeholder = use_hook(|| CopyValue::new(props.placeholder));
-    controlled_placeholder.set(props.placeholder);
-    let mut controlled_open = use_hook(|| CopyValue::new(props.open));
-    controlled_open.set(props.open);
+    let mut controlled_value = use_hook(|| CopyValue::new(value_binding));
+    controlled_value.set(value_binding);
+    let mut controlled_start_value = use_hook(|| CopyValue::new(start_binding));
+    controlled_start_value.set(start_binding);
+    let mut controlled_end_value = use_hook(|| CopyValue::new(end_binding));
+    controlled_end_value.set(end_binding);
+    let mut controlled_placeholder = use_hook(|| CopyValue::new(placeholder_binding));
+    controlled_placeholder.set(placeholder_binding);
+    let mut controlled_open = use_hook(|| CopyValue::new(open_binding));
+    controlled_open.set(open_binding);
     let mut on_value_change = use_hook(|| CopyValue::new(props.on_value_change));
     on_value_change.set(props.on_value_change);
     let mut on_start_value_change = use_hook(|| CopyValue::new(props.on_start_value_change));
@@ -288,6 +315,8 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
     on_placeholder_change.set(props.on_placeholder_change);
     let mut on_open_change = use_hook(|| CopyValue::new(props.on_open_change));
     on_open_change.set(props.on_open_change);
+    let on_composite_focus_in = use_hook(|| CopyValue::new(None::<EventHandler<FocusEvent>>));
+    let on_composite_focus_out = use_hook(|| CopyValue::new(None::<EventHandler<FocusEvent>>));
 
     let mut is_date_disabled = use_signal(|| props.is_date_disabled);
     let mut is_date_unavailable = use_signal(|| props.is_date_unavailable);
@@ -311,7 +340,7 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
         pred_initialized.set(true);
     }
 
-    let runtime = DateRangePickerRuntime {
+    let mut runtime = DateRangePickerRuntime {
         core: PickerRuntimeCore {
             state,
             rels: rels.clone(),
@@ -320,12 +349,16 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
             placeholder: placeholder_sig,
             calendar_placeholder: calendar_placeholder_sig,
             open: open_sig,
+            trigger_dom_id,
+            content_dom_id,
             controlled_value,
             controlled_placeholder,
             controlled_open,
             on_value_change,
             on_placeholder_change,
             on_open_change,
+            on_composite_focus_in,
+            on_composite_focus_out,
             is_date_disabled,
             is_date_unavailable,
             predicate_rev,
@@ -338,6 +371,16 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
         on_start_value_change,
         on_end_value_change,
     };
+
+    // Synchronous render-time reconciliation for external controlled signals.
+    {
+        let ext_val = value_binding.read_cloned();
+        let ext_start = start_binding.read_cloned();
+        let ext_end = end_binding.read_cloned();
+        let ext_ph = placeholder_binding.read_cloned();
+        let ext_open = open_binding.read_cloned();
+        runtime.reconcile_external_state(ext_val, ext_start, ext_end, ext_ph, ext_open);
+    }
 
     use_effect(use_reactive(
         (
@@ -368,20 +411,20 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
 
     use_effect(use_reactive(
         (
-            &props.value,
-            &props.start_value,
-            &props.end_value,
-            &props.placeholder,
-            &props.open,
+            &value_binding,
+            &start_binding,
+            &end_binding,
+            &placeholder_binding,
+            &open_binding,
         ),
         {
             let mut rt = runtime.clone();
-            move |(value_sig, start_sig, end_sig, placeholder_sig, open_sig)| {
-                let ext_val = value_sig.map(|s| *s.read());
-                let ext_start = start_sig.map(|s| *s.read());
-                let ext_end = end_sig.map(|s| *s.read());
-                let ext_ph = placeholder_sig.map(|s| *s.read());
-                let ext_open = open_sig.map(|s| *s.read());
+            move |(val_bind, start_bind, end_bind, ph_bind, open_bind)| {
+                let ext_val = val_bind.read_cloned();
+                let ext_start = start_bind.read_cloned();
+                let ext_end = end_bind.read_cloned();
+                let ext_ph = ph_bind.read_cloned();
+                let ext_open = open_bind.read_cloned();
                 rt.reconcile_external_state(ext_val, ext_start, ext_end, ext_ph, ext_open);
             }
         },
@@ -424,33 +467,36 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
         id: Some(rels.field_scope().token().to_string()),
         class: props.class,
         style: props.style,
-        value: Some(runtime.value),
+        value: None,
+        controlled_value: Some(runtime.value.into()),
         default_value: props.default_value,
         on_value_change: Some(EventHandler::new(move |next| {
             rt_for_field_val.handle_field_value_change(next);
         })),
         on_start_value_change: None,
         on_end_value_change: None,
-        placeholder: Some(runtime.placeholder),
+        placeholder: None,
+        controlled_placeholder: Some(runtime.placeholder.into()),
         on_placeholder_change: Some(EventHandler::new(move |next| {
             rt_for_field_ph.handle_field_placeholder_change(next);
         })),
+        on_focus_out: None,
         granularity: props.granularity,
         hour_cycle: props.hour_cycle,
         locale: props.locale,
         hide_time_zone: props.hide_time_zone,
         min_value: props.min_value,
         max_value: props.max_value,
-        disabled: props.disabled,
-        read_only: props.read_only,
-        required: props.required,
+        disabled: effective_disabled,
+        read_only: effective_read_only,
+        required: effective_required,
         readonly_segments: props.readonly_segments,
         is_date_unavailable: combined_unavailable,
         validate: props.validate,
         on_invalid: props.on_invalid,
         error_message_id: props.error_message_id,
         dir: Some(resolved_dir),
-        is_invalid_override: None,
+        is_invalid_override: effective_invalid_override,
         as_child: props.as_child,
         on_mounted: props.on_mounted,
         attributes: props.attributes,
@@ -480,6 +526,31 @@ pub fn DateRangePickerRoot(props: DateRangePickerRootProps) -> Element {
     };
     let range_field_rt =
         use_range_field_runtime::<DateFieldPolicy>(&range_field_spec, initial_placeholder);
+
+    let (handle_focus_in, handle_focus_out, handle_region_dismiss) =
+        use_composite_focus_out_tracked(
+            vec![
+                range_field_rt.current_root_dom_id(),
+                runtime.current_trigger_dom_id(),
+                runtime.current_content_dom_id(),
+            ],
+            props.on_focus_out,
+        );
+    runtime.set_composite_focus_handlers(Some(handle_focus_in), Some(handle_focus_out));
+    range_field_rt.set_parent_focus_handlers(Some(handle_focus_in), Some(handle_focus_out));
+    let is_open_now = *runtime.open.read();
+    let mut prev_open_for_focus = use_hook(|| CopyValue::new(is_open_now));
+    if prev_open_for_focus
+        .try_read()
+        .is_ok_and(|was| *was != is_open_now)
+    {
+        let was_open = prev_open_for_focus.try_read().map(|w| *w).unwrap_or(false);
+        prev_open_for_focus.set(is_open_now);
+        if was_open && !is_open_now {
+            handle_region_dismiss.call(());
+        }
+    }
+
     {
         let mut rfrt = range_field_rt.clone();
         let is_disabled_sig = runtime.is_date_disabled;
@@ -549,6 +620,8 @@ pub struct DateRangePickerTriggerProps {
     #[props(default)]
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default)]
+    pub on_blur: Option<EventHandler<FocusEvent>>,
+    #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
@@ -568,6 +641,9 @@ pub fn DateRangePickerTrigger(props: DateRangePickerTriggerProps) -> Element {
     let mut unreg_field = range_field_rt.clone();
     let mut drop_field = range_field_rt.clone();
     let focus_field = range_field_rt;
+    let reg_picker = picker_rt.clone();
+    let fi_picker = picker_rt.clone();
+    let fo_picker = picker_rt;
     let render_child = props.render_child;
 
     render_picker_trigger_surface(
@@ -579,10 +655,20 @@ pub fn DateRangePickerTrigger(props: DateRangePickerTriggerProps) -> Element {
         props.as_child,
         props.on_click,
         props.on_key_down,
+        props.on_blur,
+        Some(EventHandler::new(move |evt| {
+            fi_picker.notify_composite_focus_in(evt);
+        })),
+        Some(EventHandler::new(move |evt| {
+            fo_picker.notify_composite_focus_out(evt);
+        })),
         props.on_mounted,
         props.attributes,
         props.children,
         move |tid| {
+            if let Some(ref id_str) = tid {
+                reg_picker.register_trigger_dom_id(id_str.clone());
+            }
             if let Some(ref mut rfrt) = reg_field {
                 rfrt.register_trigger_id(tid);
             }
@@ -696,6 +782,10 @@ fn render_date_range_picker_content(
     props: DateRangePickerContentProps,
     floating: bool,
 ) -> Element {
+    let picker_rt = super::runtime::try_use_date_range_picker_context();
+    let fi_rt = picker_rt.clone();
+    let fo_rt = picker_rt.clone();
+    let reg_rt = picker_rt;
     let render_child = props.render_child;
     render_picker_content_surface(
         DatePickerContentProps {
@@ -724,6 +814,13 @@ fn render_date_range_picker_content(
         },
         floating,
         "data-date-range-picker-content",
+        fi_rt.map(|rt| EventHandler::new(move |evt| rt.notify_composite_focus_in(evt))),
+        fo_rt.map(|rt| EventHandler::new(move |evt| rt.notify_composite_focus_out(evt))),
+        move |cid| {
+            if let Some(ref rt) = reg_rt {
+                rt.register_content_dom_id(cid);
+            }
+        },
         move |attrs,
               wrapper_id,
               wrapper_style,

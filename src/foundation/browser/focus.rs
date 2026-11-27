@@ -343,6 +343,24 @@ pub(crate) fn use_composite_focus_out(
     boundary_ids: Vec<String>,
     on_focus_out: Option<EventHandler<FocusEvent>>,
 ) -> (EventHandler<FocusEvent>, EventHandler<FocusEvent>) {
+    let (on_in, on_out, _on_unmount_check) =
+        use_composite_focus_out_tracked(boundary_ids, on_focus_out);
+    (on_in, on_out)
+}
+
+/// Like [`use_composite_focus_out`], returning a third `EventHandler<()>` that triggers a
+/// coalesced focus-exit verification when an overlay/popover sub-region closes or unmounts while
+/// focus was inside the composite (preventing lost `onfocusout` events when dismiss unmounts
+/// portaled/static content before queued DOM blur delivery).
+#[allow(dead_code)]
+pub(crate) fn use_composite_focus_out_tracked(
+    boundary_ids: Vec<String>,
+    on_focus_out: Option<EventHandler<FocusEvent>>,
+) -> (
+    EventHandler<FocusEvent>,
+    EventHandler<FocusEvent>,
+    EventHandler<()>,
+) {
     let mut handler_slot = use_hook(|| CopyValue::new(on_focus_out));
     handler_slot.set(on_focus_out);
 
@@ -356,6 +374,7 @@ pub(crate) fn use_composite_focus_out(
 
     let alive = use_hook(|| CopyValue::new(true));
     let pending_gen = use_hook(|| CopyValue::new(0_u64));
+    let last_focus_evt: CopyValue<Option<FocusEvent>> = use_hook(|| CopyValue::new(None));
 
     use_drop(move || {
         let mut alive = alive;
@@ -368,10 +387,14 @@ pub(crate) fn use_composite_focus_out(
         }
     });
 
-    let handle_focus_in = use_callback(move |_evt: FocusEvent| {
+    let handle_focus_in = use_callback(move |evt: FocusEvent| {
         let mut pending_gen = pending_gen;
         if let Ok(mut generation) = pending_gen.try_write() {
             *generation = generation.wrapping_add(1);
+        }
+        let mut last = last_focus_evt;
+        if let Ok(mut slot) = last.try_write() {
+            *slot = Some(evt);
         }
     });
 
@@ -415,6 +438,11 @@ pub(crate) fn use_composite_focus_out(
                 return;
             }
 
+            let mut last = last_focus_evt;
+            if let Ok(mut slot) = last.try_write() {
+                *slot = None;
+            }
+
             let cb = handler_slot.try_read().ok().and_then(|slot| *slot);
             if let Some(handler) = cb {
                 handler.call(evt);
@@ -422,5 +450,15 @@ pub(crate) fn use_composite_focus_out(
         });
     });
 
-    (handle_focus_in, handle_focus_out)
+    let handle_region_dismiss = use_callback(move |(): ()| {
+        let saved = last_focus_evt
+            .try_read()
+            .ok()
+            .and_then(|slot| slot.clone());
+        if let Some(evt) = saved {
+            handle_focus_out.call(evt);
+        }
+    });
+
+    (handle_focus_in, handle_focus_out, handle_region_dismiss)
 }

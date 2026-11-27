@@ -2,7 +2,9 @@ use std::borrow::Cow;
 
 use dioxus::prelude::*;
 
+use crate::field::try_use_field_context;
 use crate::foundation::{
+    browser::focus::use_composite_focus_out_tracked,
     form::use_form_control_sync_with_epoch,
     overlay::{
         DismissCallbacks, DismissConfig, DismissEvent, FloatingHandle, FloatingMonitorSpec,
@@ -10,7 +12,7 @@ use crate::foundation::{
         use_dismissable_layer, use_floating_layer, use_presence,
     },
     shared::{ScopeHandle, use_stable_id},
-    state::sync_signal,
+    state::{ControlledBinding, sync_signal},
 };
 
 use super::hidden_input::ComboboxHiddenInput;
@@ -30,11 +32,15 @@ pub struct ComboboxRootProps {
     #[props(default)]
     pub value: Option<Signal<Option<String>>>,
     #[props(default)]
+    pub controlled_value: Option<ReadSignal<Option<String>>>,
+    #[props(default)]
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<Option<String>>>,
     #[props(default)]
     pub values: Option<Signal<Vec<String>>>,
+    #[props(default)]
+    pub controlled_values: Option<ReadSignal<Vec<String>>>,
     #[props(default)]
     pub default_values: Option<Vec<String>>,
     #[props(default)]
@@ -42,21 +48,31 @@ pub struct ComboboxRootProps {
     #[props(default)]
     pub input_value: Option<Signal<String>>,
     #[props(default)]
+    pub controlled_input_value: Option<ReadSignal<String>>,
+    #[props(default)]
     pub default_input_value: Option<String>,
     #[props(default)]
     pub on_input_value_change: Option<EventHandler<String>>,
     #[props(default)]
     pub open: Option<Signal<bool>>,
+    #[props(default)]
+    pub controlled_open: Option<ReadSignal<bool>>,
     #[props(default = false)]
     pub default_open: bool,
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
     #[props(default)]
     pub on_open_change_complete: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default = false)]
     pub required: bool,
+    #[props(default)]
+    pub invalid: Option<bool>,
+    #[props(default)]
+    pub aria_describedby: Option<String>,
     #[props(default)]
     pub name: Option<String>,
     #[props(default)]
@@ -82,10 +98,34 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
     let scope = use_hook(|| ScopeHandle::root(stable_id.clone()));
     let relationships = use_hook(|| ComboboxRelationships::new(scope.clone()));
 
-    let initial_input_value = {
-        if let Some(ref iv) = props.default_input_value {
+    let field_ctx = try_use_field_context();
+    let effective_disabled = props.disabled || field_ctx.is_some_and(|f| f.is_disabled());
+    let effective_required = props.required || field_ctx.is_some_and(|f| f.is_required());
+    let effective_name = props
+        .name
+        .clone()
+        .or_else(|| field_ctx.and_then(|f| f.name()));
+    let effective_invalid = props
+        .invalid
+        .or_else(|| field_ctx.map(|f| f.is_invalid()))
+        .unwrap_or(false);
+
+    let open_binding = ControlledBinding::from_props(props.open, props.controlled_open);
+    let value_binding = ControlledBinding::from_props(props.value, props.controlled_value);
+    let values_binding = ControlledBinding::from_props(props.values, props.controlled_values);
+    let input_value_binding =
+        ControlledBinding::from_props(props.input_value, props.controlled_input_value);
+
+    // Freeze mount-time reset baselines (`use_hook`) from controlled-or-default.
+    let (baseline_value, baseline_values, baseline_input_value) = use_hook(|| {
+        let init_val = value_binding.initial_or(props.default_value.clone());
+        let init_vals =
+            values_binding.initial_or(props.default_values.clone().unwrap_or_default());
+        let init_input = if let Some(iv) = input_value_binding.peek_cloned() {
+            iv
+        } else if let Some(ref iv) = props.default_input_value {
             iv.clone()
-        } else if let Some(ref dv) = props.default_value {
+        } else if let Some(ref dv) = init_val {
             props
                 .items
                 .iter()
@@ -94,16 +134,23 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
                 .unwrap_or_default()
         } else {
             String::new()
-        }
-    };
+        };
+        (init_val, init_vals, init_input)
+    });
 
     // 4B D-4: Reactive config signals synced on every render (zero mount-time snapshot).
     let mut mode_sig = use_signal(|| props.mode);
     sync_signal(&mut mode_sig, props.mode);
-    let mut disabled_sig = use_signal(|| props.disabled);
-    sync_signal(&mut disabled_sig, props.disabled);
-    let mut required_sig = use_signal(|| props.required);
-    sync_signal(&mut required_sig, props.required);
+    let mut disabled_sig = use_signal(|| effective_disabled);
+    sync_signal(&mut disabled_sig, effective_disabled);
+    let mut required_sig = use_signal(|| effective_required);
+    sync_signal(&mut required_sig, effective_required);
+    let mut invalid_sig = use_signal(|| effective_invalid);
+    sync_signal(&mut invalid_sig, effective_invalid);
+    let mut root_invalid_override_sig = use_signal(|| props.invalid);
+    sync_signal(&mut root_invalid_override_sig, props.invalid);
+    let mut root_aria_describedby_sig = use_signal(|| props.aria_describedby.clone());
+    sync_signal(&mut root_aria_describedby_sig, props.aria_describedby.clone());
     let mut loop_focus_sig = use_signal(|| props.loop_focus);
     sync_signal(&mut loop_focus_sig, props.loop_focus);
     let mut scroll_alignment_sig = use_signal(|| props.scroll_alignment);
@@ -113,8 +160,8 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
     let mut root_clear_on_deselect_sig = use_signal(|| props.clear_on_deselect);
     sync_signal(&mut root_clear_on_deselect_sig, props.clear_on_deselect);
     let input_clear_on_deselect_sig = use_signal(|| None::<bool>);
-    let mut name_sig = use_signal(|| props.name.clone());
-    sync_signal(&mut name_sig, props.name.clone());
+    let mut name_sig = use_signal(|| effective_name.clone());
+    sync_signal(&mut name_sig, effective_name.clone());
     let mut form_sig = use_signal(|| props.form.clone());
     sync_signal(&mut form_sig, props.form.clone());
     let mut portal_host_sig = use_signal(|| props.portal_host.clone());
@@ -139,21 +186,21 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
         CopyValue::new(None::<EventHandler<crate::foundation::shared::EscapeKeyDownEvent>>)
     });
 
-    let open_sig = use_signal(|| props.default_open);
-    let mut controlled_open_sig = use_signal(|| props.open);
-    sync_signal(&mut controlled_open_sig, props.open);
+    let open_sig = use_signal(|| open_binding.initial_or(props.default_open));
+    let mut controlled_open_sig = use_signal(|| open_binding);
+    sync_signal(&mut controlled_open_sig, open_binding);
 
-    let value_sig = use_signal(|| props.default_value.clone());
-    let mut controlled_value_sig = use_signal(|| props.value);
-    sync_signal(&mut controlled_value_sig, props.value);
+    let value_sig = use_signal(|| baseline_value.clone());
+    let mut controlled_value_sig = use_signal(|| value_binding);
+    sync_signal(&mut controlled_value_sig, value_binding);
 
-    let values_sig = use_signal(|| props.default_values.clone().unwrap_or_default());
-    let mut controlled_values_sig = use_signal(|| props.values);
-    sync_signal(&mut controlled_values_sig, props.values);
+    let values_sig = use_signal(|| baseline_values.clone());
+    let mut controlled_values_sig = use_signal(|| values_binding);
+    sync_signal(&mut controlled_values_sig, values_binding);
 
-    let input_value_sig = use_signal(|| initial_input_value.clone());
-    let mut controlled_input_value_sig = use_signal(|| props.input_value);
-    sync_signal(&mut controlled_input_value_sig, props.input_value);
+    let input_value_sig = use_signal(|| baseline_input_value.clone());
+    let mut controlled_input_value_sig = use_signal(|| input_value_binding);
+    sync_signal(&mut controlled_input_value_sig, input_value_binding);
 
     let highlighted_value = use_signal(|| None::<String>);
     let pending_open_highlight = use_signal(|| None);
@@ -170,9 +217,9 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
     let user_has_scrolled = use_signal(|| false);
     let content_mounted = use_signal(|| false);
     let is_static_content = use_signal(|| false);
-    let default_value_initial = use_signal(|| props.default_value.clone());
-    let default_values_initial = use_signal(|| props.default_values.clone().unwrap_or_default());
-    let default_input_value_initial = use_signal(|| initial_input_value);
+    let default_value_initial = use_signal(|| baseline_value);
+    let default_values_initial = use_signal(|| baseline_values);
+    let default_input_value_initial = use_signal(|| baseline_input_value);
     let mut reset_epoch_sig = use_signal(|| 0_u64);
 
     let input_id_sig = use_signal(|| relationships.input_id().to_owned());
@@ -200,16 +247,34 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
     let mut rt_slot: CopyValue<Option<ComboboxRuntime>> = use_hook(|| CopyValue::new(None));
     let mut floating_slot: CopyValue<Option<FloatingHandle>> = use_hook(|| CopyValue::new(None));
 
-    let is_open = if let Some(controlled) = *controlled_open_sig.read() {
-        *controlled.read()
-    } else {
-        *open_sig.read()
-    };
+    let is_open = (*controlled_open_sig.read())
+        .read_cloned()
+        .unwrap_or_else(|| *open_sig.read());
     let content_id = content_id_sig.read().clone();
     let input_id = input_id_sig.read().clone();
     let trigger_id = trigger_id_sig.read().clone();
     let wrapper_id = format!("{content_id}-floating-wrapper");
     let portal_id = format!("{content_id}-portal-root");
+
+    let (handle_focus_in, handle_focus_out, handle_region_dismiss) =
+        use_composite_focus_out_tracked(
+            vec![input_id.clone(), trigger_id.clone(), content_id.clone()],
+            props.on_focus_out,
+        );
+    let mut on_composite_focus_in_slot =
+        use_hook(|| CopyValue::new(Some(handle_focus_in)));
+    on_composite_focus_in_slot.set(Some(handle_focus_in));
+    let mut on_composite_focus_out_slot =
+        use_hook(|| CopyValue::new(Some(handle_focus_out)));
+    on_composite_focus_out_slot.set(Some(handle_focus_out));
+    let mut prev_open_for_focus = use_hook(|| CopyValue::new(is_open));
+    if prev_open_for_focus.try_read().is_ok_and(|was| *was != is_open) {
+        let was_open = prev_open_for_focus.try_read().map(|w| *w).unwrap_or(false);
+        prev_open_for_focus.set(is_open);
+        if was_open && !is_open {
+            handle_region_dismiss.call(());
+        }
+    }
 
     // 1. Presence (`use_presence`, `B10`, `FM-OVL-6`):
     // Defer `floating.clear()` & `on_open_change_complete(false)` until exit completion.
@@ -298,6 +363,7 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
             if let Some(rt) = rt_slot.try_read().ok().and_then(|g| g.clone()) {
                 rt.close_menu();
             }
+            handle_region_dismiss.call(());
         })),
     };
     let dismiss = use_dismissable_layer(is_open, dismiss_cfg, dismiss_callbacks);
@@ -308,6 +374,9 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
             mode: mode_sig,
             disabled: disabled_sig,
             required: required_sig,
+            invalid: invalid_sig,
+            root_invalid_override: root_invalid_override_sig,
+            root_aria_describedby: root_aria_describedby_sig,
             loop_focus: loop_focus_sig,
             scroll_alignment: scroll_alignment_sig,
             allow_deselect: allow_deselect_sig,
@@ -321,6 +390,8 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
             on_value_change: on_value_change_slot,
             on_values_change: on_values_change_slot,
             on_input_value_change: on_input_value_change_slot,
+            on_composite_focus_in: on_composite_focus_in_slot,
+            on_composite_focus_out: on_composite_focus_out_slot,
             open: open_sig,
             controlled_open: controlled_open_sig,
             value: value_sig,
@@ -401,7 +472,7 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
     let reset_rt = runtime.clone();
     let (_has_form, reset_epoch) = use_form_control_sync_with_epoch(
         &input_id,
-        props.name.as_deref(),
+        effective_name.as_deref(),
         props.form.as_deref(),
         move || {
             reset_rt.handle_form_reset();
@@ -413,7 +484,7 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
         runtime: runtime.clone(),
     });
 
-    let has_name = props.name.as_deref().is_some_and(|n| !n.is_empty());
+    let has_name = effective_name.as_deref().is_some_and(|n| !n.is_empty());
 
     rsx! {
         {props.children}

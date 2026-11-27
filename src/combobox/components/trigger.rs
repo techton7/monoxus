@@ -3,8 +3,13 @@ use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 
 use crate::combobox::{attrs::ComboboxTriggerAttrs, runtime::use_combobox_context};
+use crate::field::try_use_field_context;
 use crate::foundation::{
-    compose::merge_global_attributes, keyboard::is_ime_composing_key,
+    compose::{
+        extract_aria_invalid_and_describedby, merge_aria_describedby, merge_global_attributes,
+        resolve_invalid_and_describedby,
+    },
+    keyboard::is_ime_composing_key,
 };
 
 #[derive(Clone, PartialEq)]
@@ -44,13 +49,39 @@ pub struct ComboboxTriggerProps {
 #[component]
 pub fn ComboboxTrigger(props: ComboboxTriggerProps) -> Element {
     let ctx = use_combobox_context();
+    let field_ctx = try_use_field_context();
     let id = props
         .id
         .clone()
         .unwrap_or_else(|| ctx.runtime.relationships().trigger_id().to_owned());
     ctx.runtime.set_trigger_id(id.clone());
 
-    let attrs = ctx.runtime.trigger_attributes(id, props.disabled);
+    let extracted = extract_aria_invalid_and_describedby(props.attributes);
+    let field_describedby = field_ctx.and_then(|f| f.aria_describedby(None));
+    let root_describedby = ctx.runtime.root_aria_describedby();
+    let combined_context_describedby = merge_aria_describedby([
+        field_describedby.as_deref(),
+        root_describedby.as_deref(),
+    ]);
+    let fallback_invalid = ctx
+        .runtime
+        .root_invalid_override()
+        .or_else(|| field_ctx.map(|f| f.is_invalid()));
+    let (effective_invalid, effective_describedby) = resolve_invalid_and_describedby(
+        None,
+        extracted.aria_invalid,
+        fallback_invalid,
+        false,
+        None,
+        extracted.aria_describedby.as_deref(),
+        combined_context_describedby.as_deref(),
+    );
+
+    let attrs = ctx
+        .runtime
+        .trigger_attributes(id, props.disabled)
+        .with_invalid(effective_invalid)
+        .with_aria_describedby(effective_describedby);
     let is_disabled = attrs.is_disabled();
     let toggled_on_pointer = use_signal(|| false);
 
@@ -141,7 +172,7 @@ pub fn ComboboxTrigger(props: ComboboxTriggerProps) -> Element {
                 on_pointer_up,
                 on_click,
                 on_key_down,
-                attributes: props.attributes,
+                attributes: extracted.rest,
                 children: props.children,
             });
         }
@@ -150,8 +181,11 @@ pub fn ComboboxTrigger(props: ComboboxTriggerProps) -> Element {
     let merged = merge_global_attributes(
         props.class.as_deref(),
         props.style.as_deref(),
-        props.attributes,
+        extracted.rest,
     );
+
+    let focus_in_rt = ctx.runtime.clone();
+    let focus_out_rt = ctx.runtime.clone();
 
     rsx! {
         button {
@@ -160,10 +194,14 @@ pub fn ComboboxTrigger(props: ComboboxTriggerProps) -> Element {
             "aria-haspopup": "{attrs.aria_haspopup()}",
             "aria-expanded": "{attrs.aria_expanded()}",
             "aria-controls": attrs.aria_controls(),
+            "aria-invalid": attrs.aria_invalid(),
+            "aria-describedby": attrs.aria_describedby(),
+            "aria-required": attrs.aria_required(),
             disabled: is_disabled,
             "data-combobox-trigger": "",
             "data-state": "{attrs.data_state_str()}",
             "data-disabled": attrs.data_disabled(),
+            "data-invalid": attrs.data_invalid(),
             class: merged.class.as_deref(),
             style: merged.style.as_deref(),
             onmousedown: move |evt| on_mouse_down.call(evt),
@@ -171,6 +209,8 @@ pub fn ComboboxTrigger(props: ComboboxTriggerProps) -> Element {
             onpointerup: move |evt| on_pointer_up.call(evt),
             onclick: move |evt| on_click.call(evt),
             onkeydown: move |evt| on_key_down.call(evt),
+            onfocusin: move |evt| focus_in_rt.notify_composite_focus_in(evt),
+            onfocusout: move |evt| focus_out_rt.notify_composite_focus_out(evt),
             ..merged.rest,
             {props.children}
         }
