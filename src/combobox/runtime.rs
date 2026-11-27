@@ -1304,33 +1304,47 @@ impl ComboboxRuntime {
     }
 
     pub fn handle_form_reset(&self) {
-        match self.mode_untracked() {
+        let accepted = match self.mode_untracked() {
             ComboboxMode::Single => {
+                let is_val_ro = self
+                    .state
+                    .controlled_value
+                    .try_peek()
+                    .is_ok_and(|b| b.is_read_only());
                 let default_val = self
                     .state
                     .default_value_initial
                     .try_peek()
                     .ok()
                     .and_then(|g| g.clone());
-                self.set_value(default_val);
+                self.set_value(default_val.clone());
+                !is_val_ro || self.value_untracked() == default_val
             }
             ComboboxMode::Multiple => {
+                let is_vals_ro = self
+                    .state
+                    .controlled_values
+                    .try_peek()
+                    .is_ok_and(|b| b.is_read_only());
                 let default_vals = self
                     .state
                     .default_values_initial
                     .try_peek()
                     .map(|g| g.clone())
                     .unwrap_or_default();
-                self.set_values(default_vals);
+                self.set_values(default_vals.clone());
+                !is_vals_ro || self.values_untracked() == default_vals
             }
+        };
+        if accepted {
+            let default_input = self
+                .state
+                .default_input_value_initial
+                .try_peek()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            self.set_input_value(default_input, true);
         }
-        let default_input = self
-            .state
-            .default_input_value_initial
-            .try_peek()
-            .map(|g| g.clone())
-            .unwrap_or_default();
-        self.set_input_value(default_input, true);
     }
 
     pub fn refresh_scroll_buttons(&self) {

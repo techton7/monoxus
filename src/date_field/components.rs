@@ -374,24 +374,16 @@ where
     let mut input_focus_out_slot = use_hook(|| CopyValue::new(spec.on_focus_out));
     input_focus_out_slot.set(spec.on_focus_out);
     let root_focus_out_slot = runtime.on_root_focus_out;
-    let has_any_focus_out = spec.on_focus_out.is_some()
-        || root_focus_out_slot
-            .try_read()
-            .ok()
-            .and_then(|s| *s)
-            .is_some();
-    let combined_focus_out = has_any_focus_out.then(|| {
-        EventHandler::new(move |evt: FocusEvent| {
-            if let Some(cb) = input_focus_out_slot.try_read().ok().and_then(|s| *s) {
-                cb.call(evt.clone());
-            }
-            if let Some(cb) = root_focus_out_slot.try_read().ok().and_then(|s| *s) {
-                cb.call(evt);
-            }
-        })
+    let combined_focus_out = use_callback(move |evt: FocusEvent| {
+        if let Some(cb) = input_focus_out_slot.try_peek().ok().and_then(|s| *s) {
+            cb.call(evt.clone());
+        }
+        if let Some(cb) = root_focus_out_slot.try_peek().ok().and_then(|s| *s) {
+            cb.call(evt);
+        }
     });
     let (handle_focus_in, handle_focus_out) =
-        use_composite_focus_out(vec![attrs.id.clone()], combined_focus_out);
+        use_composite_focus_out(vec![attrs.id.clone()], Some(combined_focus_out));
 
     let mut reset_rt = runtime.clone();
     let (show_hidden, reset_epoch) = use_form_control_sync_with_epoch(

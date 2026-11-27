@@ -268,9 +268,25 @@ fn field_root_and_field_alias_mount_in_vdom() {
 
 #[test]
 fn field_optional_handler_toggle_never_panics_dioxus_5894() {
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+
+    #[derive(Props, Clone)]
+    struct ToggleProps {
+        attach_slot: Rc<RefCell<Option<Signal<bool>>>>,
+        render_count: Rc<Cell<usize>>,
+    }
+    impl PartialEq for ToggleProps {
+        fn eq(&self, _other: &Self) -> bool {
+            true
+        }
+    }
+
     #[component]
-    fn ToggleHarness() -> Element {
-        let mut attach = use_signal(|| true);
+    fn ToggleHarness(props: ToggleProps) -> Element {
+        let attach = use_signal(|| true);
+        *props.attach_slot.borrow_mut() = Some(attach);
+        props.render_count.set(props.render_count.get() + 1);
         rsx! {
             FieldRoot {
                 id: "toggle-root",
@@ -293,17 +309,32 @@ fn field_optional_handler_toggle_never_panics_dioxus_5894() {
                     },
                     "Toggle"
                 }
-                button {
-                    onclick: move |_| attach.toggle(),
-                    "Flip"
-                }
             }
         }
     }
 
-    let mut dom = VirtualDom::new(ToggleHarness);
+    let attach_slot = Rc::new(RefCell::new(None::<Signal<bool>>));
+    let render_count = Rc::new(Cell::new(0_usize));
+    let mut dom = VirtualDom::new_with_props(
+        ToggleHarness,
+        ToggleProps {
+            attach_slot: Rc::clone(&attach_slot),
+            render_count: Rc::clone(&render_count),
+        },
+    );
     dom.rebuild_in_place();
     dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(render_count.get(), 1);
+
+    // Flip true -> false -> true across renders to genuinely exercise Dioxus #5894 safety.
+    let mut sig = attach_slot.borrow().expect("attach signal initialized");
+    dom.in_scope(dioxus::core::ScopeId::ROOT, || sig.set(false));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(render_count.get(), 2);
+
+    dom.in_scope(dioxus::core::ScopeId::ROOT, || sig.set(true));
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(render_count.get(), 3);
 }
 
 #[cfg(feature = "native")]
@@ -3388,5 +3419,192 @@ mod native_tests {
         );
         assert_eq!(drf_seg.attr("aria-invalid".into()), Some("true"));
         assert_eq!(drf_seg.attr("data-invalid".into()), Some(""));
+    }
+
+    /// Audit #28 regressions:
+    /// 1. `DateFieldRoot` mounted with `on_focus_out: None`, later toggled to `Some(cb)`, must fire
+    ///    `cb` on focus exit even when `DateFieldInput` props are unchanged.
+    /// 2. `ComboboxRoot` with `controlled_value: Option<ReadSignal<_>>` rejecting a `<form>` reset
+    ///    must NOT overwrite uncontrolled `ComboboxInput` text to `default_input`.
+    #[component]
+    fn M3aAuditRegressionsScenario() -> Element {
+        use monoxus::button::{Button, ButtonType};
+        use monoxus::combobox::{
+            ComboboxContentStatic, ComboboxInput, ComboboxItem, ComboboxItemData, ComboboxRoot,
+            ComboboxTrigger,
+        };
+        use monoxus::date_field::{
+            DateFieldInput, DateFieldRoot, DateFieldSegment, DateFieldSegmentItem,
+        };
+        use monoxus::foundation::date_time::CalendarLocale;
+
+        let mut attach_df_focus_out = use_signal(|| false);
+        let mut df_late_out = use_signal(|| 0_u32);
+        let df_focus_out = attach_df_focus_out()
+            .then(|| EventHandler::new(move |_: FocusEvent| df_late_out += 1));
+
+        let mut cbx_val = use_signal(|| Some("a".to_string()));
+        let mut cbx_allow_change = use_signal(|| true);
+        let mut cbx_proposed = use_signal(Vec::<String>::new);
+
+        rsx! {
+            div { style: "padding: 20px; display: flex; flex-direction: column; gap: 14px;",
+                div {
+                    id: "m3a-audit-probe",
+                    "data-df-late-out": "{df_late_out()}",
+                    "data-df-attached": "{attach_df_focus_out()}",
+                    "data-cbx-val": "{cbx_val().unwrap_or_else(|| \"none\".to_string())}",
+                    "data-cbx-proposed": "{cbx_proposed.read().join(\",\")}",
+                }
+                button {
+                    id: "m3a-audit-ext",
+                    r#type: "button",
+                    style: "width: 90px; height: 28px;",
+                    "External"
+                }
+                button {
+                    id: "m3a-audit-enable-df-fo",
+                    r#type: "button",
+                    style: "width: 140px; height: 28px;",
+                    onclick: move |_| attach_df_focus_out.set(true),
+                    "Attach FocusOut"
+                }
+
+                // 1. DateFieldRoot starting with on_focus_out: None
+                DateFieldRoot {
+                    id: "m3a-audit-df",
+                    locale: CalendarLocale::EnUs,
+                    on_focus_out: df_focus_out,
+                    DateFieldInput {
+                        id: "m3a-audit-df-in",
+                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                            for seg in segs {
+                                DateFieldSegment {
+                                    key: "{seg.index}",
+                                    id: format!("m3a-audit-df-seg-{}", seg.kind().as_data_segment()),
+                                    part: seg.kind(),
+                                    index: Some(seg.index),
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 2. ComboboxRoot with ReadOnly controlled_value + uncontrolled input_value inside <form>
+                form {
+                    id: "m3a-audit-cbx-form",
+                    button {
+                        id: "m3a-audit-cbx-lock",
+                        r#type: "button",
+                        style: "width: 100px; height: 26px;",
+                        onclick: move |_| cbx_allow_change.set(false),
+                        "Reject Next"
+                    }
+                    ComboboxRoot {
+                        id: "m3a-audit-cbx",
+                        name: Some("audit_cbx".to_string()),
+                        controlled_value: Some(cbx_val.into()),
+                        items: vec![
+                            ComboboxItemData::new("a", "Alpha", false),
+                            ComboboxItemData::new("b", "Beta", false),
+                        ],
+                        on_value_change: move |next: Option<String>| {
+                            cbx_proposed
+                                .write()
+                                .push(next.clone().unwrap_or_else(|| "none".to_string()));
+                            if *cbx_allow_change.peek() {
+                                cbx_val.set(next);
+                            }
+                        },
+                        ComboboxInput {
+                            id: "m3a-audit-cbx-in",
+                            style: "width: 140px; height: 28px;",
+                        }
+                        ComboboxTrigger {
+                            id: "m3a-audit-cbx-trig",
+                            style: "width: 28px; height: 28px;",
+                            "v"
+                        }
+                        ComboboxContentStatic {
+                            ComboboxItem { id: "m3a-audit-cbx-a", value: "a", label: "Alpha", "Alpha" }
+                            ComboboxItem { id: "m3a-audit-cbx-b", value: "b", label: "Beta", "Beta" }
+                        }
+                    }
+                    Button {
+                        id: "m3a-audit-cbx-reset".to_string(),
+                        r#type: ButtonType::Reset,
+                        style: "width: 80px; height: 26px;".to_string(),
+                        "Reset"
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn m3a_audit_regressions_date_field_late_focus_out_and_combobox_readonly_reset() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(M3aAuditRegressionsScenario);
+        drain_polls_and_resolve(&mut harness);
+
+        // 1. Toggle DateFieldRoot on_focus_out None -> Some(cb), then focus segment and leave
+        click_and_pump(&mut harness, "#m3a-audit-enable-df-fo");
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m3a-audit-df-seg-month");
+        drain_polls_and_resolve(&mut harness);
+        focus_node(&mut harness, "#m3a-audit-ext");
+        advance_frame_and_pump(&mut harness, 0.02);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m3a-audit-probe")).unwrap();
+            assert_eq!(probe.attr("data-df-attached".into()), Some("true"));
+            assert_eq!(
+                probe.attr("data-df-late-out".into()),
+                Some("1"),
+                "DateFieldRoot toggling on_focus_out None -> Some must fire handler on focus exit"
+            );
+        }
+
+        // 2. Combobox: accept selection "b" (uncontrolled input becomes "Beta"), then lock & reset form
+        click_and_pump(&mut harness, "#m3a-audit-cbx-trig");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m3a-audit-cbx-b");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let cbx_in = base.get_node(harness.node("#m3a-audit-cbx-in")).unwrap();
+            assert_eq!(cbx_in.attr("value".into()), Some("Beta"));
+            let probe = base.get_node(harness.node("#m3a-audit-probe")).unwrap();
+            assert_eq!(probe.attr("data-cbx-val".into()), Some("b"));
+        }
+
+        click_and_pump(&mut harness, "#m3a-audit-cbx-lock");
+        drain_polls_and_resolve(&mut harness);
+        click_and_pump(&mut harness, "#m3a-audit-cbx-reset");
+        advance_frame_and_pump(&mut harness, 0.016);
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let probe = base.get_node(harness.node("#m3a-audit-probe")).unwrap();
+            assert_eq!(
+                probe.attr("data-cbx-proposed".into()),
+                Some("b,a"),
+                "Form reset must propose mount-time baseline 'a' via on_value_change"
+            );
+            assert_eq!(
+                probe.attr("data-cbx-val".into()),
+                Some("b"),
+                "Rejected ReadOnly reset must leave controlled signal at 'b'"
+            );
+            let hidden = base.get_node(harness.node("input[name='audit_cbx']")).unwrap();
+            assert_eq!(hidden.attr("value".into()), Some("b"));
+            let cbx_in = base.get_node(harness.node("#m3a-audit-cbx-in")).unwrap();
+            assert_eq!(
+                cbx_in.attr("value".into()),
+                Some("Beta"),
+                "Rejected ReadOnly form reset must not overwrite uncontrolled ComboboxInput text to 'Alpha'"
+            );
+        }
     }
 }
