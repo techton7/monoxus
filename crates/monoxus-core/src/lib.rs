@@ -8,7 +8,7 @@
 pub use ui_sdk::accessible_icon;
 pub mod accordion;
 pub mod alert_dialog;
-pub use ui_sdk::aspect_ratio;
+pub mod aspect_ratio;
 pub use ui_sdk::avatar;
 pub use ui_sdk::button;
 pub mod calendar;
