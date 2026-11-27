@@ -3275,7 +3275,7 @@ dependencies = [
 
 [[package]]
 name = "monoxus"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "blitz-dom",
  "blitz-host",
@@ -3297,7 +3297,7 @@ dependencies = [
 
 [[package]]
 name = "monoxus-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
 ]
