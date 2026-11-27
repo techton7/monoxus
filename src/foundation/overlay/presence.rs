@@ -6,44 +6,6 @@ use crate::foundation::browser::{PresenceMonitorEvent, start_presence_monitor};
 
 use super::watcher::{WatcherSlot, use_watcher_slot};
 
-// [SYNC1-REPLACE]: re-exported from ui_sdk::foundation::overlay::presence::TransitionStatus after Sync #1
-/// Animation / transition lifecycle phase exposed as `data-starting-style` / `data-ending-style`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum TransitionStatus {
-    #[default]
-    None,
-    Starting,
-    Idle,
-    Ending,
-}
-
-impl TransitionStatus {
-    #[inline]
-    pub const fn as_str(&self) -> Option<&'static str> {
-        match self {
-            Self::None => None,
-            Self::Starting => Some("starting"),
-            Self::Idle => Some("idle"),
-            Self::Ending => Some("ending"),
-        }
-    }
-
-    #[inline]
-    pub const fn is_starting(self) -> bool {
-        matches!(self, Self::Starting)
-    }
-
-    #[inline]
-    pub const fn is_idle(self) -> bool {
-        matches!(self, Self::Idle)
-    }
-
-    #[inline]
-    pub const fn is_ending(self) -> bool {
-        matches!(self, Self::Ending)
-    }
-}
-
 fn extract_inline_style_property(inline_style: &str, property: &str) -> Option<String> {
     let mut found = None;
     for decl in inline_style.split(';') {

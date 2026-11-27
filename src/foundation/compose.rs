@@ -429,6 +429,25 @@ impl<S> ChildProps<S> {
     }
 }
 
+/// Payload passed to `child: Option<Callback<FloatingContentChildProps, Element>>` on
+/// two-level floating `*Content` parts (outer positioner wrapper + inner popup surface),
+/// preventing floating `translate` vs CSS animation `transform` collisions (`DIV-01`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct FloatingContentChildProps {
+    pub wrapper_props: Vec<Attribute>,
+    pub props: Vec<Attribute>,
+}
+
+impl FloatingContentChildProps {
+    #[inline]
+    pub fn new(wrapper_props: Vec<Attribute>, props: Vec<Attribute>) -> Self {
+        Self {
+            wrapper_props,
+            props,
+        }
+    }
+}
+
 /// Combines optional explicit `class`/`style` props with `#[props(extends = GlobalAttributes)]`
 /// into a single consumer attribute list ready for [`merge_props`].
 pub fn collect_user_attrs(
