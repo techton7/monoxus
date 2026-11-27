@@ -1,19 +1,10 @@
-use crate::foundation::{
-    compose::{Slottable, project_attrs_as_child},
-    shared::{
-        data_disabled_attr, data_invalid_attr, data_readonly_attr, data_required_attr,
-    },
-};
+// [KEEP-MONOXUS-BRAND]
+use crate::foundation::compose::{Slottable, project_attrs_as_child};
 
 use super::{
     state::FieldDefinition,
     types::{FieldErrorLiveMode, FieldLegendVariant},
 };
-
-#[inline]
-const fn aria_bool_attr(flag: bool) -> Option<&'static str> {
-    if flag { Some("true") } else { None }
-}
 
 /// Computed attributes for `FieldRoot` (`<div role="group">`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -30,6 +21,23 @@ pub struct FieldRootAttrs {
     pub data_monoxus_field_root: &'static str,
 }
 
+impl From<ui_sdk::field::attrs::FieldRootAttrs> for FieldRootAttrs {
+    fn from(base: ui_sdk::field::attrs::FieldRootAttrs) -> Self {
+        Self {
+            id: base.id,
+            role: base.role,
+            aria_labelledby: base.aria_labelledby,
+            aria_describedby: base.aria_describedby,
+            data_orientation: base.data_orientation,
+            data_invalid: base.data_invalid,
+            data_disabled: base.data_disabled,
+            data_required: base.data_required,
+            data_readonly: base.data_readonly,
+            data_monoxus_field_root: base.data_field_root,
+        }
+    }
+}
+
 impl FieldRootAttrs {
     pub fn from_definition(
         def: &FieldDefinition,
@@ -37,18 +45,13 @@ impl FieldRootAttrs {
         aria_labelledby: Option<String>,
         aria_describedby: Option<String>,
     ) -> Self {
-        Self {
-            id: def.relationships.root_id().to_owned(),
+        ui_sdk::field::attrs::FieldRootAttrs::from_definition(
+            def,
             role,
             aria_labelledby,
             aria_describedby,
-            data_orientation: def.orientation.as_str(),
-            data_invalid: data_invalid_attr(def.invalid),
-            data_disabled: data_disabled_attr(def.disabled),
-            data_required: data_required_attr(def.required),
-            data_readonly: data_readonly_attr(def.read_only, def.disabled),
-            data_monoxus_field_root: "",
-        }
+        )
+        .into()
     }
 
     pub fn project_as_child<T, C>(&self, target: T, content: Slottable<C>) -> (T, Self, C) {
@@ -71,20 +74,26 @@ pub struct FieldSetAttrs {
     pub data_monoxus_field_set: &'static str,
 }
 
+impl From<ui_sdk::field::attrs::FieldSetAttrs> for FieldSetAttrs {
+    fn from(base: ui_sdk::field::attrs::FieldSetAttrs) -> Self {
+        Self {
+            id: base.id,
+            disabled: base.disabled,
+            aria_invalid: base.aria_invalid,
+            aria_describedby: base.aria_describedby,
+            data_orientation: base.data_orientation,
+            data_invalid: base.data_invalid,
+            data_disabled: base.data_disabled,
+            data_required: base.data_required,
+            data_readonly: base.data_readonly,
+            data_monoxus_field_set: base.data_field_set,
+        }
+    }
+}
+
 impl FieldSetAttrs {
     pub fn from_definition(def: &FieldDefinition, aria_describedby: Option<String>) -> Self {
-        Self {
-            id: def.relationships.fieldset_id().to_owned(),
-            disabled: def.disabled,
-            aria_invalid: aria_bool_attr(def.invalid),
-            aria_describedby,
-            data_orientation: def.orientation.as_str(),
-            data_invalid: data_invalid_attr(def.invalid),
-            data_disabled: data_disabled_attr(def.disabled),
-            data_required: data_required_attr(def.required),
-            data_readonly: data_readonly_attr(def.read_only, def.disabled),
-            data_monoxus_field_set: "",
-        }
+        ui_sdk::field::attrs::FieldSetAttrs::from_definition(def, aria_describedby).into()
     }
 
     pub fn project_as_child<T, C>(&self, target: T, content: Slottable<C>) -> (T, Self, C) {
@@ -104,6 +113,20 @@ pub struct FieldLegendAttrs {
     pub data_monoxus_field_legend: &'static str,
 }
 
+impl From<ui_sdk::field::attrs::FieldLegendAttrs> for FieldLegendAttrs {
+    fn from(base: ui_sdk::field::attrs::FieldLegendAttrs) -> Self {
+        Self {
+            id: base.id,
+            data_variant: base.data_variant,
+            data_invalid: base.data_invalid,
+            data_disabled: base.data_disabled,
+            data_required: base.data_required,
+            data_readonly: base.data_readonly,
+            data_monoxus_field_legend: base.data_field_legend,
+        }
+    }
+}
+
 impl FieldLegendAttrs {
     pub fn new(
         id: impl Into<String>,
@@ -113,26 +136,14 @@ impl FieldLegendAttrs {
         required: bool,
         read_only: bool,
     ) -> Self {
-        Self {
-            id: id.into(),
-            data_variant: variant.as_str(),
-            data_invalid: data_invalid_attr(invalid),
-            data_disabled: data_disabled_attr(disabled),
-            data_required: data_required_attr(required),
-            data_readonly: data_readonly_attr(read_only, disabled),
-            data_monoxus_field_legend: "",
-        }
+        ui_sdk::field::attrs::FieldLegendAttrs::new(
+            id, variant, invalid, disabled, required, read_only,
+        )
+        .into()
     }
 
     pub fn from_definition(def: &FieldDefinition, variant: FieldLegendVariant) -> Self {
-        Self::new(
-            def.relationships.legend_id(),
-            variant,
-            def.invalid,
-            def.disabled,
-            def.required,
-            def.read_only,
-        )
+        ui_sdk::field::attrs::FieldLegendAttrs::from_definition(def, variant).into()
     }
 
     pub fn project_as_child<T, C>(&self, target: T, content: Slottable<C>) -> (T, Self, C) {
@@ -152,6 +163,20 @@ pub struct FieldLabelAttrs {
     pub data_monoxus_field_label: &'static str,
 }
 
+impl From<ui_sdk::field::attrs::FieldLabelAttrs> for FieldLabelAttrs {
+    fn from(base: ui_sdk::field::attrs::FieldLabelAttrs) -> Self {
+        Self {
+            id: base.id,
+            r#for: base.r#for,
+            data_invalid: base.data_invalid,
+            data_disabled: base.data_disabled,
+            data_required: base.data_required,
+            data_readonly: base.data_readonly,
+            data_monoxus_field_label: base.data_field_label,
+        }
+    }
+}
+
 impl FieldLabelAttrs {
     pub fn new(
         id: impl Into<String>,
@@ -161,26 +186,14 @@ impl FieldLabelAttrs {
         required: bool,
         read_only: bool,
     ) -> Self {
-        Self {
-            id: id.into(),
-            r#for: html_for.filter(|v| !v.trim().is_empty()),
-            data_invalid: data_invalid_attr(invalid),
-            data_disabled: data_disabled_attr(disabled),
-            data_required: data_required_attr(required),
-            data_readonly: data_readonly_attr(read_only, disabled),
-            data_monoxus_field_label: "",
-        }
+        ui_sdk::field::attrs::FieldLabelAttrs::new(
+            id, html_for, invalid, disabled, required, read_only,
+        )
+        .into()
     }
 
     pub fn from_definition(def: &FieldDefinition, html_for: Option<String>) -> Self {
-        Self::new(
-            def.relationships.label_id(),
-            html_for,
-            def.invalid,
-            def.disabled,
-            def.required,
-            def.read_only,
-        )
+        ui_sdk::field::attrs::FieldLabelAttrs::from_definition(def, html_for).into()
     }
 
     pub fn project_as_child<T, C>(&self, target: T, content: Slottable<C>) -> (T, Self, C) {
@@ -209,6 +222,29 @@ pub struct FieldControlAttrs {
     pub data_monoxus_field_control: &'static str,
 }
 
+impl From<ui_sdk::field::attrs::FieldControlAttrs> for FieldControlAttrs {
+    fn from(base: ui_sdk::field::attrs::FieldControlAttrs) -> Self {
+        Self {
+            id: base.id,
+            name: base.name,
+            aria_labelledby: base.aria_labelledby,
+            aria_describedby: base.aria_describedby,
+            aria_invalid: base.aria_invalid,
+            aria_required: base.aria_required,
+            aria_disabled: base.aria_disabled,
+            aria_readonly: base.aria_readonly,
+            disabled: base.disabled,
+            required: base.required,
+            read_only: base.read_only,
+            data_invalid: base.data_invalid,
+            data_disabled: base.data_disabled,
+            data_required: base.data_required,
+            data_readonly: base.data_readonly,
+            data_monoxus_field_control: base.data_field_control,
+        }
+    }
+}
+
 impl FieldControlAttrs {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -221,24 +257,17 @@ impl FieldControlAttrs {
         required: bool,
         read_only: bool,
     ) -> Self {
-        Self {
-            id: id.into(),
-            name: name.filter(|n| !n.is_empty()),
-            aria_labelledby: aria_labelledby.filter(|v| !v.trim().is_empty()),
-            aria_describedby: aria_describedby.filter(|v| !v.trim().is_empty()),
-            aria_invalid: aria_bool_attr(invalid),
-            aria_required: aria_bool_attr(required),
-            aria_disabled: aria_bool_attr(disabled),
-            aria_readonly: aria_bool_attr(read_only && !disabled),
+        ui_sdk::field::attrs::FieldControlAttrs::new(
+            id,
+            name,
+            aria_labelledby,
+            aria_describedby,
+            invalid,
             disabled,
             required,
             read_only,
-            data_invalid: data_invalid_attr(invalid),
-            data_disabled: data_disabled_attr(disabled),
-            data_required: data_required_attr(required),
-            data_readonly: data_readonly_attr(read_only, disabled),
-            data_monoxus_field_control: "",
-        }
+        )
+        .into()
     }
 
     pub fn from_definition(
@@ -247,19 +276,13 @@ impl FieldControlAttrs {
         aria_labelledby: Option<String>,
         aria_describedby: Option<String>,
     ) -> Self {
-        let id = control_id
-            .filter(|v| !v.trim().is_empty())
-            .unwrap_or_else(|| def.relationships.control_id().to_owned());
-        Self::new(
-            id,
-            def.name.clone(),
+        ui_sdk::field::attrs::FieldControlAttrs::from_definition(
+            def,
+            control_id,
             aria_labelledby,
             aria_describedby,
-            def.invalid,
-            def.disabled,
-            def.required,
-            def.read_only,
         )
+        .into()
     }
 
     pub fn project_as_child<T, C>(&self, target: T, content: Slottable<C>) -> (T, Self, C) {
@@ -276,18 +299,24 @@ pub struct FieldDescriptionAttrs {
     pub data_monoxus_field_description: &'static str,
 }
 
+impl From<ui_sdk::field::attrs::FieldDescriptionAttrs> for FieldDescriptionAttrs {
+    fn from(base: ui_sdk::field::attrs::FieldDescriptionAttrs) -> Self {
+        Self {
+            id: base.id,
+            data_invalid: base.data_invalid,
+            data_disabled: base.data_disabled,
+            data_monoxus_field_description: base.data_field_description,
+        }
+    }
+}
+
 impl FieldDescriptionAttrs {
     pub fn new(id: impl Into<String>, invalid: bool, disabled: bool) -> Self {
-        Self {
-            id: id.into(),
-            data_invalid: data_invalid_attr(invalid),
-            data_disabled: data_disabled_attr(disabled),
-            data_monoxus_field_description: "",
-        }
+        ui_sdk::field::attrs::FieldDescriptionAttrs::new(id, invalid, disabled).into()
     }
 
     pub fn from_definition(def: &FieldDefinition) -> Self {
-        Self::new(def.relationships.description_id(), def.invalid, def.disabled)
+        ui_sdk::field::attrs::FieldDescriptionAttrs::from_definition(def).into()
     }
 
     pub fn project_as_child<T, C>(&self, target: T, content: Slottable<C>) -> (T, Self, C) {
@@ -306,6 +335,19 @@ pub struct FieldErrorAttrs {
     pub data_monoxus_field_error: &'static str,
 }
 
+impl From<ui_sdk::field::attrs::FieldErrorAttrs> for FieldErrorAttrs {
+    fn from(base: ui_sdk::field::attrs::FieldErrorAttrs) -> Self {
+        Self {
+            id: base.id,
+            role: base.role,
+            aria_live: base.aria_live,
+            data_invalid: base.data_invalid,
+            data_disabled: base.data_disabled,
+            data_monoxus_field_error: base.data_field_error,
+        }
+    }
+}
+
 impl FieldErrorAttrs {
     pub fn new(
         id: impl Into<String>,
@@ -314,18 +356,7 @@ impl FieldErrorAttrs {
         invalid: bool,
         disabled: bool,
     ) -> Self {
-        Self {
-            id: id.into(),
-            role: active.then_some("alert"),
-            aria_live: if active {
-                live_mode.as_aria_live()
-            } else {
-                None
-            },
-            data_invalid: data_invalid_attr(invalid || active),
-            data_disabled: data_disabled_attr(disabled),
-            data_monoxus_field_error: "",
-        }
+        ui_sdk::field::attrs::FieldErrorAttrs::new(id, active, live_mode, invalid, disabled).into()
     }
 
     pub fn from_definition(
@@ -333,13 +364,7 @@ impl FieldErrorAttrs {
         active: bool,
         live_mode: FieldErrorLiveMode,
     ) -> Self {
-        Self::new(
-            def.relationships.error_id(),
-            active,
-            live_mode,
-            def.invalid,
-            def.disabled,
-        )
+        ui_sdk::field::attrs::FieldErrorAttrs::from_definition(def, active, live_mode).into()
     }
 
     pub fn project_as_child<T, C>(&self, target: T, content: Slottable<C>) -> (T, Self, C) {

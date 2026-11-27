@@ -153,16 +153,39 @@ fn positioned_overlay_lane_publishes_wrapper_safe_overlay_hooks_and_geometry() {
     assert_eq!(geometry.namespace(), "popover");
     assert_eq!(
         GeometryVars::variable_name("popover", "floating-x"),
+        "--ui-popover-floating-x",
+    );
+    assert_eq!(
+        GeometryVars::variable_name_with_prefix("monoxus", "popover", "floating-x"),
         "--monoxus-popover-floating-x",
     );
-    assert_eq!(geometry.get("--monoxus-popover-floating-x"), Some(100.0));
-    assert_eq!(geometry.get("--monoxus-popover-floating-y"), Some(34.0));
+    assert_eq!(geometry.get("--ui-popover-floating-x"), Some(100.0));
+    assert_eq!(geometry.get("--ui-popover-floating-y"), Some(34.0));
     assert_eq!(
-        geometry.get("--monoxus-popover-transform-origin-x"),
+        geometry.get("--ui-popover-transform-origin-x"),
         Some(20.0)
     );
     assert_eq!(
-        geometry.get("--monoxus-popover-transform-origin-y"),
+        geometry.get("--ui-popover-transform-origin-y"),
+        Some(0.0)
+    );
+    let monoxus_geometry = floating
+        .with_css_prefix("monoxus")
+        .geometry_vars(Rect::new(80.0, 20.0, 40.0, 10.0), Size::new(20.0, 30.0));
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-popover-floating-x"),
+        Some(100.0)
+    );
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-popover-floating-y"),
+        Some(34.0)
+    );
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-popover-transform-origin-x"),
+        Some(20.0)
+    );
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-popover-transform-origin-y"),
         Some(0.0)
     );
 }

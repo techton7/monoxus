@@ -1048,10 +1048,15 @@ mod tests {
 
     #[test]
     fn popover_content_css_variables_include_monoxus_and_radix_compatibility_names() {
-        let geometry = GeometryVars::new(
+        let default_geometry = GeometryVars::new(
             "popover", 24.0, 44.0, 26.0, 0.0, 120.0, 80.0, 40.0, 16.0, 30.0, 12.0,
         );
+        assert_eq!(
+            default_geometry.css_get("--ui-popover-floating-x"),
+            Some("24px".to_string())
+        );
 
+        let geometry = default_geometry.with_css_prefix("monoxus");
         let variables = popover_content_css_variables(&geometry);
         let serialized = serialize_css_custom_properties(&variables);
 

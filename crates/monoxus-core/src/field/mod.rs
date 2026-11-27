@@ -1,9 +1,6 @@
+// [KEEP-MONOXUS-BRAND]
 pub mod attrs;
-pub mod relationships;
-pub mod state;
+pub use ui_sdk::field::{relationships, state};
 pub mod types;
-
-#[cfg(test)]
-mod tests;
 
 pub use self::{attrs::*, relationships::*, state::*, types::*};

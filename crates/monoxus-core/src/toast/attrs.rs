@@ -1,214 +1,10 @@
-use super::types::*;
+use super::types::ToastConfig;
 
-/// Pure attribute publisher for the landmark `ToastViewport` element.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ToastViewportAttrs {
-    pub role: &'static str,
-    pub aria_label: String,
-    pub tabindex: &'static str,
-    pub dir: String,
-    pub data_expanded: &'static str,
-    pub data_position: &'static str,
-    pub data_x_position: &'static str,
-    pub data_y_position: &'static str,
-    pub style: String,
-}
+pub use ui_sdk::toast::attrs::{ToastActionAttrs, ToastRootAttrs, ToastViewportAttrs};
 
-impl ToastViewportAttrs {
-    pub fn new(config: &ToastConfig, expanded: bool, dir: impl Into<String>) -> Self {
-        Self::with_position(config, expanded, dir, config.position)
-    }
-
-    pub fn with_position(
-        config: &ToastConfig,
-        expanded: bool,
-        dir: impl Into<String>,
-        position: ToastPosition,
-    ) -> Self {
-        Self::with_position_and_front_height(config, expanded, dir, position, None)
-    }
-
-    pub fn with_position_and_front_height(
-        config: &ToastConfig,
-        expanded: bool,
-        dir: impl Into<String>,
-        position: ToastPosition,
-        front_toast_height: Option<f64>,
-    ) -> Self {
-        let mut styles = Vec::new();
-        if let Some(h) = front_toast_height.filter(|h| h.is_finite() && *h > 0.0) {
-            styles.push(format!("--front-toast-height: {h}px;"));
-        } else {
-            styles.push("--front-toast-height: auto;".to_string());
-        }
-        styles.push(format!("--width: {}px;", config.width));
-        styles.push(format!("--gap: {}px;", config.gap));
-        if let Some(ref top) = config.offset.top {
-            styles.push(format!("--offset-top: {top};"));
-        }
-        if let Some(ref right) = config.offset.right {
-            styles.push(format!("--offset-right: {right};"));
-        }
-        if let Some(ref bottom) = config.offset.bottom {
-            styles.push(format!("--offset-bottom: {bottom};"));
-        }
-        if let Some(ref left) = config.offset.left {
-            styles.push(format!("--offset-left: {left};"));
-        }
-        if let Some(ref top) = config.mobile_offset.top {
-            styles.push(format!("--mobile-offset-top: {top};"));
-        }
-        if let Some(ref right) = config.mobile_offset.right {
-            styles.push(format!("--mobile-offset-right: {right};"));
-        }
-        if let Some(ref bottom) = config.mobile_offset.bottom {
-            styles.push(format!("--mobile-offset-bottom: {bottom};"));
-        }
-        if let Some(ref left) = config.mobile_offset.left {
-            styles.push(format!("--mobile-offset-left: {left};"));
-        }
-
-        Self {
-            role: "region",
-            aria_label: config
-                .container_aria_label
-                .replace("{hotkey}", &config.hotkey),
-            tabindex: "-1",
-            dir: dir.into(),
-            data_expanded: if expanded { "true" } else { "false" },
-            data_position: position.as_str(),
-            data_x_position: position.x_str(),
-            data_y_position: position.y_str(),
-            style: styles.join(" "),
-        }
-    }
-
-    pub fn with_style(mut self, style: impl Into<String>) -> Self {
-        self.style = style.into();
-        self
-    }
-}
-
-/// Pure attribute publisher for an individual `ToastRoot` card.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ToastRootAttrs {
-    pub role: &'static str,
-    pub aria_live: &'static str,
-    pub aria_atomic: &'static str,
-    pub data_state: &'static str,
-    pub data_type: &'static str,
-    pub data_visible: &'static str,
-    pub data_front: &'static str,
-    pub data_expanded: &'static str,
-    pub data_dismissible: &'static str,
-    pub data_position: &'static str,
-    pub data_x_position: &'static str,
-    pub data_y_position: &'static str,
-    pub data_swipe_out: &'static str,
-    pub data_index: String,
-    pub data_testid: Option<String>,
-}
-
-impl ToastRootAttrs {
-    pub fn new(
-        toast_type: ToastType,
-        phase: ToastPhase,
-        index: usize,
-        visible_limit: usize,
-        test_id: Option<String>,
-    ) -> Self {
-        Self::with_options(toast_type, phase, index, visible_limit, test_id, false)
-    }
-
-    pub fn with_options(
-        toast_type: ToastType,
-        phase: ToastPhase,
-        index: usize,
-        visible_limit: usize,
-        test_id: Option<String>,
-        expanded: bool,
-    ) -> Self {
-        Self::with_options_and_position(
-            toast_type,
-            phase,
-            index,
-            visible_limit,
-            test_id,
-            expanded,
-            ToastPosition::BottomRight,
-        )
-    }
-
-    pub fn with_options_and_position(
-        toast_type: ToastType,
-        phase: ToastPhase,
-        index: usize,
-        visible_limit: usize,
-        test_id: Option<String>,
-        expanded: bool,
-        position: ToastPosition,
-    ) -> Self {
-        let (role, aria_live) = match toast_type {
-            ToastType::Warning | ToastType::Error => ("alert", "assertive"),
-            _ => ("status", "polite"),
-        };
-
-        Self {
-            role,
-            aria_live,
-            aria_atomic: "true",
-            data_state: phase.as_state_str(),
-            data_type: toast_type.as_str(),
-            data_visible: if index < visible_limit {
-                "true"
-            } else {
-                "false"
-            },
-            data_front: if index == 0 { "true" } else { "false" },
-            data_expanded: if expanded { "true" } else { "false" },
-            data_dismissible: if toast_type == ToastType::Loading {
-                "false"
-            } else {
-                "true"
-            },
-            data_position: position.as_str(),
-            data_x_position: position.x_str(),
-            data_y_position: position.y_str(),
-            data_swipe_out: "false",
-            data_index: index.to_string(),
-            data_testid: test_id,
-        }
-    }
-
-    pub fn with_expanded(mut self, expanded: bool) -> Self {
-        self.data_expanded = if expanded { "true" } else { "false" };
-        self
-    }
-
-    pub fn with_dismissible(mut self, dismissible: bool) -> Self {
-        self.data_dismissible = if dismissible { "true" } else { "false" };
-        self
-    }
-}
-
-/// Pure attribute publisher for action buttons.
-#[derive(Clone, Debug, PartialEq)]
-pub struct ToastActionAttrs {
-    pub r#type: &'static str,
-    pub aria_label: String,
-}
-
-impl ToastActionAttrs {
-    pub fn new(alt_text: String) -> Self {
-        Self {
-            r#type: "button",
-            aria_label: alt_text,
-        }
-    }
-}
-
+// [KEEP-MONOXUS-BRAND] Preserve `data_radix_toast_announce_exclude` field for `monoxus::toast`.
 /// Pure attribute publisher for close/dismiss buttons.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ToastCloseAttrs {
     pub r#type: &'static str,
     pub aria_label: String,
@@ -217,10 +13,36 @@ pub struct ToastCloseAttrs {
 
 impl ToastCloseAttrs {
     pub fn new(config: &ToastConfig) -> Self {
+        Self::from(ui_sdk::toast::attrs::ToastCloseAttrs::new(config))
+    }
+
+    #[inline]
+    pub fn announce_exclude(&self) -> bool {
+        self.data_radix_toast_announce_exclude == "true"
+    }
+}
+
+impl From<ui_sdk::toast::attrs::ToastCloseAttrs> for ToastCloseAttrs {
+    fn from(attrs: ui_sdk::toast::attrs::ToastCloseAttrs) -> Self {
         Self {
-            r#type: "button",
-            aria_label: config.close_button_aria_label.clone(),
-            data_radix_toast_announce_exclude: "true",
+            r#type: attrs.r#type,
+            aria_label: attrs.aria_label,
+            data_radix_toast_announce_exclude: attrs.data_toast_announce_exclude,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toast_close_attrs_preserves_radix_announce_exclude_field() {
+        let config = ToastConfig::default();
+        let attrs = ToastCloseAttrs::new(&config);
+        assert_eq!(attrs.r#type, "button");
+        assert_eq!(attrs.aria_label, config.close_button_aria_label);
+        assert_eq!(attrs.data_radix_toast_announce_exclude, "true");
+        assert!(attrs.announce_exclude());
     }
 }

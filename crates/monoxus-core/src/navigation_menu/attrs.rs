@@ -1,6 +1,10 @@
-use crate::foundation::{
-    state::DataState,
+use crate::foundation::state::DataState;
+
+pub use ui_sdk::navigation_menu::attrs::{
+    NavigationMenuAriaOwnsAttributes, NavigationMenuFocusProxyAttributes,
 };
+
+// [KEEP-MONOXUS-BRAND] Compat attribute structs preserving all 10 `data_monoxus_navigation_menu_*` markers.
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NavigationMenuRootAttributes {
@@ -33,6 +37,20 @@ impl NavigationMenuRootAttributes {
     }
 }
 
+impl From<ui_sdk::navigation_menu::attrs::NavigationMenuRootAttributes>
+    for NavigationMenuRootAttributes
+{
+    fn from(attrs: ui_sdk::navigation_menu::attrs::NavigationMenuRootAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            aria_label: attrs.aria_label,
+            dir: attrs.dir,
+            data_orientation: attrs.data_orientation,
+            data_monoxus_navigation_menu_root: "",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NavigationMenuSubAttributes {
     pub id: String,
@@ -51,6 +69,18 @@ impl NavigationMenuSubAttributes {
 
     pub const fn data_monoxus_navigation_menu_sub(&self) -> &'static str {
         self.data_monoxus_navigation_menu_sub
+    }
+}
+
+impl From<ui_sdk::navigation_menu::attrs::NavigationMenuSubAttributes>
+    for NavigationMenuSubAttributes
+{
+    fn from(attrs: ui_sdk::navigation_menu::attrs::NavigationMenuSubAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            data_orientation: attrs.data_orientation,
+            data_monoxus_navigation_menu_sub: "",
+        }
     }
 }
 
@@ -75,6 +105,18 @@ impl NavigationMenuListTrackAttributes {
     }
 }
 
+impl From<ui_sdk::navigation_menu::attrs::NavigationMenuListTrackAttributes>
+    for NavigationMenuListTrackAttributes
+{
+    fn from(attrs: ui_sdk::navigation_menu::attrs::NavigationMenuListTrackAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            style: attrs.style,
+            data_monoxus_navigation_menu_track: "",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NavigationMenuListAttributes {
     pub id: String,
@@ -96,6 +138,18 @@ impl NavigationMenuListAttributes {
     }
 }
 
+impl From<ui_sdk::navigation_menu::attrs::NavigationMenuListAttributes>
+    for NavigationMenuListAttributes
+{
+    fn from(attrs: ui_sdk::navigation_menu::attrs::NavigationMenuListAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            data_orientation: attrs.data_orientation,
+            data_monoxus_navigation_menu_list: "",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NavigationMenuItemAttributes {
     pub id: String,
@@ -109,6 +163,17 @@ impl NavigationMenuItemAttributes {
 
     pub const fn data_monoxus_navigation_menu_item(&self) -> &'static str {
         self.data_monoxus_navigation_menu_item
+    }
+}
+
+impl From<ui_sdk::navigation_menu::attrs::NavigationMenuItemAttributes>
+    for NavigationMenuItemAttributes
+{
+    fn from(attrs: ui_sdk::navigation_menu::attrs::NavigationMenuItemAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            data_monoxus_navigation_menu_item: "",
+        }
     }
 }
 
@@ -163,17 +228,22 @@ impl NavigationMenuTriggerAttributes {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NavigationMenuFocusProxyAttributes {
-    pub id: String,
-    pub aria_hidden: &'static str,
-    pub tabindex: i32,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NavigationMenuAriaOwnsAttributes {
-    pub id: String,
-    pub aria_owns: String,
+impl From<ui_sdk::navigation_menu::attrs::NavigationMenuTriggerAttributes>
+    for NavigationMenuTriggerAttributes
+{
+    fn from(attrs: ui_sdk::navigation_menu::attrs::NavigationMenuTriggerAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            r#type: attrs.r#type,
+            disabled: attrs.disabled,
+            aria_expanded: attrs.aria_expanded,
+            aria_controls: attrs.aria_controls,
+            data_state: attrs.data_state,
+            data_disabled: attrs.data_disabled,
+            data_value: attrs.data_value,
+            data_monoxus_navigation_menu_trigger: "",
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -214,6 +284,22 @@ impl NavigationMenuContentAttributes {
 
     pub const fn data_monoxus_navigation_menu_content(&self) -> &'static str {
         self.data_monoxus_navigation_menu_content
+    }
+}
+
+impl From<ui_sdk::navigation_menu::attrs::NavigationMenuContentAttributes>
+    for NavigationMenuContentAttributes
+{
+    fn from(attrs: ui_sdk::navigation_menu::attrs::NavigationMenuContentAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            aria_labelledby: attrs.aria_labelledby,
+            data_state: attrs.data_state,
+            data_orientation: attrs.data_orientation,
+            data_motion: attrs.data_motion,
+            style: attrs.style,
+            data_monoxus_navigation_menu_content: "",
+        }
     }
 }
 
@@ -268,6 +354,24 @@ impl NavigationMenuLinkAttributes {
     }
 }
 
+impl From<ui_sdk::navigation_menu::attrs::NavigationMenuLinkAttributes>
+    for NavigationMenuLinkAttributes
+{
+    fn from(attrs: ui_sdk::navigation_menu::attrs::NavigationMenuLinkAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            href: attrs.href,
+            target: attrs.target,
+            rel: attrs.rel,
+            tabindex: attrs.tabindex,
+            aria_current: attrs.aria_current,
+            data_active: attrs.data_active,
+            data_focused: attrs.data_focused,
+            data_monoxus_navigation_menu_link: "",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NavigationMenuIndicatorAttributes {
     pub id: String,
@@ -304,6 +408,21 @@ impl NavigationMenuIndicatorAttributes {
     }
 }
 
+impl From<ui_sdk::navigation_menu::attrs::NavigationMenuIndicatorAttributes>
+    for NavigationMenuIndicatorAttributes
+{
+    fn from(attrs: ui_sdk::navigation_menu::attrs::NavigationMenuIndicatorAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            aria_hidden: attrs.aria_hidden,
+            data_state: attrs.data_state,
+            data_orientation: attrs.data_orientation,
+            style: attrs.style,
+            data_monoxus_navigation_menu_indicator: "",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NavigationMenuViewportAttributes {
     pub id: String,
@@ -335,3 +454,16 @@ impl NavigationMenuViewportAttributes {
     }
 }
 
+impl From<ui_sdk::navigation_menu::attrs::NavigationMenuViewportAttributes>
+    for NavigationMenuViewportAttributes
+{
+    fn from(attrs: ui_sdk::navigation_menu::attrs::NavigationMenuViewportAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            data_state: attrs.data_state,
+            data_orientation: attrs.data_orientation,
+            style: attrs.style,
+            data_monoxus_navigation_menu_viewport: "",
+        }
+    }
+}

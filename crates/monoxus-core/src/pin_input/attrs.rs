@@ -1,7 +1,9 @@
-use crate::foundation::shared::{data_disabled_attr, data_invalid_attr};
+// [KEEP-MONOXUS-BRAND]
+use crate::foundation::shared::data_invalid_attr;
 
 /// Attribute publisher for `PinInputRoot`.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PinInputRootAttributes {
     pub id: String,
     pub style: String,
@@ -11,19 +13,22 @@ pub struct PinInputRootAttributes {
     pub data_monoxus_pin_input_root: &'static str,
 }
 
+impl From<ui_sdk::pin_input::attrs::PinInputRootAttributes> for PinInputRootAttributes {
+    fn from(base: ui_sdk::pin_input::attrs::PinInputRootAttributes) -> Self {
+        Self {
+            id: base.id,
+            style: base.style,
+            aria_disabled: base.aria_disabled,
+            data_disabled: base.data_disabled,
+            data_invalid: base.data_invalid,
+            data_monoxus_pin_input_root: base.data_pin_input_root,
+        }
+    }
+}
+
 impl PinInputRootAttributes {
     pub fn new(id: String, disabled: bool) -> Self {
-        let cursor = if disabled { "default" } else { "text" };
-        Self {
-            id,
-            style: format!(
-                "position: relative; user-select: none; -webkit-user-select: none; cursor: {cursor};"
-            ),
-            aria_disabled: disabled.then_some("true"),
-            data_disabled: data_disabled_attr(disabled),
-            data_invalid: None,
-            data_monoxus_pin_input_root: "",
-        }
+        ui_sdk::pin_input::attrs::PinInputRootAttributes::new(id, disabled).into()
     }
 
     pub fn with_invalid(mut self, invalid: bool) -> Self {
@@ -62,6 +67,7 @@ impl PinInputRootAttributes {
 
 /// Attribute publisher for the overlaid `<input>` owned by `PinInputRoot`.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PinInputInputAttributes {
     pub id: String,
     pub r#type: &'static str,
@@ -91,6 +97,36 @@ pub struct PinInputInputAttributes {
 /// Alias matching compound naming conventions when referenced as hidden input attributes.
 pub type PinInputHiddenAttributes = PinInputInputAttributes;
 
+impl From<ui_sdk::pin_input::attrs::PinInputInputAttributes> for PinInputInputAttributes {
+    fn from(base: ui_sdk::pin_input::attrs::PinInputInputAttributes) -> Self {
+        Self {
+            id: base.id,
+            r#type: base.r#type,
+            autocomplete: base.autocomplete,
+            inputmode: base.inputmode,
+            pattern: base.pattern,
+            maxlength: base.maxlength,
+            value: base.value,
+            placeholder: base.placeholder,
+            disabled: base.disabled,
+            readonly: base.readonly,
+            required: base.required,
+            autofocus: base.autofocus,
+            name: base.name,
+            form: base.form,
+            aria_invalid: base.aria_invalid,
+            aria_describedby: base.aria_describedby,
+            aria_labelledby: base.aria_labelledby,
+            aria_label: base.aria_label,
+            data_invalid: base.data_invalid,
+            style: base.style,
+            data_monoxus_pin_input_input: base.data_pin_input_input,
+            data_pin_input_input_mss: base.data_pin_input_input_mss,
+            data_pin_input_input_mse: base.data_pin_input_input_mse,
+        }
+    }
+}
+
 impl PinInputInputAttributes {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -112,37 +148,26 @@ impl PinInputInputAttributes {
         selection_start: Option<usize>,
         selection_end: Option<usize>,
     ) -> Self {
-        let cursor = if disabled { "default" } else { "text" };
-        // `opacity: 0` suppresses Blitz's unconditional `SELECTION_COLOR` highlight
-        // and plaintext rendering while keeping hit-testing and focus intact.
-        let style = format!(
-            "position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; border: 0; margin: 0; padding: 0; background: transparent; cursor: {cursor}; text-align: {text_align};"
-        );
-        Self {
+        ui_sdk::pin_input::attrs::PinInputInputAttributes::new(
             id,
-            r#type: if mask { "password" } else { "text" },
+            mask,
             autocomplete,
             inputmode,
             pattern,
-            maxlength: maxlength.max(1),
+            maxlength,
             value,
             placeholder,
             disabled,
             readonly,
             required,
             autofocus,
-            name: name.filter(|s| !s.is_empty()),
-            form: form.filter(|s| !s.is_empty()),
-            aria_invalid: None,
-            aria_describedby: None,
-            aria_labelledby: None,
-            aria_label: None,
-            data_invalid: None,
-            style,
-            data_monoxus_pin_input_input: "",
-            data_pin_input_input_mss: selection_start.map(|s| s.to_string()),
-            data_pin_input_input_mse: selection_end.map(|e| e.to_string()),
-        }
+            name,
+            form,
+            text_align,
+            selection_start,
+            selection_end,
+        )
+        .into()
     }
 
     pub fn with_invalid(mut self, invalid: bool) -> Self {
@@ -225,6 +250,7 @@ impl PinInputInputAttributes {
 
 /// Attribute publisher for `PinInputCell`.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PinInputCellAttributes {
     pub id: String,
     pub index: usize,
@@ -235,18 +261,23 @@ pub struct PinInputCellAttributes {
     pub data_monoxus_pin_input_cell: &'static str,
 }
 
+impl From<ui_sdk::pin_input::attrs::PinInputCellAttributes> for PinInputCellAttributes {
+    fn from(base: ui_sdk::pin_input::attrs::PinInputCellAttributes) -> Self {
+        Self {
+            id: base.id,
+            index: base.index,
+            data_active: base.data_active,
+            data_inactive: base.data_inactive,
+            data_disabled: base.data_disabled,
+            data_invalid: base.data_invalid,
+            data_monoxus_pin_input_cell: base.data_pin_input_cell,
+        }
+    }
+}
+
 impl PinInputCellAttributes {
     pub fn new(id: String, index: usize, is_active: bool, disabled: bool) -> Self {
-        let active = is_active && !disabled;
-        Self {
-            id,
-            index,
-            data_active: data_disabled_attr(active),
-            data_inactive: data_disabled_attr(!active),
-            data_disabled: data_disabled_attr(disabled),
-            data_invalid: None,
-            data_monoxus_pin_input_cell: "",
-        }
+        ui_sdk::pin_input::attrs::PinInputCellAttributes::new(id, index, is_active, disabled).into()
     }
 
     pub fn with_invalid(mut self, invalid: bool) -> Self {
@@ -298,4 +329,3 @@ impl PinInputCellAttributes {
         self.data_monoxus_pin_input_cell
     }
 }
-

@@ -1,9 +1,5 @@
-pub mod attrs;
-pub mod relationships;
-pub mod state;
+// [KEEP-MONOXUS-BRAND] Re-exports `ui_sdk::dialog` with `DIALOG_FOCUSABLE_SELECTOR` compat override.
+pub use ui_sdk::dialog::{attrs, relationships, state};
 pub mod types;
-
-#[cfg(test)]
-mod tests;
 
 pub use self::{attrs::*, relationships::*, state::*, types::*};

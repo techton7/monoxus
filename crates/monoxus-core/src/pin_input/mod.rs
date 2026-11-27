@@ -1,9 +1,6 @@
+// [KEEP-MONOXUS-BRAND]
 pub mod attrs;
-pub mod relationships;
+pub use ui_sdk::pin_input::{relationships, types};
 pub mod state;
-pub mod types;
-
-#[cfg(test)]
-mod tests;
 
 pub use self::{attrs::*, relationships::*, state::*, types::*};

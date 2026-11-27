@@ -1,5 +1,6 @@
-pub use ui_sdk::foundation::overlay::{coordinator, dismiss, focus, grace, portal, presence};
-pub mod floating;
+pub use ui_sdk::foundation::overlay::{
+    coordinator, dismiss, floating, focus, grace, portal, presence,
+};
 
 pub use self::coordinator::*;
 pub use self::dismiss::*;

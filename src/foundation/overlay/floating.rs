@@ -383,7 +383,8 @@ pub fn compute_virtual_overlay_position(
         anchor_rect.height(),
         content_size.width(),
         content_size.height(),
-    );
+    )
+    .with_css_prefix("monoxus");
 
     let hide_data: Option<oxidase_floating_ui::middleware::HideData> =
         result.middleware_data.get_as(oxidase_floating_ui::middleware::HIDE_NAME);
@@ -728,6 +729,7 @@ impl FloatingHandle {
             .map(|vp| Size::new(vp[0] as f32, vp[1] as f32));
 
         let mut layer = FloatingLayer::new(spec.side)
+            .with_css_prefix("monoxus")
             .with_align(spec.align)
             .with_direction(spec.direction)
             .with_side_offset(spec.side_offset)

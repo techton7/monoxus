@@ -1,24 +1,8 @@
-use crate::foundation::{
-    overlay::PortalHost,
-    shared::data_disabled_attr,
-    state::DataState,
-};
+use crate::foundation::state::DataState;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HoverCardRootAttributes {
-    pub id: String,
-    pub data_state: DataState,
-}
+pub use ui_sdk::hover_card::attrs::{HoverCardPortalAttributes, HoverCardRootAttributes};
 
-impl HoverCardRootAttributes {
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub fn data_state(&self) -> &DataState {
-        &self.data_state
-    }
-}
+// [KEEP-MONOXUS-BRAND] Compat attribute wrappers preserving `data_monoxus_hover_card_*` markers.
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HoverCardTriggerAttributes {
@@ -83,29 +67,26 @@ impl HoverCardTriggerAttributes {
         disabled: bool,
         data_state: DataState,
     ) -> Self {
-        Self {
-            id,
-            href: if disabled { None } else { href },
-            target: if disabled { None } else { target },
-            rel: if disabled { None } else { rel },
-            disabled,
-            aria_disabled: if disabled { Some("true") } else { None },
-            tabindex: if disabled { Some(-1) } else { None },
-            data_state,
-            data_disabled: data_disabled_attr(disabled),
-            data_monoxus_hover_card_trigger: "",
-        }
+        Self::from(ui_sdk::hover_card::attrs::HoverCardTriggerAttributes::from_parts(
+            id, href, target, rel, disabled, data_state,
+        ))
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HoverCardPortalAttributes {
-    pub host: PortalHost,
-}
-
-impl HoverCardPortalAttributes {
-    pub fn host(&self) -> &PortalHost {
-        &self.host
+impl From<ui_sdk::hover_card::attrs::HoverCardTriggerAttributes> for HoverCardTriggerAttributes {
+    fn from(attrs: ui_sdk::hover_card::attrs::HoverCardTriggerAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            href: attrs.href,
+            target: attrs.target,
+            rel: attrs.rel,
+            disabled: attrs.disabled,
+            aria_disabled: attrs.aria_disabled,
+            tabindex: attrs.tabindex,
+            data_state: attrs.data_state,
+            data_disabled: attrs.data_disabled,
+            data_monoxus_hover_card_trigger: "",
+        }
     }
 }
 
@@ -150,6 +131,20 @@ impl HoverCardContentAttributes {
     }
 }
 
+impl From<ui_sdk::hover_card::attrs::HoverCardContentAttributes> for HoverCardContentAttributes {
+    fn from(attrs: ui_sdk::hover_card::attrs::HoverCardContentAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            wrapper_id: attrs.wrapper_id,
+            tabindex: attrs.tabindex,
+            data_state: attrs.data_state,
+            data_side: attrs.data_side,
+            data_align: attrs.data_align,
+            data_monoxus_hover_card_content: "",
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HoverCardContentStaticAttributes {
     pub id: String,
@@ -173,6 +168,19 @@ impl HoverCardContentStaticAttributes {
 
     pub const fn data_monoxus_hover_card_content(&self) -> &'static str {
         self.data_monoxus_hover_card_content
+    }
+}
+
+impl From<ui_sdk::hover_card::attrs::HoverCardContentStaticAttributes>
+    for HoverCardContentStaticAttributes
+{
+    fn from(attrs: ui_sdk::hover_card::attrs::HoverCardContentStaticAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            tabindex: attrs.tabindex,
+            data_state: attrs.data_state,
+            data_monoxus_hover_card_content: "",
+        }
     }
 }
 
@@ -207,3 +215,14 @@ impl HoverCardArrowAttributes {
     }
 }
 
+impl From<ui_sdk::hover_card::attrs::HoverCardArrowAttributes> for HoverCardArrowAttributes {
+    fn from(attrs: ui_sdk::hover_card::attrs::HoverCardArrowAttributes) -> Self {
+        Self {
+            id: attrs.id,
+            data_state: attrs.data_state,
+            data_side: attrs.data_side,
+            data_align: attrs.data_align,
+            data_monoxus_hover_card_arrow: "",
+        }
+    }
+}

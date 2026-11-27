@@ -177,14 +177,31 @@ fn popover_reuses_the_shared_state_composition_and_overlay_backbone() {
     );
 
     assert_eq!(geometry.namespace(), "popover");
-    assert_eq!(geometry.get("--monoxus-popover-floating-x"), Some(76.0));
-    assert_eq!(geometry.get("--monoxus-popover-floating-y"), Some(10.0));
+    assert_eq!(geometry.get("--ui-popover-floating-x"), Some(76.0));
+    assert_eq!(geometry.get("--ui-popover-floating-y"), Some(10.0));
     assert_eq!(
-        geometry.get("--monoxus-popover-transform-origin-x"),
+        geometry.get("--ui-popover-transform-origin-x"),
         Some(0.0),
     );
     assert_eq!(
-        geometry.get("--monoxus-popover-transform-origin-y"),
+        geometry.get("--ui-popover-transform-origin-y"),
+        Some(20.0),
+    );
+    let monoxus_geometry = geometry.with_css_prefix("monoxus");
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-popover-floating-x"),
+        Some(76.0)
+    );
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-popover-floating-y"),
+        Some(10.0)
+    );
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-popover-transform-origin-x"),
+        Some(0.0),
+    );
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-popover-transform-origin-y"),
         Some(20.0),
     );
 

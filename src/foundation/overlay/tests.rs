@@ -1,6 +1,16 @@
+use std::{cell::RefCell, rc::Rc};
+
+use dioxus::{core::ScopeId, prelude::*};
+
 use super::{
-    DismissLayer, FloatingLayer, FloatingReadiness, FocusGuards, FocusScope, PlacementAlign,
-    PlacementSide, PortalHost, Presence, PresenceController, PresenceState, Rect, Size,
+    DismissBehavior, DismissCallbacks, DismissConfig, DismissEvent, DismissLayer, FloatingLayer,
+    FloatingReadiness, FocusGuards, FocusScope, GeometryVars, OutsidePressPolicy,
+    OverlayCoordinator, OverlayLayerSpec, PlacementAlign, PlacementSide, PortalHost, Presence,
+    PresenceController, PresenceState, Rect, Size, active_overlay_layers_snapshot,
+    dispatch_central_escape_event_for_test, ensure_active_overlay_layer,
+    is_overlay_escape_consumed, is_topmost_overlay_layer, mark_overlay_escape_consumed,
+    register_overlay_escape_handler, reset_overlay_coordinator_for_test, sync_overlay_layer_spec,
+    unregister_active_overlay_layer, use_dismissable_layer, use_overlay_layer_registration,
 };
 use crate::foundation::shared::Direction;
 
@@ -134,25 +144,38 @@ fn floating_layers_publish_namespaced_geometry_variables() {
     assert_eq!(geometry.transform_origin_y(), 0.0);
     assert_eq!(geometry.available_width(), 120.0);
     assert_eq!(geometry.available_height(), 80.0);
-    assert_eq!(geometry.get("--monoxus-dialog-floating-x"), Some(24.0));
-    assert_eq!(
-        geometry.get("--monoxus-dialog-available-width"),
-        Some(120.0)
-    );
+    assert_eq!(geometry.get("--ui-dialog-floating-x"), Some(24.0));
+    assert_eq!(geometry.get("--ui-dialog-available-width"), Some(120.0));
     assert_eq!(
         geometry.iter().collect::<Vec<_>>(),
         vec![
-            ("--monoxus-dialog-floating-x".to_string(), 24.0),
-            ("--monoxus-dialog-floating-y".to_string(), 44.0),
-            ("--monoxus-dialog-transform-origin-x".to_string(), 26.0),
-            ("--monoxus-dialog-transform-origin-y".to_string(), 0.0),
-            ("--monoxus-dialog-available-width".to_string(), 120.0),
-            ("--monoxus-dialog-available-height".to_string(), 80.0),
-            ("--monoxus-dialog-anchor-width".to_string(), 40.0),
-            ("--monoxus-dialog-anchor-height".to_string(), 16.0),
-            ("--monoxus-dialog-content-width".to_string(), 30.0),
-            ("--monoxus-dialog-content-height".to_string(), 12.0),
+            ("--ui-dialog-floating-x".to_string(), 24.0),
+            ("--ui-dialog-floating-y".to_string(), 44.0),
+            ("--ui-dialog-transform-origin-x".to_string(), 26.0),
+            ("--ui-dialog-transform-origin-y".to_string(), 0.0),
+            ("--ui-dialog-available-width".to_string(), 120.0),
+            ("--ui-dialog-available-height".to_string(), 80.0),
+            ("--ui-dialog-anchor-width".to_string(), 40.0),
+            ("--ui-dialog-anchor-height".to_string(), 16.0),
+            ("--ui-dialog-content-width".to_string(), 30.0),
+            ("--ui-dialog-content-height".to_string(), 12.0),
         ],
+    );
+
+    let monoxus_geometry = layer
+        .with_css_prefix("monoxus")
+        .geometry_vars(Rect::new(10.0, 20.0, 40.0, 16.0), Size::new(30.0, 12.0));
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-dialog-floating-x"),
+        Some(24.0)
+    );
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-dialog-available-width"),
+        Some(120.0)
+    );
+    assert_eq!(
+        GeometryVars::variable_name_with_prefix("monoxus", "dialog", "floating-x"),
+        "--monoxus-dialog-floating-x"
     );
 }
 
@@ -203,7 +226,7 @@ fn floating_readiness_exposes_measurement_and_positioning_labels() {
 
 #[test]
 fn geometry_vars_publish_css_values_and_compatibility_aliases() {
-    let geometry = FloatingLayer::new(PlacementSide::Bottom)
+    let default_geometry = FloatingLayer::new(PlacementSide::Bottom)
         .with_align(PlacementAlign::Start)
         .with_direction(Direction::Rtl)
         .with_side_offset(8.0)
@@ -211,6 +234,17 @@ fn geometry_vars_publish_css_values_and_compatibility_aliases() {
         .with_available_space(Size::new(120.0, 80.0))
         .with_namespace("dialog")
         .geometry_vars(Rect::new(10.0, 20.0, 40.0, 16.0), Size::new(30.0, 12.0));
+
+    assert_eq!(
+        default_geometry.css_get("--ui-dialog-floating-x"),
+        Some("24px".to_string())
+    );
+    assert_eq!(
+        default_geometry.css_get("--ui-dialog-transform-origin-y"),
+        Some("0px".to_string())
+    );
+
+    let geometry = default_geometry.with_css_prefix("monoxus");
 
     assert_eq!(
         geometry.css_get("--monoxus-dialog-floating-x"),
@@ -372,4 +406,424 @@ fn floating_layers_keep_attached_popovers_offscreen_with_their_anchor() {
     assert!(placement.geometry().y() < 0.0);
     assert_eq!(placement.geometry().y(), -151.0);
     assert!(!placement.reference_hidden());
+}
+
+// ---------------------------------------------------------------------------
+// T2.3 OverlayCoordinator & Centralized Escape Regression Suite
+// ---------------------------------------------------------------------------
+
+#[test]
+fn fm_esc_1_nested_child_and_parent_escape_dismisses_only_child_regardless_of_registration_order() {
+    reset_overlay_coordinator_for_test();
+
+    // Case A: Child Escape handler registered BEFORE Parent Escape handler (arbitrary order),
+    // while coordinator stack open_order is [parent, child].
+    ensure_active_overlay_layer("fm-esc-1-parent");
+    ensure_active_overlay_layer("fm-esc-1-child");
+
+    let parent_hits = Rc::new(RefCell::new(0usize));
+    let child_hits = Rc::new(RefCell::new(0usize));
+
+    register_overlay_escape_handler(
+        "fm-esc-1-child",
+        OverlayLayerSpec::new("fm-esc-1-child").with_parent(Some("fm-esc-1-parent")),
+        {
+            let child_hits = Rc::clone(&child_hits);
+            move || {
+                *child_hits.borrow_mut() += 1;
+            }
+        },
+    );
+    register_overlay_escape_handler("fm-esc-1-parent", OverlayLayerSpec::new("fm-esc-1-parent"), {
+        let parent_hits = Rc::clone(&parent_hits);
+        move || {
+            *parent_hits.borrow_mut() += 1;
+        }
+    });
+
+    let outcome = dispatch_central_escape_event_for_test();
+    assert!(outcome.consumed);
+    assert_eq!(outcome.dismissed_layers, vec!["fm-esc-1-child".to_string()]);
+    assert_eq!(*child_hits.borrow(), 1);
+    assert_eq!(*parent_hits.borrow(), 0);
+
+    // Case B: Parent registered before Child, still dismisses ONLY Child.
+    reset_overlay_coordinator_for_test();
+    ensure_active_overlay_layer("fm-esc-1b-parent");
+    ensure_active_overlay_layer("fm-esc-1b-child");
+
+    let parent_hits_b = Rc::new(RefCell::new(0usize));
+    let child_hits_b = Rc::new(RefCell::new(0usize));
+
+    register_overlay_escape_handler(
+        "fm-esc-1b-parent",
+        OverlayLayerSpec::new("fm-esc-1b-parent"),
+        {
+            let parent_hits_b = Rc::clone(&parent_hits_b);
+            move || {
+                *parent_hits_b.borrow_mut() += 1;
+            }
+        },
+    );
+    register_overlay_escape_handler(
+        "fm-esc-1b-child",
+        OverlayLayerSpec::new("fm-esc-1b-child").with_parent(Some("fm-esc-1b-parent")),
+        {
+            let child_hits_b = Rc::clone(&child_hits_b);
+            move || {
+                *child_hits_b.borrow_mut() += 1;
+            }
+        },
+    );
+
+    let outcome_b = dispatch_central_escape_event_for_test();
+    assert!(outcome_b.consumed);
+    assert_eq!(
+        outcome_b.dismissed_layers,
+        vec!["fm-esc-1b-child".to_string()]
+    );
+    assert_eq!(*child_hits_b.borrow(), 1);
+    assert_eq!(*parent_hits_b.borrow(), 0);
+
+    reset_overlay_coordinator_for_test();
+}
+
+#[derive(Clone, Props)]
+struct NestedEscapeProps {
+    parent_dismissed: Rc<RefCell<usize>>,
+    child_dismissed: Rc<RefCell<usize>>,
+    unregister_child_sync: bool,
+}
+
+impl PartialEq for NestedEscapeProps {
+    fn eq(&self, other: &Self) -> bool {
+        Rc::ptr_eq(&self.parent_dismissed, &other.parent_dismissed)
+            && Rc::ptr_eq(&self.child_dismissed, &other.child_dismissed)
+            && self.unregister_child_sync == other.unregister_child_sync
+    }
+}
+
+#[component]
+fn NestedEscapeScenario(props: NestedEscapeProps) -> Element {
+    let mut parent_open = use_signal(|| true);
+    let mut child_open = use_signal(|| true);
+
+    let parent_counter = Rc::clone(&props.parent_dismissed);
+    let _parent = use_dismissable_layer(
+        parent_open(),
+        DismissConfig::new("fm-esc-nested-parent").with_modal(true),
+        DismissCallbacks {
+            on_dismiss: Some(EventHandler::new(move |evt: DismissEvent| {
+                if matches!(evt, DismissEvent::Escape) {
+                    *parent_counter.borrow_mut() += 1;
+                    parent_open.set(false);
+                }
+            })),
+            ..Default::default()
+        },
+    );
+
+    let child_counter = Rc::clone(&props.child_dismissed);
+    let unreg_sync = props.unregister_child_sync;
+    let _child = use_dismissable_layer(
+        child_open(),
+        DismissConfig::new("fm-esc-nested-child"),
+        DismissCallbacks {
+            on_dismiss: Some(EventHandler::new(move |evt: DismissEvent| {
+                if matches!(evt, DismissEvent::Escape) {
+                    *child_counter.borrow_mut() += 1;
+                    if unreg_sync {
+                        unregister_active_overlay_layer("fm-esc-nested-child");
+                    }
+                    child_open.set(false);
+                }
+            })),
+            ..Default::default()
+        },
+    );
+
+    rsx! {}
+}
+
+#[test]
+fn fm_esc_2_capture_phase_escape_consumption_blocks_same_turn_target_bubble_dismissal() {
+    reset_overlay_coordinator_for_test();
+
+    let parent_dismissed = Rc::new(RefCell::new(0usize));
+    let child_dismissed = Rc::new(RefCell::new(0usize));
+
+    let mut dom = VirtualDom::new_with_props(
+        NestedEscapeScenario,
+        NestedEscapeProps {
+            parent_dismissed: Rc::clone(&parent_dismissed),
+            child_dismissed: Rc::clone(&child_dismissed),
+            unregister_child_sync: true,
+        },
+    );
+    dom.rebuild_in_place();
+
+    dom.in_scope(ScopeId::ROOT, || {
+        assert!(!is_overlay_escape_consumed());
+        assert_eq!(
+            active_overlay_layers_snapshot(),
+            vec![
+                "fm-esc-nested-parent".to_string(),
+                "fm-esc-nested-child".to_string()
+            ]
+        );
+
+        // Capture-phase Escape dismisses Child (Combobox) and synchronously unregisters it.
+        let outcome = dispatch_central_escape_event_for_test();
+        assert!(outcome.consumed);
+        assert_eq!(
+            outcome.dismissed_layers,
+            vec!["fm-esc-nested-child".to_string()]
+        );
+        assert_eq!(*child_dismissed.borrow(), 1);
+        assert_eq!(*parent_dismissed.borrow(), 0);
+
+        // Even though Parent (Dialog) is now topmost in the same synchronous turn,
+        // `is_overlay_escape_consumed()` MUST remain `true` to block Target/Bubble `onkeydown`.
+        assert!(is_topmost_overlay_layer("fm-esc-nested-parent"));
+        assert!(is_overlay_escape_consumed());
+
+        let mut bubble_dismissed_parent = false;
+        if !is_overlay_escape_consumed() && is_topmost_overlay_layer("fm-esc-nested-parent") {
+            bubble_dismissed_parent = true;
+        }
+        assert!(!bubble_dismissed_parent);
+    });
+
+    drop(dom);
+    reset_overlay_coordinator_for_test();
+}
+
+#[test]
+fn fm_esc_3_headless_vdom_drop_and_new_runtime_never_leak_stale_escape_consumption() {
+    reset_overlay_coordinator_for_test();
+
+    // 1. VirtualDom drops without any frame tick or async poll.
+    let mut dom1 = VirtualDom::new(|| rsx! {});
+    dom1.rebuild_in_place();
+    dom1.in_scope(ScopeId::ROOT, || {
+        mark_overlay_escape_consumed();
+        assert!(is_overlay_escape_consumed());
+    });
+    drop(dom1);
+    assert!(
+        !is_overlay_escape_consumed(),
+        "dropping VirtualDom without frame tick must invalidate Escape consumption"
+    );
+
+    // 2. Switching to a different active Runtime without dropping dom_a or ticking frames.
+    let mut dom_a = VirtualDom::new(|| rsx! {});
+    dom_a.rebuild_in_place();
+    let mut dom_b = VirtualDom::new(|| rsx! {});
+    dom_b.rebuild_in_place();
+
+    dom_a.in_scope(ScopeId::ROOT, || {
+        mark_overlay_escape_consumed();
+        assert!(is_overlay_escape_consumed());
+    });
+    dom_b.in_scope(ScopeId::ROOT, || {
+        assert!(
+            !is_overlay_escape_consumed(),
+            "new Runtime must never observe stale Escape consumption from a prior Runtime"
+        );
+    });
+
+    drop(dom_b);
+    drop(dom_a);
+    reset_overlay_coordinator_for_test();
+}
+
+#[test]
+fn fm_esc_4_back_to_back_escape_events_without_frame_ticks_dismiss_child_then_parent() {
+    reset_overlay_coordinator_for_test();
+
+    let parent_dismissed = Rc::new(RefCell::new(0usize));
+    let child_dismissed = Rc::new(RefCell::new(0usize));
+
+    let mut dom = VirtualDom::new_with_props(
+        NestedEscapeScenario,
+        NestedEscapeProps {
+            parent_dismissed: Rc::clone(&parent_dismissed),
+            child_dismissed: Rc::clone(&child_dismissed),
+            unregister_child_sync: false,
+        },
+    );
+    dom.rebuild_in_place();
+
+    assert_eq!(
+        active_overlay_layers_snapshot(),
+        vec![
+            "fm-esc-nested-parent".to_string(),
+            "fm-esc-nested-child".to_string()
+        ]
+    );
+
+    // Escape #1 without any frame tick -> dismisses Child only.
+    let first = dispatch_central_escape_event_for_test();
+    assert!(first.consumed);
+    assert_eq!(
+        first.dismissed_layers,
+        vec!["fm-esc-nested-child".to_string()]
+    );
+    assert_eq!(*child_dismissed.borrow(), 1);
+    assert_eq!(*parent_dismissed.borrow(), 0);
+
+    // Re-render without ticking frames so Child unregisters on `active == false`.
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert_eq!(
+        active_overlay_layers_snapshot(),
+        vec!["fm-esc-nested-parent".to_string()]
+    );
+
+    // Escape #2 immediately (still zero frame ticks) -> advances Escape epoch and dismisses Parent.
+    let second = dispatch_central_escape_event_for_test();
+    assert!(second.consumed);
+    assert_eq!(
+        second.dismissed_layers,
+        vec!["fm-esc-nested-parent".to_string()]
+    );
+    assert_eq!(*child_dismissed.borrow(), 1);
+    assert_eq!(*parent_dismissed.borrow(), 1);
+
+    dom.render_immediate(&mut dioxus::core::NoOpMutations);
+    assert!(active_overlay_layers_snapshot().is_empty());
+
+    drop(dom);
+    reset_overlay_coordinator_for_test();
+}
+
+#[component]
+fn ParentRemountProbe() -> Element {
+    use_overlay_layer_registration("remount-parent", true);
+    rsx! {}
+}
+
+#[test]
+fn parent_remount_order_does_not_steal_topmost_escape_order_from_mounted_child() {
+    reset_overlay_coordinator_for_test();
+
+    let parent_hits = Rc::new(RefCell::new(0usize));
+    let child_hits = Rc::new(RefCell::new(0usize));
+
+    register_overlay_escape_handler("remount-parent", OverlayLayerSpec::new("remount-parent"), {
+        let parent_hits = Rc::clone(&parent_hits);
+        move || {
+            *parent_hits.borrow_mut() += 1;
+        }
+    });
+    register_overlay_escape_handler(
+        "remount-child",
+        OverlayLayerSpec::new("remount-child").with_parent(Some("remount-parent")),
+        {
+            let child_hits = Rc::clone(&child_hits);
+            move || {
+                *child_hits.borrow_mut() += 1;
+            }
+        },
+    );
+
+    assert_eq!(
+        active_overlay_layers_snapshot(),
+        vec!["remount-parent".to_string(), "remount-child".to_string()]
+    );
+
+    // Simulate parent remount via `ensure_active_overlay_layer`, `sync_overlay_layer_spec`,
+    // and `use_overlay_layer_registration` inside a fresh VirtualDom render.
+    ensure_active_overlay_layer("remount-parent");
+    sync_overlay_layer_spec(OverlayLayerSpec::new("remount-parent").with_modal(true));
+    let mut remount_dom = VirtualDom::new(ParentRemountProbe);
+    remount_dom.rebuild_in_place();
+
+    assert_eq!(
+        active_overlay_layers_snapshot(),
+        vec!["remount-parent".to_string(), "remount-child".to_string()],
+        "parent remount must not steal topmost LIFO position from mounted child"
+    );
+    assert!(is_topmost_overlay_layer("remount-child"));
+    assert!(!is_topmost_overlay_layer("remount-parent"));
+
+    let outcome = dispatch_central_escape_event_for_test();
+    assert_eq!(outcome.dismissed_layers, vec!["remount-child".to_string()]);
+    assert_eq!(*child_hits.borrow(), 1);
+    assert_eq!(*parent_hits.borrow(), 0);
+
+    drop(remount_dom);
+    reset_overlay_coordinator_for_test();
+}
+
+#[test]
+fn sloppy_pointer_down_defer_otherwise_ignore_and_rename_layer_branch_merge() {
+    use monoxus_core::kernel::ChangeSource;
+
+    // 1. `Sloppy` outside `pointerdown` (`prevent_default()`) does not double-fire on trailing `click`.
+    let mut sloppy_coord = OverlayCoordinator::new();
+    sloppy_coord.open_or_promote(
+        OverlayLayerSpec::new("sloppy-layer")
+            .with_outside_press_policy(OutsidePressPolicy::Sloppy),
+    );
+    let pd = sloppy_coord.handle_pointer_down(Some("outside-btn"));
+    assert!(pd.consumed);
+    assert!(!pd.suppressed);
+    assert_eq!(pd.dismissed_layers, vec!["sloppy-layer".to_string()]);
+
+    // Consumer prevented default so `sloppy-layer` stays open; trailing mouse `click` must not double-fire.
+    let trailing_click =
+        sloppy_coord.handle_outside_click(Some("outside-btn"), ChangeSource::Mouse);
+    assert!(trailing_click.dismissed_layers.is_empty());
+    assert!(trailing_click.consumed);
+    assert!(trailing_click.suppressed);
+
+    // 2. `DeferOtherwiseIgnore` skips child (`dismiss=false`) and walks ancestor (`bubbles=true`).
+    let mut defer_coord = OverlayCoordinator::new();
+    defer_coord.open_or_promote(
+        OverlayLayerSpec::new("defer-parent")
+            .with_escape_behavior(DismissBehavior::Close)
+            .with_outside_press_behavior(DismissBehavior::Close)
+            .with_outside_press_policy(OutsidePressPolicy::Sloppy),
+    );
+    defer_coord.open_or_promote(
+        OverlayLayerSpec::new("defer-child")
+            .with_parent(Some("defer-parent"))
+            .with_modal(true)
+            .with_escape_behavior(DismissBehavior::DeferOtherwiseIgnore)
+            .with_outside_press_behavior(DismissBehavior::DeferOtherwiseIgnore),
+    );
+
+    let esc = defer_coord.handle_escape();
+    assert!(esc.consumed);
+    assert_eq!(esc.dismissed_layers, vec!["defer-parent".to_string()]);
+
+    let out_pd = defer_coord.handle_pointer_down(Some("outside-btn"));
+    assert!(out_pd.consumed);
+    assert_eq!(out_pd.dismissed_layers, vec!["defer-parent".to_string()]);
+
+    let out_click = defer_coord.handle_outside_click(Some("outside-btn"), ChangeSource::Mouse);
+    assert!(out_click.dismissed_layers.is_empty());
+    assert!(out_click.suppressed);
+
+    // 3. `rename_layer` merges unique branches into existing target layer cleanly.
+    let mut branch_coord = OverlayCoordinator::new();
+    branch_coord.open_or_promote(OverlayLayerSpec::new("old-layer"));
+    branch_coord.open_or_promote(OverlayLayerSpec::new("target-layer"));
+    assert!(branch_coord.register_branch("old-layer", "branch-only-old"));
+    assert!(branch_coord.register_branch("old-layer", "branch-shared"));
+    assert!(branch_coord.register_branch("target-layer", "branch-shared"));
+    assert!(branch_coord.register_branch("target-layer", "branch-only-target"));
+
+    assert!(branch_coord.rename_layer("old-layer", "target-layer"));
+    assert_eq!(
+        branch_coord.active_layers_snapshot(),
+        vec!["target-layer".to_string()]
+    );
+    assert!(branch_coord.contains_in_tree("target-layer", "branch-only-old"));
+    assert!(branch_coord.contains_in_tree("target-layer", "branch-shared"));
+    assert!(branch_coord.contains_in_tree("target-layer", "branch-only-target"));
+    assert!(branch_coord.contains_path_in_tree(
+        "target-layer",
+        &["unrelated".to_string(), "branch-only-old".to_string()]
+    ));
 }

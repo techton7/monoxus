@@ -117,14 +117,31 @@ fn tooltip_reuses_the_shared_state_composition_and_overlay_backbone() {
     );
 
     assert_eq!(geometry.namespace(), "tooltip");
-    assert_eq!(geometry.get("--monoxus-tooltip-floating-x"), Some(60.0));
-    assert_eq!(geometry.get("--monoxus-tooltip-floating-y"), Some(18.0));
+    assert_eq!(geometry.get("--ui-tooltip-floating-x"), Some(60.0));
+    assert_eq!(geometry.get("--ui-tooltip-floating-y"), Some(18.0));
     assert_eq!(
-        geometry.get("--monoxus-tooltip-transform-origin-x"),
+        geometry.get("--ui-tooltip-transform-origin-x"),
         Some(0.0),
     );
     assert_eq!(
-        geometry.get("--monoxus-tooltip-transform-origin-y"),
+        geometry.get("--ui-tooltip-transform-origin-y"),
+        Some(24.0),
+    );
+    let monoxus_geometry = geometry.with_css_prefix("monoxus");
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-tooltip-floating-x"),
+        Some(60.0)
+    );
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-tooltip-floating-y"),
+        Some(18.0)
+    );
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-tooltip-transform-origin-x"),
+        Some(0.0),
+    );
+    assert_eq!(
+        monoxus_geometry.get("--monoxus-tooltip-transform-origin-y"),
         Some(24.0),
     );
 

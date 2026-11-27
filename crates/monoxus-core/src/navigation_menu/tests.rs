@@ -16,8 +16,9 @@ use super::{
     },
     types::{
         NavigationMenuActivationMode, NavigationMenuFocusProxySide, NavigationMenuGeometryVars,
-        NavigationMenuIndicatorPosition, NavigationMenuLinkSelectEvent, NavigationMenuMotion,
-        NavigationMenuPart, NavigationMenuViewportSize,
+        NavigationMenuIndicatorPosition, NavigationMenuLinkSelectDetail,
+        NavigationMenuLinkSelectEvent, NavigationMenuMotion, NavigationMenuPart,
+        NavigationMenuViewportSize,
     },
 };
 
@@ -507,11 +508,21 @@ fn entry_keys_content_arrows_focus_proxy_and_link_select_work_cleanly() {
     assert!(!should_dismiss_on_focus_outside(false, false));
     assert!(should_dismiss_on_focus_outside(false, true));
 
-    let evt = NavigationMenuLinkSelectEvent::new(Some("/docs".to_string()), false);
-    assert!(evt.should_dismiss_root());
+    let evt = NavigationMenuLinkSelectEvent::new(NavigationMenuLinkSelectDetail {
+        href: Some("/docs".to_string()),
+        meta_key: false,
+    });
+    assert!(evt.detail().should_dismiss_root(evt.is_default_prevented()));
     evt.prevent_default();
-    assert!(!evt.should_dismiss_root());
+    assert!(!evt.detail().should_dismiss_root(evt.is_default_prevented()));
 
-    let meta_evt = NavigationMenuLinkSelectEvent::new(Some("/docs".to_string()), true);
-    assert!(!meta_evt.should_dismiss_root());
+    let meta_evt = NavigationMenuLinkSelectEvent::new(NavigationMenuLinkSelectDetail {
+        href: Some("/docs".to_string()),
+        meta_key: true,
+    });
+    assert!(
+        !meta_evt
+            .detail()
+            .should_dismiss_root(meta_evt.is_default_prevented())
+    );
 }

@@ -19,9 +19,10 @@ use crate::foundation::{
 };
 
 use super::{
-    OverlayBranchContext, is_overlay_escape_consumed, is_topmost_overlay_layer,
-    mark_overlay_escape_consumed, register_active_overlay_layer, replace_active_overlay_layer,
-    unregister_active_overlay_layer,
+    OverlayBranchContext, OverlayLayerSpec, ensure_active_overlay_layer,
+    has_overlay_escape_handler, is_overlay_escape_consumed, is_topmost_overlay_layer,
+    mark_overlay_escape_consumed, register_overlay_escape_handler, replace_active_overlay_layer,
+    sync_overlay_layer_spec, unregister_active_overlay_layer, unregister_overlay_escape_handler,
     watcher::{WatcherSlot, use_watcher_slot},
 };
 
@@ -94,7 +95,7 @@ fn use_overlay_layer_registration_slot(layer_id: &str, active: bool) -> CopyValu
             if let Some(prev_id) = prev {
                 replace_active_overlay_layer(&prev_id, layer_id);
             } else {
-                register_active_overlay_layer(layer_id);
+                ensure_active_overlay_layer(layer_id);
             }
             if let Ok(mut cur) = registered.try_write() {
                 *cur = Some(layer_id.to_owned());
@@ -226,6 +227,7 @@ pub struct DismissCallbacks {
 pub struct DismissLayerHandle {
     layer_id: CopyValue<String>,
     registered_layer: CopyValue<Option<String>>,
+    registered_escape_layer: CopyValue<Option<String>>,
     branches: Signal<Vec<String>>,
     watcher: WatcherSlot,
     alive: CopyValue<bool>,
@@ -267,6 +269,13 @@ impl DismissLayerHandle {
         {
             replace_active_overlay_layer(&prev_id, new_id);
             let _ = reg_slot.try_write().map(|mut w| *w = Some(new_id.to_owned()));
+        }
+        let mut esc_slot = self.registered_escape_layer;
+        let prev_esc = esc_slot.try_read().ok().and_then(|g| g.clone());
+        if let Some(prev_id) = prev_esc
+            && prev_id != new_id
+        {
+            let _ = esc_slot.try_write().map(|mut w| *w = Some(new_id.to_owned()));
         }
     }
 
@@ -361,6 +370,13 @@ impl DismissLayerHandle {
 
     fn dispatch_escape(&self) {
         if !self.is_alive() || is_overlay_escape_consumed() || !self.is_topmost() {
+            return;
+        }
+        self.dispatch_escape_from_coordinator();
+    }
+
+    fn dispatch_escape_from_coordinator(&self) {
+        if !self.is_alive() {
             return;
         }
         let cbs = self
@@ -470,6 +486,7 @@ pub fn use_dismissable_layer(
     let registered_layer = use_overlay_layer_registration_slot(&config.layer_id, active);
 
     let mut layer_id = use_hook(|| CopyValue::new(config.layer_id.clone()));
+    let mut registered_escape_layer = use_hook(|| CopyValue::new(Option::<String>::None));
     let branches = use_signal(Vec::new);
     let watcher = use_watcher_slot();
     let mut alive = use_hook(|| CopyValue::new(true));
@@ -501,6 +518,7 @@ pub fn use_dismissable_layer(
     let handle = DismissLayerHandle {
         layer_id,
         registered_layer,
+        registered_escape_layer,
         branches,
         watcher,
         alive,
@@ -510,16 +528,67 @@ pub fn use_dismissable_layer(
         callbacks: callbacks_slot,
     };
 
+    // Synchronize layer spec and centralized Escape capture handler (`T2.3`).
+    let effective_layer_id = registered_layer
+        .try_read()
+        .ok()
+        .and_then(|g| g.clone())
+        .unwrap_or_else(|| config.layer_id.clone());
+    if active && !effective_layer_id.is_empty() {
+        let layer_spec = OverlayLayerSpec::new(effective_layer_id.clone())
+            .with_modal(config.modal)
+            .with_dismiss_on_escape(config.listen_escape)
+            .with_dismiss_on_outside_press(config.listen_pointer_down_outside);
+        if config.listen_escape {
+            let prev_esc = registered_escape_layer
+                .try_read()
+                .ok()
+                .and_then(|g| g.clone());
+            if prev_esc.as_deref() != Some(effective_layer_id.as_str())
+                || !has_overlay_escape_handler(&effective_layer_id)
+            {
+                if let Some(old_id) = prev_esc
+                    && old_id != effective_layer_id
+                {
+                    unregister_overlay_escape_handler(&old_id);
+                }
+                let esc_handle = handle;
+                register_overlay_escape_handler(&effective_layer_id, layer_spec, move || {
+                    esc_handle.dispatch_escape_from_coordinator();
+                });
+                if let Ok(mut w) = registered_escape_layer.try_write() {
+                    *w = Some(effective_layer_id);
+                }
+            } else {
+                sync_overlay_layer_spec(layer_spec);
+            }
+        } else {
+            let prev_esc = registered_escape_layer
+                .try_write()
+                .ok()
+                .and_then(|mut w| w.take());
+            if let Some(old_id) = prev_esc {
+                unregister_overlay_escape_handler(&old_id);
+            }
+            sync_overlay_layer_spec(layer_spec);
+        }
+    } else {
+        let prev_esc = registered_escape_layer
+            .try_write()
+            .ok()
+            .and_then(|mut w| w.take());
+        if let Some(old_id) = prev_esc {
+            unregister_overlay_escape_handler(&old_id);
+        }
+    }
+
     use_effect(use_reactive((&active, &config), move |(is_active, cur_cfg)| {
         let current_branches = handle.branches.read().clone();
         if !is_active {
             handle.stop();
             return;
         }
-        if !cur_cfg.listen_escape
-            && !cur_cfg.listen_pointer_down_outside
-            && !cur_cfg.listen_focus_outside
-        {
+        if !cur_cfg.listen_pointer_down_outside && !cur_cfg.listen_focus_outside {
             handle.stop();
             return;
         }
@@ -543,7 +612,7 @@ pub fn use_dismissable_layer(
 
         let options = DismissOptions {
             boundary_ids: all_boundaries,
-            listen_escape: cur_cfg.listen_escape,
+            listen_escape: false,
             listen_pointer: cur_cfg.listen_pointer_down_outside,
             listen_focusin: cur_cfg.listen_focus_outside,
         };
@@ -555,7 +624,7 @@ pub fn use_dismissable_layer(
                     return;
                 }
                 match event {
-                    DocumentDismissEvent::Escape => handle.dispatch_escape(),
+                    DocumentDismissEvent::Escape => {}
                     DocumentDismissEvent::PointerDown { path_ids } => {
                         handle.dispatch_pointer_down_outside(&path_ids);
                     }
@@ -573,6 +642,13 @@ pub fn use_dismissable_layer(
     use_drop(move || {
         if let Ok(mut flag) = alive.try_write() {
             *flag = false;
+        }
+        let prev_esc = registered_escape_layer
+            .try_write()
+            .ok()
+            .and_then(|mut w| w.take());
+        if let Some(old_id) = prev_esc {
+            unregister_overlay_escape_handler(&old_id);
         }
         let was_locked = pointer_lock_held
             .try_write()

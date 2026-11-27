@@ -1,8 +1,7 @@
-use crate::foundation::{
-    shared::data_disabled_attr,
-};
+// [KEEP-MONOXUS-BRAND]
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PaginationRootAttributes {
     pub id: String,
     pub role: &'static str,
@@ -10,6 +9,19 @@ pub struct PaginationRootAttributes {
     pub dir: &'static str,
     pub data_orientation: &'static str,
     pub data_monoxus_pagination_root: &'static str,
+}
+
+impl From<ui_sdk::pagination::attrs::PaginationRootAttributes> for PaginationRootAttributes {
+    fn from(base: ui_sdk::pagination::attrs::PaginationRootAttributes) -> Self {
+        Self {
+            id: base.id,
+            role: base.role,
+            aria_label: base.aria_label,
+            dir: base.dir,
+            data_orientation: base.data_orientation,
+            data_monoxus_pagination_root: base.data_pagination_root,
+        }
+    }
 }
 
 impl PaginationRootAttributes {
@@ -39,6 +51,7 @@ impl PaginationRootAttributes {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PaginationPageAttributes {
     pub id: String,
     pub r#type: &'static str,
@@ -53,21 +66,28 @@ pub struct PaginationPageAttributes {
     pub data_monoxus_pagination_page: &'static str,
 }
 
+impl From<ui_sdk::pagination::attrs::PaginationPageAttributes> for PaginationPageAttributes {
+    fn from(base: ui_sdk::pagination::attrs::PaginationPageAttributes) -> Self {
+        Self {
+            id: base.id,
+            r#type: base.r#type,
+            value: base.value,
+            aria_label: base.aria_label,
+            aria_current: base.aria_current,
+            aria_disabled: base.aria_disabled,
+            disabled: base.disabled,
+            data_value: base.data_value,
+            data_selected: base.data_selected,
+            data_disabled: base.data_disabled,
+            data_monoxus_pagination_page: base.data_pagination_page,
+        }
+    }
+}
+
 impl PaginationPageAttributes {
     pub fn new(id: String, value: usize, is_selected: bool, disabled: bool) -> Self {
-        Self {
-            id,
-            r#type: "button",
-            value,
-            aria_label: format!("Page {value}"),
-            aria_current: is_selected.then_some("page"),
-            aria_disabled: disabled.then_some("true"),
-            disabled,
-            data_value: value.to_string(),
-            data_selected: data_disabled_attr(is_selected),
-            data_disabled: data_disabled_attr(disabled),
-            data_monoxus_pagination_page: "",
-        }
+        ui_sdk::pagination::attrs::PaginationPageAttributes::new(id, value, is_selected, disabled)
+            .into()
     }
 
     pub fn id(&self) -> &str {
@@ -120,6 +140,7 @@ impl PaginationPageAttributes {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PaginationPrevButtonAttributes {
     pub id: String,
     pub r#type: &'static str,
@@ -129,16 +150,24 @@ pub struct PaginationPrevButtonAttributes {
     pub data_monoxus_pagination_prev: &'static str,
 }
 
+impl From<ui_sdk::pagination::attrs::PaginationPrevButtonAttributes>
+    for PaginationPrevButtonAttributes
+{
+    fn from(base: ui_sdk::pagination::attrs::PaginationPrevButtonAttributes) -> Self {
+        Self {
+            id: base.id,
+            r#type: base.r#type,
+            disabled: base.disabled,
+            aria_disabled: base.aria_disabled,
+            data_disabled: base.data_disabled,
+            data_monoxus_pagination_prev: base.data_pagination_prev,
+        }
+    }
+}
+
 impl PaginationPrevButtonAttributes {
     pub fn new(id: String, disabled: bool) -> Self {
-        Self {
-            id,
-            r#type: "button",
-            disabled,
-            aria_disabled: disabled.then_some("true"),
-            data_disabled: data_disabled_attr(disabled),
-            data_monoxus_pagination_prev: "",
-        }
+        ui_sdk::pagination::attrs::PaginationPrevButtonAttributes::new(id, disabled).into()
     }
 
     pub fn id(&self) -> &str {
@@ -167,6 +196,7 @@ impl PaginationPrevButtonAttributes {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PaginationNextButtonAttributes {
     pub id: String,
     pub r#type: &'static str,
@@ -176,16 +206,24 @@ pub struct PaginationNextButtonAttributes {
     pub data_monoxus_pagination_next: &'static str,
 }
 
+impl From<ui_sdk::pagination::attrs::PaginationNextButtonAttributes>
+    for PaginationNextButtonAttributes
+{
+    fn from(base: ui_sdk::pagination::attrs::PaginationNextButtonAttributes) -> Self {
+        Self {
+            id: base.id,
+            r#type: base.r#type,
+            disabled: base.disabled,
+            aria_disabled: base.aria_disabled,
+            data_disabled: base.data_disabled,
+            data_monoxus_pagination_next: base.data_pagination_next,
+        }
+    }
+}
+
 impl PaginationNextButtonAttributes {
     pub fn new(id: String, disabled: bool) -> Self {
-        Self {
-            id,
-            r#type: "button",
-            disabled,
-            aria_disabled: disabled.then_some("true"),
-            data_disabled: data_disabled_attr(disabled),
-            data_monoxus_pagination_next: "",
-        }
+        ui_sdk::pagination::attrs::PaginationNextButtonAttributes::new(id, disabled).into()
     }
 
     pub fn id(&self) -> &str {
@@ -212,4 +250,3 @@ impl PaginationNextButtonAttributes {
         self.data_monoxus_pagination_next
     }
 }
-

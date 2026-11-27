@@ -1,3 +1,6 @@
+// [KEEP-MONOXUS-BRAND]
+pub use ui_sdk::field::types::{FieldErrorLiveMode, FieldLegendVariant, FieldOrientation};
+
 /// Structural parts of the `monoxus::field` compound primitive.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -48,61 +51,30 @@ impl FieldPart {
     }
 }
 
-/// Layout orientation hint propagated via `data-orientation`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum FieldOrientation {
-    #[default]
-    Vertical,
-    Horizontal,
-    Responsive,
-}
-
-impl FieldOrientation {
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Vertical => "vertical",
-            Self::Horizontal => "horizontal",
-            Self::Responsive => "responsive",
+impl From<ui_sdk::field::types::FieldPart> for FieldPart {
+    fn from(part: ui_sdk::field::types::FieldPart) -> Self {
+        match part {
+            ui_sdk::field::types::FieldPart::Root => Self::Root,
+            ui_sdk::field::types::FieldPart::FieldSet => Self::FieldSet,
+            ui_sdk::field::types::FieldPart::Legend => Self::Legend,
+            ui_sdk::field::types::FieldPart::Label => Self::Label,
+            ui_sdk::field::types::FieldPart::Control => Self::Control,
+            ui_sdk::field::types::FieldPart::Description => Self::Description,
+            ui_sdk::field::types::FieldPart::Error => Self::Error,
         }
     }
 }
 
-/// Visual styling variant propagated on `FieldLegend` via `data-variant`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum FieldLegendVariant {
-    #[default]
-    Legend,
-    Label,
-}
-
-impl FieldLegendVariant {
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Legend => "legend",
-            Self::Label => "label",
-        }
-    }
-}
-
-/// Optional `aria-live` override for `FieldError` (defaults to `Off` to avoid duplicate
-/// screen-reader announcements alongside `role="alert"`).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum FieldErrorLiveMode {
-    Assertive,
-    Polite,
-    #[default]
-    Off,
-}
-
-impl FieldErrorLiveMode {
-    pub const fn as_aria_live(&self) -> Option<&'static str> {
-        match self {
-            Self::Assertive => Some("assertive"),
-            Self::Polite => Some("polite"),
-            Self::Off => None,
+impl From<FieldPart> for ui_sdk::field::types::FieldPart {
+    fn from(part: FieldPart) -> Self {
+        match part {
+            FieldPart::Root => Self::Root,
+            FieldPart::FieldSet => Self::FieldSet,
+            FieldPart::Legend => Self::Legend,
+            FieldPart::Label => Self::Label,
+            FieldPart::Control => Self::Control,
+            FieldPart::Description => Self::Description,
+            FieldPart::Error => Self::Error,
         }
     }
 }

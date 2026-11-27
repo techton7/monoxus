@@ -1,5 +1,6 @@
+// [KEEP-MONOXUS-BRAND] Re-exports `ui_sdk::hover_card` with Monoxus/Radix compat shims.
 pub mod attrs;
-pub mod relationships;
+pub use ui_sdk::hover_card::relationships;
 pub mod state;
 pub mod types;
 
