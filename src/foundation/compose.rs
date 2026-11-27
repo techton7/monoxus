@@ -1,10 +1,457 @@
 use std::rc::Rc;
 
-use dioxus::core::{DynamicNode, VNode, VNodeChild};
-use dioxus::core::AttributeValue;
-use dioxus::prelude::{Attribute, Element, MountedData};
+use dioxus::core::{
+    AttributeValue, DynamicNode, Event, IntoAttributeValue, ListenerCallback, VNode, VNodeChild,
+};
+use dioxus::html::PlatformEventData;
+use dioxus::prelude::{Attribute, Element, EventHandler, MountedData};
 
 pub use ui_sdk::foundation::compose::*;
+
+/// Lifecycle events whose chained listeners always execute unconditionally,
+/// regardless of `prevent_default()`.
+const LIFECYCLE_EVENTS: &[&str] = &["onmounted", "onresize", "onvisible"];
+
+/// Configuration controlling invariant attributes and non-cancelable bookkeeping
+/// events in [`merge_props_with_config`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MergePropsConfig<'a> {
+    /// Un-namespaced attribute names where `base` wins over `user`
+    /// (e.g., `["aria-expanded", "aria-controls", "data-state"]`).
+    pub invariant_attrs: &'a [&'a str],
+    /// Event attribute names (e.g., `"onpointermove"`) where `base` listeners
+    /// still execute even if `user` called `evt.prevent_default()`.
+    ///
+    /// Lifecycle events (`"onmounted"`, `"onresize"`, `"onvisible"`) always run
+    /// all listeners unconditionally without needing to be listed here.
+    pub bookkeeping_events: &'a [&'a str],
+}
+
+fn should_check_default_prevented(name: &str, config: &MergePropsConfig<'_>) -> bool {
+    !LIFECYCLE_EVENTS.contains(&name) && !config.bookkeeping_events.contains(&name)
+}
+
+/// Chains two erased Dioxus event listeners so `first` executes before `second`.
+///
+/// When `check_default_prevented` is `true`, `second` is skipped if `first` called
+/// `evt.prevent_default()`. When `false`, `second` runs unconditionally.
+pub fn chain_event_listeners(
+    first: ListenerCallback,
+    second: ListenerCallback,
+    check_default_prevented: bool,
+) -> ListenerCallback {
+    ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
+        first.call(evt.clone().into_any());
+        if !check_default_prevented || evt.default_action_enabled() {
+            second.call(evt.into_any());
+        }
+    })
+    .erase()
+}
+
+fn fold_listeners(
+    listeners: Vec<ListenerCallback>,
+    check_default_prevented: bool,
+) -> Option<ListenerCallback> {
+    listeners
+        .into_iter()
+        .reduce(|acc, next| chain_event_listeners(acc, next, check_default_prevented))
+}
+
+enum MergedSlot {
+    Class,
+    Style,
+    AriaDescribedBy,
+    Listener {
+        name: &'static str,
+        namespace: Option<&'static str>,
+        volatile: bool,
+        base: Vec<ListenerCallback>,
+        user: Vec<ListenerCallback>,
+    },
+    Scalar {
+        attr: Attribute,
+        from_base: bool,
+    },
+}
+
+/// Merges primitive-owned `base` attributes with consumer `user` attributes using
+/// default [`MergePropsConfig`].
+pub fn merge_props(base: Vec<Attribute>, user: Vec<Attribute>) -> Vec<Attribute> {
+    merge_props_with_config(base, user, MergePropsConfig::default())
+}
+
+/// Canonical Dioxus 0.8 `Vec<Attribute>` composition layer merging primitive-owned
+/// `base` attributes with consumer `user` attributes:
+///
+/// - Un-namespaced `"class"`: space-joined via [`join_classes`] (`base` first, then `user`).
+/// - Un-namespaced `"style"`: semicolon-joined via [`join_styles`] (`base` first, then `user`);
+///   preserves `namespace == Some("style")` CSS shorthands.
+/// - Un-namespaced `"aria-describedby"`: deduplicated token union via [`merge_aria_describedby`]
+///   (`base` first, then `user`, preserving first-seen order).
+/// - `AttributeValue::Listener`: duplicate `(name, namespace)` listeners are chained via
+///   [`chain_event_listeners`] with `user` running first and `base` running second (preserving
+///   relative order within both `user` and `base`).
+/// - Scalar attributes (`yieldToAuthor`): `user` overrides `base` unless the un-namespaced name
+///   is listed in `config.invariant_attrs` (in which case `base` wins).
+/// - `AttributeValue::None` entries are dropped so `user` never strips `base` attributes.
+pub fn merge_props_with_config(
+    base: Vec<Attribute>,
+    user: Vec<Attribute>,
+    config: MergePropsConfig<'_>,
+) -> Vec<Attribute> {
+    if base.is_empty() && user.is_empty() {
+        return Vec::new();
+    }
+
+    let mut slots: Vec<MergedSlot> = Vec::with_capacity(base.len() + user.len());
+    let mut class_parts: Vec<String> = Vec::new();
+    let mut style_parts: Vec<String> = Vec::new();
+    let mut describedby_parts: Vec<String> = Vec::new();
+    let mut has_class_slot = false;
+    let mut has_style_slot = false;
+    let mut has_describedby_slot = false;
+
+    for attr in base {
+        if matches!(attr.value, AttributeValue::None) {
+            continue;
+        }
+
+        if attr.namespace.is_none() {
+            match (attr.name, attr.value) {
+                ("class", AttributeValue::Text(text)) => {
+                    class_parts.push(text);
+                    if !has_class_slot {
+                        slots.push(MergedSlot::Class);
+                        has_class_slot = true;
+                    }
+                    continue;
+                }
+                ("style", AttributeValue::Text(text)) => {
+                    style_parts.push(text);
+                    if !has_style_slot {
+                        slots.push(MergedSlot::Style);
+                        has_style_slot = true;
+                    }
+                    continue;
+                }
+                ("aria-describedby", AttributeValue::Text(text)) => {
+                    describedby_parts.push(text);
+                    if !has_describedby_slot {
+                        slots.push(MergedSlot::AriaDescribedBy);
+                        has_describedby_slot = true;
+                    }
+                    continue;
+                }
+                (name, value) => {
+                    push_base_slot(
+                        &mut slots,
+                        Attribute {
+                            name,
+                            value,
+                            namespace: None,
+                            volatile: attr.volatile,
+                        },
+                    );
+                    continue;
+                }
+            }
+        }
+
+        push_base_slot(&mut slots, attr);
+    }
+
+    for attr in user {
+        if matches!(attr.value, AttributeValue::None) {
+            continue;
+        }
+
+        if attr.namespace.is_none() {
+            match (attr.name, attr.value) {
+                ("class", AttributeValue::Text(text)) => {
+                    class_parts.push(text);
+                    if !has_class_slot {
+                        slots.push(MergedSlot::Class);
+                        has_class_slot = true;
+                    }
+                    continue;
+                }
+                ("style", AttributeValue::Text(text)) => {
+                    style_parts.push(text);
+                    if !has_style_slot {
+                        slots.push(MergedSlot::Style);
+                        has_style_slot = true;
+                    }
+                    continue;
+                }
+                ("aria-describedby", AttributeValue::Text(text)) => {
+                    describedby_parts.push(text);
+                    if !has_describedby_slot {
+                        slots.push(MergedSlot::AriaDescribedBy);
+                        has_describedby_slot = true;
+                    }
+                    continue;
+                }
+                (name, value) => {
+                    push_user_slot(
+                        &mut slots,
+                        Attribute {
+                            name,
+                            value,
+                            namespace: None,
+                            volatile: attr.volatile,
+                        },
+                        &config,
+                    );
+                    continue;
+                }
+            }
+        }
+
+        push_user_slot(&mut slots, attr, &config);
+    }
+
+    let mut out = Vec::with_capacity(slots.len());
+    for slot in slots {
+        match slot {
+            MergedSlot::Class => {
+                if let Some(merged) = join_classes(class_parts.iter().map(String::as_str)) {
+                    out.push(Attribute::new("class", merged, None, false));
+                }
+            }
+            MergedSlot::Style => {
+                if let Some(merged) = join_styles(style_parts.iter().map(String::as_str)) {
+                    out.push(Attribute::new("style", merged, None, false));
+                }
+            }
+            MergedSlot::AriaDescribedBy => {
+                if let Some(merged) =
+                    merge_aria_describedby(describedby_parts.iter().map(|s| Some(s.as_str())))
+                {
+                    out.push(Attribute::new("aria-describedby", merged, None, false));
+                }
+            }
+            MergedSlot::Listener {
+                name,
+                namespace,
+                volatile,
+                base,
+                user,
+            } => {
+                let check_dp = should_check_default_prevented(name, &config);
+                let user_cb = fold_listeners(user, check_dp);
+                let base_cb = fold_listeners(base, check_dp);
+                let combined = match (user_cb, base_cb) {
+                    (Some(u), Some(b)) => Some(chain_event_listeners(u, b, check_dp)),
+                    (Some(u), None) => Some(u),
+                    (None, Some(b)) => Some(b),
+                    (None, None) => None,
+                };
+                if let Some(listener) = combined {
+                    out.push(Attribute {
+                        name,
+                        value: AttributeValue::Listener(listener),
+                        namespace,
+                        volatile,
+                    });
+                }
+            }
+            MergedSlot::Scalar { attr, .. } => {
+                out.push(attr);
+            }
+        }
+    }
+
+    out
+}
+
+fn push_base_slot(slots: &mut Vec<MergedSlot>, attr: Attribute) {
+    match attr.value {
+        AttributeValue::Listener(listener) => {
+            if let Some(MergedSlot::Listener { base, volatile, .. }) = slots.iter_mut().find(|s| {
+                matches!(
+                    s,
+                    MergedSlot::Listener {
+                        name,
+                        namespace,
+                        ..
+                    } if *name == attr.name && *namespace == attr.namespace
+                )
+            }) {
+                base.push(listener);
+                *volatile |= attr.volatile;
+            } else {
+                slots.push(MergedSlot::Listener {
+                    name: attr.name,
+                    namespace: attr.namespace,
+                    volatile: attr.volatile,
+                    base: vec![listener],
+                    user: Vec::new(),
+                });
+            }
+        }
+        _ => {
+            if let Some(MergedSlot::Scalar {
+                attr: existing,
+                from_base,
+            }) = slots.iter_mut().find(|s| {
+                matches!(
+                    s,
+                    MergedSlot::Scalar { attr: existing, .. }
+                        if existing.name == attr.name && existing.namespace == attr.namespace
+                )
+            }) {
+                *existing = attr;
+                *from_base = true;
+            } else {
+                slots.push(MergedSlot::Scalar {
+                    attr,
+                    from_base: true,
+                });
+            }
+        }
+    }
+}
+
+fn push_user_slot(
+    slots: &mut Vec<MergedSlot>,
+    attr: Attribute,
+    config: &MergePropsConfig<'_>,
+) {
+    match attr.value {
+        AttributeValue::Listener(listener) => {
+            if let Some(MergedSlot::Listener { user, volatile, .. }) = slots.iter_mut().find(|s| {
+                matches!(
+                    s,
+                    MergedSlot::Listener {
+                        name,
+                        namespace,
+                        ..
+                    } if *name == attr.name && *namespace == attr.namespace
+                )
+            }) {
+                user.push(listener);
+                *volatile |= attr.volatile;
+            } else {
+                slots.push(MergedSlot::Listener {
+                    name: attr.name,
+                    namespace: attr.namespace,
+                    volatile: attr.volatile,
+                    base: Vec::new(),
+                    user: vec![listener],
+                });
+            }
+        }
+        _ => {
+            let is_invariant =
+                attr.namespace.is_none() && config.invariant_attrs.contains(&attr.name);
+            if let Some(MergedSlot::Scalar {
+                attr: existing,
+                from_base,
+            }) = slots.iter_mut().find(|s| {
+                matches!(
+                    s,
+                    MergedSlot::Scalar { attr: existing, .. }
+                        if existing.name == attr.name && existing.namespace == attr.namespace
+                )
+            }) {
+                if is_invariant && *from_base {
+                    return;
+                }
+                *existing = attr;
+                *from_base = false;
+            } else {
+                slots.push(MergedSlot::Scalar {
+                    attr,
+                    from_base: false,
+                });
+            }
+        }
+    }
+}
+
+/// Attaches an optional typed `EventHandler<Event<Data>>` to an attribute list as an
+/// erased `ListenerCallback<PlatformEventData>`, avoiding Dioxus 0.8 `E0282` closure
+/// inference friction while composing cleanly through [`merge_props`].
+pub fn push_event_handler<Data>(
+    attrs: &mut Vec<Attribute>,
+    name: &'static str,
+    handler: Option<EventHandler<Event<Data>>>,
+) where
+    Data: for<'a> From<&'a PlatformEventData> + 'static,
+{
+    if let Some(handler) = handler {
+        attrs.push(Attribute::new(
+            name,
+            AttributeValue::Listener(
+                ListenerCallback::<PlatformEventData>::new(move |evt| {
+                    handler.call(evt.map(|d| Data::from(d)));
+                })
+                .erase(),
+            ),
+            None,
+            false,
+        ));
+    }
+}
+
+/// Pushes an optional un-namespaced attribute when `Some` and non-`AttributeValue::None`.
+pub fn push_attr_opt<V: IntoAttributeValue<M>, M>(
+    attrs: &mut Vec<Attribute>,
+    name: &'static str,
+    value: Option<V>,
+) {
+    if let Some(value) = value {
+        let attr_value = value.into_value();
+        if !matches!(attr_value, AttributeValue::None) {
+            attrs.push(Attribute {
+                name,
+                value: attr_value,
+                namespace: None,
+                volatile: false,
+            });
+        }
+    }
+}
+
+/// Generic payload passed to `child: Option<Callback<ChildProps<S>, Element>>` for
+/// stateful primitives that expose runtime state alongside merged DOM `props`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ChildProps<S = ()> {
+    pub props: Vec<Attribute>,
+    pub state: S,
+}
+
+impl<S> ChildProps<S> {
+    #[inline]
+    pub fn new(props: Vec<Attribute>, state: S) -> Self {
+        Self { props, state }
+    }
+}
+
+/// Combines optional explicit `class`/`style` props with `#[props(extends = GlobalAttributes)]`
+/// into a single consumer attribute list ready for [`merge_props`].
+pub fn collect_user_attrs(
+    class: Option<String>,
+    style: Option<String>,
+    mut attributes: Vec<Attribute>,
+) -> Vec<Attribute> {
+    if class.is_none() && style.is_none() {
+        return attributes;
+    }
+    let mut user = Vec::with_capacity(attributes.len() + 2);
+    push_attr_opt(&mut user, "class", class);
+    push_attr_opt(&mut user, "style", style);
+    user.append(&mut attributes);
+    user
+}
+
+/// Pushes a boolean `data-*` attribute (`""`) when `present` is `true`, omitting it otherwise.
+pub fn push_bool_data_attr(attrs: &mut Vec<Attribute>, name: &'static str, present: bool) {
+    if present {
+        attrs.push(Attribute::new(name, "", None, false));
+    }
+}
 
 pub type MountedHandle = Rc<MountedData>;
 
@@ -108,8 +555,7 @@ pub(crate) struct ExtractedAriaAttrs {
 /// Merges multiple optional whitespace-separated `aria-describedby` strings into a single
 /// space-separated deduplicated token string preserving first-seen order.
 /// Returns `None` when no non-empty tokens are present.
-#[allow(dead_code)]
-pub(crate) fn merge_aria_describedby<'a>(
+pub fn merge_aria_describedby<'a>(
     parts: impl IntoIterator<Item = Option<&'a str>>,
 ) -> Option<String> {
     let mut tokens: Vec<&'a str> = Vec::new();
@@ -410,5 +856,249 @@ mod tests {
             None,
         );
         assert!(inv2);
+    }
+
+    fn find_attr<'a>(
+        attrs: &'a [Attribute],
+        name: &str,
+        namespace: Option<&str>,
+    ) -> Option<&'a Attribute> {
+        attrs
+            .iter()
+            .find(|attr| attr.name == name && attr.namespace == namespace)
+    }
+
+    fn attr_text<'a>(
+        attrs: &'a [Attribute],
+        name: &str,
+        namespace: Option<&str>,
+    ) -> Option<&'a str> {
+        match &find_attr(attrs, name, namespace)?.value {
+            AttributeValue::Text(text) => Some(text.as_str()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn merge_props_merges_class_style_drops_none_and_preserves_style_shorthands() {
+        use super::merge_props;
+
+        let base = vec![
+            Attribute::new("class", "  base-cls ", None, false),
+            Attribute::new("style", "--monoxus-x: 4px; margin: 0;", None, false),
+            Attribute::new("background", "blue", Some("style"), false),
+            Attribute {
+                name: "data-drop-base",
+                value: AttributeValue::None,
+                namespace: None,
+                volatile: false,
+            },
+        ];
+        let user = vec![
+            Attribute::new("class", "user-cls", None, false),
+            Attribute {
+                name: "class",
+                value: AttributeValue::None,
+                namespace: None,
+                volatile: false,
+            },
+            Attribute::new("style", "color: red", None, false),
+            Attribute {
+                name: "style",
+                value: AttributeValue::None,
+                namespace: None,
+                volatile: false,
+            },
+            Attribute::new("background", "green", Some("style"), false),
+            Attribute::new("padding", "8px", Some("style"), false),
+        ];
+
+        let merged = merge_props(base, user);
+
+        assert_eq!(attr_text(&merged, "class", None), Some("base-cls user-cls"));
+        let style = attr_text(&merged, "style", None).unwrap();
+        assert_eq!(style, "--monoxus-x: 4px; margin: 0; color: red");
+        assert!(!style.contains(";;"));
+        assert_eq!(
+            attr_text(&merged, "background", Some("style")),
+            Some("green")
+        );
+        assert_eq!(attr_text(&merged, "padding", Some("style")), Some("8px"));
+        assert!(find_attr(&merged, "data-drop-base", None).is_none());
+
+        // Whitespace-only class/style/aria-describedby do not emit empty attributes.
+        let blank = merge_props(
+            vec![
+                Attribute::new("class", "   ", None, false),
+                Attribute::new("style", " ; ", None, false),
+                Attribute::new("aria-describedby", "  \t ", None, false),
+            ],
+            Vec::new(),
+        );
+        assert!(blank.is_empty());
+    }
+
+    #[test]
+    fn merge_props_merges_aria_describedby_deduplicated_in_order() {
+        use super::merge_props;
+
+        let base = vec![
+            Attribute::new("aria-describedby", "field-desc  tooltip-id", None, false),
+        ];
+        let user = vec![
+            Attribute::new(
+                "aria-describedby",
+                "tooltip-id user-desc field-desc",
+                None,
+                false,
+            ),
+            Attribute {
+                name: "aria-describedby",
+                value: AttributeValue::None,
+                namespace: None,
+                volatile: false,
+            },
+        ];
+
+        let merged = merge_props(base, user);
+        assert_eq!(
+            merged
+                .iter()
+                .filter(|a| a.namespace.is_none() && a.name == "aria-describedby")
+                .count(),
+            1
+        );
+        assert_eq!(
+            attr_text(&merged, "aria-describedby", None),
+            Some("field-desc tooltip-id user-desc")
+        );
+    }
+
+    #[test]
+    fn merge_props_yield_to_author_and_invariant_attrs_protection() {
+        use super::{MergePropsConfig, merge_props, merge_props_with_config};
+
+        let base = vec![
+            Attribute::new("id", "base-id", None, false),
+            Attribute::new("role", "button", None, false),
+            Attribute::new("aria-expanded", "true", None, false),
+            Attribute::new("data-state", "open", None, false),
+        ];
+        let user = vec![
+            Attribute::new("id", "user-id", None, false),
+            Attribute {
+                name: "role",
+                value: AttributeValue::None,
+                namespace: None,
+                volatile: false,
+            },
+            Attribute::new("aria-expanded", "false", None, false),
+            Attribute::new("data-state", "closed", None, false),
+            Attribute::new("aria-controls", "user-controls", None, false),
+            Attribute::new("data-extra", "yes", None, false),
+        ];
+
+        let protected = merge_props_with_config(
+            base.clone(),
+            user.clone(),
+            MergePropsConfig {
+                invariant_attrs: &["aria-expanded", "aria-controls", "data-state"],
+                bookkeeping_events: &[],
+            },
+        );
+        assert_eq!(attr_text(&protected, "id", None), Some("user-id"));
+        assert_eq!(attr_text(&protected, "role", None), Some("button"));
+        assert_eq!(attr_text(&protected, "aria-expanded", None), Some("true"));
+        assert_eq!(attr_text(&protected, "data-state", None), Some("open"));
+        assert_eq!(
+            attr_text(&protected, "aria-controls", None),
+            Some("user-controls")
+        );
+        assert_eq!(attr_text(&protected, "data-extra", None), Some("yes"));
+
+        // Default config uses yieldToAuthor for all scalar attributes.
+        let yielded = merge_props(base, user);
+        assert_eq!(attr_text(&yielded, "aria-expanded", None), Some("false"));
+        assert_eq!(attr_text(&yielded, "data-state", None), Some("closed"));
+        assert_eq!(attr_text(&yielded, "role", None), Some("button"));
+    }
+
+    #[test]
+    fn merge_props_handles_empty_base_and_empty_user() {
+        use super::merge_props;
+
+        assert!(merge_props(Vec::new(), Vec::new()).is_empty());
+
+        let only_user = merge_props(
+            Vec::new(),
+            vec![
+                Attribute::new("class", "  a  ", None, false),
+                Attribute {
+                    name: "title",
+                    value: AttributeValue::None,
+                    namespace: None,
+                    volatile: false,
+                },
+                Attribute::new("data-u", "1", None, false),
+            ],
+        );
+        assert_eq!(only_user.len(), 2);
+        assert_eq!(attr_text(&only_user, "class", None), Some("a"));
+        assert_eq!(attr_text(&only_user, "data-u", None), Some("1"));
+
+        let only_base = merge_props(
+            vec![
+                Attribute::new("style", "color: red;", None, false),
+                Attribute {
+                    name: "id",
+                    value: AttributeValue::None,
+                    namespace: None,
+                    volatile: false,
+                },
+                Attribute::new("data-b", "2", None, false),
+            ],
+            Vec::new(),
+        );
+        assert_eq!(only_base.len(), 2);
+        assert_eq!(attr_text(&only_base, "style", None), Some("color: red;"));
+        assert_eq!(attr_text(&only_base, "data-b", None), Some("2"));
+    }
+
+    #[test]
+    fn push_attr_opt_and_push_bool_data_attr_emit_expected_attributes() {
+        use super::{push_attr_opt, push_bool_data_attr};
+
+        let mut attrs = Vec::new();
+        push_attr_opt(&mut attrs, "id", Some("trigger-1"));
+        push_attr_opt(&mut attrs, "title", Option::<&str>::None);
+        push_attr_opt(&mut attrs, "data-none", Some(AttributeValue::None));
+        push_bool_data_attr(&mut attrs, "data-disabled", true);
+        push_bool_data_attr(&mut attrs, "data-readonly", false);
+
+        assert_eq!(attrs.len(), 2);
+        assert_eq!(attr_text(&attrs, "id", None), Some("trigger-1"));
+        assert_eq!(attr_text(&attrs, "data-disabled", None), Some(""));
+        assert!(find_attr(&attrs, "title", None).is_none());
+        assert!(find_attr(&attrs, "data-none", None).is_none());
+        assert!(find_attr(&attrs, "data-readonly", None).is_none());
+    }
+
+    #[test]
+    fn should_check_default_prevented_respects_lifecycle_and_bookkeeping_events() {
+        use super::{MergePropsConfig, should_check_default_prevented};
+
+        let default_cfg = MergePropsConfig::default();
+        assert!(!should_check_default_prevented("onmounted", &default_cfg));
+        assert!(!should_check_default_prevented("onresize", &default_cfg));
+        assert!(!should_check_default_prevented("onvisible", &default_cfg));
+        assert!(should_check_default_prevented("onclick", &default_cfg));
+        assert!(should_check_default_prevented("onpointermove", &default_cfg));
+
+        let custom_cfg = MergePropsConfig {
+            invariant_attrs: &[],
+            bookkeeping_events: &["onpointermove"],
+        };
+        assert!(!should_check_default_prevented("onpointermove", &custom_cfg));
+        assert!(should_check_default_prevented("onclick", &custom_cfg));
     }
 }

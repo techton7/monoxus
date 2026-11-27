@@ -102,6 +102,8 @@ mod native_data_gesture_test;
 #[cfg(feature = "native")]
 mod native_harness_test;
 #[cfg(feature = "native")]
+mod native_merge_props_child_test;
+#[cfg(feature = "native")]
 mod native_non_floating_test;
 #[cfg(feature = "native")]
 mod native_overlay_test;
@@ -147,6 +149,7 @@ fn all_test_files_are_included() {
         "native_accordion_test.rs",
         "native_data_gesture_test.rs",
         "native_harness_test.rs",
+        "native_merge_props_child_test.rs",
         "native_non_floating_test.rs",
         "native_overlay_test.rs",
         "native_pin_input_test.rs",
