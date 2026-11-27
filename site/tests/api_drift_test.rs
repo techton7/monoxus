@@ -30,8 +30,18 @@ fn collect_rs_files(path: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-fn strip_raw_prefix(name: &str) -> String {
-    name.strip_prefix("r#").unwrap_or(name).to_string()
+fn has_component_attr(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        let path = attr.path();
+        path.is_ident("component")
+            || (path.segments.len() == 2
+                && path.segments[0].ident == "dioxus"
+                && path.segments[1].ident == "component")
+    })
+}
+
+fn is_excluded_component_fn(slug: &str, fn_name: &str) -> bool {
+    slug == "dialog" && matches!(fn_name, "AlertDialogAction" | "AlertDialogCancel")
 }
 
 fn extract_type_ident(ty: &Type) -> Option<String> {
@@ -42,9 +52,15 @@ fn extract_type_ident(ty: &Type) -> Option<String> {
     }
 }
 
-fn collect_component_props(files: &[PathBuf]) -> HashMap<String, HashSet<String>> {
+struct ParsedComponentSource {
+    pub_fns: HashMap<String, HashSet<String>>,
+    component_fns: HashSet<String>,
+}
+
+fn collect_component_props(files: &[PathBuf]) -> ParsedComponentSource {
     let mut structs: HashMap<String, HashSet<String>> = HashMap::new();
     let mut fns: Vec<(String, Vec<(String, Option<String>)>)> = Vec::new();
+    let mut component_fns: HashSet<String> = HashSet::new();
 
     for file_path in files {
         let src = fs::read_to_string(file_path)
@@ -59,7 +75,7 @@ fn collect_component_props(files: &[PathBuf]) -> HashMap<String, HashSet<String>
                     if let Fields::Named(named) = s.fields {
                         for field in named.named {
                             if let Some(ident) = field.ident {
-                                fields.insert(strip_raw_prefix(&ident.to_string()));
+                                fields.insert(ident.to_string());
                             }
                         }
                     }
@@ -69,24 +85,28 @@ fn collect_component_props(files: &[PathBuf]) -> HashMap<String, HashSet<String>
                     if !matches!(f.vis, syn::Visibility::Public(_)) {
                         continue;
                     }
+                    let fn_name = f.sig.ident.to_string();
+                    if has_component_attr(&f.attrs) {
+                        component_fns.insert(fn_name.clone());
+                    }
                     let mut params = Vec::new();
                     for input in f.sig.inputs {
                         if let FnArg::Typed(pat_type) = input {
                             if let Pat::Ident(pat_ident) = *pat_type.pat {
-                                let name = strip_raw_prefix(&pat_ident.ident.to_string());
+                                let name = pat_ident.ident.to_string();
                                 let ty_name = extract_type_ident(&pat_type.ty);
                                 params.push((name, ty_name));
                             }
                         }
                     }
-                    fns.push((f.sig.ident.to_string(), params));
+                    fns.push((fn_name, params));
                 }
                 _ => {}
             }
         }
     }
 
-    let mut result = HashMap::new();
+    let mut pub_fns = HashMap::new();
     for (fn_name, params) in fns {
         let props = if params.len() == 1 && params[0].0 == "props" {
             if let Some(ref struct_name) = params[0].1 {
@@ -97,9 +117,12 @@ fn collect_component_props(files: &[PathBuf]) -> HashMap<String, HashSet<String>
         } else {
             params.into_iter().map(|(name, _)| name).collect()
         };
-        result.insert(fn_name, props);
+        pub_fns.insert(fn_name, props);
     }
-    result
+    ParsedComponentSource {
+        pub_fns,
+        component_fns,
+    }
 }
 
 #[test]
@@ -111,7 +134,9 @@ fn api_schema_matches_monoxus_source() {
         "expected at least one documented component in api_schema"
     );
 
-    let mut rs_files = Vec::new();
+    let mut all_undocumented_parts = Vec::new();
+    let mut all_undocumented_props = Vec::new();
+
     for comp in docs {
         let rel = comp
             .source_path
@@ -128,36 +153,38 @@ fn api_schema_matches_monoxus_source() {
             comp.slug,
             target.display()
         );
+
+        let mut rs_files = Vec::new();
         collect_rs_files(&target, &mut rs_files);
-    }
-    rs_files.sort();
-    rs_files.dedup();
+        rs_files.sort();
+        rs_files.dedup();
 
-    let parsed_components = collect_component_props(&rs_files);
+        let parsed = collect_component_props(&rs_files);
+        let mut documented_parts = HashSet::new();
 
-    let mut all_undocumented = Vec::new();
-
-    for comp in docs {
         for part in comp.parts {
-            let actual_props = parsed_components.get(part.name).unwrap_or_else(|| {
+            documented_parts.insert(part.name);
+
+            let actual_props = parsed.pub_fns.get(part.name).unwrap_or_else(|| {
                 panic!(
-                    "documented part `{}` in `{}` was not found as a `pub fn` in monoxus",
-                    part.name, comp.slug
+                    "documented part `{}` in `{}` was not found as a `pub fn` in {}",
+                    part.name,
+                    comp.slug,
+                    target.display()
                 )
             });
 
             let mut documented_props = HashSet::new();
             for prop in part.props {
-                let normalized = strip_raw_prefix(prop.name);
                 assert!(
-                    actual_props.contains(&normalized),
+                    actual_props.contains(prop.name),
                     "documented prop `{}` on `{}` (`{}`) does not exist in monoxus source; found: {:?}",
                     prop.name,
                     part.name,
                     comp.slug,
                     actual_props
                 );
-                documented_props.insert(normalized);
+                documented_props.insert(prop.name);
             }
 
             let mut undocumented: Vec<String> = actual_props
@@ -167,8 +194,21 @@ fn api_schema_matches_monoxus_source() {
                 .collect();
             undocumented.sort();
             if !undocumented.is_empty() {
-                all_undocumented.push(format!("`{}` (`{}`): {:?}", part.name, comp.slug, undocumented));
+                all_undocumented_props
+                    .push(format!("`{}` (`{}`): {:?}", part.name, comp.slug, undocumented));
             }
+        }
+
+        let mut undocumented_parts: Vec<String> = parsed
+            .component_fns
+            .iter()
+            .filter(|name| !is_excluded_component_fn(comp.slug, name))
+            .filter(|name| !documented_parts.contains(name.as_str()))
+            .cloned()
+            .collect();
+        undocumented_parts.sort();
+        if !undocumented_parts.is_empty() {
+            all_undocumented_parts.push(format!("`{}`: {:?}", comp.slug, undocumented_parts));
         }
 
         let md = component_to_markdown(comp, "");
@@ -176,9 +216,14 @@ fn api_schema_matches_monoxus_source() {
     }
 
     assert!(
-        all_undocumented.is_empty(),
+        all_undocumented_parts.is_empty(),
+        "undocumented public #[component] functions found:\n{}",
+        all_undocumented_parts.join("\n")
+    );
+    assert!(
+        all_undocumented_props.is_empty(),
         "undocumented public props found:\n{}",
-        all_undocumented.join("\n")
+        all_undocumented_props.join("\n")
     );
 }
 

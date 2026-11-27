@@ -28,6 +28,13 @@ Floating and disclosure primitives expose measured geometry variables in both `-
 - **Anchor dimensions**: `--monoxus-<primitive>-anchor-width`, `--monoxus-<primitive>-anchor-height`, and `--radix-<primitive>-trigger-{width,height}`
 - **Content dimensions**: `--monoxus-<primitive>-content-width`, `--monoxus-<primitive>-content-height`
 
+## Computed `z-index` Hoisting and `GlobalAttributes`
+
+Floating overlays (`PopoverContent`, `TooltipContent`, `SelectContent`, `HoverCardContent`, and menus) render inside a positioned wrapper (`[data-monoxus-floating-content-wrapper]`). Monoxus automatically reads the computed `z-index` from your `*Content` element and hoists it onto the wrapper:
+
+- Apply stacking classes such as `z-50` directly on `*Content`; you do not need to style the outer wrapper or add `relative` unless an `absolute` child (such as `TooltipArrow`) requires a positioned parent.
+- Explicit `class`, `style`, and extra `GlobalAttributes` (such as `data-*` or `aria-*`) are merged cleanly with primitive-owned styles and attributes.
+
 ## Plain CSS Example
 
 Target `data-state`, `data-side`, and `data-disabled` directly in your stylesheet:

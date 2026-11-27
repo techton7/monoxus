@@ -50,11 +50,20 @@ Directional primitives (`Tabs`, `Accordion`, `Select`, `Tooltip`, `Slider`, `Rad
 
 ## PortalHost
 
-Overlay portals (`DialogPortal`, `SelectPortal`, `TooltipPortal`) accept a `host: Option<PortalHost>` prop from `monoxus::foundation::overlay`:
+Overlay portals (`DialogPortal`, `SelectPortal`, `TooltipPortal`, `PopoverPortal`) accept a `host: Option<PortalHost>` prop from `monoxus::foundation::overlay` and emit a `data-portal-anchor` marker at their original render position:
 
-- `PortalHost::Default`: Teleports content to the default document overlay root.
+- `PortalHost::Default`: Resolves `#main` first (for Dioxus root mount parity) and falls back to `document.body` when `#main` is not present.
 - `PortalHost::Inline`: Keeps content in-place in the DOM tree without teleporting.
 - `PortalHost::named("my-host")`: Teleports content into a specific container element by ID.
+
+## Auto-ID and GlobalAttributes Merging
+
+- **Auto-ID (`use_stable_id`)**: Primitives automatically generate deterministic scoped IDs for ARIA relationships (`aria-controls`, `aria-labelledby`, `aria-describedby`) whenever `id` is omitted, while honoring explicit `id` overrides.
+- **`GlobalAttributes` Merging**: Component parts extend `GlobalAttributes` and merge user-supplied `class`, `style`, and arbitrary HTML/ARIA/data attributes with primitive-owned attributes so styling and instrumentation hooks never clobber accessibility attributes.
+
+## Preventable Events
+
+Dismissible overlays expose `PreventableEvent` callbacks such as `on_escape_key_down` and `on_pointer_down_outside`. Calling `event.prevent_default()` inside these handlers cancels the default dismissal transition while still allowing custom side effects.
 
 ## Presence
 

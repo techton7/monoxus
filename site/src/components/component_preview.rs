@@ -15,7 +15,7 @@ use crate::theme::copy_to_clipboard;
 pub fn ComponentPreview(slug: String, #[props(default = true)] default_open: bool) -> Element {
     let code_open = use_signal(|| default_open);
     let mut copied = use_signal(|| false);
-    let mut active_tab = use_signal(|| "demo".to_string());
+    let active_tab = use_signal(|| "demo".to_string());
 
     let source = demo_source(&slug);
     let filename = demo_filename(&slug);
@@ -41,9 +41,7 @@ pub fn ComponentPreview(slug: String, #[props(default = true)] default_open: boo
             // Attached Collapsible Code Tabs
             TabsRoot {
                 value: Some(active_tab),
-                on_value_change: move |val| active_tab.set(val),
                 CollapsibleRoot {
-                    id: Some(format!("preview-collapsible-{slug}")),
                     open: Some(code_open),
                     div {
                         class: "border-t border-border-card bg-background",

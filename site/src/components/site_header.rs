@@ -49,7 +49,7 @@ pub fn SiteHeader() -> Element {
                             side_offset: 8.0,
                             TooltipTrigger {
                                 class: "inline-flex items-center rounded-full border border-border-card bg-muted/80 px-2 py-0.5 font-mono text-[11px] font-medium text-foreground-alt transition-colors hover:border-border-input-hover hover:text-foreground",
-                                "v0.1"
+                                "v0.1.2"
                             }
                             TooltipPortal {
                                 TooltipContent {

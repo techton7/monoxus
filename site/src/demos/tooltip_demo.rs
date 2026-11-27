@@ -11,7 +11,6 @@ pub fn TooltipDemo() -> Element {
     rsx! {
         div { class: "flex flex-wrap items-center justify-center gap-3",
             TooltipRoot {
-                delay_duration: 200,
                 side: PlacementSide::Top,
                 side_offset: 8.0,
 
@@ -38,7 +37,6 @@ pub fn TooltipDemo() -> Element {
             }
 
             TooltipRoot {
-                delay_duration: 200,
                 side: PlacementSide::Bottom,
                 side_offset: 8.0,
 

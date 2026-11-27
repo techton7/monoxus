@@ -45,7 +45,7 @@ pub(super) const BUTTON_DOC: ComponentDoc = ComponentDoc {
                 description: "Inline CSS styles applied to the rendered element.",
             },
             PropDoc {
-                name: "type",
+                name: "r#type",
                 type_simple: "ButtonType",
                 type_full: "monoxus::button::ButtonType (Button | Submit | Reset)",
                 default: Some("ButtonType::Button"),
@@ -90,7 +90,7 @@ pub(super) const BUTTON_DOC: ComponentDoc = ComponentDoc {
                 type_full: "Option<String>",
                 default: None,
                 required: false,
-                description: "Prompts the browser to save the linked URL instead of navigating.",
+                description: "Prompts the browser to save the linked URL instead of navigating (omitted when disabled).",
             },
             PropDoc {
                 name: "disabled",
@@ -106,7 +106,7 @@ pub(super) const BUTTON_DOC: ComponentDoc = ComponentDoc {
                 type_full: "Option<i32>",
                 default: None,
                 required: false,
-                description: "Overrides the element's tab order.",
+                description: "Overrides the element's tab order (disabled anchors force tabindex=\"-1\").",
             },
             PropDoc {
                 name: "role",

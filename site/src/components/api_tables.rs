@@ -61,7 +61,7 @@ pub fn PropsTable(props: PropsTableProps) -> Element {
                                         }
                                         PopoverPortal {
                                             PopoverContent {
-                                                class: "relative z-50 w-72 rounded-card-sm border border-border-card bg-background p-3.5 text-xs leading-relaxed text-foreground shadow-popover outline-hidden",
+                                                class: "z-50 w-72 rounded-card-sm border border-border-card bg-background p-3.5 text-xs leading-relaxed text-foreground shadow-popover outline-hidden",
                                                 div {
                                                     class: "mb-1.5 font-mono text-[11px] font-semibold text-foreground",
                                                     "{prop.name}: {prop.type_full}"
@@ -84,7 +84,11 @@ pub fn PropsTable(props: PropsTableProps) -> Element {
                             }
                             td {
                                 class: "whitespace-nowrap px-4 py-2.5 align-middle font-mono text-xs text-foreground-alt",
-                                "{prop.default.unwrap_or(\"—\")}"
+                                if prop.required {
+                                    "Required"
+                                } else {
+                                    "{prop.default.unwrap_or(\"—\")}"
+                                }
                             }
                         }
                     }
