@@ -19,6 +19,7 @@ pub mod date_range_field;
 pub mod date_range_picker;
 pub mod dialog;
 pub mod dropdown_menu;
+pub mod field;
 pub mod foundation;
 pub mod hover_card;
 pub mod label;

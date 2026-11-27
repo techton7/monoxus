@@ -1,6 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use dioxus::prelude::*;
 use oxidase::WatcherGuard;
@@ -323,4 +324,103 @@ pub fn use_is_using_keyboard() -> Signal<bool> {
     });
 
     is_using_keyboard
+}
+
+/// Composite focus-exit tracker for multi-part and portaled overlay controls whose DOM focus
+/// moves across internal sub-elements (e.g. `RadioGroup`, `DateField`, `Select`, `Combobox`).
+///
+/// Because `dioxus-html` `FocusData` does not expose `relatedTarget`, `onfocusout` schedules a
+/// single coalesced check racing `oxidase::frame::next_frame()` against a `10ms`
+/// `futures_timer::Delay`, cancelled immediately if `onfocusin` fires on any participating region
+/// or when the component unmounts (`alive` drop guard). If focus has truly left every element in
+/// `boundary_ids`, the stored `on_focus_out` callback is invoked once.
+///
+/// Returns `(on_focus_in, on_focus_out)` handlers to attach to the composite root (and any
+/// portaled content container). Stores `on_focus_out` inside a [`CopyValue`] to remain immune
+/// to `Dioxus #5894` when callers toggle `Some(...) <-> None` across renders.
+#[allow(dead_code)]
+pub(crate) fn use_composite_focus_out(
+    boundary_ids: Vec<String>,
+    on_focus_out: Option<EventHandler<FocusEvent>>,
+) -> (EventHandler<FocusEvent>, EventHandler<FocusEvent>) {
+    let mut handler_slot = use_hook(|| CopyValue::new(on_focus_out));
+    handler_slot.set(on_focus_out);
+
+    let mut boundaries_slot = use_hook(|| CopyValue::new(boundary_ids.clone()));
+    if boundaries_slot
+        .try_read()
+        .is_ok_and(|cur| *cur != boundary_ids)
+    {
+        boundaries_slot.set(boundary_ids);
+    }
+
+    let alive = use_hook(|| CopyValue::new(true));
+    let pending_gen = use_hook(|| CopyValue::new(0_u64));
+
+    use_drop(move || {
+        let mut alive = alive;
+        let mut pending_gen = pending_gen;
+        if let Ok(mut flag) = alive.try_write() {
+            *flag = false;
+        }
+        if let Ok(mut generation) = pending_gen.try_write() {
+            *generation = generation.wrapping_add(1);
+        }
+    });
+
+    let handle_focus_in = use_callback(move |_evt: FocusEvent| {
+        let mut pending_gen = pending_gen;
+        if let Ok(mut generation) = pending_gen.try_write() {
+            *generation = generation.wrapping_add(1);
+        }
+    });
+
+    let handle_focus_out = use_callback(move |evt: FocusEvent| {
+        let has_handler = handler_slot.try_read().ok().and_then(|slot| *slot).is_some();
+        if !has_handler {
+            return;
+        }
+
+        let mut pending_gen = pending_gen;
+        let expected_gen = match pending_gen.try_write() {
+            Ok(mut generation) => {
+                *generation = generation.wrapping_add(1);
+                *generation
+            }
+            Err(_) => return,
+        };
+
+        spawn_root_task(async move {
+            let _ = futures_util::future::select(
+                Box::pin(oxidase::frame::next_frame()),
+                Box::pin(futures_timer::Delay::new(Duration::from_millis(10))),
+            )
+            .await;
+
+            if !alive.try_read().is_ok_and(|flag| *flag) {
+                return;
+            }
+            if !pending_gen
+                .try_read()
+                .is_ok_and(|generation| *generation == expected_gen)
+            {
+                return;
+            }
+
+            let still_within = boundaries_slot.try_read().is_ok_and(|ids| {
+                ids.iter()
+                    .any(|id| !id.is_empty() && is_focus_within_element(id))
+            });
+            if still_within {
+                return;
+            }
+
+            let cb = handler_slot.try_read().ok().and_then(|slot| *slot);
+            if let Some(handler) = cb {
+                handler.call(evt);
+            }
+        });
+    });
+
+    (handle_focus_in, handle_focus_out)
 }
