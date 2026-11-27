@@ -2,9 +2,10 @@
 //! roving-focus logic, `as_child` projection helpers, and overlay geometry.
 //!
 //! Migrated Wave 0 (`foundation`), Wave 1A (11 leaf/atomic primitives), Wave 1B
-//! (10 form/selection controls), and Wave 1C (7 disclosure/overlay primitives)
-//! are re-exported directly from [`ui_sdk`] with thin compatibility shims where
-//! legacy Monoxus/Radix attributes or CSS-variable names are preserved.
+//! (10 form/selection controls), Wave 1C (7 disclosure/overlay primitives), and
+//! Wave 1D (8 search, list & date-time primitives) are re-exported directly from
+//! [`ui_sdk`] with thin compatibility shims where legacy Monoxus/Radix/Bits
+//! attributes, CSS-variable names, or Stage-1 legacy APIs are preserved.
 
 pub use ui_sdk::accessible_icon;
 pub mod accordion;
@@ -15,13 +16,13 @@ pub use ui_sdk::button;
 pub mod calendar;
 pub mod checkbox;
 pub mod collapsible;
-pub mod combobox;
+pub use ui_sdk::combobox;
 pub mod command;
 pub mod context_menu;
-pub mod date_field;
-pub mod date_picker;
-pub mod date_range_field;
-pub mod date_range_picker;
+pub use ui_sdk::date_field;
+pub use ui_sdk::date_picker;
+pub use ui_sdk::date_range_field;
+pub use ui_sdk::date_range_picker;
 pub mod dialog;
 pub mod dropdown_menu;
 pub mod field;

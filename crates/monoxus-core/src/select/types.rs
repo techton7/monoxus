@@ -1,68 +1,15 @@
-pub use crate::foundation::overlay::{PlacementAlign, PlacementSide, PortalHost};
+// [STAGE1-DROP]
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
-pub const SELECT_PARTS: [SelectPart; 16] = [
-    SelectPart::Root,
-    SelectPart::Trigger,
-    SelectPart::Value,
-    SelectPart::Icon,
-    SelectPart::Portal,
-    SelectPart::Content,
-    SelectPart::ContentStatic,
-    SelectPart::Viewport,
-    SelectPart::Group,
-    SelectPart::Label,
-    SelectPart::Item,
-    SelectPart::ItemText,
-    SelectPart::ItemIndicator,
-    SelectPart::Separator,
-    SelectPart::Arrow,
-    SelectPart::HiddenInput,
-];
+pub use ui_sdk::select::types::{
+    DismissBehavior, PlacementAlign, PlacementSide, PortalHost, PressedSelectItem, SELECT_PARTS,
+    SelectItemData, SelectPart,
+};
 
+// [STAGE1-DROP] Legacy `SelectMode` preserving `Single { allow_deselect }` payload until Stage 1 migrates `monoxus::select`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum SelectPart {
-    Root,
-    Trigger,
-    Value,
-    Icon,
-    Portal,
-    Content,
-    ContentStatic,
-    Viewport,
-    Group,
-    Label,
-    Item,
-    ItemText,
-    ItemIndicator,
-    Separator,
-    Arrow,
-    HiddenInput,
-}
-
-impl SelectPart {
-    pub const fn as_str(&self) -> &'static str {
-        match self {
-            Self::Root => "root",
-            Self::Trigger => "trigger",
-            Self::Value => "value",
-            Self::Icon => "icon",
-            Self::Portal => "portal",
-            Self::Content => "content",
-            Self::ContentStatic => "content-static",
-            Self::Viewport => "viewport",
-            Self::Group => "group",
-            Self::Label => "label",
-            Self::Item => "item",
-            Self::ItemText => "item-text",
-            Self::ItemIndicator => "item-indicator",
-            Self::Separator => "separator",
-            Self::Arrow => "arrow",
-            Self::HiddenInput => "hidden-input",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub enum SelectMode {
     Single { allow_deselect: bool },
     Multiple,
@@ -91,6 +38,10 @@ impl SelectMode {
         Self::Multiple
     }
 
+    pub const fn is_single(&self) -> bool {
+        matches!(self, Self::Single { .. })
+    }
+
     pub const fn is_multiple(&self) -> bool {
         matches!(self, Self::Multiple)
     }
@@ -103,26 +54,72 @@ impl SelectMode {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SelectItemData {
-    pub value: String,
-    pub text: String,
-    pub disabled: bool,
-}
-
-impl SelectItemData {
-    pub fn new(value: impl Into<String>, text: impl Into<String>, disabled: bool) -> Self {
-        Self {
-            value: value.into(),
-            text: text.into(),
-            disabled,
+impl From<SelectMode> for ui_sdk::select::SelectMode {
+    fn from(mode: SelectMode) -> Self {
+        match mode {
+            SelectMode::Single { .. } => Self::Single,
+            SelectMode::Multiple => Self::Multiple,
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub struct PressedSelectItem {
-    pub value: String,
-    pub client_x: f64,
-    pub client_y: f64,
+impl From<ui_sdk::select::SelectMode> for SelectMode {
+    fn from(mode: ui_sdk::select::SelectMode) -> Self {
+        match mode {
+            ui_sdk::select::SelectMode::Single => Self::Single {
+                allow_deselect: false,
+            },
+            ui_sdk::select::SelectMode::Multiple => Self::Multiple,
+        }
+    }
+}
+
+impl From<SelectMode> for ui_sdk::kernel::SelectionMode {
+    fn from(mode: SelectMode) -> Self {
+        ui_sdk::select::SelectMode::from(mode).into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn legacy_select_mode_defaults_helpers_and_ui_sdk_conversions() {
+        assert_eq!(
+            SelectMode::default(),
+            SelectMode::Single {
+                allow_deselect: false
+            }
+        );
+        assert!(SelectMode::single().is_single());
+        assert!(!SelectMode::single().is_multiple());
+        assert!(!SelectMode::single().allow_deselect());
+
+        let deselect = SelectMode::single_with_deselect(true);
+        assert!(deselect.is_single());
+        assert!(deselect.allow_deselect());
+
+        assert!(SelectMode::multiple().is_multiple());
+        assert!(SelectMode::multiple().allow_deselect());
+
+        assert_eq!(
+            ui_sdk::select::SelectMode::from(deselect),
+            ui_sdk::select::SelectMode::Single
+        );
+        assert_eq!(
+            ui_sdk::select::SelectMode::from(SelectMode::Multiple),
+            ui_sdk::select::SelectMode::Multiple
+        );
+        assert_eq!(
+            SelectMode::from(ui_sdk::select::SelectMode::Single),
+            SelectMode::Single {
+                allow_deselect: false
+            }
+        );
+        assert_eq!(
+            SelectMode::from(ui_sdk::select::SelectMode::Multiple),
+            SelectMode::Multiple
+        );
+    }
 }
