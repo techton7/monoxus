@@ -18,7 +18,7 @@ use crate::theme::copy_to_clipboard;
 pub fn ComponentPreview(slug: String, #[props(default = false)] default_open: bool) -> Element {
     let mut code_open = use_signal(|| default_open);
     let mut copied = use_signal(|| false);
-    let active_tab = use_signal(|| "demo".to_string());
+    let mut active_tab = use_signal(|| "demo".to_string());
 
     let source = demo_source(&slug);
     let filename = demo_filename(&slug);
@@ -43,7 +43,8 @@ pub fn ComponentPreview(slug: String, #[props(default = false)] default_open: bo
 
             // Attached Expandable Code Tabs
             TabsRoot {
-                value: Some(active_tab),
+                value: active_tab(),
+                on_value_change: move |next| active_tab.set(next),
                 div {
                     class: "border-t border-border-card bg-background",
                     div {
@@ -51,12 +52,12 @@ pub fn ComponentPreview(slug: String, #[props(default = false)] default_open: bo
                         TabsList {
                             class: "inline-flex items-center gap-1 rounded-button bg-muted/80 p-0.5",
                             TabsTrigger {
-                                value: "demo".to_string(),
+                                value: "demo",
                                 class: "rounded-[4px] px-2.5 py-1 font-mono text-xs font-medium text-foreground-alt transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-mini",
                                 "{filename}"
                             }
                             TabsTrigger {
-                                value: "css".to_string(),
+                                value: "css",
                                 class: "rounded-[4px] px-2.5 py-1 font-mono text-xs font-medium text-foreground-alt transition-colors data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow-mini",
                                 "tokens.css"
                             }
@@ -65,8 +66,6 @@ pub fn ComponentPreview(slug: String, #[props(default = false)] default_open: bo
                         div {
                             class: "flex items-center gap-2",
                             TooltipRoot {
-                                side: PlacementSide::Top,
-                                side_offset: 6.0,
                                 span {
                                     class: "inline-flex",
                                     onclick: move |_| {
@@ -87,6 +86,8 @@ pub fn ComponentPreview(slug: String, #[props(default = false)] default_open: bo
                                 }
                                 TooltipPortal {
                                     TooltipContent {
+                                        side: PlacementSide::Top,
+                                        side_offset: 6.0,
                                         class: "relative z-50 rounded-button border border-border-card bg-dark px-2.5 py-1 text-xs font-medium text-background shadow-popover",
                                         if copied() {
                                             "Copied to clipboard"

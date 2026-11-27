@@ -4,15 +4,15 @@ Conventions for per-page and per-component files not enforced automatically by s
 
 ## API Schema (`src/api_schema/<slug>.rs`)
 
-- **Prop grouping**: Classify every prop with `PropGroup`: `Core` (component behavior/state/callbacks), `Common` (`class`, `style`, `id`, `children`, `as_child`), or `HtmlAria` (forwarded HTML/ARIA/data attributes).
+- **Prop grouping**: Classify every prop with `PropGroup`: `Core` (component behavior/state/callbacks), `Common` (`class`, `style`, `id`, `child`, `on_mounted`, `attributes`), or `HtmlAria` (forwarded HTML/ARIA/data attributes).
 - **Types & defaults**: Set `type_simple` by stripping outer `Option<...>` (e.g., `bool`, `Side`) and `type_full` to the exact Rust type (`Option<bool>`). Write enum defaults as `Type::Variant` (e.g., `Side::Bottom`). Preserve exact `r#` raw identifiers (e.g., `r#type`, `r#for`).
 - **Source fidelity**: Verify `features`, `anatomy`, `data_attrs`, `css_vars`, and `keyboard` directly against `../src` and `../crates/monoxus-core/src`; never invent unsupported attributes or key bindings.
 - **Keyboard interactions**: List only non-trivial library-implemented keyboard behaviors (roving focus, focus trap, Escape dismissal, typeahead, keyboard-focus tooltip triggers, etc.); omit native browser defaults (`Space`/`Enter` on `<button>` or `<a>`), and set `keyboard: &[]` when none apply.
 
 ## Interactive Demos (`src/demos/<slug>_demo.rs`)
 
-- **Idiomatic `monoxus`**: Avoid redundant controlled `on_*_change` callbacks that double-write an already-bound `Signal<T>`. Omit manual `id` props unless a fixed DOM ID is required.
-- **Shared providers**: Do not pass per-root `TooltipRoot` delay overrides that detach a tooltip from the shared `TooltipProvider`.
+- **Idiomatic `monoxus`**: Prefer `Option<T>` controlled props + `on_*_change` callbacks (or uncontrolled `default_*` props). Omit manual `id` props unless a fixed DOM ID is required.
+- **Shared providers**: `TooltipRoot` per-root overrides preserve shared `TooltipProvider` skip-delay coordination; omit overrides when defaults suffice.
 - **Styling**: Use the site's semantic Tailwind tokens (`bg-surface`, `text-foreground`, `border-border`, etc.) so demos follow light/dark themes.
 
 ## Markdown Docs (`content/**/*.md`)

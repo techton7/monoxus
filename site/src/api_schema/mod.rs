@@ -76,6 +76,26 @@ pub(super) const PROP_ON_MOUNTED: PropDoc = PropDoc {
     description: "Invoked when the underlying DOM element mounts.",
 };
 
+pub(super) const PROP_CHILD: PropDoc = PropDoc {
+    name: "child",
+    type_simple: "Callback<Vec<Attribute>, Element>",
+    type_full: "Option<Callback<Vec<Attribute>, Element>>",
+    default: None,
+    required: false,
+    group: PropGroup::Common,
+    description: "Custom render callback receiving merged primitive + user attributes (annotate closure param as `props: Vec<Attribute>` and spread `..props`).",
+};
+
+pub(super) const PROP_FLOATING_CHILD: PropDoc = PropDoc {
+    name: "child",
+    type_simple: "Callback<FloatingContentChildProps, Element>",
+    type_full: "Option<Callback<FloatingContentChildProps, Element>>",
+    default: None,
+    required: false,
+    group: PropGroup::Common,
+    description: "Custom render callback receiving `FloatingContentChildProps { wrapper_props, props }` for composing both the floating positioning wrapper and inner content element.",
+};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DataAttrDoc {
     pub name: &'static str,

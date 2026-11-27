@@ -45,14 +45,14 @@ pub fn SiteHeader() -> Element {
                             }
                         }
                         TooltipRoot {
-                            side: PlacementSide::Bottom,
-                            side_offset: 8.0,
                             TooltipTrigger {
                                 class: "inline-flex items-center rounded-full border border-border-card bg-muted/80 px-2 py-0.5 font-mono text-[11px] font-medium text-foreground-alt transition-colors hover:border-border-input-hover hover:text-foreground",
                                 "v0.1.2"
                             }
                             TooltipPortal {
                                 TooltipContent {
+                                    side: PlacementSide::Bottom,
+                                    side_offset: 8.0,
                                     class: "relative z-50 rounded-button border border-border-card bg-background px-2.5 py-1.5 text-xs font-medium text-foreground shadow-popover",
                                     "Dioxus 0.8 · Web + Blitz Native"
                                 }
@@ -81,7 +81,7 @@ pub fn SiteHeader() -> Element {
                     class: "flex items-center gap-2",
                     Button {
                         class: "hidden h-9 items-center gap-2.5 rounded-input border border-border-input bg-background-alt px-3 text-xs font-medium text-foreground-alt shadow-mini transition-colors hover:border-border-input-hover hover:text-foreground sm:inline-flex",
-                        aria_label: Some("Search documentation".to_string()),
+                        aria_label: "Search documentation",
                         on_click: move |_| search_open.set(true),
                         SearchIcon { class: "h-3.5 w-3.5 text-muted-foreground" }
                         span { "Search docs..." }
@@ -93,7 +93,7 @@ pub fn SiteHeader() -> Element {
 
                     Button {
                         class: "inline-flex h-9 w-9 items-center justify-center rounded-input border border-border-input bg-background-alt text-foreground-alt shadow-mini transition-colors hover:border-border-input-hover hover:text-foreground sm:hidden",
-                        aria_label: Some("Search documentation".to_string()),
+                        aria_label: "Search documentation",
                         on_click: move |_| search_open.set(true),
                         SearchIcon { class: "h-4 w-4" }
                     }
@@ -112,10 +112,10 @@ pub fn SiteHeader() -> Element {
                     }
 
                     Button {
-                        href: Some("https://github.com/techton7/monoxus".to_string()),
-                        target: Some("_blank".to_string()),
-                        rel: Some("noreferrer".to_string()),
-                        aria_label: Some("Monoxus on GitHub".to_string()),
+                        href: "https://github.com/techton7/monoxus",
+                        target: "_blank",
+                        rel: "noreferrer",
+                        aria_label: "Monoxus on GitHub",
                         class: "inline-flex h-9 w-9 items-center justify-center rounded-input border border-border-input bg-background-alt text-foreground-alt shadow-mini transition-colors hover:border-border-input-hover hover:text-foreground",
                         GithubIcon { class: "h-4 w-4" }
                     }
@@ -124,7 +124,8 @@ pub fn SiteHeader() -> Element {
                     div {
                         class: "lg:hidden",
                         DialogRoot {
-                            open: Some(mobile_open),
+                            open: Some(mobile_open()),
+                            on_open_change: move |next| mobile_open.set(next),
                             DialogTrigger {
                                 class: "inline-flex h-9 w-9 items-center justify-center rounded-input border border-border-input bg-background-alt text-foreground-alt shadow-mini transition-colors hover:border-border-input-hover hover:text-foreground",
                                 span { class: "sr-only", "Open navigation menu" }

@@ -16,6 +16,7 @@ Primitives reflect their interactive state and layout geometry through standard 
 | `data-align` | `"start"` \| `"center"` \| `"end"` | `TooltipContent`, `TooltipArrow`, `SelectContent`, `PopoverContent` |
 | `data-orientation` | `"horizontal"` \| `"vertical"` | `TabsRoot`, `TabsList`, `TabsTrigger`, `TabsContent`, `Separator` |
 | `data-disabled` | `""` (empty string) when disabled, omitted when enabled | `Button`, `DialogTrigger`, `SelectTrigger`, `SelectItem`, `TabsTrigger`, `TooltipTrigger` |
+| `data-starting-style` / `data-ending-style` | `""` during enter first-frame or active exit transition; omitted when idle | `DialogOverlay`, `DialogContent`, `SelectContent`, `TooltipContent`, `PopoverContent` |
 
 Because `data-disabled` is omitted entirely when enabled, `[data-disabled]` and `:not([data-disabled])` selectors match reliably without needing `[data-disabled="true"]`.
 
@@ -73,23 +74,23 @@ use monoxus::tabs::{TabsContent, TabsList, TabsRoot, TabsTrigger};
 #[component]
 pub fn StyledTabs() -> Element {
     rsx! {
-        TabsRoot { default_value: Some("general".into()),
+        TabsRoot { default_value: "general",
             TabsList { class: "inline-flex gap-1 rounded-lg bg-zinc-100 p-1 dark:bg-zinc-900",
                 TabsTrigger {
-                    value: "general".to_string(),
+                    value: "general",
                     class: "rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 data-[state=active]:bg-white data-[state=active]:text-zinc-950 data-[disabled]:opacity-50",
                     "General"
                 }
                 TabsTrigger {
-                    value: "security".to_string(),
+                    value: "security",
                     class: "rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 data-[state=active]:bg-white data-[state=active]:text-zinc-950 data-[disabled]:opacity-50",
                     "Security"
                 }
             }
-            TabsContent { value: "general".to_string(), class: "mt-3 text-sm",
+            TabsContent { value: "general", class: "mt-3 text-sm",
                 "General account settings."
             }
-            TabsContent { value: "security".to_string(), class: "mt-3 text-sm",
+            TabsContent { value: "security", class: "mt-3 text-sm",
                 "Password and two-factor authentication."
             }
         }

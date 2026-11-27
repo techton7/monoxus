@@ -11,9 +11,6 @@ pub fn TooltipDemo() -> Element {
     rsx! {
         div { class: "flex flex-wrap items-center justify-center gap-3",
             TooltipRoot {
-                side: PlacementSide::Top,
-                side_offset: 8.0,
-
                 TooltipTrigger {
                     class: "inline-flex h-10 items-center justify-center rounded-button border border-border-input bg-background px-4 text-sm font-medium text-foreground shadow-mini transition-colors hover:bg-muted",
                     span {
@@ -23,6 +20,8 @@ pub fn TooltipDemo() -> Element {
                 }
                 TooltipPortal {
                     TooltipContent {
+                        side: PlacementSide::Top,
+                        side_offset: 8.0,
                         class: "relative z-50 rounded-input border border-border-card bg-dark px-3 py-1.5 text-xs font-medium text-background shadow-popover",
                         if copied() {
                             "Copied to clipboard"
@@ -37,15 +36,14 @@ pub fn TooltipDemo() -> Element {
             }
 
             TooltipRoot {
-                side: PlacementSide::Bottom,
-                side_offset: 8.0,
-
                 TooltipTrigger {
                     class: "inline-flex h-10 w-10 items-center justify-center rounded-button border border-border-input bg-background text-sm font-medium text-foreground shadow-mini transition-colors hover:bg-muted",
                     "⌘"
                 }
                 TooltipPortal {
                     TooltipContent {
+                        side: PlacementSide::Bottom,
+                        side_offset: 8.0,
                         class: "relative z-50 rounded-input border border-border-card bg-dark px-3 py-1.5 text-xs font-medium text-background shadow-popover",
                         "Open command palette (⌘K)"
                         TooltipArrow {

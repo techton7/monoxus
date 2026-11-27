@@ -13,7 +13,8 @@ pub fn DialogDemo() -> Element {
     rsx! {
         div { class: "flex flex-col items-center gap-3",
             DialogRoot {
-                open: open,
+                open: Some(open()),
+                on_open_change: move |next| open.set(next),
 
                 DialogTrigger {
                     class: "inline-flex h-10 items-center justify-center rounded-button bg-dark px-4 text-sm font-medium text-background shadow-btn transition-colors hover:bg-dark/90",

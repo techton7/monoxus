@@ -41,8 +41,6 @@ fn render_props_table(rows: &[&PropDoc]) -> Element {
                                     }
                                 }
                                 PopoverRoot {
-                                    side: PlacementSide::Top,
-                                    side_offset: 6.0,
                                     PopoverTrigger {
                                         class: "inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
                                         span { class: "sr-only", "Details for {prop.name}" }
@@ -50,6 +48,8 @@ fn render_props_table(rows: &[&PropDoc]) -> Element {
                                     }
                                     PopoverPortal {
                                         PopoverContent {
+                                            side: PlacementSide::Top,
+                                            side_offset: 6.0,
                                             class: "z-50 w-72 rounded-card-sm border border-border-card bg-background p-3.5 text-xs leading-relaxed text-foreground shadow-popover outline-hidden",
                                             div {
                                                 class: "mb-1.5 font-mono text-[11px] font-semibold text-foreground",
@@ -78,8 +78,13 @@ fn render_props_table(rows: &[&PropDoc]) -> Element {
                                     class: "rounded bg-destructive/10 px-1.5 py-0.5 text-[11px] font-medium text-destructive",
                                     "Required"
                                 }
+                            } else if let Some(default_val) = prop.default {
+                                code {
+                                    class: "rounded bg-muted/60 px-1.5 py-0.5 font-mono text-xs text-foreground-alt",
+                                    "{default_val}"
+                                }
                             } else {
-                                "{prop.default.unwrap_or(\"—\")}"
+                                span { class: "text-muted-foreground", "—" }
                             }
                         }
                     }
@@ -118,7 +123,7 @@ pub fn PropsTable(props: PropsTableProps) -> Element {
         if core_props.is_empty() {
             p {
                 class: "my-3 text-xs text-muted-foreground",
-                "Accepts standard HTML & GlobalAttributes."
+                "Accepts standard HTML, composition (child), and GlobalAttributes."
             }
         } else {
             div {
@@ -128,7 +133,7 @@ pub fn PropsTable(props: PropsTableProps) -> Element {
         }
         if !secondary_props.is_empty() {
             CollapsibleRoot {
-                default_open: Some(false),
+                default_open: false,
                 class: "my-3 rounded-card-sm border border-border-card bg-background",
                 CollapsibleTrigger {
                     class: "group flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-xs font-medium text-foreground-alt transition-colors hover:bg-muted/40 hover:text-foreground",
@@ -139,7 +144,7 @@ pub fn PropsTable(props: PropsTableProps) -> Element {
                         }
                         span {
                             class: "font-semibold text-foreground",
-                            "HTML & Global Attributes"
+                            "HTML, Composition & Global Attributes"
                         }
                         span {
                             class: "inline-flex items-center rounded-full bg-muted px-2 py-0.5 font-mono text-[11px] font-medium text-foreground-alt",

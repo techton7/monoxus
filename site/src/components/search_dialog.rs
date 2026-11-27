@@ -92,7 +92,11 @@ pub fn SearchDialog(open: Signal<bool>) -> Element {
 
     rsx! {
         DialogRoot {
-            open: Some(open),
+            open: Some(open()),
+            on_open_change: move |next| {
+                let mut open_sig = open;
+                open_sig.set(next);
+            },
             DialogPortal {
                 DialogOverlay {
                     class: "fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] animate-fade-in",

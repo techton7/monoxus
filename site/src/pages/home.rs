@@ -242,7 +242,7 @@ fn QuickSettingsCard() -> Element {
 
 #[component]
 fn ModalTooltipCard() -> Element {
-    let modal_open = use_signal(|| false);
+    let mut modal_open = use_signal(|| false);
 
     rsx! {
         div {
@@ -256,14 +256,14 @@ fn ModalTooltipCard() -> Element {
             div {
                 class: "my-6 flex flex-col items-center justify-center gap-3 rounded-card-sm border border-dashed border-border-input bg-muted/25 p-5",
                 TooltipRoot {
-                    side: PlacementSide::Top,
-                    side_offset: 6.0,
                     TooltipTrigger {
                         class: "rounded-button border border-border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground-alt shadow-mini transition-colors hover:border-border-input-hover hover:text-foreground",
                         "Hover for hint"
                     }
                     TooltipPortal {
                         TooltipContent {
+                            side: PlacementSide::Top,
+                            side_offset: 6.0,
                             class: "relative z-50 rounded-button border border-border-card bg-dark px-2.5 py-1 text-xs font-medium text-background shadow-popover",
                             "Keyboard focus & escape dismiss"
                         }
@@ -271,7 +271,8 @@ fn ModalTooltipCard() -> Element {
                 }
 
                 DialogRoot {
-                    open: Some(modal_open),
+                    open: Some(modal_open()),
+                    on_open_change: move |next| modal_open.set(next),
                     DialogTrigger {
                         class: "inline-flex h-9 items-center justify-center rounded-button bg-dark px-4 text-xs font-semibold text-background shadow-btn transition-opacity hover:opacity-90",
                         "Open modal"

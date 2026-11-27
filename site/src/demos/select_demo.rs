@@ -49,15 +49,13 @@ pub fn SelectDemo() -> Element {
                             for (value, label) in TARGETS {
                                 SelectItem {
                                     key: "{value}",
-                                    value: value.to_string(),
-                                    text: label.to_string(),
+                                    value: *value,
+                                    text: *label,
                                     class: "relative flex cursor-pointer select-none items-center justify-between rounded-button px-3 py-2 text-sm text-foreground outline-none transition-colors data-[highlighted=true]:bg-muted data-[state=checked]:font-medium",
                                     SelectItemText { "{label}" }
-                                    if selected().as_deref() == Some(*value) {
-                                        SelectItemIndicator {
-                                            class: "text-xs text-foreground",
-                                            "✓"
-                                        }
+                                    SelectItemIndicator {
+                                        class: "text-xs text-foreground",
+                                        "✓"
                                     }
                                 }
                             }

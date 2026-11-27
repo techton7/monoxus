@@ -1,33 +1,112 @@
 ---
 title: Composition
-description: Compose custom elements, portals, text direction, and mount presence with Monoxus foundation utilities.
+description: Compose custom elements with the single `child` prop and `merge_props`, control state with `Option<T>`, configure portals, text direction, and CSS transition presence.
 ---
 
-Monoxus separates behavior from DOM structure using compound parts and foundation composition utilities in `monoxus::foundation`.
+Monoxus separates behavior from DOM structure using compound parts, the single `child` prop with `merge_props`, and foundation composition utilities in `monoxus::foundation`.
 
 ## Controlled and Uncontrolled State
 
-Stateful primitives such as `DialogRoot`, `TabsRoot`, and `TooltipRoot` support both modes:
+Stateful primitives such as `DialogRoot`, `TabsRoot`, `SelectRoot`, and `TooltipRoot` share a unified controlled/uncontrolled pattern:
 
-- **Uncontrolled**: Pass `default_open: Some(true)` or `default_value: Some("account".into())` and let the primitive manage its internal signal.
-- **Controlled**: Pass your own `Signal<T>` via `open` or `value`, and optionally react to changes with `on_open_change` or `on_value_change`.
-
-## AsChildSlot and Slottable
-
-When building your own design system wrapper on top of Monoxus, `AsChildSlot` and `Slottable` (in `monoxus::foundation::compose`) let you project primitive attributes and event handlers onto a single child target without adding extra wrapper elements:
-
-- **`AsChildSlot<T>`**: Validates that an `as_child` projection receives a single child target via `AsChildSlot::try_from_option` or `AsChildSlot::try_from_iter`.
-- **`Slottable<T>`**: Marks the inner content slot that should remain inside the projected target when `AsChildSlot::with_slottable` or `project_as_child` merges the two.
-- **`compose_event_handlers` & `compose_refs`**: Chains user-supplied event handlers and mount refs with primitive-owned handlers while respecting `prevent_default` semantics.
+- **Uncontrolled**: Pass `default_open: true` or `default_value: "account"` and let the primitive manage its internal signal.
+- **Controlled**: Pass `Option<T>` (`open: Some(open())` or `value: active()`) alongside `on_open_change` or `on_value_change`. If your callback declines to update the controlled value (controlled veto), the primitive suppresses any 1-frame state flash and keeps the rendered DOM synchronized with your prop.
 
 ```rust
-use monoxus::foundation::compose::{AsChildSlot, Slottable};
+use dioxus::prelude::*;
+use monoxus::dialog::{DialogContent, DialogOverlay, DialogPortal, DialogRoot, DialogTrigger};
 
-let slot = AsChildSlot::try_from_option(Some("custom-trigger"))?;
-let (target, content) = slot.with_slottable(Slottable::new("Open menu"));
+#[component]
+pub fn ControlledDialog() -> Element {
+    let mut open = use_signal(|| false);
+
+    rsx! {
+        DialogRoot {
+            open: Some(open()),
+            on_open_change: move |next| open.set(next),
+            DialogTrigger { "Open" }
+            DialogPortal {
+                DialogOverlay {}
+                DialogContent { "Controlled content" }
+            }
+        }
+    }
+}
 ```
 
-For single-element primitives such as `VisuallyHidden` or `AccessibleIcon`, you can also pass `as_child: true` with a `render_child` callback that receives the computed attributes directly.
+## The `child` Prop and `merge_props`
+
+Every DOM-rendering primitive part accepts an optional `child: Option<Callback<Vec<Attribute>, Element>>` prop (replacing `as_child` / `render_child`). Inside each part, Monoxus calls `merge_props` to combine primitive-owned ARIA/data attributes, inline styles, classes, and event listeners with user-supplied props before invoking `child`:
+
+- **`class`**: Concatenates primitive and user classes with whitespace deduplication.
+- **`style`**: Merges inline CSS declarations cleanly with user declarations winning on duplicate properties.
+- **`aria-describedby`**: Merges ID token lists without clobbering sibling triggers (essential when stacking `TooltipTrigger` + `DialogTrigger`).
+- **Event listeners (`onclick`, `onkeydown`, etc.)**: Chains user listeners before primitive listeners so calling `evt.prevent_default()` in a user handler cleanly vetoes the outer primitive's default action.
+
+> **Dioxus 0.8 tip**: Annotate the `child` closure parameter explicitly as `props: Vec<Attribute>` (or `c: FloatingContentChildProps` on floating `*Content` parts) so Rust can infer the `..props` spread without hitting `E0282`. Also avoid naming a `#[component]` function parameter literally `props` (use `attrs: Vec<Attribute>` instead).
+
+### Multi-Layer Trigger Composition (`TooltipTrigger -> DialogTrigger -> Button`)
+
+Because `merge_props` chains event listeners and unions `aria-describedby`, you can stack triggers across primitives onto a single DOM `<button>` without wrapper elements:
+
+```rust
+use dioxus::prelude::*;
+use monoxus::button::Button;
+use monoxus::dialog::{DialogContent, DialogPortal, DialogRoot, DialogTrigger};
+use monoxus::tooltip::{TooltipContent, TooltipPortal, TooltipProvider, TooltipRoot, TooltipTrigger};
+
+#[component]
+pub fn TooltipDialogButton() -> Element {
+    rsx! {
+        TooltipProvider {
+            DialogRoot {
+                TooltipRoot {
+                    TooltipTrigger {
+                        child: move |tp: Vec<Attribute>| rsx! {
+                            DialogTrigger {
+                                attributes: tp,
+                                child: move |dp: Vec<Attribute>| rsx! {
+                                    Button {
+                                        attributes: dp,
+                                        class: "btn",
+                                        "Delete item"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    TooltipPortal {
+                        TooltipContent { "Opens confirmation dialog" }
+                    }
+                }
+                DialogPortal {
+                    DialogContent { "Confirm deletion?" }
+                }
+            }
+        }
+    }
+}
+```
+
+### Floating Content Composition (`FloatingContentChildProps`)
+
+Floating overlay content parts (`PopoverContent`, `TooltipContent`, `HoverCardContent`, `SelectContent`, `ComboboxContent`, `DropdownMenuContent`, `ContextMenuContent`, `MenubarContent`) render a positioned outer wrapper plus the inner surface element. Their `child` callback receives `FloatingContentChildProps` containing both `wrapper_props` and `props`:
+
+```rust
+use dioxus::prelude::*;
+use monoxus::foundation::compose::FloatingContentChildProps;
+use monoxus::tooltip::TooltipContent;
+
+rsx! {
+    TooltipContent {
+        child: move |c: FloatingContentChildProps| rsx! {
+            div { ..c.wrapper_props,
+                section { ..c.props, "Custom floating surface" }
+            }
+        }
+    }
+}
+```
 
 ## DirectionProvider
 
@@ -42,10 +121,10 @@ use monoxus::tabs::{TabsList, TabsRoot, TabsTrigger};
 pub fn RtlTabs() -> Element {
     rsx! {
         DirectionProvider { dir: Direction::Rtl,
-            TabsRoot { default_value: Some("one".into()),
+            TabsRoot { default_value: "one",
                 TabsList {
-                    TabsTrigger { value: "one".to_string(), "First" }
-                    TabsTrigger { value: "two".to_string(), "Second" }
+                    TabsTrigger { value: "one", "First" }
+                    TabsTrigger { value: "two", "Second" }
                 }
             }
         }
@@ -55,23 +134,34 @@ pub fn RtlTabs() -> Element {
 
 Directional primitives (`Tabs`, `Accordion`, `Select`, `Tooltip`, `Slider`, `RadioGroup`, `ToggleGroup`) read this context automatically and allow per-component `dir` overrides.
 
-## PortalHost
+## PortalHost and `Portal.disabled`
 
-Overlay portals (`DialogPortal`, `SelectPortal`, `TooltipPortal`, `PopoverPortal`) accept a `host: Option<PortalHost>` prop from `monoxus::foundation::overlay` and emit a `data-portal-anchor` marker at their original render position:
+Overlay portals (`DialogPortal`, `SelectPortal`, `TooltipPortal`, `PopoverPortal`, and menus) accept `host: Option<PortalHost>` from `monoxus::foundation::overlay` and `disabled: bool`:
 
 - `PortalHost::Default`: Resolves `#main` first (for Dioxus root mount parity) and falls back to `document.body` when `#main` is not present.
-- `PortalHost::Inline`: Keeps content in-place in the DOM tree without teleporting.
+- `PortalHost::Inline` (or `disabled: true`): Keeps content in-place in the DOM tree without teleporting.
 - `PortalHost::named("my-host")`: Teleports content into a specific container element by ID.
 
-## Auto-ID and GlobalAttributes Merging
+## Auto-ID and `GlobalAttributes` Merging
 
-- **Auto-ID (`use_stable_id`)**: Primitives automatically generate deterministic scoped IDs for ARIA relationships (`aria-controls`, `aria-labelledby`, `aria-describedby`) whenever `id` is omitted, while honoring explicit `id` overrides.
-- **`GlobalAttributes` Merging**: Component parts extend `GlobalAttributes` and merge user-supplied `class`, `style`, and arbitrary HTML/ARIA/data attributes with primitive-owned attributes so styling and instrumentation hooks never clobber accessibility attributes.
+- **Auto-ID (`use_stable_id`)**: Primitives automatically generate deterministic scoped IDs for ARIA relationships (`aria-controls`, `aria-labelledby`, `aria-describedby`) whenever `id` is omitted, while honoring explicit `id` overrides and reactive updates.
+- **`GlobalAttributes` Merging**: Every DOM-rendering part extends `GlobalAttributes` and merges user-supplied `class`, `style`, and arbitrary HTML/ARIA/data attributes through `merge_props` without emitting empty `class=""` or `style=""` attributes.
 
-## Preventable Events
+## Preventable Events and `DismissBehavior`
 
-Dismissible overlays expose `PreventableEvent` callbacks such as `on_escape_key_down` and `on_pointer_down_outside`. Calling `event.prevent_default()` inside these handlers cancels the default dismissal transition while still allowing custom side effects.
+Dismissible overlays expose `PreventableEvent` callbacks (`on_escape_key_down`, `on_pointer_down_outside`, `on_interact_outside`) alongside 4-way `DismissBehavior` props (`escape_key_down_behavior`, `interact_outside_behavior`):
 
-## Presence
+- `DismissBehavior::Close`: Dismisses immediately when the event is not prevented.
+- `DismissBehavior::Ignore`: Ignores the dismissal trigger.
+- `DismissBehavior::DeferOtherwiseClose` / `DeferOtherwiseIgnore`: Coordinates with nested overlay layers before deciding whether to dismiss.
 
-`Presence` and `PresenceController` (in `monoxus::foundation::overlay`) coordinate mount/unmount lifecycles with CSS exit animations. Overlays stay mounted while transitioning through `PresenceState` (`Mounted`, `Unmounting`, `Suspended`, `Unmounted`), and `force_mount: true` on `DialogPortal`, `DialogContent`, `SelectPortal`, `SelectContent`, `TabsContent`, or `TooltipContent` keeps the node mounted when closed so CSS transitions can run.
+Calling `event.prevent_default()` inside a preventable handler cancels the default dismissal transition while still allowing custom side effects.
+
+## Presence, `keep_mounted`, and `TransitionStatus`
+
+Overlay content and backdrop parts coordinate mount/unmount lifecycles with CSS animations through `TransitionStatus` and `use_presence_with_keep_mounted`:
+
+- **`data-starting-style`**: Emitted on the initial enter frame (before the first `requestAnimationFrame` settles to idle) so CSS transitions can animate from an initial opacity/transform state.
+- **`data-ending-style`**: Emitted while closing CSS animations or transitions run before unmount.
+- **`keep_mounted: true`**: Keeps the element in the DOM after exit transitions finish while applying the native `hidden` attribute (unlike `force_mount: true`, which leaves visibility control entirely to CSS).
+- **`on_open_change_complete`**: Fires on overlay roots once the enter or exit presence transition settles.
