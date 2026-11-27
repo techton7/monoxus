@@ -3607,4 +3607,115 @@ mod native_tests {
             );
         }
     }
+
+    /// Regression: FieldSet must capture any enclosing parent FieldContext once on mount
+    /// rather than reading its own self-provided FieldContext on re-renders, so toggling
+    /// `invalid`/`disabled`/`required`/`read_only` `false -> true -> false` clears attributes.
+    #[component]
+    fn FieldSetStateToggleNoLatchScenario() -> Element {
+        let mut fs_invalid = use_signal(|| false);
+        let mut fs_disabled = use_signal(|| false);
+        let mut parent_invalid = use_signal(|| false);
+
+        rsx! {
+            div { style: "padding: 16px; display: flex; flex-direction: column; gap: 8px;",
+                button {
+                    id: "fs-latch-toggle-invalid",
+                    onclick: move |_| fs_invalid.set(!fs_invalid()),
+                    "Toggle FS Invalid"
+                }
+                button {
+                    id: "fs-latch-toggle-disabled",
+                    onclick: move |_| fs_disabled.set(!fs_disabled()),
+                    "Toggle FS Disabled"
+                }
+                button {
+                    id: "fs-latch-toggle-parent-invalid",
+                    onclick: move |_| parent_invalid.set(!parent_invalid()),
+                    "Toggle Parent Invalid"
+                }
+
+                FieldSet {
+                    id: Some("fs-standalone".to_string()),
+                    invalid: fs_invalid(),
+                    disabled: fs_disabled(),
+                    FieldLegend { id: Some("fs-standalone-legend".to_string()), "Standalone" }
+                    FieldError {
+                        id: Some("fs-standalone-err".to_string()),
+                        errors: if fs_invalid() { vec!["Err".to_string()] } else { vec![] },
+                    }
+                }
+
+                FieldRoot {
+                    id: Some("fs-parent-root".to_string()),
+                    invalid: parent_invalid(),
+                    FieldSet {
+                        id: Some("fs-nested".to_string()),
+                        FieldLegend { id: Some("fs-nested-legend".to_string()), "Nested" }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn field_set_state_toggles_cleanly_without_self_context_latch() {
+        let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let mut harness = mount_native_scenario(FieldSetStateToggleNoLatchScenario);
+        drain_polls_and_resolve(&mut harness);
+
+        // Standalone FieldSet: false -> true -> false must clear data-invalid / aria-invalid / data-disabled
+        click_and_pump(&mut harness, "#fs-latch-toggle-invalid");
+        click_and_pump(&mut harness, "#fs-latch-toggle-disabled");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let fs = base.get_node(harness.node("#fs-standalone")).unwrap();
+            assert_eq!(fs.attr("data-invalid".into()), Some(""));
+            assert_eq!(fs.attr("aria-invalid".into()), Some("true"));
+            assert_eq!(fs.attr("data-disabled".into()), Some(""));
+        }
+
+        click_and_pump(&mut harness, "#fs-latch-toggle-invalid");
+        click_and_pump(&mut harness, "#fs-latch-toggle-disabled");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let fs = base.get_node(harness.node("#fs-standalone")).unwrap();
+            assert_eq!(
+                fs.attr("data-invalid".into()),
+                None,
+                "FieldSet must clear data-invalid when invalid flips true -> false"
+            );
+            assert_eq!(
+                fs.attr("aria-invalid".into()),
+                None,
+                "FieldSet must clear aria-invalid when invalid flips true -> false"
+            );
+            assert_eq!(
+                fs.attr("data-disabled".into()),
+                None,
+                "FieldSet must clear data-disabled when disabled flips true -> false"
+            );
+        }
+
+        // Nested FieldSet inside FieldRoot must reactively track parent invalid false -> true -> false
+        click_and_pump(&mut harness, "#fs-latch-toggle-parent-invalid");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let nested = base.get_node(harness.node("#fs-nested")).unwrap();
+            assert_eq!(nested.attr("data-invalid".into()), Some(""));
+            assert_eq!(nested.attr("aria-invalid".into()), Some("true"));
+        }
+
+        click_and_pump(&mut harness, "#fs-latch-toggle-parent-invalid");
+        drain_polls_and_resolve(&mut harness);
+        {
+            let base = harness.base();
+            let nested = base.get_node(harness.node("#fs-nested")).unwrap();
+            assert_eq!(nested.attr("data-invalid".into()), None);
+            assert_eq!(nested.attr("aria-invalid".into()), None);
+        }
+    }
 }

@@ -327,7 +327,10 @@ pub struct FieldSetProps {
 /// [`FieldLegend`], shared [`FieldDescription`], and [`FieldError`].
 #[component]
 pub fn FieldSet(props: FieldSetProps) -> Element {
-    let parent_ctx = try_use_field_context();
+    // Capture any enclosing parent FieldContext once on mount before `use_field_provider`
+    // registers this FieldSet's own FieldContext into the current scope (otherwise re-renders
+    // would read self-context and permanently latch `invalid`/`disabled`/`required`/`read_only`).
+    let parent_ctx = use_hook(try_use_field_context);
     let effective_invalid = props.invalid || parent_ctx.is_some_and(|p| p.is_invalid());
     let effective_disabled = props.disabled || parent_ctx.is_some_and(|p| p.is_disabled());
     let effective_required = props.required || parent_ctx.is_some_and(|p| p.is_required());

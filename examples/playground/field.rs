@@ -1,5 +1,6 @@
 use dioxus::prelude::*;
 use monoxus::{
+    button::{Button, ButtonType},
     calendar::CalendarSnapshot,
     checkbox::{CheckboxIndicator, CheckboxRoot, CheckedState, use_checkbox_context},
     combobox::{
@@ -775,7 +776,6 @@ fn SelectControlledFieldSection() -> Element {
 
                         SelectPortal {
                             SelectContent {
-                                id: Some("field-s3-content".to_string()),
                                 "data-gui-test-id": "field-s3-content",
                                 style: Some("z-index: 60; min-width: 240px; padding: 0.25rem; border-radius: 0.5rem; border: 1px solid #cbd5e1; background-color: #ffffff; box-shadow: 0 12px 24px rgba(15, 23, 42, 0.14); outline: none;".to_string()),
                                 SelectViewport {
@@ -785,7 +785,6 @@ fn SelectControlledFieldSection() -> Element {
                                             rsx! {
                                                 SelectItem {
                                                     key: "{val}",
-                                                    id: Some(format!("field-s3-item-{val}")),
                                                     "data-gui-test-id": format!("field-s3-item-{val}"),
                                                     value: val.to_string(),
                                                     text: Some(label.to_string()),
@@ -1243,7 +1242,7 @@ fn PinAndSliderFormResetSection() -> Element {
                 }
                 p {
                     style: "margin: 0.25rem 0 0; font-size: 0.8125rem; color: #64748b;",
-                    "Both PinInputRoot and SliderRoot inherit field ARIA attributes (aria-invalid, aria-describedby, aria-required) and reset to their mount-time defaults on native <form> reset."
+                    "PinInputRoot forwards field ARIA attributes (aria-invalid, aria-describedby, native required) onto its <input>, SliderRoot exposes aria-invalid, aria-describedby, and data-required on its thumb (with required on its hidden input), and both reset to their mount-time defaults on native <form> reset."
                 }
             }
 
@@ -1309,7 +1308,7 @@ fn PinAndSliderFormResetSection() -> Element {
                         FieldDescription {
                             id: Some("field-s5-pin-desc".to_string()),
                             "data-gui-test-id": "field-s5-pin-desc",
-                            "4-digit OTP. Hidden <input id=\"field-s5-pin-input\"> forwards aria-invalid, aria-required, and aria-describedby."
+                            "4-digit OTP. Hidden <input id=\"field-s5-pin-input\"> forwards aria-invalid, native required, and aria-describedby."
                         }
 
                         FieldError {
@@ -1378,7 +1377,7 @@ fn PinAndSliderFormResetSection() -> Element {
                         FieldDescription {
                             id: Some("field-s5-slider-desc".to_string()),
                             "data-gui-test-id": "field-s5-slider-desc",
-                            "Thumb exposes aria-required, aria-invalid, and aria-describedby from FieldRoot."
+                            "Thumb exposes data-required, aria-invalid, and aria-describedby from FieldRoot (omitting disallowed aria-required on role=slider)."
                         }
 
                         FieldError {
@@ -1402,14 +1401,13 @@ fn PinAndSliderFormResetSection() -> Element {
                             onclick: move |_| s5_invalid.set(!s5_invalid()),
                             if s5_invalid() { "Section 5 invalid: true" } else { "Section 5 invalid: false" }
                         }
-                        button {
-                            id: "field-s5-reset",
+                        Button {
+                            id: Some("field-s5-reset".to_string()),
                             "data-gui-test-id": "field-s5-reset",
-                            r#type: "reset",
-                            style: "{toggle_btn_style(false)}",
-                            onclick: move |_| {
-                                pin_val.set("12".to_string());
-                                slider_val.set(40.0);
+                            r#type: ButtonType::Reset,
+                            form: Some("field-s5-form".to_string()),
+                            style: Some(toggle_btn_style(false).to_string()),
+                            on_click: move |_| {
                                 reset_count += 1;
                             },
                             "Reset Form"
