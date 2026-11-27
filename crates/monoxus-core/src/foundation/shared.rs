@@ -70,8 +70,28 @@ pub type PointerDownOutsideEvent = PreventableEvent<Option<String>>;
 pub type FocusOutsideEvent = PreventableEvent<Option<String>>;
 
 #[inline]
+pub const fn data_presence_attr(present: bool) -> Option<&'static str> {
+    if present { Some("") } else { None }
+}
+
+#[inline]
 pub const fn data_disabled_attr(disabled: bool) -> Option<&'static str> {
-    if disabled { Some("") } else { None }
+    data_presence_attr(disabled)
+}
+
+#[inline]
+pub const fn data_invalid_attr(invalid: bool) -> Option<&'static str> {
+    data_presence_attr(invalid)
+}
+
+#[inline]
+pub const fn data_required_attr(required: bool) -> Option<&'static str> {
+    data_presence_attr(required)
+}
+
+#[inline]
+pub const fn data_readonly_attr(read_only: bool, disabled: bool) -> Option<&'static str> {
+    data_presence_attr(read_only && !disabled)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -578,6 +598,27 @@ mod tests {
     fn data_disabled_attr_omits_when_enabled() {
         assert_eq!(data_disabled_attr(false), None);
         assert_eq!(data_disabled_attr(true), Some(""));
+    }
+
+    #[test]
+    fn data_presence_and_form_state_attrs_emit_empty_string_or_none() {
+        use super::{
+            data_invalid_attr, data_presence_attr, data_readonly_attr, data_required_attr,
+        };
+
+        assert_eq!(data_presence_attr(false), None);
+        assert_eq!(data_presence_attr(true), Some(""));
+
+        assert_eq!(data_invalid_attr(false), None);
+        assert_eq!(data_invalid_attr(true), Some(""));
+
+        assert_eq!(data_required_attr(false), None);
+        assert_eq!(data_required_attr(true), Some(""));
+
+        assert_eq!(data_readonly_attr(false, false), None);
+        assert_eq!(data_readonly_attr(true, false), Some(""));
+        assert_eq!(data_readonly_attr(true, true), None);
+        assert_eq!(data_readonly_attr(false, true), None);
     }
 
     #[test]

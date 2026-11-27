@@ -1,19 +1,25 @@
 use dioxus::prelude::*;
 
+use crate::field::try_use_field_context;
 use crate::foundation::{
     browser::{
+        focus::use_composite_focus_out,
         get_element_client_rect,
         pointer::{try_release_pointer_capture, try_set_pointer_capture},
     },
-    compose::{join_styles, merge_global_attributes},
+    compose::{
+        extract_aria_invalid_and_describedby, join_styles, merge_global_attributes,
+        resolve_invalid_and_describedby,
+    },
     form::{HiddenFormInputs, use_form_control_sync_with_epoch},
     overlay::Rect2D,
     shared::{ScopeHandle, use_stable_id},
+    state::sync_signal,
 };
 
 use crate::slider::{
     relationships::SliderRelationships,
-    runtime::{SliderContext, find_closest_thumb, use_slider_runtime},
+    runtime::{SliderContext, SliderFieldState, find_closest_thumb, use_slider_runtime},
     state::{SliderDefinition, percent_to_value},
     types::{Direction, Orientation, SliderThumbAlignment, SliderThumbOrderPolicy, SliderValue},
 };
@@ -51,6 +57,14 @@ pub struct SliderRootProps {
     pub inverted: bool,
     #[props(default = false)]
     pub disabled: bool,
+    #[props(default = false)]
+    pub required: bool,
+    #[props(default)]
+    pub invalid: Option<bool>,
+    #[props(default)]
+    pub aria_describedby: Option<String>,
+    #[props(default)]
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     pub name: Option<String>,
     pub form: Option<String>,
     pub children: Element,
@@ -68,6 +82,27 @@ fn finish_slider_pointer(evt: &PointerEvent, runtime: &mut crate::slider::runtim
 /// Headless slider container coordinating value collection, thumb positioning, and form sync.
 #[component]
 pub fn SliderRoot(props: SliderRootProps) -> Element {
+    let field_ctx = try_use_field_context();
+    let effective_name = props
+        .name
+        .clone()
+        .or_else(|| field_ctx.and_then(|f| f.name()));
+    let effective_disabled = props.disabled || field_ctx.is_some_and(|f| f.is_disabled());
+    let effective_required = props.required || field_ctx.is_some_and(|f| f.is_required());
+
+    let extracted = extract_aria_invalid_and_describedby(props.attributes);
+    let field_describedby = field_ctx.and_then(|f| f.aria_describedby(None));
+    let root_invalid_override = props.invalid.or(extracted.aria_invalid);
+    let (effective_invalid, effective_describedby) = resolve_invalid_and_describedby(
+        props.invalid,
+        extracted.aria_invalid,
+        field_ctx.map(|f| f.is_invalid()),
+        false,
+        props.aria_describedby.as_deref(),
+        extracted.aria_describedby.as_deref(),
+        field_describedby.as_deref(),
+    );
+
     let root_id = use_stable_id(props.id.clone().map(std::borrow::Cow::Owned)).into_owned();
     let scope = ScopeHandle::root("slider").child(root_id.clone());
     let rels = SliderRelationships::new(scope.clone());
@@ -83,7 +118,7 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
         .with_track_padding(props.track_padding)
         .with_orientation(props.orientation)
         .with_inverted(props.inverted)
-        .with_disabled(props.disabled);
+        .with_disabled(effective_disabled);
 
     let runtime = use_slider_runtime(
         def,
@@ -95,16 +130,31 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
         props.on_value_commit,
     );
 
-    let attrs = runtime.root_attrs();
+    let mut req_sig = use_signal(|| effective_required);
+    sync_signal(&mut req_sig, effective_required);
+    let mut inv_sig = use_signal(|| effective_invalid);
+    sync_signal(&mut inv_sig, effective_invalid);
+    let mut inv_override_sig = use_signal(|| root_invalid_override);
+    sync_signal(&mut inv_override_sig, root_invalid_override);
+    let mut desc_sig = use_signal(|| effective_describedby.clone());
+    sync_signal(&mut desc_sig, effective_describedby.clone());
+
+    let attrs = runtime
+        .root_attrs()
+        .with_required(effective_required)
+        .with_invalid(effective_invalid)
+        .with_aria_describedby(effective_describedby);
     let dom_root_id = props.id.clone().unwrap_or_else(|| attrs.id().to_string());
 
-    let initial_values_for_reset = if let Some(ref v) = props.value {
-        v.to_vec()
-    } else if let Some(ref dv) = props.default_value {
-        dv.to_vec()
-    } else {
-        vec![props.min]
-    };
+    let initial_values_for_reset = use_hook(|| {
+        if let Some(ref v) = props.value {
+            v.to_vec()
+        } else if let Some(ref dv) = props.default_value {
+            dv.to_vec()
+        } else {
+            vec![props.min]
+        }
+    });
 
     let mut reset_runtime = runtime.clone();
     let on_reset_fn = move || {
@@ -113,12 +163,21 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
 
     let (should_render_inputs, reset_epoch) = use_form_control_sync_with_epoch(
         &dom_root_id,
-        props.name.as_deref(),
+        effective_name.as_deref(),
         props.form.as_deref(),
         on_reset_fn,
     );
 
     use_context_provider(|| SliderContext(runtime.clone()));
+    use_context_provider(|| SliderFieldState {
+        required: req_sig,
+        invalid: inv_sig,
+        invalid_override: inv_override_sig,
+        aria_describedby: desc_sig,
+    });
+
+    let (handle_focus_in, handle_focus_out) =
+        use_composite_focus_out(vec![dom_root_id.clone()], props.on_focus_out);
 
     let on_pointer_down = {
         let mut runtime = runtime.clone();
@@ -183,14 +242,14 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
     let merged = merge_global_attributes(
         props.class.as_deref(),
         combined_style.as_deref(),
-        props.attributes,
+        extracted.rest,
     );
 
     let current_vals = runtime.current_values();
     let string_values: Vec<String> = current_vals.iter().map(|v| v.to_string()).collect();
     let is_single = *runtime.is_single.read();
     let root_dir = runtime.def.read().direction.as_str();
-    let input_name = props.name.clone().map(|n| {
+    let input_name = effective_name.map(|n| {
         if !is_single && !n.ends_with("[]") {
             format!("{n}[]")
         } else {
@@ -206,12 +265,16 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
             dir: "{root_dir}",
             "data-orientation": "{attrs.data_orientation()}",
             "data-disabled": attrs.data_disabled(),
+            "data-required": attrs.data_required(),
+            "data-invalid": attrs.data_invalid(),
             "data-monoxus-slider-root": "",
             aria_disabled: attrs.aria_disabled(),
             onpointerdown: on_pointer_down,
             onpointermove: on_pointer_move,
             onpointerup: on_pointer_up,
             onpointercancel: on_pointer_cancel,
+            onfocusin: handle_focus_in,
+            onfocusout: handle_focus_out,
             ..merged.rest,
             {props.children}
         }
@@ -219,8 +282,10 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
             HiddenFormInputs {
                 name: input_name,
                 values: string_values,
-                disabled: props.disabled,
+                disabled: effective_disabled,
+                required: effective_required,
                 form: props.form.clone(),
+                focus_target_id: Some(runtime.resolved_thumb_id(0)),
                 reset_epoch: reset_epoch,
             }
         }

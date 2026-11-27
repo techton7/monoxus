@@ -7,15 +7,20 @@ use monoxus_core::foundation::date_time::field_policy::{
 };
 
 use crate::{
+    field::try_use_field_context,
     foundation::{
-        browser::local_today,
-        compose::{merge_attributes_with_part, merge_global_attributes},
+        browser::{focus::use_composite_focus_out, local_today},
+        compose::{
+            extract_aria_invalid_and_describedby, merge_aria_describedby,
+            merge_attributes_with_part, merge_global_attributes, resolve_invalid_and_describedby,
+        },
         date_time::{
             CalendarDate, CalendarLocale, DateValue, EditableSegmentKind, FieldInvalidEvent,
             FieldSegment, Granularity, HourCycle, SegmentKind,
         },
         form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
+        state::ControlledBinding,
     },
     visually_hidden::VisuallyHidden,
 };
@@ -37,10 +42,13 @@ use super::{
 pub(crate) struct SegmentFieldRootSpec<P: SegmentFieldUiPolicy> {
     pub id: Option<String>,
     pub value: Option<Signal<Option<P::Value>>>,
+    pub controlled_value: Option<ReadSignal<Option<P::Value>>>,
     pub default_value: Option<P::Value>,
     pub on_value_change: Option<EventHandler<Option<P::Value>>>,
     pub placeholder: Option<Signal<P::Value>>,
+    pub controlled_placeholder: Option<ReadSignal<P::Value>>,
     pub on_placeholder_change: Option<EventHandler<P::Value>>,
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     pub granularity: P::GranularityProp,
     pub hour_cycle: Option<HourCycle>,
     pub locale: CalendarLocale,
@@ -70,12 +78,24 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
     spec: &SegmentFieldRootSpec<P>,
     initial_placeholder: P::Value,
 ) -> SegmentFieldRuntime<P> {
+    let field_ctx = try_use_field_context();
+    let effective_disabled = spec.disabled || field_ctx.is_some_and(|f| f.is_disabled());
+    let effective_read_only = spec.read_only || field_ctx.is_some_and(|f| f.is_read_only());
+    let effective_required = spec.required || field_ctx.is_some_and(|f| f.is_required());
+    let effective_invalid_override = spec
+        .is_invalid_override
+        .or_else(|| field_ctx.map(|f| f.is_invalid()));
+
     let resolved_dir = use_direction_context(spec.dir);
     let stable_id = use_stable_id(spec.id.clone().map(Cow::Owned)).into_owned();
     let scope = use_hook(|| ScopeHandle::root(P::SCOPE_PREFIX).child(stable_id.clone()));
     let rels = use_hook(|| FieldRelationships::new(scope.clone()));
 
-    let initial_value = spec.value.and_then(|s| *s.peek()).or(spec.default_value);
+    let value_binding = ControlledBinding::from_props(spec.value, spec.controlled_value);
+    let placeholder_binding =
+        ControlledBinding::from_props(spec.placeholder, spec.controlled_placeholder);
+
+    let initial_value = value_binding.initial_or(spec.default_value);
 
     let def = SegmentFieldDefinition::<P>::new()
         .with_locale(spec.locale.clone())
@@ -84,21 +104,22 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
         .with_hide_time_zone(spec.hide_time_zone)
         .with_min_value(spec.min_value)
         .with_max_value(spec.max_value)
-        .with_disabled(spec.disabled)
-        .with_read_only(spec.read_only)
-        .with_required(spec.required)
+        .with_disabled(effective_disabled)
+        .with_read_only(effective_read_only)
+        .with_required(effective_required)
         .with_readonly_segments(spec.readonly_segments.clone())
         .with_error_message_id(spec.error_message_id.clone())
         .with_dir(resolved_dir);
 
     let state = use_signal(|| {
         let mut st = SegmentFieldState::<P>::new(def.clone(), initial_value, initial_placeholder);
-        if let Some(inv) = spec.is_invalid_override {
+        if let Some(inv) = effective_invalid_override {
             st.set_external_invalid(inv);
         }
         st
     });
 
+    let input_dom_id = use_signal(|| rels.input_id().to_string());
     let label_id_override = use_signal(|| spec.label_id_override.clone());
     let custom_label_id = use_signal(|| None::<String>);
     let trailing_trigger_id = use_signal(|| None::<String>);
@@ -108,14 +129,14 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
     let mut range_role = use_hook(|| CopyValue::new(spec.range_role));
     range_role.set(spec.range_role);
 
-    let mut default_value = use_hook(|| CopyValue::new(spec.default_value));
-    default_value.set(spec.default_value);
+    // Freeze mount-time reset baseline (`use_hook`) from controlled-or-default.
+    let default_value = use_hook(|| CopyValue::new(initial_value));
 
-    let mut controlled_value = use_hook(|| CopyValue::new(spec.value));
-    controlled_value.set(spec.value);
+    let mut controlled_value = use_hook(|| CopyValue::new(value_binding));
+    controlled_value.set(value_binding);
 
-    let mut controlled_placeholder = use_hook(|| CopyValue::new(spec.placeholder));
-    controlled_placeholder.set(spec.placeholder);
+    let mut controlled_placeholder = use_hook(|| CopyValue::new(placeholder_binding));
+    controlled_placeholder.set(placeholder_binding);
 
     let mut on_value_change = use_hook(|| CopyValue::new(spec.on_value_change));
     on_value_change.set(spec.on_value_change);
@@ -138,12 +159,19 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
     let mut on_next_boundary = use_hook(|| CopyValue::new(spec.on_next_boundary));
     on_next_boundary.set(spec.on_next_boundary);
 
+    let mut on_root_focus_out = use_hook(|| CopyValue::new(spec.on_focus_out));
+    on_root_focus_out.set(spec.on_focus_out);
+
+    let parent_focus_in = use_hook(|| CopyValue::new(None::<EventHandler<FocusEvent>>));
+    let parent_focus_out = use_hook(|| CopyValue::new(None::<EventHandler<FocusEvent>>));
+
     let segment_dom_ids = use_hook(|| Rc::new(RefCell::new(BTreeMap::new())));
 
-    let runtime = SegmentFieldRuntime::<P> {
+    let mut runtime = SegmentFieldRuntime::<P> {
         state,
         rels,
         range_role,
+        input_dom_id,
         label_id_override,
         custom_label_id,
         trailing_trigger_id,
@@ -160,7 +188,31 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
         on_invalid,
         on_prev_boundary,
         on_next_boundary,
+        on_root_focus_out,
+        parent_focus_in,
+        parent_focus_out,
     };
+
+    // Synchronous render-time reconciliation for external controlled signals & invalid override.
+    // Preserves partial segment drafts because `set_value` only fires when `state.value() != val`.
+    {
+        let ext_val_now = value_binding.read_cloned();
+        let ext_ph_now = placeholder_binding.read_cloned();
+        let ext_inv_now = effective_invalid_override.unwrap_or(false);
+        if let Some(val) = ext_val_now
+            && runtime.state.peek().value() != val
+        {
+            runtime.state.write().set_value(val);
+        }
+        if let Some(ph) = ext_ph_now
+            && runtime.state.peek().placeholder() != ph
+        {
+            runtime.state.write().set_placeholder(ph);
+        }
+        if runtime.state.peek().external_invalid() != ext_inv_now {
+            runtime.state.write().set_external_invalid(ext_inv_now);
+        }
+    }
 
     let mut predicate_rev = use_signal(|| 0_u64);
     let has_pred = spec.is_date_unavailable.is_some() || spec.validate.is_some();
@@ -203,14 +255,15 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
         },
     ));
 
+    let eff_inv_bool = effective_invalid_override.unwrap_or(false);
     use_effect(use_reactive(
-        (&spec.value, &spec.placeholder, &spec.is_invalid_override),
+        (&value_binding, &placeholder_binding, &eff_inv_bool),
         {
             let mut rt = runtime.clone();
-            move |(value_sig, placeholder_sig, inv_override)| {
-                let ext_val = value_sig.map(|s| *s.read());
-                let ext_ph = placeholder_sig.map(|s| *s.read());
-                rt.reconcile_external_state(ext_val, ext_ph, inv_override);
+            move |(val_bind, ph_bind, inv_override)| {
+                let ext_val = val_bind.read_cloned();
+                let ext_ph = ph_bind.read_cloned();
+                rt.reconcile_external_state(ext_val, ext_ph, Some(inv_override));
             }
         },
     ));
@@ -265,6 +318,7 @@ pub(crate) struct SegmentFieldInputSpec {
     pub form: Option<String>,
     pub as_child: bool,
     pub render_children: Option<Callback<Vec<FieldSegmentItem>, Element>>,
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
@@ -293,8 +347,43 @@ where
     P: SegmentFieldUiPolicy,
     F: FnOnce(SegmentFieldInputView) -> Option<Element>,
 {
+    let field_ctx = try_use_field_context();
     let snap = runtime.snapshot();
-    let attrs = runtime.input_attrs(spec.id.clone());
+    let extracted = extract_aria_invalid_and_describedby(spec.attributes);
+    let raw_attrs = runtime.input_attrs(spec.id.clone());
+    runtime.set_input_dom_id(raw_attrs.id.clone());
+
+    let field_describedby = field_ctx.and_then(|f| f.aria_describedby(None));
+    let merged_internal_and_field_desc = merge_aria_describedby([
+        raw_attrs.aria_describedby.as_deref(),
+        field_describedby.as_deref(),
+    ]);
+    let (effective_invalid, effective_describedby) = resolve_invalid_and_describedby(
+        None,
+        extracted.aria_invalid,
+        Some(raw_attrs.data_invalid.is_some()),
+        false,
+        None,
+        extracted.aria_describedby.as_deref(),
+        merged_internal_and_field_desc.as_deref(),
+    );
+    let attrs = raw_attrs
+        .with_invalid(effective_invalid)
+        .with_aria_describedby(effective_describedby);
+
+    let mut input_focus_out_slot = use_hook(|| CopyValue::new(spec.on_focus_out));
+    input_focus_out_slot.set(spec.on_focus_out);
+    let root_focus_out_slot = runtime.on_root_focus_out;
+    let combined_focus_out = use_callback(move |evt: FocusEvent| {
+        if let Some(cb) = input_focus_out_slot.try_peek().ok().and_then(|s| *s) {
+            cb.call(evt.clone());
+        }
+        if let Some(cb) = root_focus_out_slot.try_peek().ok().and_then(|s| *s) {
+            cb.call(evt);
+        }
+    });
+    let (handle_focus_in, handle_focus_out) =
+        use_composite_focus_out(vec![attrs.id.clone()], Some(combined_focus_out));
 
     let mut reset_rt = runtime.clone();
     let (show_hidden, reset_epoch) = use_form_control_sync_with_epoch(
@@ -341,7 +430,7 @@ where
             class: spec.class.clone(),
             style: spec.style.clone(),
             on_mounted: spec.on_mounted,
-            attributes: spec.attributes.clone(),
+            attributes: extracted.rest.clone(),
             children: inner.clone(),
         };
         if let Some(el) = render_as_child(view) {
@@ -354,13 +443,15 @@ where
         );
     }
 
-    let attrs_with_part = merge_attributes_with_part(spec.attributes, P::INPUT_DATA_ATTR);
+    let attrs_with_part = merge_attributes_with_part(extracted.rest, P::INPUT_DATA_ATTR);
     let merged = merge_global_attributes(
         spec.class.as_deref(),
         spec.style.as_deref(),
         attrs_with_part,
     );
     let on_mounted = spec.on_mounted;
+    let parent_fi_rt = runtime.clone();
+    let parent_fo_rt = runtime;
 
     rsx! {
         div {
@@ -370,6 +461,7 @@ where
             role: attrs.role,
             "aria-labelledby": attrs.aria_labelledby,
             "aria-describedby": attrs.aria_describedby,
+            "aria-invalid": attrs.aria_invalid,
             "aria-disabled": attrs.aria_disabled,
             "aria-required": attrs.aria_required,
             dir: attrs.dir,
@@ -377,6 +469,14 @@ where
             "data-invalid": attrs.data_invalid,
             "data-disabled": attrs.data_disabled,
             "data-required": attrs.data_required,
+            onfocusin: move |evt| {
+                handle_focus_in.call(evt.clone());
+                parent_fi_rt.notify_parent_focus_in(evt);
+            },
+            onfocusout: move |evt| {
+                handle_focus_out.call(evt.clone());
+                parent_fo_rt.notify_parent_focus_out(evt);
+            },
             onmounted: move |evt| {
                 if let Some(handler) = on_mounted {
                     handler.call(evt);
@@ -730,15 +830,21 @@ pub struct DateFieldRootProps {
     #[props(default)]
     pub value: Option<Signal<Option<DateValue>>>,
     #[props(default)]
+    pub controlled_value: Option<ReadSignal<Option<DateValue>>>,
+    #[props(default)]
     pub default_value: Option<DateValue>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<Option<DateValue>>>,
     #[props(default)]
     pub placeholder: Option<Signal<DateValue>>,
     #[props(default)]
+    pub controlled_placeholder: Option<ReadSignal<DateValue>>,
+    #[props(default)]
     pub default_placeholder: Option<DateValue>,
     #[props(default)]
     pub on_placeholder_change: Option<EventHandler<DateValue>>,
+    #[props(default)]
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub granularity: Option<Granularity>,
     #[props(default)]
@@ -792,13 +898,12 @@ pub struct DateFieldRootProps {
 #[component]
 pub fn DateFieldRoot(props: DateFieldRootProps) -> Element {
     let today = use_hook(local_today);
-    let initial_value = props
-        .value
-        .and_then(|s| *s.peek())
-        .or(props.default_value);
-    let initial_placeholder = props
-        .placeholder
-        .map(|s| *s.peek())
+    let value_binding = ControlledBinding::from_props(props.value, props.controlled_value);
+    let placeholder_binding =
+        ControlledBinding::from_props(props.placeholder, props.controlled_placeholder);
+    let initial_value = value_binding.initial_or(props.default_value);
+    let initial_placeholder = placeholder_binding
+        .peek_cloned()
         .or(props.default_placeholder)
         .unwrap_or_else(|| {
             default_date_field_placeholder(
@@ -814,10 +919,13 @@ pub fn DateFieldRoot(props: DateFieldRootProps) -> Element {
         SegmentFieldRootSpec {
             id: props.id,
             value: props.value,
+            controlled_value: props.controlled_value,
             default_value: props.default_value,
             on_value_change: props.on_value_change,
             placeholder: props.placeholder,
+            controlled_placeholder: props.controlled_placeholder,
             on_placeholder_change: props.on_placeholder_change,
+            on_focus_out: props.on_focus_out,
             granularity: props.granularity,
             hour_cycle: props.hour_cycle,
             locale: props.locale,
@@ -882,6 +990,8 @@ pub struct DateFieldInputProps {
     #[props(default)]
     pub render_children: Option<Callback<Vec<DateFieldSegmentItem>, Element>>,
     #[props(default)]
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
+    #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
@@ -902,6 +1012,7 @@ pub fn DateFieldInput(props: DateFieldInputProps) -> Element {
             form: props.form,
             as_child: props.as_child,
             render_children: props.render_children,
+            on_focus_out: props.on_focus_out,
             on_mounted: props.on_mounted,
             attributes: props.attributes,
             children: props.children,

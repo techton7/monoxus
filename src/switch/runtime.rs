@@ -12,6 +12,7 @@ pub struct SwitchContext {
     pub(crate) disabled: Signal<bool>,
     pub(crate) required: Signal<bool>,
     pub(crate) read_only: Signal<bool>,
+    pub(crate) invalid: Signal<bool>,
 }
 
 impl SwitchContext {
@@ -29,6 +30,10 @@ impl SwitchContext {
 
     pub fn is_read_only(&self) -> bool {
         *self.read_only.read()
+    }
+
+    pub fn is_invalid(&self) -> bool {
+        *self.invalid.read()
     }
 
     pub fn root_id(&self) -> &str {

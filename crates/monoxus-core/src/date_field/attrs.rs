@@ -3,7 +3,7 @@ use crate::foundation::{
         FieldLocaleTemplate, SegmentKind,
         field_policy::{FieldRangeRole, FieldSegmentItem},
     },
-    shared::{Direction, data_disabled_attr},
+    shared::{Direction, data_disabled_attr, data_invalid_attr, data_required_attr},
 };
 
 /// Shared WAI-ARIA and `data-*` attributes for `DateFieldInput` and `TimeFieldInput` (`D-5`).
@@ -13,6 +13,7 @@ pub struct SegmentFieldInputAttrs {
     pub role: &'static str,
     pub aria_labelledby: Option<String>,
     pub aria_describedby: Option<String>,
+    pub aria_invalid: Option<&'static str>,
     pub aria_disabled: &'static str,
     pub aria_required: Option<&'static str>,
     pub dir: &'static str,
@@ -39,12 +40,13 @@ impl SegmentFieldInputAttrs {
             role: range_role.input_role(),
             aria_labelledby: label_id.filter(|s| !s.is_empty()),
             aria_describedby: description_id.filter(|s| !s.is_empty()),
+            aria_invalid: if is_invalid { Some("true") } else { None },
             aria_disabled: if disabled { "true" } else { "false" },
             aria_required: None,
             dir: dir.as_str(),
             data_marker: "",
             data_range_field_part: range_role.range_part_attr(),
-            data_invalid: data_disabled_attr(is_invalid),
+            data_invalid: data_invalid_attr(is_invalid),
             data_disabled: data_disabled_attr(disabled),
             data_required: None,
         }
@@ -52,7 +54,18 @@ impl SegmentFieldInputAttrs {
 
     pub fn with_required(mut self, required: bool) -> Self {
         self.aria_required = if required { Some("true") } else { None };
-        self.data_required = data_disabled_attr(required);
+        self.data_required = data_required_attr(required);
+        self
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.aria_invalid = if invalid { Some("true") } else { None };
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, describedby: Option<String>) -> Self {
+        self.aria_describedby = describedby.filter(|s| !s.trim().is_empty());
         self
     }
 }

@@ -71,6 +71,11 @@ pub struct SelectRuntimeState {
     pub last_dismiss_was_pointer: Signal<bool>,
     pub is_static_content: Signal<bool>,
     pub reset_epoch: Signal<u64>,
+    pub trigger_id: Signal<String>,
+    pub invalid: Signal<bool>,
+    pub root_invalid_override: Signal<Option<bool>>,
+    pub on_composite_focus_in: CopyValue<Option<EventHandler<FocusEvent>>>,
+    pub on_composite_focus_out: CopyValue<Option<EventHandler<FocusEvent>>>,
     pub on_escape_key_down: CopyValue<Option<EventHandler<EscapeKeyDownEvent>>>,
     pub on_pointer_down_outside: CopyValue<Option<EventHandler<PointerDownOutsideEvent>>>,
     pub on_close_auto_focus: CopyValue<Option<EventHandler<()>>>,
@@ -146,9 +151,26 @@ where
         on_open_change_complete.map(|f| Rc::new(f) as SelectOpenChangeCompleteHandler);
 
     let initial_val = select.value().map(str::to_owned);
-    let initial_def_val = select.default_value().map(str::to_owned);
+    let initial_def_val = use_hook(|| {
+        if select.is_value_controlled() {
+            select.value().map(str::to_owned)
+        } else {
+            select
+                .default_value()
+                .or_else(|| select.value())
+                .map(str::to_owned)
+        }
+    });
     let initial_vals = select.values().to_vec();
-    let initial_def_vals = select.default_values().to_vec();
+    let initial_def_vals = use_hook(|| {
+        if select.is_values_controlled() {
+            select.values().to_vec()
+        } else if !select.default_values().is_empty() {
+            select.default_values().to_vec()
+        } else {
+            select.values().to_vec()
+        }
+    });
     let initial_open = select.is_open();
     let initial_registry = select.registry();
     let mut initial_labels = std::collections::BTreeMap::new();
@@ -160,17 +182,17 @@ where
     let mut select_sig = use_signal(|| select.clone());
     sync_signal(&mut select_sig, select.clone());
 
-    let value_sig = use_signal(|| initial_val);
+    let mut value_sig = use_signal(|| initial_val);
     let default_value_sig = use_signal(|| initial_def_val);
-    let values_sig = use_signal(|| initial_vals);
+    let mut values_sig = use_signal(|| initial_vals);
     let default_values_sig = use_signal(|| initial_def_vals);
-    let open_sig = use_signal(|| initial_open);
+    let mut open_sig = use_signal(|| initial_open);
     let mut disabled_sig = use_signal(|| select.is_disabled());
     sync_signal(&mut disabled_sig, select.is_disabled());
     let highlighted_value_sig = use_signal(|| None);
     let initial_highlight_pending_sig = use_signal(|| false);
     let items_sig = use_signal(|| select.items().to_vec());
-    let registry_sig = use_signal(|| initial_registry);
+    let mut registry_sig = use_signal(|| initial_registry);
     let typeahead_sig = use_signal(|| TypeaheadBuffer::new(TypeaheadConfig::SELECT));
     let last_key_timestamp_ms_sig = use_signal(|| 0.0);
     let preferred_side_sig = use_signal(|| PlacementSide::Bottom);
@@ -192,6 +214,9 @@ where
     let last_dismiss_was_pointer_sig = use_signal(|| false);
     let is_static_content_sig = use_signal(|| false);
     let mut reset_epoch_sig = use_signal(|| 0_u64);
+    let trigger_id_sig = use_signal(|| select.relationships().trigger_id().to_owned());
+    let invalid_sig = use_signal(|| false);
+    let root_invalid_override_sig = use_signal(|| None::<bool>);
     let fallback_readiness_sig = use_signal(FloatingReadiness::default);
     let selected_labels_sig = use_signal(|| initial_labels);
     let pressed_item_sig = use_signal(|| None);
@@ -200,6 +225,10 @@ where
             .with_retained_mount(select.presence().retain_mount())
     });
 
+    let on_composite_focus_in_slot =
+        use_hook(|| CopyValue::new(None::<EventHandler<FocusEvent>>));
+    let on_composite_focus_out_slot =
+        use_hook(|| CopyValue::new(None::<EventHandler<FocusEvent>>));
     let on_escape_key_down_slot =
         use_hook(|| CopyValue::new(None::<EventHandler<EscapeKeyDownEvent>>));
     let on_pointer_down_outside_slot =
@@ -216,10 +245,71 @@ where
         use_hook(|| CopyValue::new(synced_open_change_complete.clone()));
     on_complete_cb_slot.set(synced_open_change_complete);
 
+    // Synchronous render-time value/values sync (Pattern C controlled mode — zero 1-frame reset lag & zero rejection desync).
+    let mut prev_prop_val = use_hook(|| CopyValue::new(select.value().map(str::to_owned)));
+    let mut prev_prop_vals = use_hook(|| CopyValue::new(select.values().to_vec()));
+
+    let next_val = select.value().map(str::to_owned);
+    let next_vals = select.values().to_vec();
+    if select.is_value_controlled() {
+        prev_prop_val.set(next_val.clone());
+        sync_signal(&mut value_sig, next_val.clone());
+        if select.is_values_controlled() {
+            prev_prop_vals.set(next_vals.clone());
+            sync_signal(&mut values_sig, next_vals);
+        } else {
+            let derived_vals = next_val.map(|v| vec![v]).unwrap_or_default();
+            prev_prop_vals.set(derived_vals.clone());
+            sync_signal(&mut values_sig, derived_vals);
+        }
+    } else if select.is_values_controlled() {
+        prev_prop_vals.set(next_vals.clone());
+        sync_signal(&mut values_sig, next_vals.clone());
+        let first_val = next_vals.first().cloned();
+        prev_prop_val.set(first_val.clone());
+        sync_signal(&mut value_sig, first_val);
+    } else {
+        if prev_prop_val
+            .try_read()
+            .map(|cur| *cur != next_val)
+            .unwrap_or(true)
+        {
+            prev_prop_val.set(next_val.clone());
+            sync_signal(&mut value_sig, next_val);
+        }
+        if prev_prop_vals
+            .try_read()
+            .map(|cur| *cur != next_vals)
+            .unwrap_or(true)
+        {
+            prev_prop_vals.set(next_vals.clone());
+            sync_signal(&mut values_sig, next_vals);
+        }
+    }
+
+    if !select.items().is_empty() && registry_sig.peek().is_empty() {
+        registry_sig.set(select.registry());
+    }
+
+    // Keep `open` prop sync post-render so external-button `open: true` toggles do not arm
+    // `use_dismissable_layer`'s document click watcher before the triggering click finishes.
+    let mut prev_prop_open = use_hook(|| CopyValue::new(select.is_open()));
+    let prop_open = select.is_open();
+    use_effect(use_reactive((&prop_open,), move |(next_open,)| {
+        if prev_prop_open
+            .try_read()
+            .map(|cur| *cur != next_open)
+            .unwrap_or(true)
+        {
+            prev_prop_open.set(next_open);
+            sync_signal(&mut open_sig, next_open);
+        }
+    }));
+
     let mut rt_slot: CopyValue<Option<SelectRuntime>> = use_hook(|| CopyValue::new(None));
 
     let content_id = select.relationships().content_id().to_owned();
-    let trigger_id = select.relationships().trigger_id().to_owned();
+    let trigger_id = trigger_id_sig.read().clone();
     let wrapper_id = format!("{content_id}-wrapper");
     let portal_id = format!("{content_id}-portal-root");
     let is_open = *open_sig.read();
@@ -388,6 +478,11 @@ where
         last_dismiss_was_pointer: last_dismiss_was_pointer_sig,
         is_static_content: is_static_content_sig,
         reset_epoch: reset_epoch_sig,
+        trigger_id: trigger_id_sig,
+        invalid: invalid_sig,
+        root_invalid_override: root_invalid_override_sig,
+        on_composite_focus_in: on_composite_focus_in_slot,
+        on_composite_focus_out: on_composite_focus_out_slot,
         on_escape_key_down: on_escape_key_down_slot,
         on_pointer_down_outside: on_pointer_down_outside_slot,
         on_close_auto_focus: on_close_auto_focus_slot,
@@ -402,50 +497,6 @@ where
         pressed_item: pressed_item_sig,
         suppress_next_click: suppress_next_click_slot,
     };
-
-    let mut prev_prop_val = use_hook(|| CopyValue::new(select.value().map(str::to_owned)));
-    let mut prev_prop_vals = use_hook(|| CopyValue::new(select.values().to_vec()));
-    let mut prev_prop_open = use_hook(|| CopyValue::new(select.is_open()));
-    let effect_state = state;
-    use_effect(use_reactive((&select,), move |(select,)| {
-        let next_val = select.value().map(str::to_owned);
-        if prev_prop_val
-            .try_read()
-            .map(|cur| *cur != next_val)
-            .unwrap_or(true)
-        {
-            prev_prop_val.set(next_val.clone());
-            let mut val_sig = effect_state.value;
-            sync_signal(&mut val_sig, next_val);
-        }
-        let next_vals = select.values().to_vec();
-        if prev_prop_vals
-            .try_read()
-            .map(|cur| *cur != next_vals)
-            .unwrap_or(true)
-        {
-            prev_prop_vals.set(next_vals.clone());
-            let mut vals_sig = effect_state.values;
-            sync_signal(&mut vals_sig, next_vals);
-        }
-        let next_open = select.is_open();
-        if prev_prop_open
-            .try_read()
-            .map(|cur| *cur != next_open)
-            .unwrap_or(true)
-        {
-            prev_prop_open.set(next_open);
-            let mut open_s = effect_state.open;
-            sync_signal(&mut open_s, next_open);
-        }
-        let mut dis_sig = effect_state.disabled;
-        sync_signal(&mut dis_sig, select.is_disabled());
-        let current_items = select.items();
-        if !current_items.is_empty() && effect_state.registry.peek().is_empty() {
-            let mut reg_sig = effect_state.registry;
-            reg_sig.set(select.registry());
-        }
-    }));
 
     let runtime = SelectRuntime {
         relationships,
@@ -506,6 +557,11 @@ impl SelectRuntime {
             last_dismiss_was_pointer: Signal::new(false),
             is_static_content: Signal::new(false),
             reset_epoch: Signal::new(0),
+            trigger_id: Signal::new(select.relationships().trigger_id().to_owned()),
+            invalid: Signal::new(false),
+            root_invalid_override: Signal::new(None),
+            on_composite_focus_in: CopyValue::new(None),
+            on_composite_focus_out: CopyValue::new(None),
             on_escape_key_down: CopyValue::new(None),
             on_pointer_down_outside: CopyValue::new(None),
             on_close_auto_focus: CopyValue::new(None),
@@ -542,6 +598,73 @@ impl SelectRuntime {
 
     pub fn relationships(&self) -> &SelectRelationships {
         &self.relationships
+    }
+
+    pub fn current_trigger_id(&self) -> String {
+        self.state.trigger_id.read().clone()
+    }
+
+    pub fn set_trigger_id(&self, id: String) {
+        let normalized = if id.trim().is_empty() {
+            self.relationships().trigger_id().to_owned()
+        } else {
+            id
+        };
+        let mut sig = self.state.trigger_id;
+        sync_signal(&mut sig, normalized);
+    }
+
+    pub fn is_invalid(&self) -> bool {
+        *self.state.invalid.read()
+    }
+
+    pub fn set_invalid(&self, invalid: bool) {
+        let mut sig = self.state.invalid;
+        sync_signal(&mut sig, invalid);
+    }
+
+    pub fn root_invalid_override(&self) -> Option<bool> {
+        *self.state.root_invalid_override.read()
+    }
+
+    pub fn set_root_invalid_override(&self, invalid: Option<bool>) {
+        let mut sig = self.state.root_invalid_override;
+        sync_signal(&mut sig, invalid);
+    }
+
+    pub(crate) fn set_composite_focus_handlers(
+        &self,
+        on_focus_in: Option<EventHandler<FocusEvent>>,
+        on_focus_out: Option<EventHandler<FocusEvent>>,
+    ) {
+        let mut in_slot = self.state.on_composite_focus_in;
+        in_slot.set(on_focus_in);
+        let mut out_slot = self.state.on_composite_focus_out;
+        out_slot.set(on_focus_out);
+    }
+
+    pub(crate) fn notify_composite_focus_in(&self, evt: FocusEvent) {
+        if let Some(cb) = self
+            .state
+            .on_composite_focus_in
+            .try_read()
+            .ok()
+            .and_then(|s| *s)
+        {
+            cb.call(evt);
+        }
+    }
+
+    pub(crate) fn notify_composite_focus_out(&self, evt: FocusEvent) {
+        if let Some(cb) = self
+            .state
+            .on_composite_focus_out
+            .try_read()
+            .ok()
+            .and_then(|s| *s)
+        {
+            cb.call(evt);
+        }
     }
 
     pub fn should_render_portal(&self) -> bool {
@@ -941,13 +1064,14 @@ impl SelectRuntime {
         if let Some(cb) = self.state.on_close_auto_focus.try_read().ok().and_then(|s| *s) {
             cb.call(());
         }
+        let trigger_id = self.current_trigger_id();
         if was_pointer {
             restore_focus_element_by_id_with_options(
-                self.relationships().trigger_id(),
+                &trigger_id,
                 FocusOptions::with_focus_visible(false, Some(false)),
             );
         } else {
-            restore_focus_element_by_id(self.relationships().trigger_id());
+            restore_focus_element_by_id(&trigger_id);
         }
     }
 
@@ -1259,6 +1383,7 @@ impl SelectRuntime {
                 DataState::Closed
             },
             disabled: self.is_disabled(),
+            invalid: self.is_invalid(),
         }
     }
 
@@ -1273,9 +1398,10 @@ impl SelectRuntime {
         let is_required = select_def.is_required();
         drop(select_def);
         let should_emit = self.is_open() || self.should_render_content();
+        let is_invalid = self.is_invalid();
 
         SelectTriggerAttributes {
-            id: self.relationships().trigger_id().to_owned(),
+            id: self.current_trigger_id(),
             role: "combobox",
             aria_haspopup: "listbox",
             aria_expanded: if self.is_open() { "true" } else { "false" },
@@ -1295,6 +1421,9 @@ impl SelectRuntime {
             } else {
                 None
             },
+            aria_invalid: is_invalid.then_some("true"),
+            aria_describedby: None,
+            aria_labelledby: None,
             data_state: if self.is_open() {
                 DataState::Open
             } else {
@@ -1302,6 +1431,8 @@ impl SelectRuntime {
             },
             data_placeholder: is_placeholder,
             disabled: self.is_disabled(),
+            invalid: is_invalid,
+            data_invalid: monoxus_core::foundation::shared::data_invalid_attr(is_invalid),
             tabindex: if self.is_disabled() { -1 } else { 0 },
         }
     }

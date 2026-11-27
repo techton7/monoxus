@@ -1,8 +1,8 @@
 use std::{marker::PhantomData, rc::Rc};
 
 use dioxus::prelude::{
-    CopyValue, EventHandler, ReadableExt, Signal, WritableExt, use_drop, use_effect, use_hook,
-    use_signal,
+    CopyValue, EventHandler, ReadSignal, ReadableExt, Signal, WritableExt, use_drop, use_effect,
+    use_hook, use_signal,
 };
 
 pub use monoxus_core::foundation::state::*;
@@ -43,6 +43,157 @@ pub fn sync_signal_by<T: 'static>(
 /// re-render loops when `f64::NAN` is passed (`NaN != NaN` under `PartialEq`).
 pub fn sync_f64_signal(sig: &mut Signal<f64>, next: f64) -> bool {
     sync_signal_by(sig, next, |a, b| a.to_bits() == b.to_bits())
+}
+
+/// Unified controlled-value binding for Pattern B widgets that support both legacy two-way
+/// `Option<Signal<T>>` (`value`) and unidirectional `Option<ReadSignal<T>>` (`controlled_value`).
+///
+/// Under `ReadOnly`, widgets never mutate caller state directly and rely on `on_*_change`
+/// callbacks to propose updates (`DEC-MFL-03`).
+#[allow(dead_code)]
+pub(crate) enum ControlledBinding<T: 'static> {
+    Uncontrolled,
+    TwoWay(Signal<T>),
+    ReadOnly(ReadSignal<T>),
+}
+
+impl<T: 'static> std::fmt::Debug for ControlledBinding<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Uncontrolled => f.write_str("ControlledBinding::Uncontrolled"),
+            Self::TwoWay(_) => f.write_str("ControlledBinding::TwoWay(..)"),
+            Self::ReadOnly(_) => f.write_str("ControlledBinding::ReadOnly(..)"),
+        }
+    }
+}
+
+impl<T: 'static> Clone for ControlledBinding<T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<T: 'static> Copy for ControlledBinding<T> {}
+
+impl<T: 'static> PartialEq for ControlledBinding<T> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Uncontrolled, Self::Uncontrolled) => true,
+            (Self::TwoWay(a), Self::TwoWay(b)) => a == b,
+            (Self::ReadOnly(a), Self::ReadOnly(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl<T: 'static> Eq for ControlledBinding<T> {}
+
+#[allow(dead_code)]
+impl<T: 'static> ControlledBinding<T> {
+    /// Resolves a binding from legacy `two_way` (`value`) and additive `read_only`
+    /// (`controlled_value`) props.
+    ///
+    /// Asserts in debug builds that both are not provided simultaneously; in release builds,
+    /// `read_only` (`controlled_value`) takes precedence.
+    pub(crate) fn from_props(
+        two_way: Option<Signal<T>>,
+        read_only: Option<ReadSignal<T>>,
+    ) -> Self {
+        debug_assert!(
+            !(two_way.is_some() && read_only.is_some()),
+            "monoxus: two-way `value` and unidirectional `controlled_value` cannot both be provided simultaneously"
+        );
+        match (read_only, two_way) {
+            (Some(ro), _) => Self::ReadOnly(ro),
+            (None, Some(sig)) => Self::TwoWay(sig),
+            (None, None) => Self::Uncontrolled,
+        }
+    }
+
+    #[inline]
+    pub(crate) const fn is_controlled(&self) -> bool {
+        !matches!(self, Self::Uncontrolled)
+    }
+
+    #[inline]
+    pub(crate) const fn is_uncontrolled(&self) -> bool {
+        matches!(self, Self::Uncontrolled)
+    }
+
+    #[inline]
+    pub(crate) const fn is_two_way(&self) -> bool {
+        matches!(self, Self::TwoWay(_))
+    }
+
+    #[inline]
+    pub(crate) const fn is_read_only(&self) -> bool {
+        matches!(self, Self::ReadOnly(_))
+    }
+
+    /// Subscribing read of the controlled value, returning `None` when uncontrolled.
+    pub(crate) fn read_cloned(&self) -> Option<T>
+    where
+        T: Clone,
+    {
+        match self {
+            Self::Uncontrolled => None,
+            Self::TwoWay(sig) => Some(sig.read().clone()),
+            Self::ReadOnly(sig) => Some(sig.read().clone()),
+        }
+    }
+
+    /// Non-subscribing, drop-safe peek of the controlled value, returning `None` when uncontrolled.
+    pub(crate) fn peek_cloned(&self) -> Option<T>
+    where
+        T: Clone,
+    {
+        match self {
+            Self::Uncontrolled => None,
+            Self::TwoWay(sig) => sig.try_peek().ok().map(|g| g.clone()),
+            Self::ReadOnly(sig) => sig.try_peek().ok().map(|g| g.clone()),
+        }
+    }
+
+    /// Returns the controlled peeked value if controlled, otherwise `default_value`.
+    pub(crate) fn initial_or(&self, default_value: T) -> T
+    where
+        T: Clone,
+    {
+        self.peek_cloned().unwrap_or(default_value)
+    }
+
+    /// Writes `next` to the underlying signal ONLY when bound in [`Self::TwoWay`] mode and the
+    /// current value differs from `next`. Strictly a no-op under [`Self::ReadOnly`] and
+    /// [`Self::Uncontrolled`].
+    pub(crate) fn try_write_two_way(&self, next: T) -> bool
+    where
+        T: PartialEq,
+    {
+        match self {
+            Self::TwoWay(sig) => {
+                let mut sig = *sig;
+                sync_signal(&mut sig, next)
+            }
+            Self::ReadOnly(_) | Self::Uncontrolled => false,
+        }
+    }
+
+    /// Unconditionally writes `next` ONLY when bound in [`Self::TwoWay`] mode.
+    /// Strictly a no-op under [`Self::ReadOnly`] and [`Self::Uncontrolled`].
+    pub(crate) fn write_if_two_way(&self, next: T) -> bool {
+        match self {
+            Self::TwoWay(sig) => {
+                let mut sig = *sig;
+                if let Ok(mut guard) = sig.try_write() {
+                    *guard = next;
+                    true
+                } else {
+                    false
+                }
+            }
+            Self::ReadOnly(_) | Self::Uncontrolled => false,
+        }
+    }
 }
 
 /// Zero-overhead `Copy` controllable state handle backed by a [`Signal`] for reactive value reads
@@ -634,5 +785,96 @@ mod tests {
         mount_sig.set(false);
         dom.render_immediate(&mut dioxus::core::NoOpMutations);
         assert_eq!(cleanup_runs.get(), 1);
+    }
+
+    #[test]
+    fn controlled_binding_distinguishes_uncontrolled_two_way_and_read_only() {
+        use super::ControlledBinding;
+
+        let results: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+
+        #[component]
+        fn BindingHarness(results: Rc<RefCell<Vec<String>>>) -> Element {
+            let mut two_way_sig = use_signal(|| String::from("a"));
+            let ro_source = use_signal(|| String::from("locked"));
+            let ro_sig: ReadSignal<String> = ro_source.into();
+
+            let unc: ControlledBinding<String> = ControlledBinding::from_props(None, None);
+            assert!(unc.is_uncontrolled());
+            assert!(!unc.is_controlled());
+            assert_eq!(unc.read_cloned(), None);
+            assert_eq!(unc.peek_cloned(), None);
+            assert_eq!(unc.initial_or(String::from("fallback")), "fallback");
+            assert!(!unc.try_write_two_way(String::from("ignored")));
+
+            let tw = ControlledBinding::from_props(Some(two_way_sig), None);
+            assert!(tw.is_controlled());
+            assert!(tw.is_two_way());
+            assert!(!tw.is_read_only());
+            assert_eq!(tw.peek_cloned().as_deref(), Some("a"));
+            assert!(!tw.try_write_two_way(String::from("a")));
+            assert!(tw.try_write_two_way(String::from("b")));
+            assert_eq!(two_way_sig.peek().as_str(), "b");
+
+            let ro = ControlledBinding::from_props(None, Some(ro_sig));
+            assert!(ro.is_controlled());
+            assert!(ro.is_read_only());
+            assert!(!ro.is_two_way());
+            assert_eq!(ro.read_cloned().as_deref(), Some("locked"));
+            assert_eq!(ro.initial_or(String::from("fallback")), "locked");
+            assert!(!ro.try_write_two_way(String::from("mutated")));
+            assert!(!ro.write_if_two_way(String::from("mutated")));
+            assert_eq!(ro_source.peek().as_str(), "locked");
+
+            // Equality check across variants
+            assert_ne!(tw, ro);
+            assert_eq!(unc, ControlledBinding::Uncontrolled);
+            assert_eq!(tw, ControlledBinding::TwoWay(two_way_sig));
+            assert_eq!(ro, ControlledBinding::ReadOnly(ro_sig));
+
+            // Suppress unused mut warning
+            two_way_sig.set(String::from("b"));
+            results.borrow_mut().push(String::from("ok"));
+            rsx! { div {} }
+        }
+
+        let mut dom = VirtualDom::new_with_props(
+            BindingHarness,
+            BindingHarnessProps {
+                results: Rc::clone(&results),
+            },
+        );
+        dom.rebuild_in_place();
+        assert_eq!(*results.borrow(), vec![String::from("ok")]);
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    #[should_panic(expected = "cannot both be provided simultaneously")]
+    fn controlled_binding_panics_in_debug_when_both_two_way_and_read_only_provided() {
+        use super::ControlledBinding;
+
+        let captured: Rc<RefCell<Option<(Signal<i32>, ReadSignal<i32>)>>> =
+            Rc::new(RefCell::new(None));
+
+        #[component]
+        fn DualBindingHarness(
+            captured: Rc<RefCell<Option<(Signal<i32>, ReadSignal<i32>)>>>,
+        ) -> Element {
+            let sig = use_signal(|| 1_i32);
+            let ro: ReadSignal<i32> = sig.into();
+            *captured.borrow_mut() = Some((sig, ro));
+            rsx! { div {} }
+        }
+
+        let mut dom = VirtualDom::new_with_props(
+            DualBindingHarness,
+            DualBindingHarnessProps {
+                captured: Rc::clone(&captured),
+            },
+        );
+        dom.rebuild_in_place();
+        let (sig, ro) = captured.borrow().expect("signals captured");
+        let _ = ControlledBinding::from_props(Some(sig), Some(ro));
     }
 }

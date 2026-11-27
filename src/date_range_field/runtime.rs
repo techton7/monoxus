@@ -11,6 +11,7 @@ use crate::{
     foundation::{
         browser::focus_element_by_id,
         date_time::{CalendarDate, ChronoRange, FieldInvalidEvent, FieldInvalidReason},
+        state::{ControlledBinding, sync_signal},
     },
 };
 
@@ -20,6 +21,7 @@ use super::attrs::{RangeFieldLabelAttrs, RangeFieldRootAttrs};
 pub struct RangeFieldRuntime<P: RangeFieldPolicy + SegmentFieldUiPolicy> {
     pub state: Signal<RangeFieldState<P>>,
     pub rels: RangeFieldRelationships,
+    pub root_dom_id: Signal<String>,
     pub start_value: Signal<Option<P::Value>>,
     pub end_value: Signal<Option<P::Value>>,
     pub placeholder: Signal<P::Value>,
@@ -29,8 +31,8 @@ pub struct RangeFieldRuntime<P: RangeFieldPolicy + SegmentFieldUiPolicy> {
     pub start_runtime: Rc<RefCell<Option<SegmentFieldRuntime<P>>>>,
     pub end_runtime: Rc<RefCell<Option<SegmentFieldRuntime<P>>>>,
     pub default_value: CopyValue<ChronoRange<P::Value>>,
-    pub controlled_value: CopyValue<Option<Signal<ChronoRange<P::Value>>>>,
-    pub controlled_placeholder: CopyValue<Option<Signal<P::Value>>>,
+    pub(crate) controlled_value: CopyValue<ControlledBinding<ChronoRange<P::Value>>>,
+    pub(crate) controlled_placeholder: CopyValue<ControlledBinding<P::Value>>,
     pub on_value_change: CopyValue<Option<EventHandler<ChronoRange<P::Value>>>>,
     pub on_start_value_change: CopyValue<Option<EventHandler<Option<P::Value>>>>,
     pub on_end_value_change: CopyValue<Option<EventHandler<Option<P::Value>>>>,
@@ -38,6 +40,8 @@ pub struct RangeFieldRuntime<P: RangeFieldPolicy + SegmentFieldUiPolicy> {
     pub is_date_unavailable: CopyValue<Option<Callback<CalendarDate, bool>>>,
     pub validate: CopyValue<Option<Callback<ChronoRange<P::Value>, Option<Vec<String>>>>>,
     pub on_invalid: CopyValue<Option<EventHandler<FieldInvalidEvent>>>,
+    pub parent_focus_in: CopyValue<Option<EventHandler<FocusEvent>>>,
+    pub parent_focus_out: CopyValue<Option<EventHandler<FocusEvent>>>,
 }
 
 impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> Clone for RangeFieldRuntime<P> {
@@ -45,6 +49,7 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> Clone for RangeFieldRuntime<P> 
         Self {
             state: self.state,
             rels: self.rels.clone(),
+            root_dom_id: self.root_dom_id,
             start_value: self.start_value,
             end_value: self.end_value,
             placeholder: self.placeholder,
@@ -63,6 +68,8 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> Clone for RangeFieldRuntime<P> 
             is_date_unavailable: self.is_date_unavailable,
             validate: self.validate,
             on_invalid: self.on_invalid,
+            parent_focus_in: self.parent_focus_in,
+            parent_focus_out: self.parent_focus_out,
         }
     }
 }
@@ -76,6 +83,41 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> PartialEq for RangeFieldRuntime
 impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
     pub fn snapshot(&self) -> RangeFieldSnapshot<P> {
         self.state.read().snapshot()
+    }
+
+    pub fn current_root_dom_id(&self) -> String {
+        self.root_dom_id
+            .try_read()
+            .map(|g| g.clone())
+            .unwrap_or_else(|_| self.rels.root_id().to_string())
+    }
+
+    pub fn set_root_dom_id(&self, id: String) {
+        let mut sig = self.root_dom_id;
+        sync_signal(&mut sig, id);
+    }
+
+    pub(crate) fn set_parent_focus_handlers(
+        &self,
+        focus_in: Option<EventHandler<FocusEvent>>,
+        focus_out: Option<EventHandler<FocusEvent>>,
+    ) {
+        let mut fi = self.parent_focus_in;
+        fi.set(focus_in);
+        let mut fo = self.parent_focus_out;
+        fo.set(focus_out);
+    }
+
+    pub(crate) fn notify_parent_focus_in(&self, evt: FocusEvent) {
+        if let Some(cb) = self.parent_focus_in.try_read().ok().and_then(|s| *s) {
+            cb.call(evt);
+        }
+    }
+
+    pub(crate) fn notify_parent_focus_out(&self, evt: FocusEvent) {
+        if let Some(cb) = self.parent_focus_out.try_read().ok().and_then(|s| *s) {
+            cb.call(evt);
+        }
     }
 
     pub fn effective_label_id(&self) -> String {
@@ -346,6 +388,59 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
             return;
         }
 
+        let val_binding = self
+            .controlled_value
+            .try_read()
+            .map(|slot| *slot)
+            .unwrap_or(ControlledBinding::Uncontrolled);
+
+        let mut next_range = prev_range;
+        match kind {
+            FieldRangeEndpoint::Start => next_range.start = next,
+            FieldRangeEndpoint::End => next_range.end = next,
+        }
+
+        if val_binding.is_read_only() {
+            match kind {
+                FieldRangeEndpoint::Start => {
+                    if let Some(cb) = self
+                        .on_start_value_change
+                        .try_read()
+                        .ok()
+                        .and_then(|slot| *slot)
+                    {
+                        cb.call(next);
+                    }
+                }
+                FieldRangeEndpoint::End => {
+                    if let Some(cb) = self
+                        .on_end_value_change
+                        .try_read()
+                        .ok()
+                        .and_then(|slot| *slot)
+                    {
+                        cb.call(next);
+                    }
+                }
+            }
+            if let Some(cb) = self.on_value_change.try_read().ok().and_then(|slot| *slot) {
+                cb.call(next_range);
+            }
+            if let Some(accepted) = val_binding.peek_cloned()
+                && self.state.peek().value() != accepted
+            {
+                self.state.write().set_value(accepted);
+                if *self.start_value.peek() != accepted.start {
+                    self.start_value.set(accepted.start);
+                }
+                if *self.end_value.peek() != accepted.end {
+                    self.end_value.set(accepted.end);
+                }
+            }
+            self.sync_validation_and_notify();
+            return;
+        }
+
         self.state.write().set_part_value(kind, next);
         let next_range = self.state.peek().value();
 
@@ -378,11 +473,7 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
             }
         }
 
-        if let Some(mut sig) = self.controlled_value.try_read().ok().and_then(|slot| *slot)
-            && *sig.peek() != next_range
-        {
-            sig.set(next_range);
-        }
+        val_binding.try_write_two_way(next_range);
         if let Some(cb) = self.on_value_change.try_read().ok().and_then(|slot| *slot) {
             cb.call(next_range);
         }
@@ -394,17 +485,31 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
         if *self.placeholder.peek() == next {
             return;
         }
-        self.placeholder.set(next);
-        self.state.write().set_placeholder(next);
-        if let Some(mut sig) = self
+        let ph_binding = self
             .controlled_placeholder
             .try_read()
-            .ok()
-            .and_then(|slot| *slot)
-            && *sig.peek() != next
-        {
-            sig.set(next);
+            .map(|slot| *slot)
+            .unwrap_or(ControlledBinding::Uncontrolled);
+        if ph_binding.is_read_only() {
+            if let Some(cb) = self
+                .on_placeholder_change
+                .try_read()
+                .ok()
+                .and_then(|slot| *slot)
+            {
+                cb.call(next);
+            }
+            if let Some(accepted_ph) = ph_binding.peek_cloned()
+                && *self.placeholder.peek() != accepted_ph
+            {
+                self.placeholder.set(accepted_ph);
+                self.state.write().set_placeholder(accepted_ph);
+            }
+            return;
         }
+        self.placeholder.set(next);
+        self.state.write().set_placeholder(next);
+        ph_binding.try_write_two_way(next);
         if let Some(cb) = self
             .on_placeholder_change
             .try_read()

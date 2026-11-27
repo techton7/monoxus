@@ -1,0 +1,33 @@
+[[scenarios]]
+name = "field-initial"
+description = "Verify initial FieldRoot, FieldLabel, FieldDescription, and FieldError wiring"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-field"
+
+[[scenarios.targets]]
+id = "field-root-demo"
+selector = "#field-root-demo"
+part = "root"
+state = "initial"
+
+[[scenarios]]
+name = "field-invalid-toggle"
+description = "Verify dynamic aria-describedby and data-invalid propagation on FieldRoot and FieldSet"
+viewports = ["desktop"]
+
+[[scenarios.actions]]
+kind = "click"
+target = "#nav-link-field"
+
+[[scenarios.actions]]
+kind = "click"
+target = "#field-toggle-invalid"
+
+[[scenarios.targets]]
+id = "field-root-demo"
+selector = "#field-root-demo"
+part = "root"
+state = "invalid"

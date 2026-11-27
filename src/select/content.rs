@@ -217,6 +217,9 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
             spec.attributes,
         );
 
+        let focus_in_rt = ctx.runtime.clone();
+        let focus_out_rt = ctx.runtime.clone();
+
         return rsx! {
             div {
                 id: "{attrs.id()}",
@@ -229,6 +232,8 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
                 "data-side": "{attrs.data_side_str()}",
                 "data-align": "{attrs.data_align_str()}",
                 onkeydown: on_key_down,
+                onfocusin: move |evt| focus_in_rt.notify_composite_focus_in(evt),
+                onfocusout: move |evt| focus_out_rt.notify_composite_focus_out(evt),
                 ..merged.rest,
                 {spec.children}
             }
@@ -305,6 +310,8 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
     );
 
     let mount_runtime = ctx.runtime.clone();
+    let focus_in_rt = ctx.runtime.clone();
+    let focus_out_rt = ctx.runtime.clone();
 
     rsx! {
         div {
@@ -330,6 +337,8 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
                 "data-force-mount": if spec.force_mount { "true" } else { "false" },
                 "data-custom-anchor": spec.custom_anchor.as_deref().unwrap_or(""),
                 onkeydown: on_key_down,
+                onfocusin: move |evt| focus_in_rt.notify_composite_focus_in(evt),
+                onfocusout: move |evt| focus_out_rt.notify_composite_focus_out(evt),
                 onmounted: move |evt: Event<MountedData>| {
                     mount_runtime.capture_content_mount(evt.data());
                 },

@@ -17,14 +17,19 @@ use crate::{
         default_date_field_placeholder,
         runtime::SegmentFieldUiPolicy,
     },
+    field::try_use_field_context,
     foundation::{
-        browser::local_today,
-        compose::{merge_attributes_with_part, merge_global_attributes},
+        browser::{focus::use_composite_focus_out, local_today},
+        compose::{
+            extract_aria_invalid_and_describedby, merge_attributes_with_part,
+            merge_global_attributes, resolve_invalid_and_describedby,
+        },
         date_time::{
             CalendarDate, CalendarLocale, ChronoRange, DateValue, DateValueRange,
             EditableSegmentKind, FieldInvalidEvent, Granularity, HourCycle,
         },
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
+        state::ControlledBinding,
     },
 };
 
@@ -49,12 +54,15 @@ pub(crate) struct RangeFieldRootSpec<P: RangeFieldPolicy + SegmentFieldUiPolicy>
     pub class: Option<String>,
     pub style: Option<String>,
     pub value: Option<Signal<ChronoRange<P::Value>>>,
+    pub controlled_value: Option<ReadSignal<ChronoRange<P::Value>>>,
     pub default_value: ChronoRange<P::Value>,
     pub on_value_change: Option<EventHandler<ChronoRange<P::Value>>>,
     pub on_start_value_change: Option<EventHandler<Option<P::Value>>>,
     pub on_end_value_change: Option<EventHandler<Option<P::Value>>>,
     pub placeholder: Option<Signal<P::Value>>,
+    pub controlled_placeholder: Option<ReadSignal<P::Value>>,
     pub on_placeholder_change: Option<EventHandler<P::Value>>,
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     pub granularity: P::GranularityProp,
     pub hour_cycle: Option<HourCycle>,
     pub locale: CalendarLocale,
@@ -97,12 +105,24 @@ pub(crate) fn use_range_field_runtime<P>(
 where
     P: RangeFieldPolicy + SegmentFieldUiPolicy,
 {
+    let field_ctx = try_use_field_context();
+    let effective_disabled = spec.disabled || field_ctx.is_some_and(|f| f.is_disabled());
+    let effective_read_only = spec.read_only || field_ctx.is_some_and(|f| f.is_read_only());
+    let effective_required = spec.required || field_ctx.is_some_and(|f| f.is_required());
+    let effective_invalid_override = spec
+        .is_invalid_override
+        .or_else(|| field_ctx.map(|f| f.is_invalid()));
+
     let resolved_dir = use_direction_context(spec.dir);
     let stable_id = use_stable_id(spec.id.clone().map(Cow::Owned)).into_owned();
     let scope = use_hook(|| ScopeHandle::root(P::RANGE_SCOPE_PREFIX).child(stable_id.clone()));
     let rels = use_hook(|| RangeFieldRelationships::new(scope.clone()));
 
-    let initial_value = spec.value.map(|s| *s.peek()).unwrap_or(spec.default_value);
+    let value_binding = ControlledBinding::from_props(spec.value, spec.controlled_value);
+    let placeholder_binding =
+        ControlledBinding::from_props(spec.placeholder, spec.controlled_placeholder);
+
+    let initial_value = value_binding.initial_or(spec.default_value);
 
     let def = RangeFieldDefinition::<P>::new()
         .with_locale(spec.locale.clone())
@@ -111,21 +131,22 @@ where
         .with_hide_time_zone(spec.hide_time_zone)
         .with_min_value(spec.min_value)
         .with_max_value(spec.max_value)
-        .with_disabled(spec.disabled)
-        .with_read_only(spec.read_only)
-        .with_required(spec.required)
+        .with_disabled(effective_disabled)
+        .with_read_only(effective_read_only)
+        .with_required(effective_required)
         .with_readonly_segments(spec.readonly_segments.clone())
         .with_error_message_id(spec.error_message_id.clone())
         .with_dir(resolved_dir);
 
     let state = use_signal(|| {
         let mut st = RangeFieldState::<P>::new(def.clone(), initial_value, initial_placeholder);
-        if let Some(inv) = spec.is_invalid_override {
+        if let Some(inv) = effective_invalid_override {
             st.set_external_invalid(inv);
         }
         st
     });
 
+    let root_dom_id = use_signal(|| rels.root_id().to_string());
     let start_value = use_signal(|| initial_value.start);
     let end_value = use_signal(|| initial_value.end);
     let placeholder = use_signal(|| initial_placeholder);
@@ -136,14 +157,14 @@ where
     let start_runtime = use_hook(|| Rc::new(RefCell::new(None)));
     let end_runtime = use_hook(|| Rc::new(RefCell::new(None)));
 
-    let mut default_value = use_hook(|| CopyValue::new(spec.default_value));
-    default_value.set(spec.default_value);
+    // Freeze mount-time reset baseline (`use_hook`) from controlled-or-default.
+    let default_value = use_hook(|| CopyValue::new(initial_value));
 
-    let mut controlled_value = use_hook(|| CopyValue::new(spec.value));
-    controlled_value.set(spec.value);
+    let mut controlled_value = use_hook(|| CopyValue::new(value_binding));
+    controlled_value.set(value_binding);
 
-    let mut controlled_placeholder = use_hook(|| CopyValue::new(spec.placeholder));
-    controlled_placeholder.set(spec.placeholder);
+    let mut controlled_placeholder = use_hook(|| CopyValue::new(placeholder_binding));
+    controlled_placeholder.set(placeholder_binding);
 
     let mut on_value_change = use_hook(|| CopyValue::new(spec.on_value_change));
     on_value_change.set(spec.on_value_change);
@@ -166,9 +187,13 @@ where
     let mut on_invalid = use_hook(|| CopyValue::new(spec.on_invalid));
     on_invalid.set(spec.on_invalid);
 
-    let runtime = RangeFieldRuntime::<P> {
+    let parent_focus_in = use_hook(|| CopyValue::new(None::<EventHandler<FocusEvent>>));
+    let parent_focus_out = use_hook(|| CopyValue::new(None::<EventHandler<FocusEvent>>));
+
+    let mut runtime = RangeFieldRuntime::<P> {
         state,
         rels,
+        root_dom_id,
         start_value,
         end_value,
         placeholder,
@@ -187,7 +212,36 @@ where
         is_date_unavailable,
         validate,
         on_invalid,
+        parent_focus_in,
+        parent_focus_out,
     };
+
+    // Synchronous render-time reconciliation for external controlled signals & invalid override.
+    {
+        let ext_val_now = value_binding.read_cloned();
+        let ext_ph_now = placeholder_binding.read_cloned();
+        let ext_inv_now = effective_invalid_override.unwrap_or(false);
+        if let Some(val) = ext_val_now
+            && runtime.state.peek().value() != val
+        {
+            runtime.state.write().set_value(val);
+            if *runtime.start_value.peek() != val.start {
+                runtime.start_value.set(val.start);
+            }
+            if *runtime.end_value.peek() != val.end {
+                runtime.end_value.set(val.end);
+            }
+        }
+        if let Some(ph) = ext_ph_now
+            && *runtime.placeholder.peek() != ph
+        {
+            runtime.placeholder.set(ph);
+            runtime.state.write().set_placeholder(ph);
+        }
+        if runtime.state.peek().external_invalid() != ext_inv_now {
+            runtime.state.write().set_external_invalid(ext_inv_now);
+        }
+    }
 
     let mut predicate_rev = use_signal(|| 0_u64);
     let has_pred = spec.is_date_unavailable.is_some() || spec.validate.is_some();
@@ -222,14 +276,15 @@ where
         },
     ));
 
+    let eff_inv_bool = effective_invalid_override.unwrap_or(false);
     use_effect(use_reactive(
-        (&spec.value, &spec.placeholder, &spec.is_invalid_override),
+        (&value_binding, &placeholder_binding, &eff_inv_bool),
         {
             let mut rt = runtime.clone();
-            move |(value_sig, placeholder_sig, inv_override)| {
-                let ext_val = value_sig.map(|s| *s.read());
-                let ext_ph = placeholder_sig.map(|s| *s.read());
-                rt.reconcile_external_state(ext_val, ext_ph, inv_override);
+            move |(val_bind, ph_bind, inv_override)| {
+                let ext_val = val_bind.read_cloned();
+                let ext_ph = ph_bind.read_cloned();
+                rt.reconcile_external_state(ext_val, ext_ph, Some(inv_override));
             }
         },
     ));
@@ -248,7 +303,27 @@ where
     P: RangeFieldPolicy + SegmentFieldUiPolicy,
     F: FnOnce(RangeFieldRootView) -> Option<Element>,
 {
-    let attrs = runtime.root_attrs(spec.id.clone());
+    let field_ctx = try_use_field_context();
+    let extracted = extract_aria_invalid_and_describedby(spec.attributes);
+    let raw_attrs = runtime.root_attrs(spec.id.clone());
+    runtime.set_root_dom_id(raw_attrs.id.clone());
+
+    let field_describedby = field_ctx.and_then(|f| f.aria_describedby(None));
+    let (effective_invalid, effective_describedby) = resolve_invalid_and_describedby(
+        None,
+        extracted.aria_invalid,
+        Some(raw_attrs.data_invalid.is_some()),
+        false,
+        None,
+        extracted.aria_describedby.as_deref(),
+        field_describedby.as_deref(),
+    );
+    let attrs = raw_attrs
+        .with_invalid(effective_invalid)
+        .with_aria_describedby(effective_describedby);
+
+    let (handle_focus_in, handle_focus_out) =
+        use_composite_focus_out(vec![attrs.id.clone()], spec.on_focus_out);
 
     if spec.as_child {
         let view = RangeFieldRootView {
@@ -256,7 +331,7 @@ where
             class: spec.class.clone(),
             style: spec.style.clone(),
             on_mounted: spec.on_mounted,
-            attributes: spec.attributes.clone(),
+            attributes: extracted.rest.clone(),
             children: spec.children.clone(),
         };
         if let Some(el) = render_as_child(view) {
@@ -269,13 +344,15 @@ where
         );
     }
 
-    let attrs_with_part = merge_attributes_with_part(spec.attributes, P::RANGE_ROOT_DATA_ATTR);
+    let attrs_with_part = merge_attributes_with_part(extracted.rest, P::RANGE_ROOT_DATA_ATTR);
     let merged = merge_global_attributes(
         spec.class.as_deref(),
         spec.style.as_deref(),
         attrs_with_part,
     );
     let on_mounted = spec.on_mounted;
+    let parent_fi_rt = runtime.clone();
+    let parent_fo_rt = runtime;
 
     rsx! {
         div {
@@ -284,9 +361,19 @@ where
             style: merged.style.as_deref(),
             role: attrs.role,
             "aria-labelledby": "{attrs.aria_labelledby}",
+            "aria-describedby": attrs.aria_describedby,
+            "aria-invalid": attrs.aria_invalid,
             dir: attrs.dir,
             "data-invalid": attrs.data_invalid,
             "data-disabled": attrs.data_disabled,
+            onfocusin: move |evt| {
+                handle_focus_in.call(evt.clone());
+                parent_fi_rt.notify_parent_focus_in(evt);
+            },
+            onfocusout: move |evt| {
+                handle_focus_out.call(evt.clone());
+                parent_fo_rt.notify_parent_focus_out(evt);
+            },
             onmounted: move |evt| {
                 if let Some(handler) = on_mounted {
                     handler.call(evt);
@@ -368,15 +455,18 @@ where
 
     let root_spec = SegmentFieldRootSpec::<P> {
         id: Some(part_scope_id),
-        value: Some(part_value_sig),
+        value: None,
+        controlled_value: Some(part_value_sig.into()),
         default_value: part_default_value,
         on_value_change: Some(EventHandler::new(move |next| {
             rt_for_change.update_part_value(kind, next);
         })),
-        placeholder: Some(range_rt.placeholder),
+        placeholder: None,
+        controlled_placeholder: Some(range_rt.placeholder.into()),
         on_placeholder_change: Some(EventHandler::new(move |ph| {
             rt_for_ph.update_placeholder(ph);
         })),
+        on_focus_out: None,
         granularity: def.granularity,
         hour_cycle: def.hour_cycle,
         locale: def.locale,
@@ -434,6 +524,7 @@ where
             form: spec.form,
             as_child: spec.as_child,
             render_children: spec.render_children,
+            on_focus_out: None,
             on_mounted: spec.on_mounted,
             attributes: spec.attributes,
             children: spec.children,
@@ -595,6 +686,8 @@ pub struct DateRangeFieldRootProps {
     #[props(default)]
     pub value: Option<Signal<DateValueRange>>,
     #[props(default)]
+    pub controlled_value: Option<ReadSignal<DateValueRange>>,
+    #[props(default)]
     pub default_value: DateValueRange,
     #[props(default)]
     pub on_value_change: Option<EventHandler<DateValueRange>>,
@@ -605,9 +698,13 @@ pub struct DateRangeFieldRootProps {
     #[props(default)]
     pub placeholder: Option<Signal<DateValue>>,
     #[props(default)]
+    pub controlled_placeholder: Option<ReadSignal<DateValue>>,
+    #[props(default)]
     pub default_placeholder: Option<DateValue>,
     #[props(default)]
     pub on_placeholder_change: Option<EventHandler<DateValue>>,
+    #[props(default)]
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub granularity: Option<Granularity>,
     #[props(default)]
@@ -656,13 +753,12 @@ pub struct DateRangeFieldRootProps {
 #[component]
 pub fn DateRangeFieldRoot(props: DateRangeFieldRootProps) -> Element {
     let today = use_hook(local_today);
-    let initial_value = props
-        .value
-        .map(|s| *s.peek())
-        .unwrap_or(props.default_value);
-    let initial_placeholder = props
-        .placeholder
-        .map(|s| *s.peek())
+    let value_binding = ControlledBinding::from_props(props.value, props.controlled_value);
+    let placeholder_binding =
+        ControlledBinding::from_props(props.placeholder, props.controlled_placeholder);
+    let initial_value = value_binding.initial_or(props.default_value);
+    let initial_placeholder = placeholder_binding
+        .peek_cloned()
         .or(props.default_placeholder)
         .unwrap_or_else(|| {
             default_date_field_placeholder(
@@ -681,12 +777,15 @@ pub fn DateRangeFieldRoot(props: DateRangeFieldRootProps) -> Element {
             class: props.class,
             style: props.style,
             value: props.value,
+            controlled_value: props.controlled_value,
             default_value: props.default_value,
             on_value_change: props.on_value_change,
             on_start_value_change: props.on_start_value_change,
             on_end_value_change: props.on_end_value_change,
             placeholder: props.placeholder,
+            controlled_placeholder: props.controlled_placeholder,
             on_placeholder_change: props.on_placeholder_change,
+            on_focus_out: props.on_focus_out,
             granularity: props.granularity,
             hour_cycle: props.hour_cycle,
             locale: props.locale,

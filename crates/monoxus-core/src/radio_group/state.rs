@@ -220,10 +220,13 @@ impl RadioGroup {
             aria_required: if self.required { Some("true") } else { None },
             aria_disabled: if self.disabled { Some("true") } else { None },
             aria_readonly: if self.read_only { Some("true") } else { None },
+            aria_invalid: None,
+            aria_describedby: None,
             data_orientation: orientation_str,
             data_disabled: data_disabled_attr(self.disabled),
             data_required: if self.required { Some("") } else { None },
             data_readonly: if self.read_only { Some("") } else { None },
+            data_invalid: None,
             data_radio_group_root: "",
         }
     }
@@ -253,6 +256,7 @@ impl RadioGroup {
             },
             data_disabled: data_disabled_attr(effective_disabled),
             data_readonly: if self.read_only { Some("") } else { None },
+            data_invalid: None,
             data_orientation: orientation_str,
             data_value: value.to_string(),
             data_radio_group_item: "",

@@ -63,6 +63,7 @@ mod date_range_field_test;
 mod date_range_picker_test;
 mod disclosure_dimensions_test;
 mod dropdown_menu_test;
+mod field_test;
 mod form_hidden_input_test;
 mod foundation_phase_2_4_handoff;
 mod foundation_phase_3_7_handoff;
@@ -134,6 +135,7 @@ fn all_test_files_are_included() {
         "date_range_picker_test.rs",
         "disclosure_dimensions_test.rs",
         "dropdown_menu_test.rs",
+        "field_test.rs",
         "form_hidden_input_test.rs",
         "foundation_phase_2_4_handoff.rs",
         "foundation_phase_3_7_handoff.rs",
@@ -253,6 +255,7 @@ fn all_primitives_have_gui_test_manifests() {
         "date_range_picker",
         "dialog",
         "dropdown_menu",
+        "field",
         "hover_card",
         "label",
         "menubar",
@@ -284,8 +287,8 @@ fn all_primitives_have_gui_test_manifests() {
     let expected_primitives: BTreeSet<_> = PRIMITIVES.iter().map(PathBuf::from).collect();
     assert_eq!(
         expected_primitives.len(),
-        44,
-        "the primitive coverage guard must enumerate all 44 standalone primitives"
+        45,
+        "the primitive coverage guard must enumerate all 45 standalone primitives"
     );
 
     let src_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");

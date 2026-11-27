@@ -1,5 +1,5 @@
 use crate::foundation::{
-    shared::data_disabled_attr,
+    shared::{data_disabled_attr, data_invalid_attr},
     state::DataState,
 };
 
@@ -10,6 +10,8 @@ pub struct Toggle {
     id: Option<String>,
     pressed: bool,
     disabled: bool,
+    invalid: bool,
+    aria_describedby: Option<String>,
     button_type: ButtonType,
 }
 
@@ -25,6 +27,8 @@ impl Toggle {
             id: None,
             pressed: false,
             disabled: false,
+            invalid: false,
+            aria_describedby: None,
             button_type: ButtonType::Button,
         }
     }
@@ -41,6 +45,16 @@ impl Toggle {
 
     pub const fn with_disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    pub const fn with_invalid(mut self, invalid: bool) -> Self {
+        self.invalid = invalid;
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, describedby: Option<String>) -> Self {
+        self.aria_describedby = describedby.filter(|s| !s.trim().is_empty());
         self
     }
 
@@ -61,6 +75,14 @@ impl Toggle {
         self.disabled
     }
 
+    pub const fn is_invalid(&self) -> bool {
+        self.invalid
+    }
+
+    pub fn aria_describedby(&self) -> Option<&str> {
+        self.aria_describedby.as_deref()
+    }
+
     pub const fn button_type(&self) -> ButtonType {
         self.button_type
     }
@@ -76,12 +98,15 @@ impl Toggle {
             id: self.id.clone(),
             r#type: self.button_type.as_str(),
             aria_pressed: if self.pressed { "true" } else { "false" },
+            aria_invalid: self.invalid.then_some("true"),
+            aria_describedby: self.aria_describedby.clone(),
             data_state: if self.pressed {
                 DataState::On
             } else {
                 DataState::Off
             },
             data_disabled: data_disabled_attr(self.disabled),
+            data_invalid: data_invalid_attr(self.invalid),
             data_toggle_root: "",
             disabled: self.disabled,
         }
@@ -93,13 +118,27 @@ pub struct ToggleAttributes {
     pub id: Option<String>,
     pub r#type: &'static str,
     pub aria_pressed: &'static str,
+    pub aria_invalid: Option<&'static str>,
+    pub aria_describedby: Option<String>,
     pub data_state: DataState,
     pub data_disabled: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_toggle_root: &'static str,
     pub disabled: bool,
 }
 
 impl ToggleAttributes {
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.aria_invalid = invalid.then_some("true");
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, describedby: Option<String>) -> Self {
+        self.aria_describedby = describedby.filter(|s| !s.trim().is_empty());
+        self
+    }
+
     pub fn id(&self) -> Option<&str> {
         self.id.as_deref()
     }
@@ -112,6 +151,14 @@ impl ToggleAttributes {
         self.aria_pressed
     }
 
+    pub const fn aria_invalid(&self) -> Option<&'static str> {
+        self.aria_invalid
+    }
+
+    pub fn aria_describedby(&self) -> Option<&str> {
+        self.aria_describedby.as_deref()
+    }
+
     pub fn data_state(&self) -> DataState {
         self.data_state.clone()
     }
@@ -122,6 +169,10 @@ impl ToggleAttributes {
 
     pub const fn data_disabled(&self) -> Option<&'static str> {
         self.data_disabled
+    }
+
+    pub const fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
     }
 
     pub const fn data_toggle_root(&self) -> &'static str {

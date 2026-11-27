@@ -1,6 +1,4 @@
-use crate::foundation::{
-    shared::data_disabled_attr,
-};
+use crate::foundation::shared::{data_disabled_attr, data_invalid_attr};
 
 use super::{
     state::{format_default_aria_valuetext, normalize_rating_zero},
@@ -28,11 +26,14 @@ pub struct RatingGroupRootAttributes {
     pub aria_orientation: &'static str,
     pub aria_required: &'static str,
     pub aria_disabled: Option<&'static str>,
+    pub aria_invalid: Option<&'static str>,
+    pub aria_describedby: Option<String>,
     pub aria_label: Option<String>,
     pub aria_labelledby: Option<String>,
     pub data_orientation: &'static str,
     pub data_disabled: Option<&'static str>,
     pub data_readonly: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_rating_group_root: &'static str,
 }
 
@@ -75,13 +76,27 @@ impl RatingGroupRootAttributes {
             aria_orientation: data_orientation,
             aria_required: if required { "true" } else { "false" },
             aria_disabled: if disabled { Some("true") } else { None },
+            aria_invalid: None,
+            aria_describedby: None,
             aria_label: resolved_aria_label,
             aria_labelledby,
             data_orientation,
             data_disabled: data_disabled_attr(disabled),
             data_readonly: data_disabled_attr(read_only),
+            data_invalid: None,
             data_rating_group_root: "",
         }
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.aria_invalid = invalid.then_some("true");
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, aria_describedby: Option<String>) -> Self {
+        self.aria_describedby = aria_describedby;
+        self
     }
 }
 
@@ -94,6 +109,7 @@ pub struct RatingGroupItemAttributes {
     pub data_orientation: &'static str,
     pub data_disabled: Option<&'static str>,
     pub data_readonly: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_state: RatingGroupItemState,
     pub data_rating_group_item: &'static str,
 }
@@ -114,9 +130,15 @@ impl RatingGroupItemAttributes {
             data_orientation: orientation_str(orientation),
             data_disabled: data_disabled_attr(disabled),
             data_readonly: data_disabled_attr(read_only),
+            data_invalid: None,
             data_state: state,
             data_rating_group_item: "",
         }
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.data_invalid = data_invalid_attr(invalid);
+        self
     }
 }
 

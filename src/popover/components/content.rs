@@ -111,6 +111,8 @@ pub(crate) struct PopoverContentSurfaceSpec {
     pub on_close_auto_focus: Option<EventHandler<CloseAutoFocusEvent>>,
     pub on_escape_key_down: Option<EventHandler<EscapeKeyDownEvent>>,
     pub on_interact_outside: Option<EventHandler<InteractOutsideEvent>>,
+    pub on_focus_in: Option<EventHandler<FocusEvent>>,
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     pub extra_data_attr: Option<&'static str>,
     pub as_child: bool,
     pub attributes: Vec<Attribute>,
@@ -154,6 +156,11 @@ where
     let runtime = ctx.runtime.read().clone();
     let should_render = spec.force_mount || runtime.should_render_content();
     let is_open = runtime.is_open();
+
+    let mut focus_in_slot = use_hook(|| CopyValue::new(spec.on_focus_in));
+    focus_in_slot.set(spec.on_focus_in);
+    let mut focus_out_slot = use_hook(|| CopyValue::new(spec.on_focus_out));
+    focus_out_slot.set(spec.on_focus_out);
 
     if spec.floating {
         runtime.set_content_placement_overrides(
@@ -370,6 +377,16 @@ where
             onmounted: move |evt| mount_cb(evt),
             onkeydown: move |evt| keydown_cb(evt),
             onclick: move |evt: MouseEvent| evt.stop_propagation(),
+            onfocusin: move |evt: FocusEvent| {
+                if let Some(handler) = focus_in_slot.try_read().ok().and_then(|s| *s) {
+                    handler.call(evt);
+                }
+            },
+            onfocusout: move |evt: FocusEvent| {
+                if let Some(handler) = focus_out_slot.try_read().ok().and_then(|s| *s) {
+                    handler.call(evt);
+                }
+            },
             ..merged.rest,
             {spec.children}
         }
@@ -413,6 +430,8 @@ pub fn PopoverContent(props: PopoverContentProps) -> Element {
             on_close_auto_focus: props.on_close_auto_focus,
             on_escape_key_down: props.on_escape_key_down,
             on_interact_outside: props.on_interact_outside,
+            on_focus_in: None,
+            on_focus_out: None,
             extra_data_attr: None,
             as_child: props.as_child,
             attributes: props.attributes,

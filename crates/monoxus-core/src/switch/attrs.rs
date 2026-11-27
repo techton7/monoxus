@@ -1,5 +1,5 @@
 use crate::foundation::{
-    shared::data_disabled_attr,
+    shared::{data_disabled_attr, data_invalid_attr},
     state::DataState,
 };
 
@@ -48,10 +48,13 @@ pub struct SwitchRootAttributes {
     pub aria_checked: &'static str,
     pub aria_required: Option<&'static str>,
     pub aria_readonly: Option<&'static str>,
+    pub aria_invalid: Option<&'static str>,
+    pub aria_describedby: Option<String>,
     pub data_state: DataState,
     pub data_disabled: Option<&'static str>,
     pub data_required: Option<&'static str>,
     pub data_readonly: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_switch_root: &'static str,
     pub disabled: bool,
 }
@@ -72,6 +75,8 @@ impl SwitchRootAttributes {
             aria_checked: if checked { "true" } else { "false" },
             aria_required: aria_required_attr(required),
             aria_readonly: aria_readonly_attr(read_only, disabled),
+            aria_invalid: None,
+            aria_describedby: None,
             data_state: if checked {
                 DataState::Checked
             } else {
@@ -80,9 +85,21 @@ impl SwitchRootAttributes {
             data_disabled: data_disabled_attr(disabled),
             data_required: data_required_attr(required),
             data_readonly: data_readonly_attr(read_only, disabled),
+            data_invalid: None,
             data_switch_root: "",
             disabled,
         }
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.aria_invalid = invalid.then_some("true");
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, describedby: Option<String>) -> Self {
+        self.aria_describedby = describedby.filter(|s| !s.trim().is_empty());
+        self
     }
 
     pub fn data_state_str(&self) -> &'static str {
@@ -101,6 +118,7 @@ pub struct SwitchThumbAttributes {
     pub data_disabled: Option<&'static str>,
     pub data_required: Option<&'static str>,
     pub data_readonly: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_switch_thumb: &'static str,
 }
 
@@ -122,8 +140,14 @@ impl SwitchThumbAttributes {
             data_disabled: data_disabled_attr(disabled),
             data_required: data_required_attr(required),
             data_readonly: data_readonly_attr(read_only, disabled),
+            data_invalid: None,
             data_switch_thumb: "",
         }
+    }
+
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.data_invalid = data_invalid_attr(invalid);
+        self
     }
 
     pub fn data_state_str(&self) -> &'static str {

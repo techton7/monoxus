@@ -1,9 +1,15 @@
 use std::borrow::Cow;
 
+use dioxus::core::AttributeValue;
 use dioxus::prelude::*;
 
+use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
-    compose::merge_global_attributes,
+    browser::focus::use_composite_focus_out,
+    compose::{
+        extract_aria_invalid_and_describedby, merge_global_attributes,
+        resolve_invalid_and_describedby,
+    },
     shared::{ScopeHandle, use_stable_id},
 };
 
@@ -13,6 +19,37 @@ use super::{
     state::Select,
     types::{SelectContext, SelectItemData, SelectMode},
 };
+
+fn extract_aria_labelledby(attrs: Vec<Attribute>) -> (Option<String>, Vec<Attribute>) {
+    let has_target = attrs
+        .iter()
+        .any(|attr| attr.namespace.is_none() && attr.name == "aria-labelledby");
+    if !has_target {
+        return (None, attrs);
+    }
+    let mut found: Option<String> = None;
+    let mut rest = Vec::with_capacity(attrs.len());
+    for attr in attrs {
+        if attr.namespace.is_none() && attr.name == "aria-labelledby" {
+            match attr.value {
+                AttributeValue::Text(text) => {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        found = Some(trimmed.to_owned());
+                    }
+                }
+                AttributeValue::None => {}
+                other => rest.push(Attribute {
+                    value: other,
+                    ..attr
+                }),
+            }
+        } else {
+            rest.push(attr);
+        }
+    }
+    (found, rest)
+}
 
 #[derive(Clone, PartialEq, Props)]
 pub struct SelectRootProps {
@@ -46,12 +83,16 @@ pub struct SelectRootProps {
     pub on_open_change: Option<EventHandler<bool>>,
     #[props(default)]
     pub on_open_change_complete: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub on_focus_out: Option<EventHandler<FocusEvent>>,
     #[props(default = false)]
     pub allow_deselect: bool,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default = false)]
     pub required: bool,
+    #[props(default)]
+    pub invalid: Option<bool>,
     #[props(default)]
     pub name: Option<String>,
     #[props(default)]
@@ -87,9 +128,11 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
         on_values_change,
         on_open_change,
         on_open_change_complete,
+        on_focus_out,
         allow_deselect,
         disabled,
         required,
+        invalid,
         name,
         form,
         autocomplete,
@@ -99,21 +142,32 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
         attributes,
         children,
     } = props;
-    let fallback_scope_id = use_stable_id(id.clone().map(Cow::Owned));
-    let fallback_val = value.clone().or(default_value.clone());
-    let fallback_vals = values
-        .clone()
-        .or(default_values.clone())
-        .unwrap_or_default();
 
-    let mut fallback_select =
-        Select::new(ScopeHandle::root("select").child(fallback_scope_id))
+    let field_ctx = try_use_field_context();
+    let effective_name = name.clone().or_else(|| field_ctx.and_then(|f| f.name()));
+    let effective_disabled = disabled || field_ctx.is_some_and(|f| f.is_disabled());
+    let effective_required = required || field_ctx.is_some_and(|f| f.is_required());
+
+    let extracted_root = extract_aria_invalid_and_describedby(attributes);
+    let root_invalid_override = invalid.or(extracted_root.aria_invalid);
+    let effective_root_invalid = root_invalid_override
+        .or_else(|| field_ctx.map(|f| f.is_invalid()))
+        .unwrap_or(false);
+
+    let fallback_scope_id = use_stable_id(id.clone().map(Cow::Owned));
+    let is_value_controlled = value.is_some();
+    let is_values_controlled = values.is_some();
+    let fallback_val = value.clone().or(default_value.clone());
+
+    let mut fallback_select = Select::new(ScopeHandle::root("select").child(fallback_scope_id))
+        .with_value_controlled(is_value_controlled)
+        .with_values_controlled(is_values_controlled)
         .with_value(fallback_val)
         .with_default_value(default_value)
         .with_open(open)
         .with_allow_deselect(allow_deselect)
-        .with_disabled(disabled)
-        .with_required(required)
+        .with_disabled(effective_disabled)
+        .with_required(effective_required)
         .with_loop(loop_selection);
 
     if let Some(m) = mode {
@@ -122,13 +176,13 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
         fallback_select = fallback_select.with_multiple(true);
     }
 
-    if !fallback_vals.is_empty() {
-        fallback_select = fallback_select.with_values(fallback_vals.clone());
+    if let Some(vals) = values.clone() {
+        fallback_select = fallback_select.with_values(vals);
     }
     if let Some(dvals) = default_values {
         fallback_select = fallback_select.with_default_values(dvals);
     }
-    if let Some(n) = name.clone() {
+    if let Some(n) = effective_name.clone() {
         fallback_select = fallback_select.with_name(n);
     }
     if let Some(f) = form.clone() {
@@ -155,19 +209,30 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
     );
 
     let runtime = runtime.unwrap_or(default_runtime);
+    runtime.set_root_invalid_override(root_invalid_override);
+    runtime.set_invalid(effective_root_invalid);
+
+    let (handle_focus_in, handle_focus_out) = use_composite_focus_out(
+        vec![
+            runtime.current_trigger_id(),
+            runtime.relationships().content_id().to_owned(),
+        ],
+        on_focus_out,
+    );
+    runtime.set_composite_focus_handlers(Some(handle_focus_in), Some(handle_focus_out));
 
     use_context_provider(|| SelectContext {
         runtime: runtime.clone(),
-        name: name.clone(),
+        name: effective_name.clone(),
     });
 
     let attrs = runtime.root_attributes();
     let resolved_dir = crate::foundation::shared::use_direction_context(dir);
-    let eff_req = runtime.select().is_required() || required;
+    let eff_req = runtime.select().is_required() || effective_required;
     let eff_form = form.or_else(|| runtime.select().form().map(str::to_owned));
     let eff_auto = autocomplete.or_else(|| runtime.select().autocomplete().map(str::to_owned));
 
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), extracted_root.rest);
 
     rsx! {
         div {
@@ -177,18 +242,21 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
             dir: "{resolved_dir.as_str()}",
             "data-state": "{attrs.data_state_str()}",
             "data-disabled": attrs.data_disabled(),
+            "data-invalid": attrs.data_invalid(),
+            onfocusin: handle_focus_in,
+            onfocusout: handle_focus_out,
             ..merged.rest,
             {children}
-            if let Some(input_name) = name.or_else(|| runtime.select().name().map(str::to_owned)) {
+            if let Some(input_name) = effective_name.or_else(|| runtime.select().name().map(str::to_owned)) {
                 SelectHiddenInput {
                     name: input_name,
                     value: runtime.value(),
                     values: if runtime.select().is_multiple() { Some(runtime.values()) } else { None },
-                    disabled: runtime.is_disabled() || disabled,
+                    disabled: runtime.is_disabled() || effective_disabled,
                     required: eff_req,
                     form: eff_form,
                     autocomplete: eff_auto,
-                    focus_target_id: Some(runtime.relationships().trigger_id().to_owned()),
+                    focus_target_id: Some(runtime.current_trigger_id()),
                     reset_epoch: runtime.reset_epoch(),
                 }
             }
@@ -198,6 +266,18 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
 
 #[derive(Clone, PartialEq, Props)]
 pub struct SelectTriggerProps {
+    #[props(default)]
+    pub id: Option<String>,
+    #[props(default)]
+    pub invalid: Option<bool>,
+    #[props(default)]
+    pub aria_describedby: Option<String>,
+    #[props(default)]
+    pub aria_labelledby: Option<String>,
+    #[props(default)]
+    pub on_blur: Option<EventHandler<FocusEvent>>,
+    #[props(default)]
+    pub on_focus: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub class: Option<String>,
     #[props(default)]
@@ -210,14 +290,109 @@ pub struct SelectTriggerProps {
 #[component]
 pub fn SelectTrigger(props: SelectTriggerProps) -> Element {
     let SelectTriggerProps {
+        id,
+        invalid,
+        aria_describedby,
+        aria_labelledby,
+        on_blur,
+        on_focus,
         class,
         style,
         attributes,
         children,
     } = props;
     let ctx = use_context::<SelectContext>();
-    let attrs = ctx.runtime.trigger_attributes();
-    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), attributes);
+    let field_ctx = try_use_field_context();
+    let control_ctx = try_use_field_control_context();
+
+    let explicit_id = id.filter(|s| !s.trim().is_empty());
+    let resolved_trigger_id = if let Some(ref explicit) = explicit_id {
+        if let Some(ctrl_ctx) = control_ctx {
+            if !ctrl_ctx.is_explicit_id_locked() {
+                ctrl_ctx.sync_control_id(explicit.clone());
+            }
+        } else if let Some(f_ctx) = field_ctx
+            && !f_ctx.is_fieldset()
+        {
+            f_ctx.set_primary_control_id(Some(explicit.clone()));
+        }
+        explicit.clone()
+    } else if let Some(ctrl_ctx) = control_ctx {
+        ctrl_ctx.control_id()
+    } else if let Some(f_ctx) = field_ctx
+        && !f_ctx.is_fieldset()
+    {
+        f_ctx.resolved_control_id()
+    } else {
+        ctx.runtime.relationships().trigger_id().to_owned()
+    };
+
+    ctx.runtime.set_trigger_id(resolved_trigger_id.clone());
+    let mut owned_trigger_id = use_hook(|| CopyValue::new(resolved_trigger_id.clone()));
+    if owned_trigger_id
+        .try_read()
+        .is_ok_and(|cur| *cur != resolved_trigger_id)
+    {
+        owned_trigger_id.set(resolved_trigger_id.clone());
+    }
+    let drop_runtime = ctx.runtime.clone();
+    use_drop(move || {
+        let default_id = drop_runtime.relationships().trigger_id().to_owned();
+        if let Ok(owned) = owned_trigger_id.try_read()
+            && drop_runtime
+                .state
+                .trigger_id
+                .try_peek()
+                .is_ok_and(|cur| *cur == *owned)
+        {
+            drop_runtime.set_trigger_id(default_id);
+        }
+    });
+
+    let extracted = extract_aria_invalid_and_describedby(attributes);
+    let (attr_labelledby, rest_attrs) = extract_aria_labelledby(extracted.rest);
+
+    let field_describedby = field_ctx.and_then(|f| f.aria_describedby(None));
+    let field_labelledby = if let Some(ctrl_ctx) = control_ctx {
+        ctrl_ctx.mounted_label_id().or_else(|| {
+            field_ctx
+                .filter(|f| !f.is_fieldset())
+                .and_then(|f| f.aria_labelledby())
+        })
+    } else {
+        field_ctx.and_then(|f| f.aria_labelledby())
+    };
+
+    let fallback_invalid = ctx
+        .runtime
+        .root_invalid_override()
+        .or_else(|| field_ctx.map(|f| f.is_invalid()));
+    let (effective_invalid, effective_describedby) = resolve_invalid_and_describedby(
+        invalid,
+        extracted.aria_invalid,
+        fallback_invalid,
+        false,
+        aria_describedby.as_deref(),
+        extracted.aria_describedby.as_deref(),
+        field_describedby.as_deref(),
+    );
+    let effective_labelledby = aria_labelledby
+        .filter(|s| !s.trim().is_empty())
+        .or(attr_labelledby)
+        .or(field_labelledby);
+
+    let mut on_blur_slot = use_hook(|| CopyValue::new(on_blur));
+    on_blur_slot.set(on_blur);
+    let mut on_focus_slot = use_hook(|| CopyValue::new(on_focus));
+    on_focus_slot.set(on_focus);
+
+    let attrs = ctx
+        .runtime
+        .trigger_attributes()
+        .with_invalid(effective_invalid)
+        .with_aria_describedby(effective_describedby)
+        .with_aria_labelledby(effective_labelledby);
+    let merged = merge_global_attributes(class.as_deref(), style.as_deref(), rest_attrs);
 
     rsx! {
         button {
@@ -229,12 +404,16 @@ pub fn SelectTrigger(props: SelectTriggerProps) -> Element {
             aria_controls: attrs.aria_controls(),
             aria_disabled: attrs.aria_disabled(),
             aria_required: attrs.aria_required(),
+            aria_invalid: attrs.aria_invalid(),
+            aria_describedby: attrs.aria_describedby(),
+            aria_labelledby: attrs.aria_labelledby(),
             tabindex: "{attrs.tabindex()}",
             disabled: attrs.is_disabled(),
             class: merged.class.as_deref(),
             style: merged.style.as_deref(),
             "data-state": "{attrs.data_state_str()}",
             "data-disabled": attrs.data_disabled(),
+            "data-invalid": attrs.data_invalid(),
             "data-placeholder": attrs.data_placeholder_str(),
             onpointerdown: {
                 let runtime = ctx.runtime.clone();
@@ -255,6 +434,16 @@ pub fn SelectTrigger(props: SelectTriggerProps) -> Element {
                 let runtime = ctx.runtime.clone();
                 move |evt| {
                     runtime.handle_trigger_keydown(&evt);
+                }
+            },
+            onfocus: move |evt| {
+                if let Some(handler) = on_focus_slot.try_read().ok().and_then(|s| *s) {
+                    handler.call(evt);
+                }
+            },
+            onblur: move |evt| {
+                if let Some(handler) = on_blur_slot.try_read().ok().and_then(|s| *s) {
+                    handler.call(evt);
                 }
             },
             onmounted: {

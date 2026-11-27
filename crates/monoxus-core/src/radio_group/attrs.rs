@@ -1,4 +1,5 @@
 use crate::foundation::{
+    shared::data_invalid_attr,
     state::DataState,
 };
 
@@ -11,14 +12,28 @@ pub struct RadioGroupRootAttributes {
     pub aria_required: Option<&'static str>,
     pub aria_disabled: Option<&'static str>,
     pub aria_readonly: Option<&'static str>,
+    pub aria_invalid: Option<&'static str>,
+    pub aria_describedby: Option<String>,
     pub data_orientation: Option<&'static str>,
     pub data_disabled: Option<&'static str>,
     pub data_required: Option<&'static str>,
     pub data_readonly: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_radio_group_root: &'static str,
 }
 
 impl RadioGroupRootAttributes {
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.aria_invalid = invalid.then_some("true");
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, describedby: Option<String>) -> Self {
+        self.aria_describedby = describedby.filter(|s| !s.trim().is_empty());
+        self
+    }
+
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -47,6 +62,14 @@ impl RadioGroupRootAttributes {
         self.aria_readonly
     }
 
+    pub fn aria_invalid(&self) -> Option<&'static str> {
+        self.aria_invalid
+    }
+
+    pub fn aria_describedby(&self) -> Option<&str> {
+        self.aria_describedby.as_deref()
+    }
+
     pub fn data_orientation(&self) -> Option<&'static str> {
         self.data_orientation
     }
@@ -61,6 +84,10 @@ impl RadioGroupRootAttributes {
 
     pub fn data_readonly(&self) -> Option<&'static str> {
         self.data_readonly
+    }
+
+    pub fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
     }
 
     pub fn data_radio_group_root(&self) -> &'static str {
@@ -78,12 +105,18 @@ pub struct RadioGroupItemAttributes {
     pub data_state: DataState,
     pub data_disabled: Option<&'static str>,
     pub data_readonly: Option<&'static str>,
+    pub data_invalid: Option<&'static str>,
     pub data_orientation: Option<&'static str>,
     pub data_value: String,
     pub data_radio_group_item: &'static str,
 }
 
 impl RadioGroupItemAttributes {
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.data_invalid = data_invalid_attr(invalid);
+        self
+    }
+
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -118,6 +151,10 @@ impl RadioGroupItemAttributes {
 
     pub fn data_readonly(&self) -> Option<&'static str> {
         self.data_readonly
+    }
+
+    pub fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
     }
 
     pub fn data_orientation(&self) -> Option<&'static str> {
@@ -193,10 +230,13 @@ mod tests {
             aria_required: None,
             aria_disabled: None,
             aria_readonly: None,
+            aria_invalid: None,
+            aria_describedby: None,
             data_orientation: None,
             data_disabled: None,
             data_required: None,
             data_readonly: None,
+            data_invalid: None,
             data_radio_group_root: "",
         };
 
@@ -209,7 +249,17 @@ mod tests {
         assert_eq!(attrs.data_disabled(), None);
         assert_eq!(attrs.aria_readonly(), None);
         assert_eq!(attrs.data_readonly(), None);
+        assert_eq!(attrs.aria_invalid(), None);
+        assert_eq!(attrs.aria_describedby(), None);
+        assert_eq!(attrs.data_invalid(), None);
         assert_eq!(attrs.data_radio_group_root(), "");
+
+        let invalid_attrs = attrs
+            .with_invalid(true)
+            .with_aria_describedby(Some("desc-1 err-1".to_string()));
+        assert_eq!(invalid_attrs.aria_invalid(), Some("true"));
+        assert_eq!(invalid_attrs.data_invalid(), Some(""));
+        assert_eq!(invalid_attrs.aria_describedby(), Some("desc-1 err-1"));
     }
 
     #[test]
@@ -223,6 +273,7 @@ mod tests {
             data_state: DataState::Checked,
             data_disabled: None,
             data_readonly: Some(""),
+            data_invalid: None,
             data_orientation: Some("vertical"),
             data_value: "opt1".to_string(),
             data_radio_group_item: "",
@@ -234,8 +285,10 @@ mod tests {
         assert!(!attrs.is_disabled());
         assert_eq!(attrs.data_state_str(), "checked");
         assert_eq!(attrs.data_readonly(), Some(""));
+        assert_eq!(attrs.data_invalid(), None);
         assert_eq!(attrs.data_orientation(), Some("vertical"));
         assert_eq!(attrs.data_value(), "opt1");
+        assert_eq!(attrs.with_invalid(true).data_invalid(), Some(""));
     }
 
     #[test]

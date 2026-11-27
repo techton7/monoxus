@@ -71,6 +71,8 @@ pub struct RatingGroupRuntime {
     pub decimal_timer_task: Rc<RefCell<Option<dioxus::core::Task>>>,
     pub aria_label: Signal<Option<String>>,
     pub aria_labelledby: Signal<Option<String>>,
+    pub aria_describedby: Signal<Option<String>>,
+    pub invalid: Signal<bool>,
     pub aria_valuetext: Rc<RefCell<Option<RatingGroupAriaValuetext>>>,
 }
 
@@ -122,6 +124,8 @@ impl RatingGroupRuntime {
             (self.aria_labelledby)(),
             custom_valuetext,
         )
+        .with_invalid((self.invalid)())
+        .with_aria_describedby((self.aria_describedby)())
     }
 
     /// Derives `data-*` and `role="presentation"` attributes for `RatingGroupItem`.
@@ -141,6 +145,7 @@ impl RatingGroupRuntime {
             def.read_only,
             state,
         )
+        .with_invalid((self.invalid)())
     }
 
     /// Cancels any active decimal key sequence timeout.
@@ -377,6 +382,8 @@ pub fn use_rating_group_runtime(
         decimal_timer_task,
         aria_label: use_signal(|| aria_label.clone()),
         aria_labelledby: use_signal(|| aria_labelledby.clone()),
+        aria_describedby: use_signal(|| None),
+        invalid: use_signal(|| false),
         aria_valuetext: aria_valuetext_slot,
     };
 

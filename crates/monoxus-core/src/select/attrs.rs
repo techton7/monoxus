@@ -8,9 +8,15 @@ pub struct SelectRootAttributes {
     pub id: String,
     pub data_state: DataState,
     pub disabled: bool,
+    pub invalid: bool,
 }
 
 impl SelectRootAttributes {
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.invalid = invalid;
+        self
+    }
+
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -33,6 +39,14 @@ impl SelectRootAttributes {
     pub fn data_disabled(&self) -> Option<&'static str> {
         crate::foundation::shared::data_disabled_attr(self.disabled)
     }
+
+    pub fn is_invalid(&self) -> bool {
+        self.invalid
+    }
+
+    pub fn data_invalid(&self) -> Option<&'static str> {
+        crate::foundation::shared::data_invalid_attr(self.invalid)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,13 +59,35 @@ pub struct SelectTriggerAttributes {
     pub content_id: String,
     pub aria_disabled: Option<&'static str>,
     pub aria_required: Option<&'static str>,
+    pub aria_invalid: Option<&'static str>,
+    pub aria_describedby: Option<String>,
+    pub aria_labelledby: Option<String>,
     pub data_state: DataState,
     pub data_placeholder: bool,
     pub disabled: bool,
+    pub invalid: bool,
+    pub data_invalid: Option<&'static str>,
     pub tabindex: i32,
 }
 
 impl SelectTriggerAttributes {
+    pub fn with_invalid(mut self, invalid: bool) -> Self {
+        self.invalid = invalid;
+        self.aria_invalid = invalid.then_some("true");
+        self.data_invalid = crate::foundation::shared::data_invalid_attr(invalid);
+        self
+    }
+
+    pub fn with_aria_describedby(mut self, aria_describedby: Option<String>) -> Self {
+        self.aria_describedby = aria_describedby;
+        self
+    }
+
+    pub fn with_aria_labelledby(mut self, aria_labelledby: Option<String>) -> Self {
+        self.aria_labelledby = aria_labelledby;
+        self
+    }
+
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -84,6 +120,18 @@ impl SelectTriggerAttributes {
         self.aria_required
     }
 
+    pub fn aria_invalid(&self) -> Option<&'static str> {
+        self.aria_invalid
+    }
+
+    pub fn aria_describedby(&self) -> Option<&str> {
+        self.aria_describedby.as_deref()
+    }
+
+    pub fn aria_labelledby(&self) -> Option<&str> {
+        self.aria_labelledby.as_deref()
+    }
+
     pub fn data_state_str(&self) -> &'static str {
         match self.data_state {
             DataState::Open => "open",
@@ -97,6 +145,14 @@ impl SelectTriggerAttributes {
 
     pub fn data_disabled(&self) -> Option<&'static str> {
         crate::foundation::shared::data_disabled_attr(self.disabled)
+    }
+
+    pub fn is_invalid(&self) -> bool {
+        self.invalid
+    }
+
+    pub fn data_invalid(&self) -> Option<&'static str> {
+        self.data_invalid
     }
 
     pub fn is_placeholder(&self) -> bool {
