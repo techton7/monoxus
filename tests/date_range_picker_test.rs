@@ -13,21 +13,22 @@ use monoxus::{
         DateRangePickerHeading, DateRangePickerInput, DateRangePickerLabel,
         DateRangePickerMonthSelect, DateRangePickerNextButton, DateRangePickerPart,
         DateRangePickerPortal, DateRangePickerPrevButton, DateRangePickerRelationships,
-        DateRangePickerRoot, DateRangePickerSegment, DateRangePickerSelectRenderProps,
-        DateRangePickerTrigger, DateRangePickerYearSelect, use_date_range_picker_context,
+        DateRangePickerRoot, DateRangePickerSegment, DateRangePickerTrigger,
+        DateRangePickerYearSelect, use_date_range_picker_context,
     },
     foundation::{
         date_time::{
             CalendarDate, CalendarLocale, CalendarMonth, DateValue, DateValueRange,
-            FieldInvalidEvent, FieldInvalidReason,
+            FieldInvalidEvent, FieldInvalidReason, MonthFormat,
         },
         overlay::{active_overlay_layers_snapshot, unregister_active_overlay_layer},
         shared::ScopeHandle,
     },
     popover::PopoverContext,
-    range_calendar::RangeCalendarSnapshot,
+    range_calendar::{RangeCalendarSnapshot, use_range_calendar_context},
     select::{
-        SelectContent, SelectItem, SelectPortal, SelectRoot, SelectTrigger, SelectValue,
+        SelectContent, SelectItem, SelectItemData, SelectPortal, SelectRoot, SelectTrigger,
+        SelectValue,
     },
 };
 
@@ -732,36 +733,9 @@ mod native_tests {
                                     DateRangePickerHeader {
                                         style: "display: flex; gap: 4px; margin-bottom: 8px;",
                                         DateRangePickerMonthSelect {
-                                            as_child: true,
-                                            render_child: move |rp: DateRangePickerSelectRenderProps| {
-                                                let items = rp.select_items();
-                                                let selected_label = rp.selected_label();
-                                                rsx! {
-                                                    SelectRoot {
-                                                        id: "drp-3esc-month-select",
-                                                        value: Some(rp.value_string.clone()),
-                                                        items,
-                                                        on_value_change: move |next| rp.on_value_change.call(next),
-                                                        SelectTrigger {
-                                                            style: "width: 100px; height: 28px;",
-                                                            SelectValue { placeholder: selected_label }
-                                                        }
-                                                        SelectPortal {
-                                                            SelectContent {
-                                                                style: "width: 120px; background: white;",
-                                                                for opt in rp.items.clone() {
-                                                                    SelectItem {
-                                                                        key: "{opt.value}",
-                                                                        value: opt.value_string(),
-                                                                        style: "display: block; height: 24px;",
-                                                                        "{opt.label}"
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
+                                            child: move |_props: Vec<Attribute>| rsx! {
+                                                DateRangePickerCustomMonthSelect {}
+                                            },
                                         }
                                         DateRangePickerHeading {}
                                     }
@@ -769,6 +743,53 @@ mod native_tests {
                                         DateRangePickerMonthGrid { month, weekdays: snap.weekdays.clone() }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[component]
+    fn DateRangePickerCustomMonthSelect() -> Element {
+        let mut ctx = use_range_calendar_context();
+        let current_val = ctx.current_month().to_string();
+        let month_opts = ctx.month_options(MonthFormat::Long);
+        let items: Vec<SelectItemData> = month_opts
+            .iter()
+            .map(|o| SelectItemData::new(o.value_string(), o.label.clone(), false))
+            .collect();
+        let selected_label = month_opts
+            .iter()
+            .find(|o| o.value_string() == current_val)
+            .map(|o| o.label.clone())
+            .unwrap_or_default();
+        rsx! {
+            SelectRoot {
+                id: "drp-3esc-month-select",
+                value: Some(current_val),
+                items: Some(items),
+                on_value_change: move |next: Option<String>| {
+                    if let Some(s) = next
+                        && let Ok(m) = s.parse::<u8>()
+                    {
+                        ctx.set_month(m);
+                    }
+                },
+                SelectTrigger {
+                    style: "width: 100px; height: 28px;",
+                    SelectValue { placeholder: selected_label }
+                }
+                SelectPortal {
+                    SelectContent {
+                        style: "width: 120px; background: white;",
+                        for opt in month_opts {
+                            SelectItem {
+                                key: "{opt.value}",
+                                value: opt.value_string(),
+                                style: "display: block; height: 24px;",
+                                "{opt.label}"
                             }
                         }
                     }

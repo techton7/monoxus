@@ -42,7 +42,7 @@ const ALERT_DIALOG_PLAYGROUND_STYLE: &str = r#"
 
 #[component]
 pub fn AlertDialogPlayground() -> Element {
-    let open = use_signal(|| false);
+    let mut open = use_signal(|| false);
     let mut outcome = use_signal(|| String::from("Waiting for a choice."));
 
     rsx! {
@@ -88,7 +88,8 @@ pub fn AlertDialogPlayground() -> Element {
                 div {
                     class: "flex items-center gap-4",
                     AlertDialogRoot {
-                        open: open,
+                        open: open(),
+                        on_open_change: move |v| open.set(v),
                         DialogTrigger {
                             id: "alert-dialog-trigger",
                             class: "inline-flex items-center justify-center rounded-lg bg-red-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-red-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-600 transition-colors cursor-pointer",

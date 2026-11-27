@@ -50,7 +50,7 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
     ctx.runtime.set_is_static_content(!spec.is_floating);
 
     let is_open = ctx.runtime.is_open();
-    let rels = ctx.runtime.relationships();
+    let rels = ctx.runtime.select().relationships().clone();
     let default_content_id = rels.content_id().to_owned();
     let content_id = spec
         .id

@@ -11,17 +11,18 @@ use crate::common;
 
 #[cfg(feature = "native")]
 #[component]
-fn ControlledLockDialog(open: Signal<bool>, prevent_body_pointer_events: bool) -> Element {
+fn ControlledLockDialog(mut open: Signal<bool>, prevent_body_pointer_events: bool) -> Element {
     rsx! {
         DialogRoot {
             id: "lock-test-dialog",
-            open: open,
-            prevent_body_pointer_events: prevent_body_pointer_events,
+            open: open(),
+            on_open_change: move |v| open.set(v),
             DialogTrigger { id: "lock-test-trigger", "Open" }
             DialogPortal {
                 DialogOverlay { id: "lock-test-overlay" }
                 DialogContent {
                     id: "lock-test-content",
+                    prevent_body_pointer_events: prevent_body_pointer_events,
                     DialogTitle { "Title" }
                     DialogClose { id: "lock-test-close", "Close" }
                 }
@@ -75,18 +76,16 @@ fn test_dialog_scroll_lock_prevent_body_pointer_events_and_synchronous_unlock() 
 mod native_tests {
     use super::*;
     use common::native_fixture::*;
-    use monoxus::foundation::shared::ScopeHandle;
     use monoxus::popover::{
         PopoverClose, PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger,
     };
     use monoxus::select::{
-        Select, SelectContent, SelectItem, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
-        use_select_runtime,
+        SelectContent, SelectItem, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
     };
 
     #[component]
     fn ModalShieldScenario() -> Element {
-        let open = use_signal(|| false);
+        let mut open = use_signal(|| false);
         rsx! {
             div {
                 id: "shield-scenario-wrapper",
@@ -107,7 +106,8 @@ mod native_tests {
                 }
                 DialogRoot {
                     id: "shield-dialog",
-                    open: open,
+                    open: open(),
+                    on_open_change: move |v| open.set(v),
                     DialogTrigger { id: "shield-trigger", "Open Modal" }
                     DialogPortal {
                         DialogOverlay { id: "shield-overlay" }
@@ -282,13 +282,14 @@ mod native_tests {
     #[component]
     fn UnmountScrollLockDialogScenario() -> Element {
         let mut mounted = use_signal(|| true);
-        let open = use_signal(|| true);
+        let mut open = use_signal(|| true);
         rsx! {
             div {
                 if mounted() {
                     DialogRoot {
                         id: "unmount-delay-dialog",
-                        open: open,
+                        open: open(),
+                        on_open_change: move |v| open.set(v),
                         DialogPortal {
                             DialogOverlay { id: "unmount-delay-overlay" }
                             DialogContent {
@@ -414,20 +415,7 @@ mod native_tests {
 
     #[component]
     fn ModalPopoverAndScrollLockedSelectScenario() -> Element {
-        let select_open = use_signal(|| false);
-        let scope = ScopeHandle::root("shield-test").child("select");
-        let select_def = Select::new(scope)
-            .with_trigger_id("shield-test-select-trigger")
-            .with_content_id("shield-test-select-content")
-            .with_open(select_open());
-        let select_rt = use_select_runtime(
-            select_def,
-            None::<fn(Option<String>)>,
-            Some(move |next: bool| {
-                let mut sig = select_open;
-                sig.set(next);
-            }),
-        );
+        let mut select_open = use_signal(|| false);
 
         rsx! {
             div {
@@ -446,11 +434,14 @@ mod native_tests {
                     }
                 }
                 SelectRoot {
-                    runtime: select_rt,
+                    open: select_open(),
+                    on_open_change: move |next: bool| select_open.set(next),
                     SelectTrigger {
+                        id: "shield-test-select-trigger",
                         SelectValue { placeholder: "Pick...".to_string() }
                     }
                     SelectContent {
+                        id: "shield-test-select-content",
                         prevent_scroll: true,
                         SelectViewport {
                             SelectItem { value: "a".to_string(), text: "Alpha".to_string(), "Alpha" }
@@ -560,8 +551,8 @@ mod native_tests {
 
     #[component]
     fn NestedDialogPopoverLifoScenario() -> Element {
-        let dialog_open = use_signal(|| false);
-        let popover_open = use_signal(|| false);
+        let mut dialog_open = use_signal(|| false);
+        let mut popover_open = use_signal(|| false);
         let mut parent_tick = use_signal(|| 0_u32);
         let tick_val = parent_tick();
 
@@ -576,7 +567,8 @@ mod native_tests {
                 }
                 DialogRoot {
                     id: "lifo-dialog",
-                    open: dialog_open,
+                    open: dialog_open(),
+                    on_open_change: move |v| dialog_open.set(v),
                     DialogTrigger { id: "lifo-dialog-trigger", "Open Dialog" }
                     DialogPortal {
                         DialogOverlay { id: "lifo-dialog-overlay" }
@@ -591,7 +583,8 @@ mod native_tests {
                             }
                             PopoverRoot {
                                 id: "lifo-popover",
-                                open: popover_open,
+                                open: popover_open(),
+                                on_open_change: move |v| popover_open.set(v),
                                 PopoverTrigger { id: "lifo-popover-trigger", "Open Popover" }
                                 PopoverPortal {
                                     PopoverContent {

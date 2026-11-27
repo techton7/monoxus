@@ -148,8 +148,25 @@ pub(crate) fn use_select_runtime_controllable(
     on_open_change_complete: Option<EventHandler<bool>>,
     dir: Direction,
 ) -> SelectRuntime {
-    let initial_def_val = use_hook(|| select.default_value().map(str::to_owned));
-    let initial_def_vals = use_hook(|| select.default_values().to_vec());
+    let initial_def_val = use_hook(|| {
+        if value_ctl.is_controlled() {
+            value_ctl.peek()
+        } else {
+            select
+                .default_value()
+                .or_else(|| select.value())
+                .map(str::to_owned)
+        }
+    });
+    let initial_def_vals = use_hook(|| {
+        if values_ctl.is_controlled() {
+            values_ctl.peek()
+        } else if !select.default_values().is_empty() {
+            select.default_values().to_vec()
+        } else {
+            select.values().to_vec()
+        }
+    });
     let default_value_sig = use_signal(|| initial_def_val);
     let default_values_sig = use_signal(|| initial_def_vals);
 
@@ -358,9 +375,46 @@ fn use_select_runtime_inner(
     let pending_restore_focus_slot = use_hook(|| CopyValue::new(true));
     let is_static_content_sig = use_signal(|| false);
     let mut reset_epoch_sig = use_signal(|| 0_u64);
-    let trigger_id_sig = use_signal(|| select.relationships().trigger_id().to_owned());
-    let content_id_sig = use_signal(|| select.relationships().content_id().to_owned());
-    let viewport_id_sig = use_signal(|| select.relationships().viewport_id());
+    let next_default_trigger_id = select.relationships().trigger_id().to_owned();
+    let next_default_content_id = select.relationships().content_id().to_owned();
+    let next_default_viewport_id = select.relationships().viewport_id();
+    let mut prev_default_trigger_id = use_hook(|| CopyValue::new(next_default_trigger_id.clone()));
+    let mut prev_default_content_id = use_hook(|| CopyValue::new(next_default_content_id.clone()));
+    let mut prev_default_viewport_id =
+        use_hook(|| CopyValue::new(next_default_viewport_id.clone()));
+    let mut trigger_id_sig = use_signal(|| next_default_trigger_id.clone());
+    let mut content_id_sig = use_signal(|| next_default_content_id.clone());
+    let mut viewport_id_sig = use_signal(|| next_default_viewport_id.clone());
+    if prev_default_trigger_id
+        .try_read()
+        .is_ok_and(|prev| *prev != next_default_trigger_id)
+    {
+        let prev = prev_default_trigger_id.read().clone();
+        prev_default_trigger_id.set(next_default_trigger_id.clone());
+        if trigger_id_sig.try_peek().is_ok_and(|cur| *cur == prev) {
+            sync_signal(&mut trigger_id_sig, next_default_trigger_id);
+        }
+    }
+    if prev_default_content_id
+        .try_read()
+        .is_ok_and(|prev| *prev != next_default_content_id)
+    {
+        let prev = prev_default_content_id.read().clone();
+        prev_default_content_id.set(next_default_content_id.clone());
+        if content_id_sig.try_peek().is_ok_and(|cur| *cur == prev) {
+            sync_signal(&mut content_id_sig, next_default_content_id);
+        }
+    }
+    if prev_default_viewport_id
+        .try_read()
+        .is_ok_and(|prev| *prev != next_default_viewport_id)
+    {
+        let prev = prev_default_viewport_id.read().clone();
+        prev_default_viewport_id.set(next_default_viewport_id.clone());
+        if viewport_id_sig.try_peek().is_ok_and(|cur| *cur == prev) {
+            sync_signal(&mut viewport_id_sig, next_default_viewport_id);
+        }
+    }
     let can_scroll_up_sig = use_signal(|| false);
     let can_scroll_down_sig = use_signal(|| false);
     let invalid_sig = use_signal(|| false);
@@ -752,13 +806,25 @@ impl SelectRuntime {
         &self.relationships
     }
 
+    pub fn default_trigger_id(&self) -> String {
+        self.select.read().relationships().trigger_id().to_owned()
+    }
+
+    pub fn default_content_id(&self) -> String {
+        self.select.read().relationships().content_id().to_owned()
+    }
+
+    pub fn default_viewport_id(&self) -> String {
+        self.select.read().relationships().viewport_id()
+    }
+
     pub fn current_trigger_id(&self) -> String {
         self.state.trigger_id.read().clone()
     }
 
     pub fn set_trigger_id(&self, id: String) {
         let normalized = if id.trim().is_empty() {
-            self.relationships().trigger_id().to_owned()
+            self.default_trigger_id()
         } else {
             id
         };
@@ -772,7 +838,7 @@ impl SelectRuntime {
 
     pub fn set_content_id(&self, id: String) {
         let normalized = if id.trim().is_empty() {
-            self.relationships().content_id().to_owned()
+            self.default_content_id()
         } else {
             id
         };
@@ -786,7 +852,7 @@ impl SelectRuntime {
 
     pub fn set_viewport_id(&self, id: String) {
         let normalized = if id.trim().is_empty() {
-            self.relationships().viewport_id()
+            self.default_viewport_id()
         } else {
             id
         };

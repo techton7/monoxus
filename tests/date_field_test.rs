@@ -416,7 +416,7 @@ mod native_tests {
                     id: "df-ro-partial",
                     locale: CalendarLocale::EnUs,
                     default_value: d(2026, 6, 15),
-                    readonly_segments: vec![EditableSegmentKind::Year],
+                    read_only_segments: vec![EditableSegmentKind::Year],
                     DateFieldLabel { id: "df-roseg-lbl", "Partial ReadOnly Date" }
                     DateFieldInput {
                         id: "df-roseg-input",

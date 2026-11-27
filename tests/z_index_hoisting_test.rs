@@ -50,10 +50,10 @@ mod native_z_index_tests {
         date_picker::{DatePickerContent, DatePickerRoot, DatePickerTrigger},
         date_range_picker::{DateRangePickerContent, DateRangePickerRoot, DateRangePickerTrigger},
         dropdown_menu::{
-            DropdownMenuContent, DropdownMenuContentRenderProps, DropdownMenuItem,
-            DropdownMenuRoot, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger,
-            DropdownMenuTrigger,
+            DropdownMenuContent, DropdownMenuItem, DropdownMenuRoot, DropdownMenuSub,
+            DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
         },
+        foundation::compose::FloatingContentChildProps,
         hover_card::{HoverCardContent, HoverCardRoot, HoverCardTrigger},
         popover::{PopoverContent, PopoverRoot, PopoverTrigger},
         select::{SelectContent, SelectItem, SelectRoot, SelectTrigger},
@@ -385,7 +385,6 @@ mod native_z_index_tests {
                 SelectRoot {
                     id: Some("zix3-sel".to_string()),
                     open: open_both(),
-                    on_open_change: move |v| open_both.set(v),
                     SelectTrigger { style: Some("width: 100px; height: 28px;".to_string()), "Sel" }
                     SelectContent {
                         style: Some(extra_style.to_string()),
@@ -394,7 +393,7 @@ mod native_z_index_tests {
                 }
                 ComboboxRoot {
                     id: Some("zix3-cbx".to_string()),
-                    open: Some(open_both),
+                    open: Some(open_both()),
                     ComboboxInput { style: Some("width: 100px; height: 28px;".to_string()) }
                     ComboboxContent {
                         id: Some("zix3-cbx-content".to_string()),
@@ -515,7 +514,7 @@ mod native_z_index_tests {
                 }
                 PopoverRoot {
                     id: Some("zix5-pop".to_string()),
-                    open: Some(open),
+                    open: Some(open()),
                     on_open_change: move |v| open.set(v),
                     PopoverTrigger { style: "width: 80px; height: 24px;", "Trigger" }
                     PopoverContent {
@@ -613,41 +612,37 @@ mod native_z_index_tests {
                         id: Some("zix6-root-as-child".to_string()),
                         class: Some("z-40".to_string()),
                         style: Some("width: 120px; height: 60px;".to_string()),
-                        as_child: true,
-                        render_child: Callback::new(|rp: DropdownMenuContentRenderProps| {
+                        child: move |c: FloatingContentChildProps| {
                             rsx! {
                                 div {
-                                    id: "{rp.attrs.id}",
-                                    class: rp.class.as_deref().unwrap_or_default(),
-                                    style: "{rp.style}",
-                                    role: "{rp.attrs.role}",
-                                    {rp.children}
-                                }
-                            }
-                        }),
-                        DropdownMenuItem { "Item 1" }
-                        DropdownMenuSub {
-                            open: Some(true),
-                            DropdownMenuSubTrigger { style: Some("width: 100px; height: 24px;".to_string()), "Sub2" }
-                            DropdownMenuSubContent {
-                                id: Some("zix6-sub-as-child".to_string()),
-                                class: Some("z-60".to_string()),
-                                style: Some("width: 120px; height: 60px;".to_string()),
-                                as_child: true,
-                                render_child: Callback::new(|rp: DropdownMenuContentRenderProps| {
-                                    rsx! {
-                                        div {
-                                            id: "{rp.attrs.id}",
-                                            class: rp.class.as_deref().unwrap_or_default(),
-                                            style: "{rp.style}",
-                                            role: "{rp.attrs.role}",
-                                            {rp.children}
+                                    ..c.wrapper_props,
+                                    div {
+                                        ..c.props,
+                                        DropdownMenuItem { "Item 1" }
+                                        DropdownMenuSub {
+                                            open: Some(true),
+                                            DropdownMenuSubTrigger { style: Some("width: 100px; height: 24px;".to_string()), "Sub2" }
+                                            DropdownMenuSubContent {
+                                                id: Some("zix6-sub-as-child".to_string()),
+                                                class: Some("z-60".to_string()),
+                                                style: Some("width: 120px; height: 60px;".to_string()),
+                                                child: move |sub_c: FloatingContentChildProps| {
+                                                    rsx! {
+                                                        div {
+                                                            ..sub_c.wrapper_props,
+                                                            div {
+                                                                ..sub_c.props,
+                                                                DropdownMenuItem { "Sub Item 1" }
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                            }
                                         }
                                     }
-                                }),
-                                DropdownMenuItem { "Sub Item 1" }
+                                }
                             }
-                        }
+                        },
                     }
                 }
             }

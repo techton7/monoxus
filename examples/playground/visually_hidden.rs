@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use monoxus::visually_hidden::{VisuallyHidden, VisuallyHiddenRenderProps};
+use monoxus::visually_hidden::VisuallyHidden;
 
 #[component]
 pub fn VisuallyHiddenPlayground() -> Element {
@@ -112,32 +112,16 @@ pub fn VisuallyHiddenPlayground() -> Element {
                     }
                     VisuallyHidden {
                         id: "sw5a-vh-article",
-                        as_child: true,
                         style: "outline-color: rgb(1, 2, 3);",
                         on_click: move |_| article_clicks += 1,
-                        render_child: move |props: VisuallyHiddenRenderProps| {
+                        child: move |props: Vec<Attribute>| {
                             rsx! {
                                 article {
-                                    id: props.id,
-                                    class: props.class,
-                                    style: props.style,
-                                    "data-visually-hidden-root": props.data_visually_hidden_root,
-                                    onclick: move |evt| {
-                                        if let Some(handler) = props.on_click.as_ref() {
-                                            handler.call(evt);
-                                        }
-                                    },
-                                    onmounted: move |evt| {
-                                        if let Some(handler) = props.on_mounted.as_ref() {
-                                            handler.call(evt);
-                                        }
-                                    },
-                                    ..props.attributes,
-                                    {props.children}
+                                    ..props,
+                                    "Projected screen-reader article"
                                 }
                             }
                         },
-                        "Projected screen-reader article"
                     }
                     div {
                         class: "flex items-center gap-2",

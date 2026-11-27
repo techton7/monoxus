@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use dioxus::prelude::*;
 use monoxus::{
-    calendar::CalendarSnapshot,
+    calendar::{CalendarSnapshot, use_calendar_context},
     date_field::DateFieldSegmentItem,
     date_picker::{
         DATE_PICKER_OPEN_FOCUS_SELECTOR, DATE_PICKER_PARTS, DatePicker, DatePickerArrow,
@@ -11,20 +11,22 @@ use monoxus::{
         DatePickerGridHead, DatePickerGridRow, DatePickerHeadCell, DatePickerHeader,
         DatePickerHeading, DatePickerInput, DatePickerLabel, DatePickerMonthSelect,
         DatePickerNextButton, DatePickerPart, DatePickerPortal, DatePickerPrevButton,
-        DatePickerRelationships, DatePickerRoot, DatePickerSegment, DatePickerSelectRenderProps,
-        DatePickerTrigger, DatePickerYearSelect, use_date_picker_context,
+        DatePickerRelationships, DatePickerRoot, DatePickerSegment, DatePickerTrigger,
+        DatePickerYearSelect, use_date_picker_context,
     },
     foundation::{
+        compose::FloatingContentChildProps,
         date_time::{
             CalendarDate, CalendarLocale, CalendarMonth, DateValue, FieldInvalidEvent,
-            FieldInvalidReason,
+            FieldInvalidReason, MonthFormat,
         },
         overlay::{active_overlay_layers_snapshot, unregister_active_overlay_layer},
         shared::ScopeHandle,
     },
     popover::PopoverContext,
     select::{
-        SelectContent, SelectItem, SelectPortal, SelectRoot, SelectTrigger, SelectValue,
+        SelectContent, SelectItem, SelectItemData, SelectPortal, SelectRoot, SelectTrigger,
+        SelectValue,
     },
 };
 
@@ -251,36 +253,9 @@ mod native_tests {
                                     DatePickerHeader {
                                         style: "display: flex; gap: 4px; margin-bottom: 8px;",
                                         DatePickerMonthSelect {
-                                            as_child: true,
-                                            render_child: move |rp: DatePickerSelectRenderProps| {
-                                                let items = rp.select_items();
-                                                let selected_label = rp.selected_label();
-                                                rsx! {
-                                                    SelectRoot {
-                                                        id: "dp-month-select",
-                                                        value: Some(rp.value_string.clone()),
-                                                        items,
-                                                        on_value_change: move |next| rp.on_value_change.call(next),
-                                                        SelectTrigger {
-                                                            style: "width: 100px; height: 28px;",
-                                                            SelectValue { placeholder: selected_label }
-                                                        }
-                                                        SelectPortal {
-                                                            SelectContent {
-                                                                style: "width: 120px; background: white;",
-                                                                for opt in rp.items.clone() {
-                                                                    SelectItem {
-                                                                        key: "{opt.value}",
-                                                                        value: opt.value_string(),
-                                                                        style: "display: block; height: 24px;",
-                                                                        "{opt.label}"
-                                                                    }
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-                                                }
-                                            }
+                                            child: move |_props: Vec<Attribute>| rsx! {
+                                                DatePickerCustomMonthSelect {}
+                                            },
                                         }
                                         DatePickerHeading {
                                             id: "dp-heading",
@@ -291,6 +266,53 @@ mod native_tests {
                                         DatePickerMonthGrid { month, weekdays: snap.weekdays.clone() }
                                     }
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[component]
+    fn DatePickerCustomMonthSelect() -> Element {
+        let mut ctx = use_calendar_context();
+        let current_val = ctx.current_month().to_string();
+        let month_opts = ctx.month_options(MonthFormat::Long);
+        let items: Vec<SelectItemData> = month_opts
+            .iter()
+            .map(|o| SelectItemData::new(o.value_string(), o.label.clone(), false))
+            .collect();
+        let selected_label = month_opts
+            .iter()
+            .find(|o| o.value_string() == current_val)
+            .map(|o| o.label.clone())
+            .unwrap_or_default();
+        rsx! {
+            SelectRoot {
+                id: "dp-month-select",
+                value: Some(current_val),
+                items: Some(items),
+                on_value_change: move |next: Option<String>| {
+                    if let Some(s) = next
+                        && let Ok(m) = s.parse::<u8>()
+                    {
+                        ctx.set_month(m);
+                    }
+                },
+                SelectTrigger {
+                    style: "width: 100px; height: 28px;",
+                    SelectValue { placeholder: selected_label }
+                }
+                SelectPortal {
+                    SelectContent {
+                        style: "width: 120px; background: white;",
+                        for opt in month_opts {
+                            SelectItem {
+                                key: "{opt.value}",
+                                value: opt.value_string(),
+                                style: "display: block; height: 24px;",
+                                "{opt.label}"
                             }
                         }
                     }
@@ -479,38 +501,25 @@ mod native_tests {
                                         evt.prevent_default();
                                     }
                                 },
-                                as_child: true,
-                                render_child: move |rp: monoxus::date_picker::DatePickerContentRenderProps| {
-                                    let wid = rp.wrapper_id.unwrap_or_default();
-                                    let wstyle = rp.wrapper_style.unwrap_or_default();
+                                style: "width: 280px; height: 340px; padding: 8px; background: white;",
+                                child: move |c: FloatingContentChildProps| {
                                     rsx! {
                                         div {
-                                            id: "{wid}",
-                                            "data-monoxus-floating-content-wrapper": "",
-                                            style: "{wstyle}",
+                                            ..c.wrapper_props,
                                             section {
-                                                id: "{rp.attrs.id}",
-                                                role: "{rp.role}",
                                                 "data-as-child-picker": "true",
-                                                "data-state": rp.attrs.data_state,
-                                                "data-date-picker-content": rp.attrs.data_marker,
-                                                style: "width: 280px; height: 340px; padding: 8px; background: white; {rp.style}",
-                                                tabindex: rp.attrs.tabindex,
-                                                onmounted: move |evt| rp.on_mounted.call(evt),
-                                                onkeydown: move |evt| rp.on_key_down.call(evt),
-                                                onclick: move |evt| rp.on_click.call(evt),
-                                                {rp.children}
+                                                ..c.props,
+                                                DatePickerCalendar {
+                                                    render_children: move |snap: CalendarSnapshot| rsx! {
+                                                        for month in snap.months {
+                                                            DatePickerMonthGrid { month, weekdays: snap.weekdays.clone() }
+                                                        }
+                                                    }
+                                                }
                                             }
                                         }
                                     }
                                 },
-                                DatePickerCalendar {
-                                    render_children: move |snap: CalendarSnapshot| rsx! {
-                                        for month in snap.months {
-                                            DatePickerMonthGrid { month, weekdays: snap.weekdays.clone() }
-                                        }
-                                    }
-                                }
                             }
                         }
                     }
@@ -703,10 +712,23 @@ mod native_tests {
     }
 
     #[component]
+    fn DatePickerStage3Child(attrs: Vec<Attribute>, stage: &'static str) -> Element {
+        let snap = use_calendar_context().snapshot();
+        rsx! {
+            div {
+                "data-cb-stage": stage,
+                ..attrs,
+                for month in snap.months {
+                    DatePickerMonthGrid { month, weekdays: snap.weekdays.clone() }
+                }
+            }
+        }
+    }
+
+    #[component]
     fn NativeDatePickerStage3FmScenario() -> Element {
-        use monoxus::{
-            calendar::CalendarRootRenderProps,
-            foundation::date_time::{CalendarDateTime, CalendarTime, Granularity, HourCycle},
+        use monoxus::foundation::date_time::{
+            CalendarDateTime, CalendarTime, Granularity, HourCycle,
         };
 
         let mut show_content = use_signal(|| true);
@@ -718,25 +740,13 @@ mod native_tests {
             CalendarTime::from_hms(14, 35, 0).expect("valid time"),
         ));
 
-        let render_child = match *cb_stage.read() {
+        let child = match *cb_stage.read() {
             0 => None,
-            1 => Some(Callback::new(|rp: CalendarRootRenderProps| {
-                rsx! {
-                    div {
-                        id: "{rp.attrs.id}",
-                        "data-cb-stage": "cb1",
-                        {rp.children}
-                    }
-                }
+            1 => Some(Callback::new(|props: Vec<Attribute>| rsx! {
+                DatePickerStage3Child { attrs: props, stage: "cb1" }
             })),
-            _ => Some(Callback::new(|rp: CalendarRootRenderProps| {
-                rsx! {
-                    div {
-                        id: "{rp.attrs.id}",
-                        "data-cb-stage": "cb2",
-                        {rp.children}
-                    }
-                }
+            _ => Some(Callback::new(|props: Vec<Attribute>| rsx! {
+                DatePickerStage3Child { attrs: props, stage: "cb2" }
             })),
         };
         let on_key_down = match *cb_stage.read() {
@@ -824,8 +834,7 @@ mod native_tests {
                                 }
                                 DatePickerCalendar {
                                     id: "dp-fm-cal",
-                                    as_child: *cb_stage.read() > 0,
-                                    render_child,
+                                    child,
                                     on_key_down,
                                     render_children: move |snap: CalendarSnapshot| rsx! {
                                         for month in snap.months {

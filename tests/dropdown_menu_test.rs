@@ -3,12 +3,11 @@ use std::{cell::RefCell, rc::Rc};
 use dioxus::prelude::*;
 use monoxus::dropdown_menu::{
     CheckedState, DropdownMenu, DropdownMenuArrow, DropdownMenuCheckboxGroup,
-    DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuContentRenderProps,
-    DropdownMenuContentStatic, DropdownMenuGroup, DropdownMenuGroupHeading, DropdownMenuItem,
-    DropdownMenuItemIndicator, DropdownMenuLabel, DropdownMenuPortal, DropdownMenuRadioGroup,
-    DropdownMenuRadioItem, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuSub,
-    DropdownMenuSubContent, DropdownMenuSubContentStatic, DropdownMenuSubTrigger,
-    DropdownMenuTrigger, DropdownMenuTriggerRenderProps, MenuRootContext, MenuSelectEvent,
+    DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuContentStatic, DropdownMenuGroup,
+    DropdownMenuGroupHeading, DropdownMenuItem, DropdownMenuItemIndicator, DropdownMenuLabel,
+    DropdownMenuPortal, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuRoot,
+    DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubContentStatic,
+    DropdownMenuSubTrigger, DropdownMenuTrigger, MenuRootContext, MenuSelectEvent,
 };
 use monoxus::foundation::shared::Direction;
 
@@ -131,60 +130,35 @@ fn test_dropdown_menu_alias_and_default_modal_contract() {
 
 #[component]
 fn DropdownStaticAndAsChildSample() -> Element {
-    let trig_render = Callback::new(|props: DropdownMenuTriggerRenderProps| {
-        rsx! {
-            button {
-                r#type: "button",
-                id: "{props.attrs.id}",
-                class: props.class.as_deref().unwrap_or_default(),
-                "aria-haspopup": "{props.attrs.aria_haspopup}",
-                "aria-expanded": "{props.attrs.aria_expanded}",
-                "data-state": "{props.attrs.data_state.as_str()}",
-                onpointerdown: move |evt| props.on_pointer_down.call(evt),
-                onclick: move |evt| props.on_click.call(evt),
-                onkeydown: move |evt| props.on_key_down.call(evt),
-                ..props.attributes,
-                {props.children}
-            }
-        }
-    });
-
-    let content_render = Callback::new(|props: DropdownMenuContentRenderProps| {
-        rsx! {
-            section {
-                id: "{props.attrs.id}",
-                role: "{props.attrs.role}",
-                tabindex: "{props.attrs.tabindex}",
-                "data-state": "{props.attrs.data_state.as_str()}",
-                onkeydown: move |evt| props.on_key_down.call(evt),
-                ..props.attributes,
-                {props.children}
-            }
-        }
-    });
-
     rsx! {
         DropdownMenu {
             default_open: true,
             DropdownMenuTrigger {
                 id: "dm-ac-trig",
-                as_child: true,
-                render_child: Some(trig_render),
-                "Custom Trigger"
+                child: move |props: Vec<Attribute>| rsx! {
+                    button {
+                        r#type: "button",
+                        ..props,
+                        "Custom Trigger"
+                    }
+                },
             }
             DropdownMenuContentStatic {
                 id: "dm-static-content",
-                as_child: true,
-                render_child: Some(content_render),
-                DropdownMenuItem { id: "dm-static-item", "Static Action" }
-                DropdownMenuSub {
-                    default_open: true,
-                    DropdownMenuSubTrigger { id: "dm-static-sub-trig", "More" }
-                    DropdownMenuSubContentStatic {
-                        id: "dm-static-sub-content",
-                        DropdownMenuItem { id: "dm-static-sub-item", "Nested" }
+                child: move |props: Vec<Attribute>| rsx! {
+                    section {
+                        ..props,
+                        DropdownMenuItem { id: "dm-static-item", "Static Action" }
+                        DropdownMenuSub {
+                            default_open: true,
+                            DropdownMenuSubTrigger { id: "dm-static-sub-trig", "More" }
+                            DropdownMenuSubContentStatic {
+                                id: "dm-static-sub-content",
+                                DropdownMenuItem { id: "dm-static-sub-item", "Nested" }
+                            }
+                        }
                     }
-                }
+                },
             }
         }
     }
@@ -872,7 +846,7 @@ mod native_tests {
         use monoxus::dialog::{DialogClose, DialogContent, DialogPortal, DialogRoot};
 
         let float_open = use_signal(|| false);
-        let dlg_open = use_signal(|| true);
+        let mut dlg_open = use_signal(|| true);
 
         rsx! {
             div { style: "padding: 24px;",
@@ -899,7 +873,8 @@ mod native_tests {
                 // Part 2: Non-modal Static MenuContentStatic inside modal Dialog (modal pointer lock from Dialog)
                 DialogRoot {
                     id: "w1-pe-modal-dlg",
-                    open: Some(dlg_open),
+                    open: Some(dlg_open()),
+                    on_open_change: move |v| dlg_open.set(v),
                     DialogPortal {
                         DialogContent {
                             id: "w1-pe-modal-dlg-content",

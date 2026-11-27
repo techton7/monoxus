@@ -42,7 +42,7 @@ const DIALOG_PLAYGROUND_STYLE: &str = r#"
 
 #[component]
 pub fn DialogPlayground() -> Element {
-    let open = use_signal(|| false);
+    let mut open = use_signal(|| false);
 
     rsx! {
         div {
@@ -89,7 +89,8 @@ pub fn DialogPlayground() -> Element {
                 }
 
                 DialogRoot {
-                    open: open,
+                    open: open(),
+                    on_open_change: move |v| open.set(v),
                     DialogTrigger {
                         id: "dialog-trigger",
                         class: "inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 transition-colors cursor-pointer",

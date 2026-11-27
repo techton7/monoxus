@@ -810,12 +810,12 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
 
     let field_spec = SegmentFieldRootSpec::<DateFieldPolicy> {
         id: Some(rels.field_scope().token().to_string()),
-        value: Some((runtime.value)()),
+        value: props.value,
         default_value: props.default_value,
         on_value_change: Some(EventHandler::new(move |next| {
             rt_for_field_val.handle_field_value_change(next);
         })),
-        placeholder: Some((runtime.placeholder)()),
+        placeholder: props.placeholder,
         on_placeholder_change: Some(EventHandler::new(move |next| {
             rt_for_field_ph.handle_field_placeholder_change(next);
         })),
@@ -851,7 +851,28 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
             }
         },
     };
-    let field_rt = use_segment_field_runtime::<DateFieldPolicy>(&field_spec, initial_placeholder);
+    let mut field_rt = use_segment_field_runtime::<DateFieldPolicy>(&field_spec, initial_placeholder);
+
+    // Sync calendar/picker-initiated value & placeholder changes into the embedded DateField
+    // without forcing uncontrolled DatePicker into controlled DateField mode.
+    let picker_val_now = (runtime.value)();
+    let picker_ph_now = (runtime.placeholder)();
+    let mut prev_picker_val = use_hook(|| CopyValue::new(picker_val_now));
+    let mut prev_picker_ph = use_hook(|| CopyValue::new(picker_ph_now));
+    if prev_picker_val
+        .try_read()
+        .is_ok_and(|prev| *prev != picker_val_now)
+    {
+        prev_picker_val.set(picker_val_now);
+        field_rt.reconcile_external_state(Some(picker_val_now), None, None);
+    }
+    if prev_picker_ph
+        .try_read()
+        .is_ok_and(|prev| *prev != picker_ph_now)
+    {
+        prev_picker_ph.set(picker_ph_now);
+        field_rt.reconcile_external_state(None, Some(picker_ph_now), None);
+    }
 
     let (handle_focus_in, handle_focus_out, handle_region_dismiss) =
         use_composite_focus_out_tracked(

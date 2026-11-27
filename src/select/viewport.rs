@@ -305,7 +305,7 @@ pub fn SelectViewport(props: SelectViewportProps) -> Element {
         children,
     } = props;
     let ctx = use_context::<super::types::SelectContext>();
-    let vp_id = id.unwrap_or_else(|| ctx.runtime.relationships().viewport_id());
+    let vp_id = id.unwrap_or_else(|| ctx.runtime.default_viewport_id());
     ctx.runtime.set_viewport_id(vp_id.clone());
 
     let scroll_guard = use_hook(|| Rc::new(RefCell::new(WatcherGuard::noop())));

@@ -314,7 +314,7 @@ pub fn SelectTrigger(props: SelectTriggerProps) -> Element {
     {
         f_ctx.resolved_control_id()
     } else {
-        ctx.runtime.relationships().trigger_id().to_owned()
+        ctx.runtime.default_trigger_id()
     };
 
     ctx.runtime.set_trigger_id(resolved_trigger_id.clone());
@@ -327,7 +327,7 @@ pub fn SelectTrigger(props: SelectTriggerProps) -> Element {
     }
     let drop_runtime = ctx.runtime.clone();
     use_drop(move || {
-        let default_id = drop_runtime.relationships().trigger_id().to_owned();
+        let default_id = drop_runtime.default_trigger_id();
         if let Ok(owned) = owned_trigger_id.try_read()
             && drop_runtime
                 .state

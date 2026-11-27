@@ -2,12 +2,12 @@ use dioxus::prelude::*;
 use monoxus::{
     dropdown_menu::{
         CheckedState, DropdownMenuArrow, DropdownMenuCheckboxGroup, DropdownMenuCheckboxItem,
-        DropdownMenuContent, DropdownMenuContentRenderProps, DropdownMenuContentStatic,
+        DropdownMenuContent, DropdownMenuContentStatic,
         DropdownMenuGroup, DropdownMenuGroupHeading, DropdownMenuItem,
         DropdownMenuItemIndicator, DropdownMenuLabel, DropdownMenuPortal, DropdownMenuRadioGroup,
         DropdownMenuRadioItem, DropdownMenuRoot, DropdownMenuSeparator, DropdownMenuSub,
         DropdownMenuSubContent, DropdownMenuSubContentStatic, DropdownMenuSubTrigger,
-        DropdownMenuTrigger, DropdownMenuTriggerRenderProps, MenuPreventableEvent,
+        DropdownMenuTrigger, MenuPreventableEvent,
         MenuSelectEvent,
     },
     foundation::{
@@ -436,46 +436,6 @@ fn FullDropdownMenuScenario() -> Element {
 fn StaticAndAsChildDropdownScenario() -> Element {
     let mut static_action = use_signal(|| String::from("idle"));
 
-    let trigger_render = Callback::new(|props: DropdownMenuTriggerRenderProps| {
-        rsx! {
-            button {
-                r#type: "button",
-                id: "{props.attrs.id}",
-                class: props.class.as_deref().unwrap_or_default(),
-                style: "{props.style.as_deref().unwrap_or_default()}",
-                disabled: props.attrs.disabled,
-                "aria-haspopup": "{props.attrs.aria_haspopup}",
-                "aria-expanded": "{props.attrs.aria_expanded}",
-                "aria-controls": props.attrs.aria_controls.as_deref(),
-                "data-state": "{props.attrs.data_state.as_str()}",
-                onpointerdown: move |evt| props.on_pointer_down.call(evt),
-                onclick: move |evt| props.on_click.call(evt),
-                onkeydown: move |evt| props.on_key_down.call(evt),
-                ..props.attributes,
-                {props.children}
-            }
-        }
-    });
-
-    let content_render = Callback::new(|props: DropdownMenuContentRenderProps| {
-        rsx! {
-            div {
-                id: "{props.attrs.id}",
-                class: props.class.as_deref().unwrap_or_default(),
-                style: "{props.style}",
-                role: "{props.attrs.role}",
-                tabindex: "{props.attrs.tabindex}",
-                dir: "{props.attrs.dir}",
-                "aria-orientation": "{props.attrs.aria_orientation}",
-                "aria-labelledby": props.attrs.aria_labelledby.as_deref(),
-                "data-state": "{props.attrs.data_state.as_str()}",
-                onkeydown: move |evt| props.on_key_down.call(evt),
-                ..props.attributes,
-                {props.children}
-            }
-        }
-    });
-
     rsx! {
         div {
             style: CARD_STYLE,
@@ -498,49 +458,57 @@ fn StaticAndAsChildDropdownScenario() -> Element {
                     DropdownMenuTrigger {
                         id: "sw3b-dm-static-trigger",
                         style: CTRL_BTN_STYLE,
-                        as_child: true,
-                        render_child: Some(trigger_render),
-                        "Static Menu Trigger (as_child)"
+                        child: move |props: Vec<Attribute>| rsx! {
+                            button {
+                                ..props,
+                                "Static Menu Trigger (as_child)"
+                            }
+                        },
+                        children: rsx! {},
                     }
                     DropdownMenuContentStatic {
                         id: "sw3b-dm-static-content",
                         style: "width: 240px; padding: 0.375rem; border-radius: 0.75rem; border: 1px solid #cbd5e1; background-color: #ffffff; color: #0f172a; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08); display: flex; flex-direction: column; gap: 0.125rem;",
                         on_open_auto_focus: move |evt: MenuPreventableEvent| evt.prevent_default(),
                         on_close_auto_focus: move |evt: MenuPreventableEvent| evt.prevent_default(),
-                        as_child: true,
-                        render_child: Some(content_render),
-                        DropdownMenuItem {
-                            id: "sw3b-dm-static-item-1",
-                            close_on_select: false,
-                            style: ITEM_STYLE,
-                            on_select: move |_| static_action.set("duplicate".to_string()),
-                            "Duplicate Inline"
-                        }
-                        DropdownMenuItem {
-                            id: "sw3b-dm-static-item-2",
-                            disabled: true,
-                            style: ITEM_STYLE,
-                            "Locked Action"
-                        }
-                        DropdownMenuSub {
-                            DropdownMenuSubTrigger {
-                                id: "sw3b-dm-static-sub-trig",
-                                style: ITEM_STYLE,
-                                span { "Nested Static" }
-                                span { style: "color: #64748b;", "▸" }
-                            }
-                            DropdownMenuSubContentStatic {
-                                id: "sw3b-dm-static-sub-content",
-                                style: "margin-left: 0.5rem; padding: 0.25rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; background-color: #f8fafc;",
+                        child: move |props: Vec<Attribute>| rsx! {
+                            div {
+                                ..props,
                                 DropdownMenuItem {
-                                    id: "sw3b-dm-static-sub-item",
+                                    id: "sw3b-dm-static-item-1",
                                     close_on_select: false,
                                     style: ITEM_STYLE,
-                                    on_select: move |_| static_action.set("nested-static".to_string()),
-                                    "Static Sub Item"
+                                    on_select: move |_| static_action.set("duplicate".to_string()),
+                                    "Duplicate Inline"
+                                }
+                                DropdownMenuItem {
+                                    id: "sw3b-dm-static-item-2",
+                                    disabled: true,
+                                    style: ITEM_STYLE,
+                                    "Locked Action"
+                                }
+                                DropdownMenuSub {
+                                    DropdownMenuSubTrigger {
+                                        id: "sw3b-dm-static-sub-trig",
+                                        style: ITEM_STYLE,
+                                        span { "Nested Static" }
+                                        span { style: "color: #64748b;", "▸" }
+                                    }
+                                    DropdownMenuSubContentStatic {
+                                        id: "sw3b-dm-static-sub-content",
+                                        style: "margin-left: 0.5rem; padding: 0.25rem; border-radius: 0.5rem; border: 1px solid #e2e8f0; background-color: #f8fafc;",
+                                        DropdownMenuItem {
+                                            id: "sw3b-dm-static-sub-item",
+                                            close_on_select: false,
+                                            style: ITEM_STYLE,
+                                            on_select: move |_| static_action.set("nested-static".to_string()),
+                                            "Static Sub Item"
+                                        }
+                                    }
                                 }
                             }
-                        }
+                        },
+                        children: rsx! {},
                     }
                 }
                 span {

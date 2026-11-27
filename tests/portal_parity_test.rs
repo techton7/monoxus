@@ -946,10 +946,10 @@ mod native_portal_parity_tests {
                                 id: Some("swap-dlg".to_string()),
                                 default_open: true,
                                 mode: Some(DialogMode::NonModal),
-                                outside_interaction: Some(DialogOutsideInteractionPolicy::alert_default()),
                                 DialogPortal {
                                     DialogContent {
                                         id: Some("swap-dlg-content".to_string()),
+                                        outside_interaction: Some(DialogOutsideInteractionPolicy::alert_default()),
                                         style: Some("width: 160px; height: 60px;".to_string()),
                                         "Swappable Dialog"
                                     }
@@ -1066,7 +1066,7 @@ mod native_portal_parity_tests {
 
                     DialogRoot {
                         id: Some("n6-outer".to_string()),
-                        open: outer_open,
+                        open: outer_open(),
                         on_open_change: move |v| outer_open.set(v),
                         DialogTrigger { id: Some("n6-outer-trigger".to_string()), "Open Outer" }
                         DialogPortal {
@@ -1083,7 +1083,7 @@ mod native_portal_parity_tests {
 
                                 PopoverRoot {
                                     id: Some("n6-pop".to_string()),
-                                    open: pop_open,
+                                    open: pop_open(),
                                     on_open_change: move |v| pop_open.set(v),
                                     PopoverTrigger {
                                         id: Some("n6-pop-trigger".to_string()),
@@ -1147,7 +1147,7 @@ mod native_portal_parity_tests {
 
                                 DialogRoot {
                                     id: Some("n6-inner-dlg".to_string()),
-                                    open: inner_dlg_open,
+                                    open: inner_dlg_open(),
                                     on_open_change: move |v| inner_dlg_open.set(v),
                                     DialogTrigger {
                                         id: Some("n6-inner-dlg-trigger".to_string()),

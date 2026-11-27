@@ -8,7 +8,7 @@ use monoxus::alert_dialog::{
 #[component]
 pub fn AlertDialogPage() -> Element {
     let mut outside_clicks = use_signal(|| 0_u32);
-    let order_open = use_signal(|| false);
+    let mut order_open = use_signal(|| false);
 
     rsx! {
         div {
@@ -35,7 +35,8 @@ pub fn AlertDialogPage() -> Element {
 
                     AlertDialogRoot {
                         id: "alert-focus-order",
-                        open: order_open,
+                        open: order_open(),
+                        on_open_change: move |next: bool| order_open.set(next),
                         DialogTrigger {
                             id: "alert-focus-order-trigger",
                             class: "rounded-lg bg-red-700 px-3.5 py-2 text-xs font-semibold text-white cursor-pointer",

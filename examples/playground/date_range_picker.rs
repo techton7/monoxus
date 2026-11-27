@@ -1,13 +1,16 @@
 use dioxus::prelude::*;
 use monoxus::{
+    calendar::{CalendarSelectOption, build_calendar_month_options, build_calendar_year_options},
     date_field::DateFieldSegmentItem,
     date_range_field::RangeFieldInputKind,
     date_range_picker::*,
-    foundation::date_time::{CalendarDate, CalendarLocale, DateValue, DateValueRange},
+    foundation::date_time::{
+        CalendarDate, CalendarLocale, DateValue, DateValueRange, MonthFormat, YearFormat,
+    },
     range_calendar::RangeCalendarSnapshot,
     select::{
-        SelectContent, SelectItem, SelectItemIndicator, SelectItemText, SelectPortal, SelectRoot,
-        SelectTrigger, SelectValue, SelectViewport,
+        SelectContent, SelectItem, SelectItemData, SelectItemIndicator, SelectItemText,
+        SelectPortal, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
     },
 };
 
@@ -187,20 +190,26 @@ fn drp_date(year: i32, month: u8, day: u8) -> DateValue {
     DateValue::Date(CalendarDate::new(year, month, day).expect("valid playground range date"))
 }
 
-fn render_range_picker_select(slot: DateRangePickerSelectRenderProps, min_width: &str) -> Element {
-    let current_val = slot.value_string.clone();
-    let select_items = slot.select_items();
-    let items = slot.items.clone();
+fn render_range_picker_select(
+    id: &str,
+    current_val: String,
+    items: Vec<CalendarSelectOption>,
+    on_value_change: EventHandler<Option<String>>,
+    min_width: &str,
+) -> Element {
+    let select_items: Vec<SelectItemData> = items
+        .iter()
+        .map(|opt| SelectItemData::new(opt.value.to_string(), opt.label.clone(), false))
+        .collect();
     let trigger_style = format!(
         "display: inline-flex; align-items: center; justify-content: space-between; gap: 0.375rem; height: 30px; padding: 0 8px; border-radius: 0.5rem; border: 1px solid #cbd5e1; background-color: #ffffff; color: #0f172a; font-size: 0.8125rem; font-weight: 500; cursor: pointer; {min_width}"
     );
     rsx! {
         SelectRoot {
-            id: slot.attrs.id.clone(),
+            id: id.to_string(),
             items: Some(select_items),
             value: Some(current_val.clone()),
-            disabled: slot.disabled,
-            on_value_change: slot.on_value_change,
+            on_value_change,
             SelectTrigger {
                 class: "drp-select-trigger".to_string(),
                 style: trigger_style,
@@ -215,7 +224,7 @@ fn render_range_picker_select(slot: DateRangePickerSelectRenderProps, min_width:
                         style: "max-height: 220px;".to_string(),
                         for opt in items {
                             {
-                                let opt_val = opt.value_string();
+                                let opt_val = opt.value.to_string();
                                 let is_selected = opt_val == current_val;
                                 rsx! {
                                     SelectItem {
@@ -242,10 +251,11 @@ fn render_range_picker_select(slot: DateRangePickerSelectRenderProps, min_width:
 
 #[component]
 pub fn DateRangePickerShowcase() -> Element {
-    let range = use_signal(|| {
+    let mut range = use_signal(|| {
         DateValueRange::new(Some(drp_date(2024, 6, 10)), Some(drp_date(2024, 6, 15)))
     });
-    let open = use_signal(|| false);
+    let mut placeholder = use_signal(|| drp_date(2024, 6, 1));
+    let mut open = use_signal(|| false);
 
     rsx! {
         style { "{DATE_RANGE_PICKER_PLAYGROUND_CSS}" }
@@ -286,9 +296,12 @@ pub fn DateRangePickerShowcase() -> Element {
 
                 DateRangePickerRoot {
                     id: "sw5c-drp-main",
-                    value: Some(range),
-                    default_placeholder: Some(drp_date(2024, 6, 1)),
-                    open: Some(open),
+                    value: Some(range()),
+                    on_value_change: move |next: DateValueRange| range.set(next),
+                    placeholder: Some(placeholder()),
+                    on_placeholder_change: move |next: DateValue| placeholder.set(next),
+                    open: Some(open()),
+                    on_open_change: move |next: bool| open.set(next),
                     close_on_range_select: true,
                     number_of_months: 2,
                     fixed_weeks: true,
@@ -343,26 +356,49 @@ pub fn DateRangePickerShowcase() -> Element {
                             id: "sw5c-drp-main-content",
                             DateRangePickerCalendar {
                                 id: "sw5c-drp-main-calendar",
-                                render_children: move |snap: RangeCalendarSnapshot| rsx! {
+                                render_children: move |snap: RangeCalendarSnapshot| {
+                                    let month_items = build_calendar_month_options(
+                                        None,
+                                        &CalendarLocale::EnUs,
+                                        MonthFormat::Long,
+                                    );
+                                    let years: Vec<i32> = (1924..=2034).collect();
+                                    let year_items = build_calendar_year_options(
+                                        &years,
+                                        &CalendarLocale::EnUs,
+                                        YearFormat::Numeric,
+                                    );
+                                    let cur_cal = snap.placeholder;
+                                    let cur_month = cur_cal.month.to_string();
+                                    let cur_year = cur_cal.year.to_string();
+                                    rsx! {
                                     DateRangePickerHeader {
                                         style: "{HEADER_STYLE}",
                                         DateRangePickerPrevButton { id: "sw5c-drp-main-prev", "‹ Prev" }
                                         div {
                                             style: "display: flex; align-items: center; gap: 0.375rem;",
-                                            DateRangePickerMonthSelect {
-                                                id: "sw5c-drp-main-month-select",
-                                                as_child: true,
-                                                render_child: move |slot: DateRangePickerSelectRenderProps| {
-                                                    render_range_picker_select(slot, "min-width: 112px;")
-                                                },
-                                            }
-                                            DateRangePickerYearSelect {
-                                                id: "sw5c-drp-main-year-select",
-                                                as_child: true,
-                                                render_child: move |slot: DateRangePickerSelectRenderProps| {
-                                                    render_range_picker_select(slot, "min-width: 82px;")
-                                                },
-                                            }
+                                            {render_range_picker_select(
+                                                "sw5c-drp-main-month-select",
+                                                cur_month,
+                                                month_items,
+                                                EventHandler::new(move |val: Option<String>| {
+                                                    if let Some(m) = val.and_then(|s| s.parse::<u8>().ok()) {
+                                                        placeholder.set(DateValue::Date(cur_cal.with_month_clamped(m)));
+                                                    }
+                                                }),
+                                                "min-width: 112px;",
+                                            )}
+                                            {render_range_picker_select(
+                                                "sw5c-drp-main-year-select",
+                                                cur_year,
+                                                year_items,
+                                                EventHandler::new(move |val: Option<String>| {
+                                                    if let Some(y) = val.and_then(|s| s.parse::<i32>().ok()) {
+                                                        placeholder.set(DateValue::Date(cur_cal.with_year_clamped(y)));
+                                                    }
+                                                }),
+                                                "min-width: 82px;",
+                                            )}
                                         }
                                         DateRangePickerNextButton { id: "sw5c-drp-main-next", "Next ›" }
                                     }
@@ -405,6 +441,7 @@ pub fn DateRangePickerShowcase() -> Element {
                                                 }
                                             }
                                         }
+                                    }
                                     }
                                 }
                             }

@@ -182,10 +182,10 @@ fn SingleComboboxScenario() -> Element {
                     ComboboxRoot {
                         id: Some("sw4b-cbx-single".to_string()),
                         mode: ComboboxMode::Single,
-                        value: Some(selected),
+                        value: Some(selected()),
                         default_value: Some("dioxus".to_string()),
                         on_value_change: move |v: Option<String>| selected.set(v),
-                        input_value: Some(input_val),
+                        input_value: Some(input_val()),
                         default_input_value: Some("Dioxus".to_string()),
                         on_input_value_change: move |iv: String| {
                             if iv.is_empty() {
@@ -193,7 +193,7 @@ fn SingleComboboxScenario() -> Element {
                             }
                             input_val.set(iv);
                         },
-                        open: Some(open),
+                        open: Some(open()),
                         on_open_change: move |next: bool| open.set(next),
                         on_open_change_complete: move |is_open: bool| {
                             if !is_open {
@@ -204,13 +204,12 @@ fn SingleComboboxScenario() -> Element {
                         name: Some("framework".to_string()),
                         items: items_data,
                         allow_deselect: true,
-                        clear_on_deselect: true,
 
                         div {
                             style: "{INPUT_ROW_STYLE}",
                             ComboboxInput {
                                 id: Some("sw4b-cbx-single-input".to_string()),
-                                clear_on_deselect: Some(true),
+                                clear_on_deselect: true,
                                 placeholder: Some("Select a Rust UI framework...".to_string()),
                                 style: Some(INPUT_STYLE.to_string()),
                                 on_input: move |evt: FormEvent| search_value.set(evt.value()),
@@ -358,11 +357,11 @@ fn MultipleComboboxScenario() -> Element {
                 ComboboxRoot {
                     id: Some("sw4b-cbx-multi".to_string()),
                     mode: ComboboxMode::Multiple,
-                    values: Some(selected_values),
+                    values: Some(selected_values()),
                     on_values_change: move |vals: Vec<String>| selected_values.set(vals),
-                    input_value: Some(input_val),
+                    input_value: Some(input_val()),
                     on_input_value_change: move |iv: String| input_val.set(iv),
-                    open: Some(open),
+                    open: Some(open()),
                     on_open_change: move |next: bool| open.set(next),
                     on_open_change_complete: move |is_open: bool| {
                         if !is_open {
@@ -495,11 +494,11 @@ fn ScrollableComboboxScenario() -> Element {
                 ComboboxRoot {
                     id: Some("sw4b-cbx-scroll".to_string()),
                     mode: ComboboxMode::Single,
-                    value: Some(selected),
+                    value: Some(selected()),
                     on_value_change: move |v: Option<String>| selected.set(v),
-                    input_value: Some(input_val),
+                    input_value: Some(input_val()),
                     on_input_value_change: move |iv: String| input_val.set(iv),
-                    open: Some(open),
+                    open: Some(open()),
                     on_open_change: move |next: bool| open.set(next),
                     on_open_change_complete: move |is_open: bool| {
                         if !is_open {

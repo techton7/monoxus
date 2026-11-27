@@ -127,7 +127,7 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
     let open_sig = open_ctl.signal();
 
     let value_ctl =
-        use_controllable_signal(props.value, baseline_value.clone(), props.on_value_change);
+        use_controllable_signal(props.value.clone(), baseline_value.clone(), props.on_value_change);
     let value_sig = value_ctl.signal();
 
     let values_ctl =
@@ -140,6 +140,26 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
         props.on_input_value_change,
     );
     let input_value_sig = input_value_ctl.signal();
+
+    // Sync uncontrolled `input_value` when controlled `props.value` updates on re-render.
+    let mut prev_controlled_val = use_hook(|| CopyValue::new(props.value.clone().flatten()));
+    if let Some(ref ext_val) = props.value {
+        let changed = prev_controlled_val
+            .try_read()
+            .is_ok_and(|prev| prev.as_ref() != ext_val.as_ref());
+        if changed {
+            prev_controlled_val.set(ext_val.clone());
+            if !input_value_ctl.is_controlled() {
+                if let Some(v) = ext_val {
+                    if let Some(item) = props.items.iter().find(|i| &i.value == v) {
+                        input_value_ctl.set(item.label.clone());
+                    }
+                } else {
+                    input_value_ctl.set(String::new());
+                }
+            }
+        }
+    }
 
     // 4B D-4: Reactive config signals synced on every render (zero mount-time snapshot).
     let mut mode_sig = use_signal(|| props.mode);

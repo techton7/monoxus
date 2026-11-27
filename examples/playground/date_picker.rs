@@ -1,12 +1,15 @@
 use dioxus::prelude::*;
 use monoxus::{
-    calendar::CalendarSnapshot,
+    calendar::{
+        CalendarSelectOption, CalendarSnapshot, build_calendar_month_options,
+        build_calendar_year_options,
+    },
     date_field::DateFieldSegmentItem,
     date_picker::*,
-    foundation::date_time::{CalendarDate, CalendarLocale, DateValue},
+    foundation::date_time::{CalendarDate, CalendarLocale, DateValue, MonthFormat, YearFormat},
     select::{
-        SelectContent, SelectItem, SelectItemIndicator, SelectItemText, SelectPortal, SelectRoot,
-        SelectTrigger, SelectValue, SelectViewport,
+        SelectContent, SelectItem, SelectItemData, SelectItemIndicator, SelectItemText,
+        SelectPortal, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
     },
 };
 
@@ -155,20 +158,26 @@ fn dp_date(year: i32, month: u8, day: u8) -> DateValue {
     DateValue::Date(CalendarDate::new(year, month, day).expect("valid playground date"))
 }
 
-fn render_picker_select(slot: DatePickerSelectRenderProps, min_width: &str) -> Element {
-    let current_val = slot.value_string.clone();
-    let select_items = slot.select_items();
-    let items = slot.items.clone();
+fn render_picker_select(
+    id: &str,
+    current_val: String,
+    items: Vec<CalendarSelectOption>,
+    on_value_change: EventHandler<Option<String>>,
+    min_width: &str,
+) -> Element {
+    let select_items: Vec<SelectItemData> = items
+        .iter()
+        .map(|opt| SelectItemData::new(opt.value.to_string(), opt.label.clone(), false))
+        .collect();
     let trigger_style = format!(
         "display: inline-flex; align-items: center; justify-content: space-between; gap: 0.375rem; height: 30px; padding: 0 8px; border-radius: 0.5rem; border: 1px solid #cbd5e1; background-color: #ffffff; color: #0f172a; font-size: 0.8125rem; font-weight: 500; cursor: pointer; {min_width}"
     );
     rsx! {
         SelectRoot {
-            id: slot.attrs.id.clone(),
+            id: id.to_string(),
             items: Some(select_items),
             value: Some(current_val.clone()),
-            disabled: slot.disabled,
-            on_value_change: slot.on_value_change,
+            on_value_change,
             SelectTrigger {
                 class: "dp-select-trigger".to_string(),
                 style: trigger_style,
@@ -183,7 +192,7 @@ fn render_picker_select(slot: DatePickerSelectRenderProps, min_width: &str) -> E
                         style: "max-height: 220px;".to_string(),
                         for opt in items {
                             {
-                                let opt_val = opt.value_string();
+                                let opt_val = opt.value.to_string();
                                 let is_selected = opt_val == current_val;
                                 rsx! {
                                     SelectItem {
@@ -240,8 +249,9 @@ pub fn DatePickerShowcase() -> Element {
 
 #[component]
 fn StandardDatePickerScenario() -> Element {
-    let value = use_signal(|| Some(dp_date(2024, 6, 15)));
-    let open = use_signal(|| false);
+    let mut value = use_signal(|| Some(dp_date(2024, 6, 15)));
+    let mut placeholder = use_signal(|| dp_date(2024, 6, 15));
+    let mut open = use_signal(|| false);
 
     rsx! {
         div {
@@ -264,9 +274,12 @@ fn StandardDatePickerScenario() -> Element {
                 style: "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1.5rem;",
                 DatePickerRoot {
                     id: "sw5c-dp-main",
-                    value: Some(value),
-                    default_placeholder: Some(dp_date(2024, 6, 15)),
-                    open: Some(open),
+                    value: Some(value()),
+                    on_value_change: move |next: Option<DateValue>| value.set(next),
+                    placeholder: Some(placeholder()),
+                    on_placeholder_change: move |next: DateValue| placeholder.set(next),
+                    open: Some(open()),
+                    on_open_change: move |next: bool| open.set(next),
                     close_on_date_select: true,
                     locale: CalendarLocale::EnUs,
                     div {
@@ -299,26 +312,49 @@ fn StandardDatePickerScenario() -> Element {
                             id: "sw5c-dp-main-content",
                             DatePickerCalendar {
                                 id: "sw5c-dp-main-calendar",
-                                render_children: move |snap: CalendarSnapshot| rsx! {
+                                render_children: move |snap: CalendarSnapshot| {
+                                    let month_items = build_calendar_month_options(
+                                        None,
+                                        &CalendarLocale::EnUs,
+                                        MonthFormat::Long,
+                                    );
+                                    let years: Vec<i32> = (1924..=2034).collect();
+                                    let year_items = build_calendar_year_options(
+                                        &years,
+                                        &CalendarLocale::EnUs,
+                                        YearFormat::Numeric,
+                                    );
+                                    let cur_cal = snap.placeholder;
+                                    let cur_month = cur_cal.month.to_string();
+                                    let cur_year = cur_cal.year.to_string();
+                                    rsx! {
                                     DatePickerHeader {
                                         style: "{HEADER_STYLE}",
                                         DatePickerPrevButton { id: "sw5c-dp-main-prev", "‹" }
                                         div {
                                             style: "display: flex; align-items: center; gap: 0.375rem;",
-                                            DatePickerMonthSelect {
-                                                id: "sw5c-dp-main-month-select",
-                                                as_child: true,
-                                                render_child: move |slot: DatePickerSelectRenderProps| {
-                                                    render_picker_select(slot, "min-width: 112px;")
-                                                },
-                                            }
-                                            DatePickerYearSelect {
-                                                id: "sw5c-dp-main-year-select",
-                                                as_child: true,
-                                                render_child: move |slot: DatePickerSelectRenderProps| {
-                                                    render_picker_select(slot, "min-width: 82px;")
-                                                },
-                                            }
+                                            {render_picker_select(
+                                                "sw5c-dp-main-month-select",
+                                                cur_month,
+                                                month_items,
+                                                EventHandler::new(move |val: Option<String>| {
+                                                    if let Some(m) = val.and_then(|s| s.parse::<u8>().ok()) {
+                                                        placeholder.set(DateValue::Date(cur_cal.with_month_clamped(m)));
+                                                    }
+                                                }),
+                                                "min-width: 112px;",
+                                            )}
+                                            {render_picker_select(
+                                                "sw5c-dp-main-year-select",
+                                                cur_year,
+                                                year_items,
+                                                EventHandler::new(move |val: Option<String>| {
+                                                    if let Some(y) = val.and_then(|s| s.parse::<i32>().ok()) {
+                                                        placeholder.set(DateValue::Date(cur_cal.with_year_clamped(y)));
+                                                    }
+                                                }),
+                                                "min-width: 82px;",
+                                            )}
                                         }
                                         DatePickerNextButton { id: "sw5c-dp-main-next", "›" }
                                     }
@@ -355,6 +391,7 @@ fn StandardDatePickerScenario() -> Element {
                                             }
                                         }
                                     }
+                                    }
                                 }
                             }
                         }
@@ -389,8 +426,8 @@ fn StandardDatePickerScenario() -> Element {
 
 #[component]
 fn MultiPickerIsolationScenario() -> Element {
-    let left_val = use_signal(|| Some(dp_date(2024, 7, 4)));
-    let right_val = use_signal(|| Some(dp_date(2024, 8, 12)));
+    let mut left_val = use_signal(|| Some(dp_date(2024, 7, 4)));
+    let mut right_val = use_signal(|| Some(dp_date(2024, 8, 12)));
 
     rsx! {
         div {
@@ -413,7 +450,8 @@ fn MultiPickerIsolationScenario() -> Element {
                 id: "sw5c-dp-multi-wrapper",
                 style: "display: flex; flex-wrap: wrap; gap: 1.5rem;",
                 DatePickerRoot {
-                    value: Some(left_val),
+                    value: Some(left_val()),
+                    on_value_change: move |next: Option<DateValue>| left_val.set(next),
                     default_placeholder: Some(dp_date(2024, 7, 4)),
                     div {
                         style: "display: flex; flex-direction: column; gap: 0.375rem;",
@@ -477,7 +515,8 @@ fn MultiPickerIsolationScenario() -> Element {
                 }
 
                 DatePickerRoot {
-                    value: Some(right_val),
+                    value: Some(right_val()),
+                    on_value_change: move |next: Option<DateValue>| right_val.set(next),
                     default_placeholder: Some(dp_date(2024, 8, 12)),
                     div {
                         style: "display: flex; flex-direction: column; gap: 0.375rem;",

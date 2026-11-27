@@ -1,35 +1,14 @@
 use dioxus::prelude::*;
-use monoxus::{
-    foundation::shared::ScopeHandle,
-    select::{
-        Select, SelectContent, SelectItem, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
-        use_select_runtime,
-    },
+use monoxus::select::{
+    SelectContent, SelectItem, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
 };
 
 use super::shared::{BADGE_STYLE, ItemRow};
 
 #[component]
 pub fn ScrollableViewportSection() -> Element {
-    let scope = ScopeHandle::root("playground").child("select-scroll");
-    let selected_val = use_signal(|| None::<String>);
-    let is_open = use_signal(|| false);
-
-    let def = Select::new(scope.clone())
-        .with_value(selected_val())
-        .with_open(is_open());
-
-    let runtime = use_select_runtime(
-        def,
-        Some(move |val: Option<String>| {
-            let mut s = selected_val;
-            s.set(val);
-        }),
-        Some(move |open: bool| {
-            let mut s = is_open;
-            s.set(open);
-        }),
-    );
+    let mut selected_val = use_signal(|| None::<String>);
+    let mut is_open = use_signal(|| false);
 
     let curr_val = selected_val().unwrap_or_else(|| "none".into());
 
@@ -48,7 +27,10 @@ pub fn ScrollableViewportSection() -> Element {
             div {
                 style: "position: relative; width: 280px;",
                 SelectRoot {
-                    runtime: runtime.clone(),
+                    id: "select-scroll".to_string(),
+                    on_value_change: move |val: Option<String>| selected_val.set(val),
+                    open: Some(is_open()),
+                    on_open_change: move |open: bool| is_open.set(open),
                     SelectTrigger {
                         class: "select-trigger-scrollable".to_string(),
                         style: "display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d8b4fe; border-radius: 0.375rem; background: white; font-size: 0.875rem; cursor: pointer; outline: none;",

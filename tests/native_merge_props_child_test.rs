@@ -746,3 +746,683 @@ fn fm_s1_2_controlled_veto_disabled_guards_child_forwarding_and_empty_attr_hygie
         assert_ne!(harness.attr(sel, "style").as_deref(), Some(""), "{sel} must not emit empty style");
     }
 }
+
+#[test]
+fn fm_s1_3_three_layer_tooltip_dialog_button_composition() {
+    use monoxus::button::Button;
+    use monoxus::dialog::{DialogContent, DialogRoot, DialogTrigger};
+    use monoxus::tooltip::{TooltipContent, TooltipProvider, TooltipRoot, TooltipTrigger};
+
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    fn scenario() -> Element {
+        let mut open_clicks = use_signal(|| 0usize);
+        let mut veto_clicks = use_signal(|| 0usize);
+
+        rsx! {
+            TooltipProvider {
+                // Variant 1: 3-layer composition opens Dialog and runs user click handler
+                DialogRoot {
+                    TooltipRoot {
+                        TooltipTrigger {
+                            id: "tri-btn",
+                            class: "tt-cls",
+                            style: "--tt: 1;",
+                            "data-tt-layer": "yes",
+                            child: move |tp: Vec<Attribute>| rsx! {
+                                DialogTrigger {
+                                    id: "tri-btn",
+                                    class: "dlg-cls",
+                                    style: "--dlg: 2;",
+                                    "data-dlg-layer": "yes",
+                                    attributes: tp,
+                                    child: move |dp: Vec<Attribute>| rsx! {
+                                        Button {
+                                            id: "tri-btn",
+                                            class: "usr-cls",
+                                            style: "padding: 4px;",
+                                            attributes: dp,
+                                            on_click: move |_evt: MouseEvent| {
+                                                open_clicks += 1;
+                                            },
+                                            "Open"
+                                        }
+                                    },
+                                }
+                            },
+                        }
+                        TooltipContent { id: "tri-tt-content", "Tooltip Hint" }
+                    }
+                    DialogContent { id: "tri-dialog-content", "Dialog Body" }
+                }
+                div { id: "tri-open-clicks", "data-count": "{open_clicks}" }
+
+                // Variant 2: user prevent_default() suppresses Dialog opening while still running user handler
+                DialogRoot {
+                    TooltipRoot {
+                        TooltipTrigger {
+                            id: "tri-btn-veto",
+                            class: "tt-veto-cls",
+                            child: move |tp: Vec<Attribute>| rsx! {
+                                DialogTrigger {
+                                    id: "tri-btn-veto",
+                                    attributes: tp,
+                                    on_click: move |evt: MouseEvent| {
+                                        veto_clicks += 1;
+                                        evt.prevent_default();
+                                    },
+                                    child: move |dp: Vec<Attribute>| rsx! {
+                                        Button {
+                                            id: "tri-btn-veto",
+                                            class: "usr-veto-cls",
+                                            style: "padding: 4px;",
+                                            attributes: dp,
+                                            "Blocked Open"
+                                        }
+                                    },
+                                }
+                            },
+                        }
+                        TooltipContent { id: "tri-tt-veto-content", "Blocked Hint" }
+                    }
+                    DialogContent { id: "tri-dialog-veto-content", "Should Not Open" }
+                }
+                div { id: "tri-veto-clicks", "data-count": "{veto_clicks}" }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(scenario);
+
+    // 1. Single <button id="tri-btn"> with zero nested <button> descendants.
+    let btn_nid = harness.node("#tri-btn");
+    let btn_tag = harness
+        .base()
+        .get_node(btn_nid)
+        .and_then(|n| n.element_data())
+        .map(|el| el.name.local.to_string());
+    assert_eq!(btn_tag.as_deref(), Some("button"));
+    assert_eq!(
+        harness.query_all("#tri-btn button").len(),
+        0,
+        "3-layer composition must not emit nested <button> elements"
+    );
+
+    // 2. Class, style, and data/ARIA attrs from all 3 layers are merged.
+    let cls = harness.attr("#tri-btn", "class").unwrap_or_default();
+    assert!(cls.contains("tt-cls"), "missing TooltipTrigger class: {cls}");
+    assert!(cls.contains("dlg-cls"), "missing DialogTrigger class: {cls}");
+    assert!(cls.contains("usr-cls"), "missing Button class: {cls}");
+
+    let style = harness.attr("#tri-btn", "style").unwrap_or_default();
+    assert!(style.contains("--tt: 1"), "missing TooltipTrigger style: {style}");
+    assert!(style.contains("--dlg: 2"), "missing DialogTrigger style: {style}");
+    assert!(style.contains("padding: 4px"), "missing Button style: {style}");
+
+    assert_eq!(harness.attr("#tri-btn", "data-tt-layer").as_deref(), Some("yes"));
+    assert_eq!(harness.attr("#tri-btn", "data-dlg-layer").as_deref(), Some("yes"));
+    assert_eq!(harness.attr("#tri-btn", "data-button-root").as_deref(), Some(""));
+    assert_eq!(harness.attr("#tri-btn", "aria-haspopup").as_deref(), Some("dialog"));
+    assert_eq!(harness.attr("#tri-btn", "data-state").as_deref(), Some("closed"));
+
+    // 3. Variant 2: prevent_default() suppresses Dialog opening while still incrementing user counter.
+    assert!(harness.query("#tri-dialog-veto-content").is_none());
+    click_and_pump(&mut harness, "#tri-btn-veto");
+    assert_eq!(
+        harness.attr("#tri-veto-clicks", "data-count").as_deref(),
+        Some("1")
+    );
+    assert!(
+        harness.query("#tri-dialog-veto-content").is_none(),
+        "prevent_default() in composed trigger must suppress Dialog opening"
+    );
+
+    // 4. Variant 1: normal click opens Dialog AND increments user click counter.
+    assert!(harness.query("#tri-dialog-content").is_none());
+    click_and_pump(&mut harness, "#tri-btn");
+    assert_eq!(
+        harness.attr("#tri-open-clicks", "data-count").as_deref(),
+        Some("1")
+    );
+    assert!(
+        harness.query("#tri-dialog-content").is_some(),
+        "composed 3-layer trigger click must open DialogContent"
+    );
+}
+
+#[test]
+fn fm_s1_3_overlay_non_dom_roots_tooltip_isolation_and_controlled_veto() {
+    use keyboard_types::{Code, Key, NamedKey};
+    use monoxus::alert_dialog::AlertDialogRoot;
+    use monoxus::combobox::{ComboboxContent, ComboboxInput, ComboboxRoot, ComboboxTrigger};
+    use monoxus::date_picker::{DatePickerContent, DatePickerRoot, DatePickerTrigger};
+    use monoxus::dialog::{DialogClose, DialogContent, DialogRoot, DialogTrigger, EscapeKeyDownEvent};
+    use monoxus::foundation::overlay::DismissBehavior;
+    use monoxus::hover_card::{HoverCardRoot, HoverCardTrigger};
+    use monoxus::popover::{PopoverContent, PopoverRoot, PopoverTrigger};
+    use monoxus::select::{SelectContent, SelectItem, SelectRoot, SelectTrigger};
+    use monoxus::tooltip::{TooltipContent, TooltipProvider, TooltipRoot, TooltipTrigger};
+
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    fn scenario() -> Element {
+        let mut dlg_veto = use_signal(|| 0usize);
+        let mut pop_veto = use_signal(|| 0usize);
+        let mut sel_veto = use_signal(|| 0usize);
+        let mut cbx_veto = use_signal(|| 0usize);
+        let mut dp_veto = use_signal(|| 0usize);
+        let mut esc_pd_count = use_signal(|| 0usize);
+
+        rsx! {
+            // 1. Non-DOM root wrappers check (zero <div style="display: contents;">)
+            div {
+                id: "wrap-dialog",
+                DialogRoot {
+                    DialogTrigger { id: "nd-dlg-trig", "D" }
+                }
+            }
+            div {
+                id: "wrap-alert-dialog",
+                AlertDialogRoot {
+                    DialogTrigger { id: "nd-adlg-trig", "AD" }
+                }
+            }
+            div {
+                id: "wrap-popover",
+                PopoverRoot {
+                    PopoverTrigger { id: "nd-pop-trig", "P" }
+                }
+            }
+            div {
+                id: "wrap-tooltip",
+                TooltipProvider {
+                    TooltipRoot {
+                        TooltipTrigger { id: "nd-tt-trig", "T" }
+                    }
+                }
+            }
+            div {
+                id: "wrap-hover-card",
+                HoverCardRoot {
+                    HoverCardTrigger { id: "nd-hc-trig", "HC" }
+                }
+            }
+            div {
+                id: "wrap-select",
+                SelectRoot {
+                    SelectTrigger { id: "nd-sel-trig", "S" }
+                }
+            }
+
+            // 2. Controlled open: Some(false) veto across 5 overlay primitives
+            DialogRoot {
+                open: Some(false),
+                on_open_change: move |_next: bool| dlg_veto += 1,
+                DialogTrigger { id: "veto-dlg-trig", "Veto Dialog" }
+                DialogContent { id: "veto-dlg-content", "Body" }
+            }
+            div { id: "veto-dlg-count", "data-count": "{dlg_veto}" }
+
+            PopoverRoot {
+                open: Some(false),
+                on_open_change: move |_next: bool| pop_veto += 1,
+                PopoverTrigger { id: "veto-pop-trig", "Veto Popover" }
+                PopoverContent { id: "veto-pop-content", "Body" }
+            }
+            div { id: "veto-pop-count", "data-count": "{pop_veto}" }
+
+            SelectRoot {
+                open: Some(false),
+                on_open_change: move |_next: bool| sel_veto += 1,
+                SelectTrigger { id: "veto-sel-trig", "Veto Select" }
+                SelectContent {
+                    id: "veto-sel-content",
+                    SelectItem { value: "a", "A" }
+                }
+            }
+            div { id: "veto-sel-count", "data-count": "{sel_veto}" }
+
+            ComboboxRoot {
+                open: Some(false),
+                on_open_change: move |_next: bool| cbx_veto += 1,
+                ComboboxInput { id: "veto-cbx-input" }
+                ComboboxTrigger { id: "veto-cbx-trig", "Veto Combobox" }
+                ComboboxContent { id: "veto-cbx-content", "Body" }
+            }
+            div { id: "veto-cbx-count", "data-count": "{cbx_veto}" }
+
+            DatePickerRoot {
+                open: Some(false),
+                on_open_change: move |_next: bool| dp_veto += 1,
+                DatePickerTrigger { id: "veto-dp-trig", "Veto DatePicker" }
+                DatePickerContent { id: "veto-dp-content", "Body" }
+            }
+            div { id: "veto-dp-count", "data-count": "{dp_veto}" }
+
+            // 3. TooltipRoot single override under TooltipProvider + TooltipRoot/PopoverRoot shared trigger
+            TooltipProvider {
+                delay_duration: 300,
+                TooltipRoot {
+                    id: "iso-tt-override",
+                    delay_duration: Some(150),
+                    TooltipTrigger { id: "iso-tt-trig", "Override Tip" }
+                    TooltipContent { id: "iso-tt-content", "Tip Body" }
+                }
+                PopoverRoot {
+                    TooltipRoot {
+                        delay_duration: Some(150),
+                        TooltipTrigger {
+                            id: "tp-shared-btn",
+                            child: move |tp: Vec<Attribute>| rsx! {
+                                PopoverTrigger {
+                                    id: "tp-shared-btn",
+                                    attributes: tp,
+                                    "Shared Trigger"
+                                }
+                            },
+                        }
+                        TooltipContent { id: "tp-shared-tt", "Shared Tip" }
+                    }
+                    PopoverContent { id: "tp-shared-pop", "Shared Popover" }
+                }
+            }
+
+            // 4. DialogContent Escape prevent_default() and DismissBehavior::Ignore
+            DialogRoot {
+                DialogTrigger { id: "esc-pd-trig", "Open Esc Prevent" }
+                DialogContent {
+                    id: "esc-pd-content",
+                    on_escape_key_down: move |evt: EscapeKeyDownEvent| {
+                        esc_pd_count += 1;
+                        evt.prevent_default();
+                    },
+                    DialogClose { id: "esc-pd-close", "Close" }
+                }
+            }
+            div { id: "esc-pd-count", "data-count": "{esc_pd_count}" }
+
+            DialogRoot {
+                DialogTrigger { id: "esc-ign-trig", "Open Esc Ignore" }
+                DialogContent {
+                    id: "esc-ign-content",
+                    escape_key_down_behavior: Some(DismissBehavior::Ignore),
+                    DialogClose { id: "esc-ign-close", "Close" }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(scenario);
+
+    // 1. Assert zero <div style="display: contents;"> root wrappers in direct children.
+    for wrap_sel in [
+        "#wrap-dialog",
+        "#wrap-alert-dialog",
+        "#wrap-popover",
+        "#wrap-tooltip",
+        "#wrap-hover-card",
+        "#wrap-select",
+    ] {
+        let wrap_nid = harness.node(wrap_sel);
+        let doc = harness.base();
+        let wrap_node = doc.get_node(wrap_nid).unwrap();
+        for &child_id in &wrap_node.children {
+            let Some(child_node) = doc.get_node(child_id) else {
+                continue;
+            };
+            let Some(el) = child_node.element_data() else {
+                continue;
+            };
+            let is_div = el.name.local == blitz_dom::local_name!("div");
+            let is_portal = child_node.attr("data-portal-anchor".into()).is_some()
+                || child_node.attr("data-portal-host".into()).is_some()
+                || child_node
+                    .attr(blitz_dom::local_name!("id"))
+                    .is_some_and(|id| id.contains("portal"));
+            let has_display_contents = child_node
+                .attr(blitz_dom::local_name!("style"))
+                .is_some_and(|s| s.contains("display: contents") || s.contains("display:contents"));
+            assert!(
+                !(is_div && !is_portal && has_display_contents),
+                "{wrap_sel} must not contain a non-portal <div style=\"display: contents\"> root wrapper"
+            );
+        }
+    }
+
+    // 2. Controlled open: Some(false) veto across Dialog, Popover, Select, Combobox, DatePicker.
+    for (trig_sel, content_sel, count_sel) in [
+        ("#veto-dlg-trig", "#veto-dlg-content", "#veto-dlg-count"),
+        ("#veto-pop-trig", "#veto-pop-content", "#veto-pop-count"),
+        ("#veto-sel-trig", "#veto-sel-content", "#veto-sel-count"),
+        ("#veto-cbx-trig", "#veto-cbx-content", "#veto-cbx-count"),
+        ("#veto-dp-trig", "#veto-dp-content", "#veto-dp-count"),
+    ] {
+        assert!(harness.query(content_sel).is_none(), "{content_sel} must start unmounted");
+        click_and_pump(&mut harness, trig_sel);
+        let count = harness
+            .attr(count_sel, "data-count")
+            .as_deref()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0);
+        assert!(count >= 1, "{trig_sel} click must fire on_open_change (count={count})");
+        assert!(
+            harness.query(content_sel).is_none(),
+            "{content_sel} must stay unmounted when controlled open=Some(false) vetoes"
+        );
+        assert_eq!(
+            harness.attr(trig_sel, "data-state").as_deref(),
+            Some("closed"),
+            "{trig_sel} must remain data-state=closed"
+        );
+    }
+
+    // 3. TooltipRoot override under TooltipProvider + TooltipRoot/PopoverRoot shared trigger.
+    assert!(harness.query("#iso-tt-trig").is_some());
+    assert_eq!(harness.query_all("#tp-shared-btn button").len(), 0);
+    assert!(harness.query("#tp-shared-pop").is_none());
+    click_and_pump(&mut harness, "#tp-shared-btn");
+    assert!(
+        harness.query("#tp-shared-pop").is_some(),
+        "PopoverContent must open when sharing trigger with TooltipRoot"
+    );
+    assert_eq!(
+        harness.attr("#tp-shared-pop", "data-state").as_deref(),
+        Some("open")
+    );
+    // Close shared popover before dialog Escape checks.
+    click_and_pump(&mut harness, "#tp-shared-btn");
+
+    // 4. DialogContent on_escape_key_down prevent_default() blocks Escape close.
+    click_and_pump(&mut harness, "#esc-pd-trig");
+    assert!(harness.query("#esc-pd-content").is_some());
+    focus_node(&mut harness, "#esc-pd-content");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+    let esc_count = harness
+        .attr("#esc-pd-count", "data-count")
+        .as_deref()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(0);
+    assert!(esc_count >= 1, "on_escape_key_down must fire on Escape");
+    assert!(
+        harness.query("#esc-pd-content").is_some(),
+        "prevent_default() in on_escape_key_down must keep DialogContent open"
+    );
+    click_and_pump(&mut harness, "#esc-pd-close");
+    assert!(harness.query("#esc-pd-content").is_none());
+
+    // 5. DialogContent escape_key_down_behavior: Some(DismissBehavior::Ignore) blocks Escape close.
+    click_and_pump(&mut harness, "#esc-ign-trig");
+    assert!(harness.query("#esc-ign-content").is_some());
+    focus_node(&mut harness, "#esc-ign-content");
+    send_key_and_pump(&mut harness, Key::Named(NamedKey::Escape), Code::Escape);
+    assert!(
+        harness.query("#esc-ign-content").is_some(),
+        "DismissBehavior::Ignore must block Escape close on DialogContent"
+    );
+}
+
+#[test]
+fn fm_s1_4_select_modernization_range_calendar_child_and_menu_hygiene() {
+    use monoxus::dropdown_menu::{
+        DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+    };
+    use monoxus::foundation::date_time::CalendarDate;
+    use monoxus::range_calendar::{
+        RangeCalendar, RangeCalendarCell, RangeCalendarDay, RangeCalendarGrid,
+        RangeCalendarGridBody, RangeCalendarGridRow, RangeCalendarSnapshot,
+    };
+    use monoxus::select::{
+        Select, SelectContent, SelectGroup, SelectHiddenInput, SelectItem, SelectItemIndicator,
+        SelectLabel, SelectSeparator, SelectTrigger,
+    };
+
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    fn scenario() -> Element {
+        let mut sel_ctrl_veto = use_signal(|| 0usize);
+
+        rsx! {
+            // 1. Select modernization: Select alias, SelectItemIndicator, SelectGroup+SelectLabel auto-link,
+            //    SelectSeparator style hygiene, SelectHiddenInput GlobalAttributes forwarding.
+            Select {
+                default_open: true,
+                default_value: "apple",
+                SelectTrigger { id: "s14-sel-open-trig", "Apple" }
+                SelectContent {
+                    id: "s14-sel-open-content",
+                    SelectGroup {
+                        id: "s14-sel-grp",
+                        SelectLabel { id: "s14-sel-grp-lbl", "Fruits" }
+                        SelectItem {
+                            id: "s14-sel-item-apple",
+                            value: "apple",
+                            SelectItemIndicator { id: "s14-sel-ind-apple" }
+                            "Apple"
+                        }
+                        SelectSeparator { id: "s14-sel-sep" }
+                        SelectItem {
+                            id: "s14-sel-item-banana",
+                            value: "banana",
+                            SelectItemIndicator { id: "s14-sel-ind-banana" }
+                            "Banana"
+                        }
+                        SelectItem {
+                            id: "s14-sel-item-cherry",
+                            value: "cherry",
+                            SelectItemIndicator { id: "s14-sel-ind-cherry", force_mount: true }
+                            "Cherry"
+                        }
+                    }
+                }
+            }
+            SelectHiddenInput {
+                id: "s14-sel-hidden",
+                name: "fruit",
+                value: "apple",
+                "data-hidden-extra": "yes",
+            }
+
+            // Uncontrolled Select { default_open: false } opens on trigger click
+            Select {
+                default_open: false,
+                SelectTrigger { id: "s14-sel-unctl-trig", "Pick" }
+                SelectContent {
+                    id: "s14-sel-unctl-content",
+                    SelectItem { value: "x", "X" }
+                }
+            }
+
+            // Controlled Select { open: Some(false) } with vetoing on_open_change stays closed
+            Select {
+                open: Some(false),
+                on_open_change: move |_next: bool| sel_ctrl_veto += 1,
+                SelectTrigger { id: "s14-sel-ctl-trig", "Locked" }
+                SelectContent {
+                    id: "s14-sel-ctl-content",
+                    SelectItem { value: "y", "Y" }
+                }
+            }
+            div { id: "s14-sel-ctl-count", "data-count": "{sel_ctrl_veto}" }
+
+            // 2. RangeCalendarDay with `child` preserving class, style, attributes, and focus/hover preview
+            RangeCalendar {
+                id: "s14-rc",
+                default_placeholder: CalendarDate::new(2024, 1, 1).unwrap(),
+                render_children: move |snap: RangeCalendarSnapshot| rsx! {
+                    RangeCalendarGrid {
+                        RangeCalendarGridBody {
+                            for (r_idx, week) in snap.months[0].weeks.iter().enumerate() {
+                                RangeCalendarGridRow {
+                                    key: "{r_idx}",
+                                    for date in week.iter().copied() {
+                                        RangeCalendarCell {
+                                            key: "{date}",
+                                            date,
+                                            month: snap.months[0].value,
+                                            RangeCalendarDay {
+                                                id: "s14-rc-day-{date}",
+                                                class: "rc-day-cls",
+                                                style: "min-width: 24px;",
+                                                "data-day-extra": "preserved",
+                                                child: move |props: Vec<Attribute>| rsx! {
+                                                    button {
+                                                        ..props,
+                                                        "{date.day}"
+                                                    }
+                                                },
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+
+            // 3. Unstyled DropdownMenu emits zero empty class="" or style=""
+            DropdownMenu {
+                default_open: true,
+                modal: false,
+                DropdownMenuTrigger { id: "s14-dm-trig", "Actions" }
+                DropdownMenuContent {
+                    id: "s14-dm-content",
+                    DropdownMenuItem { id: "s14-dm-item", "Copy" }
+                }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(scenario);
+
+    // 1a. SelectItemIndicator: rendered when selected, omitted when unselected, force_mount renders unchecked.
+    assert!(
+        harness.query("#s14-sel-ind-apple").is_some(),
+        "selected SelectItemIndicator must render"
+    );
+    assert_eq!(
+        harness.attr("#s14-sel-ind-apple", "data-state").as_deref(),
+        Some("checked")
+    );
+    assert!(
+        harness.query("#s14-sel-ind-banana").is_none(),
+        "unselected SelectItemIndicator without force_mount must omit DOM"
+    );
+    assert!(
+        harness.query("#s14-sel-ind-cherry").is_some(),
+        "force_mount SelectItemIndicator must render when unselected"
+    );
+    assert_eq!(
+        harness.attr("#s14-sel-ind-cherry", "data-state").as_deref(),
+        Some("unchecked")
+    );
+
+    // 1b. SelectGroup + SelectLabel auto-link aria-labelledby via context without group_key.
+    assert_eq!(harness.attr("#s14-sel-grp", "role").as_deref(), Some("group"));
+    assert_eq!(
+        harness.attr("#s14-sel-grp", "aria-labelledby").as_deref(),
+        Some("s14-sel-grp-lbl")
+    );
+
+    // 1c. SelectSeparator emits no inline #e2e8f0 style.
+    assert!(harness.query("#s14-sel-sep").is_some());
+    let sep_style = harness.attr("#s14-sel-sep", "style").unwrap_or_default();
+    assert!(
+        !sep_style.contains("#e2e8f0"),
+        "SelectSeparator must not emit inline #e2e8f0 style: {sep_style}"
+    );
+
+    // 1d. SelectHiddenInput forwards GlobalAttributes.
+    assert_eq!(
+        harness.attr("#s14-sel-hidden", "data-hidden-extra").as_deref(),
+        Some("yes")
+    );
+
+    // Close the initially-open Select before testing uncontrolled/controlled triggers.
+    click_and_pump(&mut harness, "#s14-sel-open-trig");
+
+    // 1e. Uncontrolled Select opens on trigger click; controlled Select veto stays closed.
+    assert!(harness.query("#s14-sel-unctl-content").is_none());
+    click_and_pump(&mut harness, "#s14-sel-unctl-trig");
+    assert!(
+        harness.query("#s14-sel-unctl-content").is_some(),
+        "uncontrolled Select must open on trigger click"
+    );
+    click_and_pump(&mut harness, "#s14-sel-unctl-trig");
+
+    assert!(harness.query("#s14-sel-ctl-content").is_none());
+    click_and_pump(&mut harness, "#s14-sel-ctl-trig");
+    assert_eq!(
+        harness.attr("#s14-sel-ctl-count", "data-count").as_deref(),
+        Some("1")
+    );
+    assert!(
+        harness.query("#s14-sel-ctl-content").is_none(),
+        "controlled Select open=Some(false) with vetoing on_open_change must stay closed"
+    );
+
+    // 2. RangeCalendarDay `child` preserves class, style, attributes, and hover/focus range preview.
+    let day10_nid = harness.node("#s14-rc-day-2024-01-10");
+    let day10_tag = harness
+        .base()
+        .get_node(day10_nid)
+        .and_then(|n| n.element_data())
+        .map(|el| el.name.local.to_string());
+    assert_eq!(day10_tag.as_deref(), Some("button"));
+    assert!(
+        harness
+            .attr("#s14-rc-day-2024-01-10", "class")
+            .unwrap_or_default()
+            .contains("rc-day-cls")
+    );
+    assert!(
+        harness
+            .attr("#s14-rc-day-2024-01-10", "style")
+            .unwrap_or_default()
+            .contains("min-width: 24px")
+    );
+    assert_eq!(
+        harness
+            .attr("#s14-rc-day-2024-01-10", "data-day-extra")
+            .as_deref(),
+        Some("preserved")
+    );
+
+    // Select start date Jan 10, then focus Jan 14 -> range preview highlights Jan 10..=14.
+    click_and_pump(&mut harness, "#s14-rc-day-2024-01-10");
+    assert_eq!(
+        harness
+            .attr("#s14-rc-day-2024-01-10", "data-selection-start")
+            .as_deref(),
+        Some("")
+    );
+    focus_node(&mut harness, "#s14-rc-day-2024-01-14");
+    for day in 10..=14 {
+        let sel = format!("#s14-rc-day-2024-01-{day:02}");
+        assert_eq!(
+            harness.attr(&sel, "data-highlighted").as_deref(),
+            Some(""),
+            "{sel} must carry data-highlighted during range preview"
+        );
+    }
+    assert_eq!(
+        harness.attr("#s14-rc-day-2024-01-15", "data-highlighted"),
+        None
+    );
+
+    // 3. Unstyled DropdownMenu emits zero empty class="" or style="" attributes.
+    click_and_pump(&mut harness, "#s14-dm-trig");
+    for sel in ["#s14-dm-trig", "#s14-dm-content", "#s14-dm-item"] {
+        assert!(harness.query(sel).is_some(), "{sel} must be mounted");
+        assert_ne!(
+            harness.attr(sel, "class").as_deref(),
+            Some(""),
+            "{sel} must not emit empty class"
+        );
+        assert_ne!(
+            harness.attr(sel, "style").as_deref(),
+            Some(""),
+            "{sel} must not emit empty style"
+        );
+    }
+}

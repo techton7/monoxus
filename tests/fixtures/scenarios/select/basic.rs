@@ -1,49 +1,26 @@
 use dioxus::prelude::*;
-use monoxus::{
-    foundation::shared::ScopeHandle,
-    select::{
-        Select, SelectContent, SelectItem, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
-        use_select_runtime,
-    },
+use monoxus::select::{
+    SelectContent, SelectItem, SelectItemData, SelectRoot, SelectTrigger, SelectValue,
+    SelectViewport,
 };
 
 use super::shared::{BADGE_STYLE, ItemRow};
 
 #[component]
 pub fn BasicFruitSelectSection() -> Element {
-    let scope = ScopeHandle::root("playground").child("select-basic");
-    let selected_val = use_signal(|| Some("apple".to_string()));
-    let is_open = use_signal(|| false);
+    let mut selected_val = use_signal(|| Some("apple".to_string()));
+    let mut is_open = use_signal(|| false);
 
     let items = vec![
-        monoxus::select::SelectItemData::new("apple", "Apple", false),
-        monoxus::select::SelectItemData::new("banana", "Banana", false),
-        monoxus::select::SelectItemData::new("blueberry", "Blueberry", false),
-        monoxus::select::SelectItemData::new("cherry", "Cherry", false),
-        monoxus::select::SelectItemData::new("grapes", "Grapes", false),
-        monoxus::select::SelectItemData::new("green-apple", "Green Apple", false),
-        monoxus::select::SelectItemData::new("green-grapes", "Green Grapes", false),
-        monoxus::select::SelectItemData::new("pineapple", "Pineapple", false),
+        SelectItemData::new("apple", "Apple", false),
+        SelectItemData::new("banana", "Banana", false),
+        SelectItemData::new("blueberry", "Blueberry", false),
+        SelectItemData::new("cherry", "Cherry", false),
+        SelectItemData::new("grapes", "Grapes", false),
+        SelectItemData::new("green-apple", "Green Apple", false),
+        SelectItemData::new("green-grapes", "Green Grapes", false),
+        SelectItemData::new("pineapple", "Pineapple", false),
     ];
-
-    let def = Select::new(scope.clone())
-        .with_trigger_id("select-trigger")
-        .with_content_id("select-content")
-        .with_items(items)
-        .with_value(selected_val())
-        .with_open(is_open());
-
-    let runtime = use_select_runtime(
-        def,
-        Some(move |val: Option<String>| {
-            let mut s = selected_val;
-            s.set(val);
-        }),
-        Some(move |open: bool| {
-            let mut s = is_open;
-            s.set(open);
-        }),
-    );
 
     let curr_val = selected_val().unwrap_or_else(|| "none".into());
     let open_state = if is_open() { "Open" } else { "Closed" };
@@ -68,8 +45,14 @@ pub fn BasicFruitSelectSection() -> Element {
             div {
                 style: "position: relative; width: 240px;",
                 SelectRoot {
-                    runtime: runtime.clone(),
+                    id: "select-basic".to_string(),
+                    items: Some(items),
+                    default_value: "apple".to_string(),
+                    on_value_change: move |val: Option<String>| selected_val.set(val),
+                    open: Some(is_open()),
+                    on_open_change: move |open: bool| is_open.set(open),
                     SelectTrigger {
+                        id: "select-trigger".to_string(),
                         class: "select-trigger-basic".to_string(),
                         style: "display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d8b4fe; border-radius: 0.375rem; background: white; font-size: 0.875rem; cursor: pointer; outline: none; box-shadow: 0 1px 2px rgba(0,0,0,0.05);",
                         SelectValue {
@@ -78,6 +61,7 @@ pub fn BasicFruitSelectSection() -> Element {
                         span { style: "color: #9333ea; font-size: 0.75rem;", "▼" }
                     }
                     SelectContent {
+                        id: "select-content".to_string(),
                         style: "z-index: 50; background: white; border: 1px solid #d8b4fe; border-radius: 0.375rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); padding: 0.25rem; outline: none;",
                         SelectViewport {
                             SelectItem {

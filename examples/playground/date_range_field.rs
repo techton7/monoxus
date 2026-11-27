@@ -76,7 +76,7 @@ fn drf_date(year: i32, month: u8, day: u8) -> DateValue {
 
 #[component]
 pub fn DateRangeFieldShowcase() -> Element {
-    let range = use_signal(|| {
+    let mut range = use_signal(|| {
         DateValueRange::new(Some(drf_date(2024, 6, 10)), Some(drf_date(2024, 6, 15)))
     });
     let mut invalid_reason = use_signal(|| String::from("none"));
@@ -123,7 +123,7 @@ pub fn DateRangeFieldShowcase() -> Element {
                     style: "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem;",
                     DateRangeFieldRoot {
                         id: "sw5c-drf-root",
-                        value: Some(range),
+                        value: Some(range()),
                         default_value: DateValueRange::new(
                             Some(drf_date(2024, 6, 10)),
                             Some(drf_date(2024, 6, 15)),
@@ -131,6 +131,7 @@ pub fn DateRangeFieldShowcase() -> Element {
                         default_placeholder: Some(drf_date(2024, 6, 10)),
                         locale: CalendarLocale::EnUs,
                         on_value_change: move |next: DateValueRange| {
+                            range.set(next);
                             if !next.is_inverted() {
                                 invalid_reason.set(String::from("none"));
                             }
@@ -228,7 +229,7 @@ pub fn DateRangeFieldShowcase() -> Element {
 
 #[component]
 fn RtlDateRangeFieldScenario() -> Element {
-    let rtl_range = use_signal(|| {
+    let mut rtl_range = use_signal(|| {
         DateValueRange::new(Some(drf_date(2025, 4, 10)), Some(drf_date(2025, 4, 20)))
     });
 
@@ -252,7 +253,8 @@ fn RtlDateRangeFieldScenario() -> Element {
             DateRangeFieldRoot {
                 id: "sw5c-drf-rtl",
                 dir: Some(Direction::Rtl),
-                value: Some(rtl_range),
+                value: Some(rtl_range()),
+                on_value_change: move |next: DateValueRange| rtl_range.set(next),
                 default_value: DateValueRange::new(
                     Some(drf_date(2025, 4, 10)),
                     Some(drf_date(2025, 4, 20)),

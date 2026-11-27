@@ -253,7 +253,7 @@ fn popover_reuses_the_shared_state_composition_and_overlay_backbone() {
 fn fm_w1_pop_pre_placement_content_and_arrow_respect_overrides_and_closed_force_mount_branch() {
     use dioxus::prelude::*;
     use monoxus::{
-        foundation::overlay::OverlayBranchContext,
+        foundation::overlay::{OverlayBranchContext, StickyStrategy},
         popover::{
             PopoverArrow, PopoverContent, PopoverContext, PopoverPortal, PopoverRoot,
             PopoverTrigger,
@@ -328,11 +328,11 @@ fn fm_w1_pop_pre_placement_content_and_arrow_respect_overrides_and_closed_force_
             PopoverRoot {
                 id: "pop-pre-place-root",
                 default_open: true,
-                sticky: Some(true),
                 PopoverTrigger { id: "pop-pre-place-trigger", "Open" }
                 PopoverPortal {
                     PopoverContent {
                         id: "pop-pre-place-content",
+                        sticky: Some(StickyStrategy::Always),
                         side: Some(PlacementSide::Left),
                         align: Some(PlacementAlign::Start),
                         PopoverArrow { id: "pop-pre-place-arrow" }
@@ -475,7 +475,7 @@ mod native_stage2a_tests {
     #[component]
     fn PopoverHandlerToggleScenario(props: PopoverHandlerToggleProps) -> Element {
         let mut stage = use_signal(|| 0_u8);
-        let open = use_signal(|| true);
+        let mut open = use_signal(|| true);
         let cb1_hits = props.cb1_hits.clone();
         let cb2_hits = props.cb2_hits.clone();
 
@@ -500,15 +500,16 @@ mod native_stage2a_tests {
                 }
                 PopoverRoot {
                     id: "toggle-popover",
-                    open: open,
-                    outside_interaction: Some(monoxus::popover::PopoverOutsideInteractionPolicy::new(
-                        monoxus::popover::PopoverOutsideDismissBehavior::Ignore,
-                        monoxus::popover::PopoverOutsideDismissBehavior::Ignore,
-                    )),
+                    open: open(),
+                    on_open_change: move |v| open.set(v),
                     PopoverTrigger { id: "toggle-trigger", "Open" }
                     PopoverPortal {
                         PopoverContent {
                             id: "toggle-content",
+                            outside_interaction: Some(monoxus::popover::PopoverOutsideInteractionPolicy::new(
+                                monoxus::popover::PopoverOutsideDismissBehavior::Ignore,
+                                monoxus::popover::PopoverOutsideDismissBehavior::Ignore,
+                            )),
                             on_escape_key_down: on_escape,
                             button { id: "toggle-inner", "Inner" }
                         }
@@ -568,7 +569,7 @@ mod native_stage2a_tests {
     #[component]
     fn PopoverStickyRootAndOverridesScenario(props: PopoverStickyRenderCountProps) -> Element {
         use monoxus::{
-            foundation::overlay::{PlacementAlign, PlacementSide},
+            foundation::overlay::{PlacementAlign, PlacementSide, StickyStrategy},
             popover::PopoverArrow,
         };
 
@@ -578,7 +579,6 @@ mod native_stage2a_tests {
                 PopoverRoot {
                     id: "pop-sticky-root",
                     default_open: true,
-                    sticky: Some(true),
                     PopoverTrigger {
                         id: "pop-sticky-trigger",
                         style: "display: inline-block; padding: 8px 16px;",
@@ -587,6 +587,7 @@ mod native_stage2a_tests {
                     PopoverPortal {
                         PopoverContent {
                             id: "pop-sticky-content",
+                            sticky: Some(StickyStrategy::Always),
                             side: Some(PlacementSide::Top),
                             align: Some(PlacementAlign::End),
                             side_offset: Some(12.0),

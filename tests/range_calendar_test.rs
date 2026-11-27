@@ -8,15 +8,14 @@ use monoxus::{
     range_calendar::{
         RANGE_CALENDAR_PARTS, RangeCalendar, RangeCalendarCell, RangeCalendarDay,
         RangeCalendarGrid, RangeCalendarGridBody, RangeCalendarGridHead, RangeCalendarGridRow,
-        RangeCalendarHeadCell, RangeCalendarHeader, RangeCalendarHeading,
-        RangeCalendarMonthSelect, RangeCalendarMonthSelectRenderProps, RangeCalendarNextButton,
-        RangeCalendarPart, RangeCalendarPrevButton, RangeCalendarRelationships, RangeCalendarRoot,
-        RangeCalendarSelectRenderProps, RangeCalendarSnapshot, RangeCalendarYearSelect,
-        RangeCalendarYearSelectRenderProps, use_range_calendar_context,
+        RangeCalendarHeadCell, RangeCalendarHeader, RangeCalendarHeading, RangeCalendarMonthSelect,
+        RangeCalendarNextButton, RangeCalendarPart, RangeCalendarPrevButton,
+        RangeCalendarRelationships, RangeCalendarRoot, RangeCalendarSnapshot,
+        RangeCalendarYearSelect, use_range_calendar_context,
     },
     select::{
-        SelectContent, SelectItem, SelectItemIndicator, SelectItemText, SelectPortal, SelectRoot,
-        SelectTrigger, SelectValue, SelectViewport,
+        SelectContent, SelectItem, SelectItemData, SelectItemIndicator, SelectItemText,
+        SelectPortal, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
     },
 };
 
@@ -174,23 +173,38 @@ fn range_calendar_select_as_child_vdom_and_context_helpers() {
             ctx.default_years().len()
         );
 
+        let month_items = ctx.month_options(MonthFormat::Long);
+        let month_val = ctx.current_month().to_string();
+        let month_select_items: Vec<SelectItemData> = month_items
+            .iter()
+            .map(|o| SelectItemData::new(o.value_string(), o.label.clone(), false))
+            .collect();
+        let month_ctx = ctx.clone();
+
         rsx! {
             RangeCalendarHeader {
                 RangeCalendarMonthSelect {
                     id: "vdom-rc-custom-month",
-                    as_child: true,
-                    render_child: move |slot: RangeCalendarMonthSelectRenderProps| {
-                        assert_eq!(slot.value, 5);
-                        assert_eq!(slot.value_string, "5");
-                        assert_eq!(slot.selected_label(), "May");
-                        let items = slot.items.clone();
+                    child: move |props: Vec<Attribute>| {
+                        let is_disabled = props.iter().any(|a| a.name == "disabled");
+                        assert!(!is_disabled);
+                        let items = month_items.clone();
+                        let select_items = month_select_items.clone();
+                        let cur_val = month_val.clone();
+                        let mut c = month_ctx.clone();
                         rsx! {
                             SelectRoot {
-                                id: slot.attrs.id.clone(),
-                                items: Some(slot.select_items()),
-                                value: Some(slot.value_string.clone()),
-                                disabled: slot.disabled,
-                                on_value_change: slot.on_value_change,
+                                id: "vdom-rc-custom-month".to_string(),
+                                items: Some(select_items),
+                                value: Some(cur_val),
+                                disabled: is_disabled,
+                                on_value_change: move |next: Option<String>| {
+                                    if let Some(s) = next
+                                        && let Ok(m) = s.parse::<u8>()
+                                    {
+                                        c.set_month(m);
+                                    }
+                                },
                                 SelectTrigger { SelectValue {} }
                                 SelectPortal {
                                     SelectContent {
@@ -213,15 +227,14 @@ fn range_calendar_select_as_child_vdom_and_context_helpers() {
                 RangeCalendarYearSelect {
                     id: "vdom-rc-custom-year",
                     disabled: true,
-                    as_child: true,
-                    render_child: move |slot: RangeCalendarYearSelectRenderProps| {
-                        assert_eq!(slot.value, 2024);
-                        assert!(slot.disabled);
+                    child: move |props: Vec<Attribute>| {
+                        let is_disabled = props.iter().any(|a| a.name == "disabled");
+                        assert!(is_disabled);
                         rsx! {
                             button {
                                 r#type: "button",
-                                disabled: slot.disabled,
-                                "{slot.selected_label()}"
+                                ..props,
+                                "2024"
                             }
                         }
                     },
@@ -514,25 +527,57 @@ mod native_tests {
         );
     }
 
-    fn render_native_range_select(
-        slot: RangeCalendarSelectRenderProps,
+    #[component]
+    fn NativeRangeCustomSelect(
+        attrs: Vec<Attribute>,
         trigger_tag: &'static str,
     ) -> Element {
-        let current_val = slot.value_string.clone();
-        let select_items = slot.select_items();
-        let items = slot.items.clone();
-        let on_select = slot.on_select;
-        let on_value_change = slot.on_value_change;
+        let ctx = use_range_calendar_context();
         let is_month = trigger_tag.contains("month");
+        let is_disabled = attrs.iter().any(|a| a.name == "disabled");
+        let current_val = if is_month {
+            ctx.current_month().to_string()
+        } else {
+            ctx.current_year().to_string()
+        };
+        let items = if is_month {
+            ctx.month_options(MonthFormat::Long)
+        } else {
+            ctx.year_options(YearFormat::Numeric)
+        };
+        let select_items: Vec<SelectItemData> = items
+            .iter()
+            .map(|o| SelectItemData::new(o.value_string(), o.label.clone(), false))
+            .collect();
+
+        let mut ctx_change = ctx.clone();
+        let mut ctx_probe_sel = ctx.clone();
+        let mut ctx_probe_val = ctx.clone();
+
         rsx! {
             div {
                 "data-range-select-slot": "{trigger_tag}",
                 SelectRoot {
-                    id: slot.attrs.id.clone(),
+                    id: trigger_tag.to_string(),
                     items: Some(select_items),
                     value: Some(current_val.clone()),
-                    disabled: slot.disabled,
-                    on_value_change,
+                    disabled: is_disabled,
+                    on_value_change: move |next: Option<String>| {
+                        if is_disabled {
+                            return;
+                        }
+                        if let Some(s) = next
+                            && let Ok(v) = s.parse::<i32>()
+                        {
+                            if is_month {
+                                if let Ok(m) = u8::try_from(v) {
+                                    ctx_change.set_month(m);
+                                }
+                            } else {
+                                ctx_change.set_year(v);
+                            }
+                        }
+                    },
                     SelectTrigger {
                         style: "min-width: 110px; height: 30px;",
                         SelectValue {}
@@ -567,10 +612,13 @@ mod native_tests {
                     id: "{trigger_tag}-probe-on-select",
                     r#type: "button",
                     onclick: move |_| {
+                        if is_disabled {
+                            return;
+                        }
                         if is_month {
-                            on_select.call(4);
+                            ctx_probe_sel.set_month(4);
                         } else {
-                            on_select.call(2027);
+                            ctx_probe_sel.set_year(2027);
                         }
                     },
                     "on_select"
@@ -579,10 +627,13 @@ mod native_tests {
                     id: "{trigger_tag}-probe-on-value-change",
                     r#type: "button",
                     onclick: move |_| {
+                        if is_disabled {
+                            return;
+                        }
                         if is_month {
-                            on_value_change.call(Some(String::from("7")));
+                            ctx_probe_val.set_month(7);
                         } else {
-                            on_value_change.call(Some(String::from("2028")));
+                            ctx_probe_val.set_year(2028);
                         }
                     },
                     "on_value_change"
@@ -631,16 +682,14 @@ mod native_tests {
                             RangeCalendarNextButton { id: "rc-custom-next", "Next" }
                             RangeCalendarMonthSelect {
                                 id: "rc-custom-month",
-                                as_child: true,
-                                render_child: move |slot: RangeCalendarSelectRenderProps| {
-                                    render_native_range_select(slot, "rc-custom-month")
+                                child: move |props: Vec<Attribute>| rsx! {
+                                    NativeRangeCustomSelect { attrs: props, trigger_tag: "rc-custom-month" }
                                 },
                             }
                             RangeCalendarYearSelect {
                                 id: "rc-custom-year",
-                                as_child: true,
-                                render_child: move |slot: RangeCalendarSelectRenderProps| {
-                                    render_native_range_select(slot, "rc-custom-year")
+                                child: move |props: Vec<Attribute>| rsx! {
+                                    NativeRangeCustomSelect { attrs: props, trigger_tag: "rc-custom-year" }
                                 },
                             }
                         }
@@ -675,16 +724,14 @@ mod native_tests {
                             RangeCalendarHeading { id: "rc-custom-dis-heading" }
                             RangeCalendarMonthSelect {
                                 id: "rc-custom-dis-month",
-                                as_child: true,
-                                render_child: move |slot: RangeCalendarSelectRenderProps| {
-                                    render_native_range_select(slot, "rc-custom-dis-month")
+                                child: move |props: Vec<Attribute>| rsx! {
+                                    NativeRangeCustomSelect { attrs: props, trigger_tag: "rc-custom-dis-month" }
                                 },
                             }
                             RangeCalendarYearSelect {
                                 id: "rc-custom-dis-year",
-                                as_child: true,
-                                render_child: move |slot: RangeCalendarSelectRenderProps| {
-                                    render_native_range_select(slot, "rc-custom-dis-year")
+                                child: move |props: Vec<Attribute>| rsx! {
+                                    NativeRangeCustomSelect { attrs: props, trigger_tag: "rc-custom-dis-year" }
                                 },
                             }
                         }
@@ -847,54 +894,49 @@ mod native_tests {
                     }
                 }
 
-                // (b) Standalone RangeCalendarRoot(as_child: true) Escape cancellation outside day cell
+                // (b) Standalone RangeCalendarRoot(child) Escape cancellation outside day cell
                 RangeCalendarRoot {
                     id: "rc-ac",
                     default_placeholder: d(2024, 1, 1),
-                    as_child: true,
-                    render_child: move |rp: monoxus::range_calendar::RangeCalendarRootRenderProps| {
-                        let on_key_down = rp.on_key_down;
-                        rsx! {
-                            section {
-                                id: "{rp.attrs.id}",
-                                role: rp.attrs.role,
-                                tabindex: "-1",
-                                onkeydown: move |evt| {
-                                    if let Some(cb) = on_key_down {
-                                        cb.call(evt);
-                                    }
-                                },
-                                {rp.children}
-                            }
-                        }
+                    child: move |props: Vec<Attribute>| rsx! {
+                        NativeRangeAsChildEscapeBody { attrs: props }
                     },
-                    render_children: move |snap: RangeCalendarSnapshot| rsx! {
-                        div {
-                            id: "rc-ac-probe",
-                            "data-start": snap.start_value.map(|x| x.to_iso_string()).unwrap_or_default(),
-                            "data-end": snap.end_value.map(|x| x.to_iso_string()).unwrap_or_default(),
-                        }
-                        button {
-                            id: "rc-ac-outside-day",
-                            r#type: "button",
-                            style: "width: 80px; height: 24px;",
-                            "Header Focus Target"
-                        }
-                        RangeCalendarGrid {
-                            RangeCalendarGridBody {
-                                for (r_idx, week) in snap.months[0].weeks.iter().enumerate() {
-                                    RangeCalendarGridRow {
-                                        key: "{r_idx}",
-                                        for date in week.iter().copied() {
-                                            RangeCalendarCell {
-                                                key: "{date}",
-                                                date,
-                                                month: snap.months[0].value,
-                                                RangeCalendarDay {
-                                                    id: "rc-ac-day-{date}",
-                                                    style: "display: inline-block; width: 28px; height: 28px;",
-                                                }
-                                            }
+                }
+            }
+        }
+    }
+
+    #[component]
+    fn NativeRangeAsChildEscapeBody(attrs: Vec<Attribute>) -> Element {
+        let snap = use_range_calendar_context().snapshot();
+        rsx! {
+            section {
+                tabindex: "-1",
+                ..attrs,
+                div {
+                    id: "rc-ac-probe",
+                    "data-start": snap.start_value.map(|x| x.to_iso_string()).unwrap_or_default(),
+                    "data-end": snap.end_value.map(|x| x.to_iso_string()).unwrap_or_default(),
+                }
+                button {
+                    id: "rc-ac-outside-day",
+                    r#type: "button",
+                    style: "width: 80px; height: 24px;",
+                    "Header Focus Target"
+                }
+                RangeCalendarGrid {
+                    RangeCalendarGridBody {
+                        for (r_idx, week) in snap.months[0].weeks.iter().enumerate() {
+                            RangeCalendarGridRow {
+                                key: "{r_idx}",
+                                for date in week.iter().copied() {
+                                    RangeCalendarCell {
+                                        key: "{date}",
+                                        date,
+                                        month: snap.months[0].value,
+                                        RangeCalendarDay {
+                                            id: "rc-ac-day-{date}",
+                                            style: "display: inline-block; width: 28px; height: 28px;",
                                         }
                                     }
                                 }

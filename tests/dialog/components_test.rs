@@ -60,10 +60,11 @@ fn test_alert_dialog_compound_components_render() {
 
 #[component]
 fn DeclarativeDialogClosedSample() -> Element {
-    let open = use_signal(|| false);
+    let mut open = use_signal(|| false);
     rsx! {
         DialogRoot {
-            open: open,
+            open: open(),
+            on_open_change: move |v| open.set(v),
             DialogTrigger {
                 id: "test-trigger",
                 "Trigger"
@@ -87,10 +88,11 @@ fn DeclarativeDialogClosedSample() -> Element {
 
 #[component]
 fn DeclarativeDialogOpenSample() -> Element {
-    let open = use_signal(|| true);
+    let mut open = use_signal(|| true);
     rsx! {
         DialogRoot {
-            open: open,
+            open: open(),
+            on_open_change: move |v| open.set(v),
             DialogTrigger {
                 id: "test-trigger",
                 "Trigger"
@@ -237,7 +239,7 @@ fn fm_w1_ctx_dialog_post_mount_on_open_change_policy_sync_and_close_focus() {
     fn DialogReactivePropsScenario() -> Element {
         use monoxus::dialog::DialogMode;
 
-        let open = use_signal(|| false);
+        let mut open = use_signal(|| false);
         let mut swapped = use_signal(|| false);
         let mut cb1_log = use_signal(Vec::<bool>::new);
         let mut cb2_log = use_signal(Vec::<bool>::new);
@@ -248,9 +250,15 @@ fn fm_w1_ctx_dialog_post_mount_on_open_change_policy_sync_and_close_focus() {
             DialogMode::Modal
         };
         let on_open_change = if swapped() {
-            EventHandler::new(move |next: bool| cb2_log.write().push(next))
+            EventHandler::new(move |next: bool| {
+                open.set(next);
+                cb2_log.write().push(next);
+            })
         } else {
-            EventHandler::new(move |next: bool| cb1_log.write().push(next))
+            EventHandler::new(move |next: bool| {
+                open.set(next);
+                cb1_log.write().push(next);
+            })
         };
 
         rsx! {
@@ -267,7 +275,7 @@ fn fm_w1_ctx_dialog_post_mount_on_open_change_policy_sync_and_close_focus() {
 
                 DialogRoot {
                     id: "w1-ctx-dlg",
-                    open: Some(open),
+                    open: Some(open()),
                     mode: Some(mode),
                     on_open_change: Some(on_open_change),
                     DialogTrigger {

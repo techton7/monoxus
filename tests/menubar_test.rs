@@ -5,9 +5,8 @@ use monoxus::foundation::shared::Direction;
 use monoxus::menubar::{
     CheckedState, Menubar, MenubarCheckboxGroup, MenubarCheckboxItem, MenubarContent,
     MenubarContentStatic, MenubarItem, MenubarItemIndicator, MenubarMenu, MenubarPortal,
-    MenubarRadioGroup, MenubarRadioItem, MenubarRoot, MenubarRootRenderProps,
-    MenubarRuntimeContext, MenubarSub, MenubarSubContent, MenubarSubContentStatic,
-    MenubarSubTrigger, MenubarTrigger, MenubarTriggerRenderProps,
+    MenubarRadioGroup, MenubarRadioItem, MenubarRoot, MenubarRuntimeContext, MenubarSub,
+    MenubarSubContent, MenubarSubContentStatic, MenubarSubTrigger, MenubarTrigger,
 };
 
 #[derive(Clone, Default, PartialEq)]
@@ -79,59 +78,32 @@ fn test_menubar_root_registers_menus_and_default_value() {
 
 #[component]
 fn MenubarAsChildAndStaticSample() -> Element {
-    let root_render = Callback::new(|props: MenubarRootRenderProps| {
-        rsx! {
-            nav {
-                id: "{props.attrs.id}",
-                role: "{props.attrs.role}",
-                "aria-orientation": "{props.attrs.aria_orientation}",
-                dir: "{props.attrs.dir}",
-                ..props.attributes,
-                {props.children}
-            }
-        }
-    });
-
-    let trig_render = Callback::new(|props: MenubarTriggerRenderProps| {
-        rsx! {
-            button {
-                r#type: "button",
-                id: "{props.attrs.id}",
-                role: "{props.attrs.role}",
-                tabindex: "{props.attrs.tabindex}",
-                "aria-haspopup": "{props.attrs.aria_haspopup}",
-                "aria-expanded": "{props.attrs.aria_expanded}",
-                onpointerdown: move |evt| props.on_pointer_down.call(evt),
-                onclick: move |evt| props.on_click.call(evt),
-                onpointerenter: move |evt| props.on_pointer_enter.call(evt),
-                onfocus: move |evt| props.on_focus.call(evt),
-                onblur: move |evt| props.on_blur.call(evt),
-                onkeydown: move |evt| props.on_key_down.call(evt),
-                ..props.attributes,
-                {props.children}
-            }
-        }
-    });
-
     rsx! {
         Menubar {
             id: "mb-ac-root",
             default_value: Some("view".to_string()),
-            as_child: true,
-            render_child: Some(root_render),
-            MenubarMenu {
-                value: Some("view".to_string()),
-                MenubarTrigger {
-                    id: "mb-ac-trig",
-                    as_child: true,
-                    render_child: Some(trig_render),
-                    "View"
+            child: move |props: Vec<Attribute>| rsx! {
+                nav {
+                    ..props,
+                    MenubarMenu {
+                        value: Some("view".to_string()),
+                        MenubarTrigger {
+                            id: "mb-ac-trig",
+                            child: move |trig_props: Vec<Attribute>| rsx! {
+                                button {
+                                    r#type: "button",
+                                    ..trig_props,
+                                    "View"
+                                }
+                            },
+                        }
+                        MenubarContentStatic {
+                            id: "mb-ac-static-content",
+                            MenubarItem { "Zoom In" }
+                        }
+                    }
                 }
-                MenubarContentStatic {
-                    id: "mb-ac-static-content",
-                    MenubarItem { "Zoom In" }
-                }
-            }
+            },
         }
     }
 }

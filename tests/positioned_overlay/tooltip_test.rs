@@ -339,8 +339,6 @@ mod native_stage2a_tests {
                     delay_duration: 0,
                     TooltipRoot {
                         id: "tip-aria-root",
-                        side: Some(PlacementSide::Bottom),
-                        side_offset: Some(16.0),
                         TooltipTrigger {
                             id: "tip-aria-trigger",
                             style: "display: inline-block; padding: 6px 12px;",
@@ -349,6 +347,8 @@ mod native_stage2a_tests {
                         TooltipPortal {
                             TooltipContent {
                                 id: "tip-aria-content",
+                                side: PlacementSide::Bottom,
+                                side_offset: 16.0,
                                 aria_label: Some("Screen reader tooltip label".to_string()),
                                 class: Some("tip-aria-exit".to_string()),
                                 style: Some("width: 200px; height: 48px; display: block;".to_string()),

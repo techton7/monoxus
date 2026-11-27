@@ -3,11 +3,9 @@ use std::{cell::RefCell, rc::Rc};
 use dioxus::prelude::*;
 use monoxus::foundation::shared::{Direction, Orientation};
 use monoxus::navigation_menu::{
-    NavigationMenu, NavigationMenuActivationMode, NavigationMenuContent,
-    NavigationMenuContentRenderProps, NavigationMenuIndicator, NavigationMenuItem,
-    NavigationMenuLink, NavigationMenuLinkSelectEvent, NavigationMenuList,
-    NavigationMenuRoot, NavigationMenuRootRenderProps, NavigationMenuSub,
-    NavigationMenuTrigger, NavigationMenuTriggerRenderProps, NavigationMenuViewport,
+    NavigationMenu, NavigationMenuActivationMode, NavigationMenuContent, NavigationMenuIndicator,
+    NavigationMenuItem, NavigationMenuLink, NavigationMenuLinkSelectEvent, NavigationMenuList,
+    NavigationMenuRoot, NavigationMenuSub, NavigationMenuTrigger, NavigationMenuViewport,
 };
 
 #[derive(Clone, Default, PartialEq)]
@@ -116,18 +114,21 @@ fn NavInlineAndControlledSample(
     probe_out: Rc<RefCell<NavProbeSnapshot>>,
     changes_out: Rc<RefCell<Vec<String>>>,
 ) -> Element {
-    let val = use_signal(|| "one".to_string());
+    let mut val = use_signal(|| "one".to_string());
     *controlled_out.borrow_mut() = Some(val);
     let changes = changes_out.clone();
 
     rsx! {
         NavigationMenu {
             id: "nm-inline-root",
-            value: Some(val),
+            value: Some(val()),
             orientation: Orientation::Vertical,
             dir: Direction::Rtl,
             activation_mode: NavigationMenuActivationMode::Manual,
-            on_value_change: move |next: String| changes.borrow_mut().push(next),
+            on_value_change: move |next: String| {
+                val.set(next.clone());
+                changes.borrow_mut().push(next);
+            },
             NavigationMenuList {
                 NavigationMenuItem {
                     value: Some("one".to_string()),
@@ -195,62 +196,40 @@ fn test_navigation_menu_inline_controlled_and_nested_sub() {
 
 #[component]
 fn NavAsChildSample() -> Element {
-    let root_render = Callback::new(|props: NavigationMenuRootRenderProps| {
-        rsx! {
-            article {
-                id: "{props.attrs.id()}",
-                aria_label: props.attrs.aria_label(),
-                dir: "{props.attrs.dir()}",
-                "data-orientation": "{props.attrs.data_orientation()}",
-                "data-custom-root": "true",
-                {props.children}
-            }
-        }
-    });
-    let trig_render = Callback::new(|props: NavigationMenuTriggerRenderProps| {
-        rsx! {
-            button {
-                id: "{props.attrs.id()}",
-                r#type: "button",
-                aria_expanded: "{props.attrs.aria_expanded()}",
-                "data-state": props.attrs.data_state().as_str(),
-                "data-custom-trigger": "true",
-                {props.children}
-            }
-        }
-    });
-    let content_render = Callback::new(|props: NavigationMenuContentRenderProps| {
-        rsx! {
-            section {
-                id: "{props.attrs.id()}",
-                "data-state": props.attrs.data_state().as_str(),
-                "data-custom-content": "true",
-                {props.children}
-            }
-        }
-    });
-
     rsx! {
         NavigationMenuRoot {
             id: "nm-as-child",
             default_value: Some("a".to_string()),
-            as_child: true,
-            render_child: Some(root_render),
-            NavigationMenuList {
-                NavigationMenuItem {
-                    value: Some("a".to_string()),
-                    NavigationMenuTrigger {
-                        as_child: true,
-                        render_child: Some(trig_render),
-                        "A"
-                    }
-                    NavigationMenuContent {
-                        as_child: true,
-                        render_child: Some(content_render),
-                        NavigationMenuLink { href: "#a", "Link A" }
+            child: move |props: Vec<Attribute>| rsx! {
+                article {
+                    "data-custom-root": "true",
+                    ..props,
+                    NavigationMenuList {
+                        NavigationMenuItem {
+                            value: Some("a".to_string()),
+                            NavigationMenuTrigger {
+                                child: move |trig_props: Vec<Attribute>| rsx! {
+                                    button {
+                                        r#type: "button",
+                                        "data-custom-trigger": "true",
+                                        ..trig_props,
+                                        "A"
+                                    }
+                                },
+                            }
+                            NavigationMenuContent {
+                                child: move |content_props: Vec<Attribute>| rsx! {
+                                    section {
+                                        "data-custom-content": "true",
+                                        ..content_props,
+                                        NavigationMenuLink { href: "#a", "Link A" }
+                                    }
+                                },
+                            }
+                        }
                     }
                 }
-            }
+            },
         }
     }
 }
@@ -768,15 +747,16 @@ mod native_tests {
     fn NativeNavMenuWithNestedPopoverScenario() -> Element {
         use monoxus::popover::{PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger};
 
-        let nav_val = use_signal(|| "products".to_string());
-        let pop_open = use_signal(|| false);
+        let mut nav_val = use_signal(|| "products".to_string());
+        let mut pop_open = use_signal(|| false);
 
         rsx! {
             div {
                 id: "nav-nested-wrapper",
                 NavigationMenuRoot {
                     id: "nav-nested-root",
-                    value: Some(nav_val),
+                    value: Some(nav_val()),
+                    on_value_change: move |v| nav_val.set(v),
                     NavigationMenuList {
                         NavigationMenuItem {
                             value: Some("products".to_string()),
@@ -785,7 +765,8 @@ mod native_tests {
                                 id: "nav-nested-content",
                                 PopoverRoot {
                                     id: "nav-inner-popover",
-                                    open: pop_open,
+                                    open: pop_open(),
+                                    on_open_change: move |v| pop_open.set(v),
                                     PopoverTrigger { id: "nav-inner-pop-trig", "Nested Popover" }
                                     PopoverPortal {
                                         PopoverContent {
@@ -873,10 +854,10 @@ mod native_tests {
         use monoxus::dialog::{DialogContent, DialogPortal, DialogRoot};
         use monoxus::popover::{PopoverContent, PopoverPortal, PopoverRoot, PopoverTrigger};
 
-        let sub_root_val = use_signal(|| "docs".to_string());
-        let dlg_open = use_signal(|| true);
-        let dlg_nav_val = use_signal(|| "menu-a".to_string());
-        let nested_pop_open = use_signal(|| false);
+        let mut sub_root_val = use_signal(|| "docs".to_string());
+        let mut dlg_open = use_signal(|| true);
+        let mut dlg_nav_val = use_signal(|| "menu-a".to_string());
+        let mut nested_pop_open = use_signal(|| false);
         let mut pop_action_clicks = use_signal(|| 0_u32);
 
         #[component]
@@ -894,7 +875,8 @@ mod native_tests {
                 // Part 1 (H-4a): NavigationMenuSub link click must dismiss enclosing NavigationMenuRoot
                 NavigationMenuRoot {
                     id: "w1-sub-root",
-                    value: Some(sub_root_val),
+                    value: Some(sub_root_val()),
+                    on_value_change: move |v| sub_root_val.set(v),
                     NavigationMenuList {
                         NavigationMenuItem {
                             value: Some("docs".to_string()),
@@ -928,7 +910,8 @@ mod native_tests {
                 // Part 2 (H-4b, M-2): Dialog > NavigationMenu > Popover branch chaining
                 DialogRoot {
                     id: "w1-nav-dlg",
-                    open: Some(dlg_open),
+                    open: Some(dlg_open()),
+                    on_open_change: move |v| dlg_open.set(v),
                     DialogPortal {
                         DialogContent {
                             id: "w1-nav-dlg-content",
@@ -937,7 +920,8 @@ mod native_tests {
                             span { id: "w1-nav-pop-clicks", "{pop_action_clicks()}" }
                             NavigationMenuRoot {
                                 id: "w1-dlg-nav-root",
-                                value: Some(dlg_nav_val),
+                                value: Some(dlg_nav_val()),
+                                on_value_change: move |v| dlg_nav_val.set(v),
                                 NavigationMenuList {
                                     NavigationMenuItem {
                                         value: Some("menu-a".to_string()),
@@ -947,7 +931,8 @@ mod native_tests {
                                             force_mount: true,
                                             PopoverRoot {
                                                 id: "w1-dlg-nav-pop",
-                                                open: Some(nested_pop_open),
+                                                open: Some(nested_pop_open()),
+                                                on_open_change: move |v| nested_pop_open.set(v),
                                                 PopoverTrigger {
                                                     id: "w1-dlg-nav-pop-trig",
                                                     style: "width: 120px; height: 28px;",

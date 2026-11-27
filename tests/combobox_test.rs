@@ -1,19 +1,14 @@
 use dioxus::prelude::*;
 use monoxus::{
     combobox::{
-        COMBOBOX_PARTS, Combobox, ComboboxArrow, ComboboxArrowRenderProps, ComboboxContent,
-        ComboboxContentRenderProps, ComboboxContentStatic, ComboboxContentStaticRenderProps,
-        ComboboxGroup, ComboboxGroupHeading, ComboboxGroupHeadingRenderProps,
-        ComboboxGroupRenderProps, ComboboxInput, ComboboxInputAttrs, ComboboxInputRenderProps,
-        ComboboxItem, ComboboxItemAttrs, ComboboxItemData, ComboboxItemRenderProps, ComboboxMode,
-        ComboboxNavKey, ComboboxOptionRegistry, ComboboxPart, ComboboxPortal,
-        ComboboxRelationships, ComboboxRoot, ComboboxScrollAlignment,
-        ComboboxScrollButtonRenderProps, ComboboxScrollDownButton, ComboboxScrollUpButton,
-        ComboboxSeparator, ComboboxSeparatorRenderProps, ComboboxTrigger,
-        ComboboxTriggerRenderProps, ComboboxViewport, ComboboxViewportRenderProps,
-        apply_multiple_toggle, apply_single_toggle, resolve_input_keydown,
+        COMBOBOX_PARTS, Combobox, ComboboxArrow, ComboboxContent, ComboboxContentStatic,
+        ComboboxGroup, ComboboxGroupHeading, ComboboxInput, ComboboxInputAttrs, ComboboxItem,
+        ComboboxItemAttrs, ComboboxItemData, ComboboxMode, ComboboxNavKey, ComboboxOptionRegistry,
+        ComboboxPart, ComboboxPortal, ComboboxRelationships, ComboboxRoot, ComboboxScrollAlignment,
+        ComboboxScrollDownButton, ComboboxScrollUpButton, ComboboxSeparator, ComboboxTrigger,
+        ComboboxViewport, apply_multiple_toggle, apply_single_toggle, resolve_input_keydown,
     },
-    foundation::shared::ScopeHandle,
+    foundation::{compose::FloatingContentChildProps, shared::ScopeHandle},
 };
 
 #[cfg(feature = "native")]
@@ -340,133 +335,114 @@ fn fm_cbx_8_as_child_all_twelve_rendered_parts() {
                     default_open: true,
                     ComboboxInput {
                         id: Some("as-child-input".to_string()),
-                        as_child: true,
-                        render_child: Callback::new(move |rp: ComboboxInputRenderProps| rsx! {
+                        style: Some("width: 200px; height: 32px;".to_string()),
+                        child: move |props: Vec<Attribute>| rsx! {
                             input {
-                                id: "{rp.attrs.id()}",
-                                role: "{rp.attrs.role()}",
-                                style: "width: 200px; height: 32px;",
                                 "data-custom-input": "yes",
-                                value: "{rp.value}",
+                                ..props,
                             }
-                        }),
+                        },
                     }
                     ComboboxTrigger {
                         id: Some("as-child-trigger".to_string()),
-                        as_child: true,
-                        render_child: Callback::new(move |rp: ComboboxTriggerRenderProps| rsx! {
+                        style: Some("width: 32px; height: 32px;".to_string()),
+                        child: move |props: Vec<Attribute>| rsx! {
                             button {
-                                id: "{rp.attrs.id()}",
-                                style: "width: 32px; height: 32px;",
                                 "data-custom-trigger": "yes",
-                                {rp.children}
+                                ..props,
+                                "Open"
                             }
-                        }),
-                        "Open"
+                        },
                     }
                     ComboboxContent {
                         id: Some("as-child-content".to_string()),
                         same_width: false,
-                        as_child: true,
-                        render_child: Callback::new(move |rp: ComboboxContentRenderProps| rsx! {
+                        style: Some("width: 200px; height: 140px;".to_string()),
+                        child: move |c: FloatingContentChildProps| rsx! {
                             div {
-                                id: "{rp.attrs.id()}",
-                                role: "{rp.attrs.role()}",
-                                style: "{rp.style} width: 200px; height: 140px;",
-                                "data-custom-content": "yes",
-                                onmounted: move |evt| rp.on_mounted.call(evt),
-                                {rp.children}
-                            }
-                        }),
-                        ComboboxScrollUpButton {
-                            force_mount: true,
-                            as_child: true,
-                            render_child: Callback::new(move |rp: ComboboxScrollButtonRenderProps| rsx! {
+                                ..c.wrapper_props,
                                 div {
-                                    "data-custom-scroll-up": "yes",
-                                    style: "{rp.style}",
-                                    {rp.children}
-                                }
-                            }),
-                            "Up"
-                        }
-                        ComboboxViewport {
-                            id: Some("as-child-viewport".to_string()),
-                            as_child: true,
-                            render_child: Callback::new(move |rp: ComboboxViewportRenderProps| rsx! {
-                                div {
-                                    id: "{rp.attrs.id()}",
-                                    "data-custom-viewport": "yes",
-                                    {rp.children}
-                                }
-                            }),
-                            ComboboxGroup {
-                                id: Some("as-child-group".to_string()),
-                                as_child: true,
-                                render_child: Callback::new(move |rp: ComboboxGroupRenderProps| rsx! {
-                                    div {
-                                        id: "{rp.attrs.id()}",
-                                        role: "{rp.attrs.role()}",
-                                        "data-custom-group": "yes",
-                                        {rp.children}
+                                    "data-custom-content": "yes",
+                                    ..c.props,
+                                    ComboboxScrollUpButton {
+                                        force_mount: true,
+                                        child: move |props: Vec<Attribute>| rsx! {
+                                            div {
+                                                "data-custom-scroll-up": "yes",
+                                                ..props,
+                                                "Up"
+                                            }
+                                        },
                                     }
-                                }),
-                                ComboboxGroupHeading {
-                                    id: Some("as-child-heading".to_string()),
-                                    as_child: true,
-                                    render_child: Callback::new(move |rp: ComboboxGroupHeadingRenderProps| rsx! {
-                                        div {
-                                            id: "{rp.attrs.id()}",
-                                            "data-custom-heading": "yes",
-                                            {rp.children}
-                                        }
-                                    }),
-                                    "Heading"
-                                }
-                                ComboboxItem {
-                                    id: Some("as-child-item".to_string()),
-                                    value: "a".to_string(),
-                                    as_child: true,
-                                    render_child: Callback::new(move |rp: ComboboxItemRenderProps| rsx! {
-                                        div {
-                                            id: "{rp.attrs.id()}",
-                                            role: "{rp.attrs.role()}",
-                                            style: "height: 24px;",
-                                            "data-custom-item": "yes",
-                                            {rp.children}
-                                        }
-                                    }),
-                                    "Alpha"
-                                }
-                                ComboboxSeparator {
-                                    as_child: true,
-                                    render_child: Callback::new(move |_rp: ComboboxSeparatorRenderProps| rsx! {
-                                        hr { "data-custom-separator": "yes" }
-                                    }),
+                                    ComboboxViewport {
+                                        id: Some("as-child-viewport".to_string()),
+                                        child: move |props: Vec<Attribute>| rsx! {
+                                            div {
+                                                "data-custom-viewport": "yes",
+                                                ..props,
+                                                ComboboxGroup {
+                                                    id: Some("as-child-group".to_string()),
+                                                    child: move |props: Vec<Attribute>| rsx! {
+                                                        div {
+                                                            "data-custom-group": "yes",
+                                                            ..props,
+                                                            ComboboxGroupHeading {
+                                                                id: Some("as-child-heading".to_string()),
+                                                                child: move |props: Vec<Attribute>| rsx! {
+                                                                    div {
+                                                                        "data-custom-heading": "yes",
+                                                                        ..props,
+                                                                        "Heading"
+                                                                    }
+                                                                },
+                                                            }
+                                                            ComboboxItem {
+                                                                id: Some("as-child-item".to_string()),
+                                                                value: "a".to_string(),
+                                                                style: Some("height: 24px;".to_string()),
+                                                                child: move |props: Vec<Attribute>| rsx! {
+                                                                    div {
+                                                                        "data-custom-item": "yes",
+                                                                        ..props,
+                                                                        "Alpha"
+                                                                    }
+                                                                },
+                                                            }
+                                                            ComboboxSeparator {
+                                                                child: move |props: Vec<Attribute>| rsx! {
+                                                                    hr {
+                                                                        "data-custom-separator": "yes",
+                                                                        ..props,
+                                                                    }
+                                                                },
+                                                            }
+                                                        }
+                                                    },
+                                                }
+                                            }
+                                        },
+                                    }
+                                    ComboboxScrollDownButton {
+                                        force_mount: true,
+                                        child: move |props: Vec<Attribute>| rsx! {
+                                            div {
+                                                "data-custom-scroll-down": "yes",
+                                                ..props,
+                                                "Down"
+                                            }
+                                        },
+                                    }
+                                    ComboboxArrow {
+                                        child: move |props: Vec<Attribute>| rsx! {
+                                            span {
+                                                "data-custom-arrow": "yes",
+                                                ..props,
+                                            }
+                                        },
+                                    }
                                 }
                             }
-                        }
-                        ComboboxScrollDownButton {
-                            force_mount: true,
-                            as_child: true,
-                            render_child: Callback::new(move |rp: ComboboxScrollButtonRenderProps| rsx! {
-                                div {
-                                    "data-custom-scroll-down": "yes",
-                                    style: "{rp.style}",
-                                    {rp.children}
-                                }
-                            }),
-                            "Down"
-                        }
-                        ComboboxArrow {
-                            as_child: true,
-                            render_child: Callback::new(move |rp: ComboboxArrowRenderProps| rsx! {
-                                span {
-                                    "data-custom-arrow": "yes",
-                                    style: "{rp.style}",
-                                }
-                            }),
-                        }
+                        },
                     }
                 }
                 ComboboxRoot {
@@ -474,15 +450,13 @@ fn fm_cbx_8_as_child_all_twelve_rendered_parts() {
                     default_open: true,
                     ComboboxContentStatic {
                         id: Some("as-child-static".to_string()),
-                        as_child: true,
-                        render_child: Callback::new(move |rp: ComboboxContentStaticRenderProps| rsx! {
+                        child: move |props: Vec<Attribute>| rsx! {
                             div {
-                                id: "{rp.attrs.id()}",
                                 "data-custom-static": "yes",
-                                {rp.children}
+                                ..props,
+                                "Static"
                             }
-                        }),
-                        "Static"
+                        },
                     }
                 }
             }
@@ -526,9 +500,9 @@ fn native_combobox_preserves_input_focus_across_trigger_item_and_escape() {
                 ComboboxRoot {
                     id: Some("native-cbx".to_string()),
                     name: Some("native_fruit".to_string()),
-                    clear_on_deselect: true,
                     ComboboxInput {
                         id: Some("native-cbx-input".to_string()),
+                        clear_on_deselect: true,
                         style: Some("width: 200px; height: 32px;".to_string()),
                     }
                     ComboboxTrigger {
@@ -649,7 +623,7 @@ fn fm_cbx_1_filter_clear_reopen_preserves_exact_visual_dom_order() {
                 }
                 ComboboxRoot {
                     id: Some("fm1-cbx".to_string()),
-                    input_value: Some(filter_text),
+                    input_value: Some(filter_text()),
                     on_input_value_change: move |v: String| filter_text.set(v),
                     ComboboxInput {
                         id: Some("fm1-input".to_string()),
@@ -764,7 +738,7 @@ fn fm_cbx_2_dynamic_root_props_disabled_and_loop_focus_are_live_reactive() {
                     id: Some("fm2-cbx".to_string()),
                     disabled: disabled(),
                     loop_focus: loop_focus(),
-                    value: Some(selected),
+                    value: Some(selected()),
                     on_value_change: move |v: Option<String>| selected.set(v),
                     ComboboxInput {
                         id: Some("fm2-input".to_string()),
@@ -1078,7 +1052,7 @@ fn fm_cbx_6_and_7_drag_threshold_and_closed_backspace_open() {
                 ComboboxRoot {
                     id: Some("fm6-cbx".to_string()),
                     default_input_value: Some("Alpha".to_string()),
-                    value: Some(selected),
+                    value: Some(selected()),
                     on_value_change: move |v: Option<String>| selected.set(v),
                     ComboboxInput {
                         id: Some("fm6-input".to_string()),
@@ -1240,7 +1214,7 @@ fn fm_ovl_3_combobox_content_inside_dialog_preserves_dialog_open() {
                 span { id: "fm3-cbx-val", "{selected().unwrap_or_else(|| \"none\".to_string())}" }
                 DialogRoot {
                     id: Some("fm3-cbx-dlg".to_string()),
-                    open: Some(dlg_open),
+                    open: Some(dlg_open()),
                     on_open_change: move |next| dlg_open.set(next),
                     DialogPortal {
                         DialogContent {
@@ -1248,7 +1222,7 @@ fn fm_ovl_3_combobox_content_inside_dialog_preserves_dialog_open() {
                             style: Some("width: 400px; height: 280px; padding: 16px; background: white;".to_string()),
                             ComboboxRoot {
                                 id: Some("fm3-cbx-in-dlg".to_string()),
-                                value: Some(selected),
+                                value: Some(selected()),
                                 on_value_change: move |v| selected.set(v),
                                 ComboboxInput {
                                     id: Some("fm3-cbx-input".to_string()),

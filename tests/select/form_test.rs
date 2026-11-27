@@ -50,7 +50,8 @@ fn select_form_reset_listener_contract() {
 fn fm_col_4_select_empty_multiple_hidden_input_emits_single_empty_placeholder() {
     use dioxus::prelude::*;
     use monoxus::select::{
-        SelectContent, SelectItem, SelectPortal, SelectRoot, SelectTrigger, SelectViewport,
+        SelectContent, SelectItem, SelectMode, SelectPortal, SelectRoot, SelectTrigger,
+        SelectViewport,
     };
 
     use crate::common::native_fixture::*;
@@ -63,7 +64,7 @@ fn fm_col_4_select_empty_multiple_hidden_input_emits_single_empty_placeholder() 
             div { style: "padding: 24px;",
                 SelectRoot {
                     id: "fm-col4-multi".to_string(),
-                    multiple: true,
+                    mode: SelectMode::Multiple,
                     name: "fm_col4_tags".to_string(),
                     SelectTrigger {
                         class: "fm-col4-trig".to_string(),

@@ -222,7 +222,7 @@ fn PopoverWithNestedSelectHarness(
                 PopoverContent {
                     SelectRoot {
                         id: "month-select".to_string(),
-                        open: true,
+                        default_open: true,
                         SelectTrigger { "Month" }
                         SelectPortal {
                             SelectContent {
@@ -322,8 +322,7 @@ fn PopoverWithRangeCalendarHarness(
     rsx! {
         PopoverRoot {
             id: "range-picker-popover".to_string(),
-            open: open_sig,
-            open_focus: PopoverOpenFocusPolicy::Selector("[data-range-calendar-day][data-focused]".to_string()),
+            open: open_sig(),
             on_open_change: move |next| {
                 open_sig.set(next);
                 *open_out_cb.borrow_mut() = next;
@@ -331,6 +330,7 @@ fn PopoverWithRangeCalendarHarness(
             PopoverTrigger { "Open Range Picker" }
             PopoverPortal {
                 PopoverContent {
+                    open_focus: PopoverOpenFocusPolicy::Selector("[data-range-calendar-day][data-focused]".to_string()),
                     RangeCalendarRoot {
                         id: "picker-range-cal".to_string(),
                         default_value: DateRange {

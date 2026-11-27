@@ -6,7 +6,7 @@ use monoxus::{
         ContextMenuGroupHeading, ContextMenuItem, ContextMenuItemIndicator, ContextMenuLabel,
         ContextMenuPortal, ContextMenuRadioGroup, ContextMenuRadioItem, ContextMenuRoot,
         ContextMenuSeparator, ContextMenuSub, ContextMenuSubContent, ContextMenuSubContentStatic,
-        ContextMenuSubTrigger, ContextMenuTrigger, ContextMenuTriggerRenderProps,
+        ContextMenuSubTrigger, ContextMenuTrigger,
         MenuPreventableEvent, MenuSelectEvent,
     },
     foundation::shared::Direction,
@@ -431,25 +431,6 @@ fn VirtualAnchorAndMultiTriggerScenario() -> Element {
 fn StaticContextMenuScenario() -> Element {
     let mut static_action = use_signal(|| String::from("idle"));
 
-    let trigger_render = Callback::new(|props: ContextMenuTriggerRenderProps| {
-        rsx! {
-            div {
-                id: "{props.attrs.id}",
-                class: props.class.as_deref().unwrap_or_default(),
-                style: "{props.style}",
-                "data-state": "{props.attrs.data_state.as_str()}",
-                "data-disabled": props.attrs.data_disabled,
-                oncontextmenu: move |evt| props.on_context_menu.call(evt),
-                onpointerdown: move |evt| props.on_pointer_down.call(evt),
-                onpointermove: move |evt| props.on_pointer_move.call(evt),
-                onpointerup: move |evt| props.on_pointer_up.call(evt),
-                onpointercancel: move |evt| props.on_pointer_cancel.call(evt),
-                ..props.attributes,
-                {props.children}
-            }
-        }
-    });
-
     rsx! {
         div {
             style: CARD_STYLE,
@@ -472,9 +453,13 @@ fn StaticContextMenuScenario() -> Element {
                     ContextMenuTrigger {
                         id: "sw3b-cm-static-trig",
                         style: Some("padding: 0.5rem 0.875rem; border-radius: 0.5rem; border: 1px solid #cbd5e1; background-color: #ffffff; font-size: 0.8125rem; font-weight: 600; color: #334155;".to_string()),
-                        as_child: true,
-                        render_child: Some(trigger_render),
-                        "Static Context Trigger Region (as_child)"
+                        child: move |props: Vec<Attribute>| rsx! {
+                            div {
+                                ..props,
+                                "Static Context Trigger Region (as_child)"
+                            }
+                        },
+                        children: rsx! {},
                     }
                     ContextMenuContentStatic {
                         id: "sw3b-cm-static-content",

@@ -98,7 +98,7 @@ pub fn DateFieldShowcase() -> Element {
 
 #[component]
 fn EnUsFormDateFieldScenario() -> Element {
-    let value = use_signal(|| Some(df_date(2024, 6, 15)));
+    let mut value = use_signal(|| Some(df_date(2024, 6, 15)));
     let mut invalid_reason = use_signal(|| String::from("none"));
 
     rsx! {
@@ -123,13 +123,14 @@ fn EnUsFormDateFieldScenario() -> Element {
                 style: "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem;",
                 DateFieldRoot {
                     id: "sw5c-df-enus",
-                    value: Some(value),
+                    value: Some(value()),
                     default_value: Some(df_date(2024, 6, 15)),
                     default_placeholder: Some(df_date(2024, 6, 15)),
                     min_value: Some(df_date(2024, 1, 1)),
                     max_value: Some(df_date(2026, 12, 31)),
                     locale: CalendarLocale::EnUs,
                     on_value_change: move |next: Option<DateValue>| {
+                        value.set(next);
                         if let Some(v) = next {
                             let min = df_date(2024, 1, 1);
                             let max = df_date(2026, 12, 31);
@@ -201,7 +202,7 @@ fn EnUsFormDateFieldScenario() -> Element {
 
 #[component]
 fn KoKrDateFieldScenario() -> Element {
-    let value = use_signal(|| Some(df_date(2025, 3, 20)));
+    let mut value = use_signal(|| Some(df_date(2025, 3, 20)));
 
     rsx! {
         div {
@@ -224,7 +225,8 @@ fn KoKrDateFieldScenario() -> Element {
                 style: "display: flex; flex-wrap: wrap; align-items: center; gap: 1.5rem;",
                 DateFieldRoot {
                     id: "sw5c-df-kokr",
-                    value: Some(value),
+                    value: Some(value()),
+                    on_value_change: move |next: Option<DateValue>| value.set(next),
                     default_placeholder: Some(df_date(2025, 3, 20)),
                     locale: CalendarLocale::KoKr,
                     div {
@@ -266,7 +268,7 @@ fn KoKrDateFieldScenario() -> Element {
 #[component]
 fn DateTimeMinuteFieldScenario() -> Element {
     let initial = DateValue::from_iso_str("2025-08-15T14:30:00").expect("valid datetime");
-    let value = use_signal(|| Some(initial));
+    let mut value = use_signal(|| Some(initial));
 
     rsx! {
         div {
@@ -289,7 +291,8 @@ fn DateTimeMinuteFieldScenario() -> Element {
                 style: "display: flex; flex-wrap: wrap; align-items: center; gap: 1.5rem;",
                 DateFieldRoot {
                     id: "sw5c-df-datetime",
-                    value: Some(value),
+                    value: Some(value()),
+                    on_value_change: move |next: Option<DateValue>| value.set(next),
                     default_placeholder: Some(initial),
                     granularity: Some(Granularity::Minute),
                     locale: CalendarLocale::EnUs,
@@ -331,7 +334,7 @@ fn DateTimeMinuteFieldScenario() -> Element {
 
 #[component]
 fn Empty12hDateTimeFieldScenario() -> Element {
-    let value = use_signal(|| None::<DateValue>);
+    let mut value = use_signal(|| None::<DateValue>);
 
     rsx! {
         div {
@@ -355,7 +358,8 @@ fn Empty12hDateTimeFieldScenario() -> Element {
                 style: "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem;",
                 DateFieldRoot {
                     id: "sw5c-df-empty-12h",
-                    value: Some(value),
+                    value: Some(value()),
+                    on_value_change: move |next: Option<DateValue>| value.set(next),
                     granularity: Some(Granularity::Minute),
                     hour_cycle: Some(HourCycle::H12),
                     locale: CalendarLocale::EnUs,

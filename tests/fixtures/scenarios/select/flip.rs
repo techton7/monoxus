@@ -1,39 +1,17 @@
 use dioxus::prelude::*;
-use monoxus::{
-    foundation::shared::ScopeHandle,
-    select::{
-        Select, SelectContent, SelectItem, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
-        use_select_runtime,
-    },
+use monoxus::select::{
+    SelectContent, SelectItem, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
 };
 
 use super::shared::{BADGE_STYLE, ItemRow, MUTED_STYLE};
 
 #[component]
 pub fn BottomConstrainedSelectSection() -> Element {
-    let scope = ScopeHandle::root("playground").child("select-flip");
-    let selected_val = use_signal(|| Some("upward-1".to_string()));
-    let is_open = use_signal(|| false);
-
-    let def = Select::new(scope.clone())
-        .with_value(selected_val())
-        .with_open(is_open());
-
-    let runtime = use_select_runtime(
-        def,
-        Some(move |val: Option<String>| {
-            let mut s = selected_val;
-            s.set(val);
-        }),
-        Some(move |open: bool| {
-            let mut s = is_open;
-            s.set(open);
-        }),
-    );
+    let mut selected_val = use_signal(|| Some("upward-1".to_string()));
+    let mut is_open = use_signal(|| false);
 
     let curr_val = selected_val().unwrap_or_else(|| "none".into());
     let open_state = if is_open() { "Open" } else { "Closed" };
-    let current_side = runtime.side().as_str();
 
     rsx! {
         div {
@@ -49,11 +27,6 @@ pub fn BottomConstrainedSelectSection() -> Element {
                     style: "display: flex; gap: 0.5rem;",
                     span { style: BADGE_STYLE, "Selected: {curr_val}" }
                     span { style: BADGE_STYLE, "State: {open_state}" }
-                    span {
-                        id: "select-flip-side-badge",
-                        style: BADGE_STYLE,
-                        "side: {current_side}"
-                    }
                 }
             }
             p {
@@ -64,7 +37,11 @@ pub fn BottomConstrainedSelectSection() -> Element {
             div {
                 style: "position: relative; width: 260px; margin-top: 1rem; margin-bottom: 0.5rem;",
                 SelectRoot {
-                    runtime: runtime.clone(),
+                    id: "select-flip".to_string(),
+                    default_value: "upward-1".to_string(),
+                    on_value_change: move |val: Option<String>| selected_val.set(val),
+                    open: Some(is_open()),
+                    on_open_change: move |open: bool| is_open.set(open),
                     SelectTrigger {
                         class: "select-trigger-flip".to_string(),
                         style: "display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d8b4fe; border-radius: 0.375rem; background: white; font-size: 0.875rem; cursor: pointer; outline: none; box-shadow: 0 1px 2px rgba(0,0,0,0.05);",

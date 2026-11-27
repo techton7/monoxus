@@ -107,7 +107,13 @@ pub fn CommandGroup(props: CommandGroupProps) -> Element {
     base.push(Attribute::new("data-value", attrs.data_value, None, false));
     push_attr_opt(&mut base, "style", base_style);
 
-    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    let mut user = if should_render {
+        collect_user_attrs(props.class, props.style, props.attributes)
+    } else {
+        let mut filtered = collect_user_attrs(props.class, None, props.attributes);
+        filtered.retain(|a| !(a.namespace.is_none() && a.name == "style"));
+        filtered
+    };
     push_event_handler(&mut user, "onmounted", props.on_mounted);
     let merged = merge_props(base, user);
 

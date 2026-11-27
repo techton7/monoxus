@@ -2,8 +2,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::{
     compose::{
-        MergePropsConfig, collect_user_attrs, merge_props, merge_props_with_config, push_attr_opt,
-        push_event_handler,
+        MergePropsConfig, merge_props, merge_props_with_config, push_attr_opt, push_event_handler,
     },
     keyboard::is_activation_key,
 };
@@ -112,7 +111,9 @@ pub fn Button(props: ButtonProps) -> Element {
         );
     }
 
-    let mut user = collect_user_attrs(props.class, props.style, props.attributes);
+    let mut user = Vec::with_capacity(props.attributes.len() + 5);
+    push_attr_opt(&mut user, "class", props.class);
+    push_attr_opt(&mut user, "style", props.style);
     if !disabled {
         push_event_handler(&mut user, "onclick", props.on_click);
         push_event_handler(&mut user, "onkeydown", props.on_key_down);
@@ -130,6 +131,7 @@ pub fn Button(props: ButtonProps) -> Element {
         );
     }
     push_event_handler(&mut user, "onmounted", props.on_mounted);
+    user.extend(props.attributes);
 
     let merged = if disabled {
         merge_props_with_config(

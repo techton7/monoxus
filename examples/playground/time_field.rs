@@ -97,7 +97,7 @@ pub fn TimeFieldShowcase() -> Element {
 
 #[component]
 fn TwelveHourTimeFieldScenario() -> Element {
-    let value = use_signal(|| Some(tf_time("09:30:00")));
+    let mut value = use_signal(|| Some(tf_time("09:30:00")));
 
     rsx! {
         div {
@@ -120,7 +120,8 @@ fn TwelveHourTimeFieldScenario() -> Element {
                 style: "display: flex; flex-wrap: wrap; align-items: center; gap: 1.5rem;",
                 TimeFieldRoot {
                     id: "sw5c-tf-12h",
-                    value: Some(value),
+                    value: Some(value()),
+                    on_value_change: move |next: Option<TimeValue>| value.set(next),
                     default_placeholder: Some(tf_time("09:00:00")),
                     granularity: TimeGranularity::Minute,
                     hour_cycle: Some(HourCycle::H12),
@@ -164,7 +165,7 @@ fn TwelveHourTimeFieldScenario() -> Element {
 
 #[component]
 fn TwentyFourHourSecondsScenario() -> Element {
-    let value = use_signal(|| Some(tf_time("14:15:30")));
+    let mut value = use_signal(|| Some(tf_time("14:15:30")));
     let mut invalid_reason = use_signal(|| String::from("none"));
 
     rsx! {
@@ -188,13 +189,14 @@ fn TwentyFourHourSecondsScenario() -> Element {
                 style: "display: flex; flex-wrap: wrap; align-items: center; gap: 1.5rem;",
                 TimeFieldRoot {
                     id: "sw5c-tf-24h",
-                    value: Some(value),
+                    value: Some(value()),
                     default_placeholder: Some(tf_time("09:00:00")),
                     granularity: TimeGranularity::Second,
                     hour_cycle: Some(HourCycle::H24),
                     min_value: Some(tf_time("08:00:00")),
                     max_value: Some(tf_time("18:00:00")),
                     on_value_change: move |next: Option<TimeValue>| {
+                        value.set(next);
                         if let Some(v) = next {
                             let min = tf_time("08:00:00");
                             let max = tf_time("18:00:00");
@@ -259,7 +261,7 @@ fn TwentyFourHourSecondsScenario() -> Element {
 
 #[component]
 fn Empty12hTimeFieldScenario() -> Element {
-    let value = use_signal(|| None::<TimeValue>);
+    let mut value = use_signal(|| None::<TimeValue>);
 
     rsx! {
         div {
@@ -283,7 +285,8 @@ fn Empty12hTimeFieldScenario() -> Element {
                 style: "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem;",
                 TimeFieldRoot {
                     id: "sw5c-tf-empty-12h",
-                    value: Some(value),
+                    value: Some(value()),
+                    on_value_change: move |next: Option<TimeValue>| value.set(next),
                     granularity: TimeGranularity::Minute,
                     hour_cycle: Some(HourCycle::H12),
                     locale: CalendarLocale::EnUs,

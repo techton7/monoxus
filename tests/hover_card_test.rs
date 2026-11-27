@@ -119,8 +119,6 @@ fn HoverCardForceMountStaticSample() -> Element {
         HoverCardRoot {
             id: "hc-static-root",
             default_open: false,
-            side: PlacementSide::Top,
-            align: PlacementAlign::Start,
             HoverCardTrigger {
                 "Static Trigger"
             }
@@ -178,8 +176,8 @@ fn HoverCardDismissSample(
             HoverCardPortal {
                 HoverCardContent {
                     id: "hc-dismiss-content",
-                    escape_keydown_behavior: escape_behavior,
-                    interact_outside_behavior: interact_behavior,
+                    escape_key_down_behavior: escape_behavior.into(),
+                    interact_outside_behavior: interact_behavior.into(),
                     on_escape_key_down: move |_| *esc_c.borrow_mut() = true,
                     on_pointer_down_outside: move |_| *ptr_c.borrow_mut() = true,
                     on_interact_outside: move |_| *int_c.borrow_mut() = true,
@@ -748,8 +746,6 @@ mod native_tests {
                     id: "hc2-root",
                     open_delay: 140,
                     close_delay: 0,
-                    side: PlacementSide::Bottom,
-                    side_offset: 24.0,
                     HoverCardTrigger {
                         id: "hc2-trigger",
                         href: "https://example.com",
@@ -759,6 +755,8 @@ mod native_tests {
                     HoverCardPortal {
                         HoverCardContent {
                             id: "hc2-content",
+                            side: PlacementSide::Bottom,
+                            side_offset: 24.0,
                             style: "width: 220px; height: 80px; padding: 12px;",
                             "Corridor Content"
                         }
@@ -897,7 +895,7 @@ mod native_tests {
                                     HoverCardContent {
                                         id: "hc-rtl-content",
                                         dir: Some(Direction::Rtl),
-                                        align: Some(PlacementAlign::Start),
+                                        align: PlacementAlign::Start,
                                         arrow_padding: 12.0,
                                         style: "width: 180px; padding: 8px;",
                                         "RTL Modal Card"

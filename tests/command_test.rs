@@ -243,7 +243,7 @@ fn CommandDialogVdomApp() -> Element {
     rsx! {
         CommandDialog {
             id: "vdom-cmd-dialog",
-            default_open: Some(true),
+            default_open: true,
             CommandInput { id: "vdom-dlg-input", placeholder: "Type a command..." }
             CommandList {
                 CommandViewport {
@@ -305,7 +305,8 @@ mod native_tests {
                     vim_bindings: true,
                     CommandInput {
                         id: "native-cmd-input",
-                        value: search_val,
+                        value: Some(search_val()),
+                        on_value_change: move |v: String| search_val.set(v),
                         placeholder: "Type...",
                     }
                     CommandList { id: "native-cmd-list",
@@ -471,9 +472,9 @@ mod native_tests {
                 CommandDialog {
                     id: "native-cmd-dlg",
                     content_id: "native-cmd-dlg-content",
-                    open: Some(open),
+                    open: Some(open()),
                     on_open_change: move |next| open.set(next),
-                    CommandInput { id: "native-dlg-input", autofocus: true }
+                    CommandInput { id: "native-dlg-input", auto_focus: true }
                     CommandList {
                         CommandViewport {
                             CommandItem { id: "native-dlg-item", value: "Action", "Action" }
@@ -606,7 +607,11 @@ mod native_tests {
                 CommandRoot {
                     id: "fm-cmd-order",
                     label: "Order Test",
-                    CommandInput { id: "fm-cmd-order-input", value: search_val }
+                    CommandInput {
+                        id: "fm-cmd-order-input",
+                        value: Some(search_val()),
+                        on_value_change: move |v: String| search_val.set(v),
+                    }
                     CommandList {
                         CommandViewport { id: "fm-cmd-order-vp",
                             CommandGroup {
@@ -636,7 +641,11 @@ mod native_tests {
                     id: "fm-cmd-manual",
                     label: "Manual Test",
                     should_filter: false,
-                    CommandInput { id: "fm-cmd-manual-input", value: manual_search }
+                    CommandInput {
+                        id: "fm-cmd-manual-input",
+                        value: Some(manual_search()),
+                        on_value_change: move |v: String| manual_search.set(v),
+                    }
                     CommandList {
                         CommandViewport {
                             CommandItem { id: "fm-m1", value: "m1", "M1" }
@@ -796,7 +805,7 @@ mod native_tests {
                     id: "fm-centered-dlg",
                     content_id: "fm-centered-dlg-content",
                     content_style: "width: 400px; height: 240px; background-color: #ffffff;",
-                    open: Some(open),
+                    open: Some(open()),
                     on_open_change: move |next| open.set(next),
                     // No autofocus prop: proves library-owned CommandDialog auto_focus_input
                     CommandInput { id: "fm-centered-dlg-input" }
@@ -1018,7 +1027,7 @@ mod native_tests {
             CommandDialog {
                 id: "l3-cmd-dlg",
                 content_id: "l3-dlg-content",
-                open: Some(open),
+                open: Some(open()),
                 on_open_change: on_open_change,
                 on_value_change: on_value_change,
                 on_state_change: on_state_change,
@@ -1037,7 +1046,8 @@ mod native_tests {
                 }
                 CommandInput {
                     id: "l3-dlg-input",
-                    value: search_val,
+                    value: Some(search_val()),
+                    on_value_change: move |v: String| search_val.set(v),
                 }
                 CommandList {
                     CommandViewport {

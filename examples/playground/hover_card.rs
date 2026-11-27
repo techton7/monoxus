@@ -78,9 +78,6 @@ fn StandardHoverCardScenario() -> Element {
                         id: "sw3a-hc-root",
                         open_delay: 300,
                         close_delay: 200,
-                        side: PlacementSide::Bottom,
-                        align: PlacementAlign::Center,
-                        side_offset: 6.0,
                         on_open_change: move |next| fast_open.set(next),
                         HoverCardTrigger {
                             id: "sw3a-hc-trigger",
@@ -94,6 +91,9 @@ fn StandardHoverCardScenario() -> Element {
                         HoverCardPortal {
                             HoverCardContent {
                                 id: "sw3a-hc-content",
+                                side: PlacementSide::Bottom,
+                                align: PlacementAlign::Center,
+                                side_offset: 6.0,
                                 style: CONTENT_STYLE,
                                 div {
                                     style: "display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;",

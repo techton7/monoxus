@@ -687,8 +687,7 @@ mod native_auto_id_tests {
                     }
                     SelectRoot {
                         id: current.clone(),
-                        class: "rx-sel-root",
-                        SelectTrigger { SelectValue { placeholder: "Pick" } }
+                        SelectTrigger { class: "rx-sel-trigger", SelectValue { placeholder: "Pick" } }
                     }
                     TabsRoot {
                         id: current.clone(),
@@ -704,7 +703,6 @@ mod native_auto_id_tests {
                     }
                     TooltipRoot {
                         id: current,
-                        class: "rx-tt-root",
                         TooltipTrigger { class: "rx-tt-trigger", "TT" }
                     }
                 }
@@ -722,10 +720,9 @@ mod native_auto_id_tests {
             ".rx-dlg-trigger",
             ".rx-sa-root",
             ".rx-sa-vp",
-            ".rx-sel-root",
+            ".rx-sel-trigger",
             ".rx-tabs-root",
             ".rx-tg-root",
-            ".rx-tt-root",
             ".rx-tt-trigger",
         ];
 

@@ -1,51 +1,28 @@
 use dioxus::prelude::*;
-use monoxus::{
-    foundation::shared::ScopeHandle,
-    select::{
-        Select, SelectContent, SelectItem, SelectItemData, SelectMode, SelectRoot, SelectTrigger,
-        SelectValue, SelectViewport, use_select_runtime_full,
-    },
+use monoxus::select::{
+    SelectContent, SelectItem, SelectItemData, SelectMode, SelectRoot, SelectTrigger, SelectValue,
+    SelectViewport,
 };
 
 use super::shared::{BADGE_STYLE, ItemRow, MUTED_STYLE};
 
 #[component]
 pub fn MultipleSelectSection() -> Element {
-    let scope = ScopeHandle::root("playground").child("select-multiple");
-    let selected_vals = use_signal(|| vec!["apple".to_string(), "japan".to_string()]);
-    let is_open = use_signal(|| false);
+    let mut selected_vals = use_signal(|| vec!["apple".to_string(), "japan".to_string()]);
+    let mut is_open = use_signal(|| false);
 
-    let def = Select::new(scope.clone())
-        .with_trigger_id("select-multiple-trigger")
-        .with_content_id("select-multiple-content")
-        .with_mode(SelectMode::Multiple)
-        .with_items(vec![
-            SelectItemData::new("apple", "Fresh Red Apple", false),
-            SelectItemData::new("banana", "Golden Cavendish Banana", false),
-            SelectItemData::new("japan", "Japan (Tokyo)", false),
-        ])
-        .with_values(selected_vals())
-        .with_open(is_open());
+    let items = vec![
+        SelectItemData::new("apple", "Fresh Red Apple", false),
+        SelectItemData::new("banana", "Golden Cavendish Banana", false),
+        SelectItemData::new("japan", "Japan (Tokyo)", false),
+    ];
 
-    let runtime = use_select_runtime_full(
-        def,
-        None::<fn(Option<String>)>,
-        Some(move |vals: Vec<String>| {
-            let mut s = selected_vals;
-            s.set(vals);
-        }),
-        Some(move |open: bool| {
-            let mut s = is_open;
-            s.set(open);
-        }),
-        None::<fn(bool)>,
-    );
-
-    let count = runtime.values().len();
+    let vals_now = selected_vals();
+    let count = vals_now.len();
     let display_str = if count == 0 {
         "None".to_string()
     } else {
-        runtime.values().join(", ")
+        vals_now.join(", ")
     };
 
     rsx! {
@@ -68,9 +45,16 @@ pub fn MultipleSelectSection() -> Element {
             div {
                 style: "position: relative; width: 320px; margin-top: 1rem;",
                 SelectRoot {
-                    runtime: runtime.clone(),
+                    id: "select-multiple".to_string(),
+                    mode: SelectMode::Multiple,
+                    items: Some(items),
+                    values: Some(vals_now.clone()),
+                    on_values_change: move |vals: Vec<String>| selected_vals.set(vals),
+                    open: Some(is_open()),
+                    on_open_change: move |open: bool| is_open.set(open),
                     name: "fruits".to_string(),
                     SelectTrigger {
+                        id: "select-multiple-trigger".to_string(),
                         class: "select-trigger-multiple".to_string(),
                         style: "display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d8b4fe; border-radius: 0.375rem; background: white; font-size: 0.875rem; cursor: pointer; outline: none;",
                         span {
@@ -82,6 +66,7 @@ pub fn MultipleSelectSection() -> Element {
                         span { style: "color: #9333ea; font-size: 0.75rem;", "▼" }
                     }
                     SelectContent {
+                        id: "select-multiple-content".to_string(),
                         class: "select-content-multiple".to_string(),
                         style: "z-index: 50; background: white; border: 1px solid #d8b4fe; border-radius: 0.375rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); padding: 0.25rem; outline: none;",
                         SelectViewport {
@@ -89,19 +74,19 @@ pub fn MultipleSelectSection() -> Element {
                                 value: "apple".to_string(),
                                 text: "Fresh Red Apple".to_string(),
                                 class: "select-item".to_string(),
-                                ItemRow { text: "Fresh Red Apple", is_selected: runtime.is_selected("apple") }
+                                ItemRow { text: "Fresh Red Apple", is_selected: vals_now.iter().any(|v| v == "apple") }
                             }
                             SelectItem {
                                 value: "banana".to_string(),
                                 text: "Golden Cavendish Banana".to_string(),
                                 class: "select-item".to_string(),
-                                ItemRow { text: "Golden Cavendish Banana", is_selected: runtime.is_selected("banana") }
+                                ItemRow { text: "Golden Cavendish Banana", is_selected: vals_now.iter().any(|v| v == "banana") }
                             }
                             SelectItem {
                                 value: "japan".to_string(),
                                 text: "Japan (Tokyo)".to_string(),
                                 class: "select-item".to_string(),
-                                ItemRow { text: "Japan (Tokyo)", is_selected: runtime.is_selected("japan") }
+                                ItemRow { text: "Japan (Tokyo)", is_selected: vals_now.iter().any(|v| v == "japan") }
                             }
                         }
                     }

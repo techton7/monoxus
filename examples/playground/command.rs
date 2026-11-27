@@ -141,7 +141,7 @@ fn InlineCommandScenario() -> Element {
                 style: "{STAGE_STYLE}",
                 CommandRoot {
                     id: Some("sw4b-cmd-inline".to_string()),
-                    value: Some(active_value),
+                    value: Some(active_value()),
                     on_value_change: move |v: String| active_value.set(v),
                     label: "Inline Command Menu".to_string(),
                     vim_bindings: true,
@@ -349,7 +349,7 @@ fn CommandDialogScenario() -> Element {
 
             CommandDialog {
                 id: Some("sw4b-cmd-dialog".to_string()),
-                open: Some(open),
+                open: Some(open()),
                 on_open_change: move |next: bool| open.set(next),
                 title: "Workspace Command Palette".to_string(),
                 description: "Search and execute a workspace command.".to_string(),
@@ -461,7 +461,7 @@ fn CommandGridScenario() -> Element {
                 style: "{STAGE_STYLE}",
                 CommandRoot {
                     id: Some("sw4b-cmd-grid".to_string()),
-                    value: Some(grid_active),
+                    value: Some(grid_active()),
                     on_value_change: move |v: String| grid_active.set(v),
                     label: "2D Grid Command Palette".to_string(),
                     columns: Some(3),
@@ -472,7 +472,7 @@ fn CommandGridScenario() -> Element {
 
                     CommandInput {
                         id: Some("sw4b-cmd-grid-input".to_string()),
-                        value: Some(manual_query),
+                        value: Some(manual_query()),
                         on_value_change: move |q: String| manual_query.set(q),
                         placeholder: Some("Manual mode (items stay visible)...".to_string()),
                         style: Some(CMD_INPUT_STYLE.to_string()),

@@ -344,7 +344,7 @@ fn fm_ovl_3_select_content_and_static_inside_dialog_preserve_dialog_open() {
                 span { id: "fm3-sel-static-val", "{static_val().unwrap_or_else(|| \"none\".to_string())}" }
                 DialogRoot {
                     id: Some("fm3-sel-dlg".to_string()),
-                    open: Some(dlg_open),
+                    open: Some(dlg_open()),
                     on_open_change: move |next| dlg_open.set(next),
                     DialogPortal {
                         DialogContent {

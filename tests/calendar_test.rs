@@ -3,11 +3,10 @@ use monoxus::{
     calendar::{
         CALENDAR_PARTS, Calendar, CalendarCell, CalendarDay, CalendarGrid, CalendarGridBody,
         CalendarGridHead, CalendarGridRow, CalendarHeadCell, CalendarHeader, CalendarHeading,
-        CalendarMode, CalendarMonthSelect, CalendarMonthSelectRenderProps, CalendarNextButton,
-        CalendarPart, CalendarPrevButton, CalendarRelationships, CalendarRoot,
-        CalendarSelectRenderProps, CalendarSnapshot, CalendarYearSelect,
-        CalendarYearSelectRenderProps, build_calendar_month_options, build_calendar_year_options,
-        resolve_selected_calendar_option, use_calendar_context,
+        CalendarMode, CalendarMonthSelect, CalendarNextButton, CalendarPart, CalendarPrevButton,
+        CalendarRelationships, CalendarRoot, CalendarSnapshot, CalendarYearSelect,
+        build_calendar_month_options, build_calendar_year_options, resolve_selected_calendar_option,
+        use_calendar_context,
     },
     foundation::{
         compose::Slottable,
@@ -18,8 +17,8 @@ use monoxus::{
         shared::{Direction, ScopeHandle},
     },
     select::{
-        SelectContent, SelectItem, SelectItemIndicator, SelectItemText, SelectPortal, SelectRoot,
-        SelectTrigger, SelectValue, SelectViewport,
+        SelectContent, SelectItem, SelectItemData, SelectItemIndicator, SelectItemText,
+        SelectPortal, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
     },
 };
 
@@ -276,25 +275,38 @@ fn calendar_select_as_child_vdom_and_context_helpers() {
             ctx.default_years().len()
         );
 
+        let month_ctx = ctx.clone();
+        let month_items = ctx.month_options(MonthFormat::Long);
+        let month_val = ctx.current_month().to_string();
+        let month_select_items: Vec<SelectItemData> = month_items
+            .iter()
+            .map(|o| SelectItemData::new(o.value_string(), o.label.clone(), false))
+            .collect();
+
         rsx! {
             CalendarHeader {
                 CalendarMonthSelect {
                     id: "vdom-custom-month",
-                    as_child: true,
-                    render_child: move |slot: CalendarMonthSelectRenderProps| {
-                        assert_eq!(slot.value, 3);
-                        assert_eq!(slot.value_string, "3");
-                        assert_eq!(slot.selected_label(), "March");
-                        assert_eq!(slot.select_items().len(), 12);
-                        assert!(!slot.disabled);
-                        let items = slot.items.clone();
+                    child: move |props: Vec<Attribute>| {
+                        let is_disabled = props.iter().any(|a| a.name == "disabled");
+                        assert!(!is_disabled);
+                        let items = month_items.clone();
+                        let select_items = month_select_items.clone();
+                        let cur_val = month_val.clone();
+                        let mut c = month_ctx.clone();
                         rsx! {
                             SelectRoot {
-                                id: slot.attrs.id.clone(),
-                                items: Some(slot.select_items()),
-                                value: Some(slot.value_string.clone()),
-                                disabled: slot.disabled,
-                                on_value_change: slot.on_value_change,
+                                id: "vdom-custom-month".to_string(),
+                                items: Some(select_items),
+                                value: Some(cur_val),
+                                disabled: is_disabled,
+                                on_value_change: move |next: Option<String>| {
+                                    if let Some(s) = next
+                                        && let Ok(m) = s.parse::<u8>()
+                                    {
+                                        c.set_month(m);
+                                    }
+                                },
                                 SelectTrigger { SelectValue {} }
                                 SelectPortal {
                                     SelectContent {
@@ -317,18 +329,14 @@ fn calendar_select_as_child_vdom_and_context_helpers() {
                 CalendarYearSelect {
                     id: "vdom-custom-year",
                     disabled: true,
-                    as_child: true,
-                    render_child: move |slot: CalendarYearSelectRenderProps| {
-                        assert_eq!(slot.value, 2024);
-                        assert_eq!(slot.value_string, "2024");
-                        assert_eq!(slot.selected_label(), "2024");
-                        assert!(slot.disabled);
-                        assert!(slot.attrs.disabled);
+                    child: move |props: Vec<Attribute>| {
+                        let is_disabled = props.iter().any(|a| a.name == "disabled");
+                        assert!(is_disabled);
                         rsx! {
                             button {
                                 r#type: "button",
-                                disabled: slot.disabled,
-                                "{slot.selected_label()}"
+                                ..props,
+                                "2024"
                             }
                         }
                     },
@@ -728,27 +736,63 @@ mod native_tests {
         );
     }
 
-    fn render_native_calendar_select(
-        slot: CalendarSelectRenderProps,
+    #[component]
+    fn NativeCalendarCustomSelect(
+        attrs: Vec<Attribute>,
         trigger_tag: &'static str,
     ) -> Element {
-        let current_val = slot.value_string.clone();
-        let select_items = slot.select_items();
-        let items = slot.items.clone();
-        let on_select = slot.on_select;
-        let on_value_change = slot.on_value_change;
-        let selected_label = slot.selected_label();
+        let ctx = use_calendar_context();
         let is_month = trigger_tag.contains("month");
+        let is_disabled = attrs.iter().any(|a| a.name == "disabled");
+        let current_val = if is_month {
+            ctx.current_month().to_string()
+        } else {
+            ctx.current_year().to_string()
+        };
+        let items = if is_month {
+            ctx.month_options(MonthFormat::Long)
+        } else {
+            ctx.year_options(YearFormat::Numeric)
+        };
+        let select_items: Vec<SelectItemData> = items
+            .iter()
+            .map(|o| SelectItemData::new(o.value_string(), o.label.clone(), false))
+            .collect();
+        let selected_label = items
+            .iter()
+            .find(|o| o.value_string() == current_val)
+            .map(|o| o.label.clone())
+            .unwrap_or_default();
+
+        let mut ctx_change = ctx.clone();
+        let mut ctx_probe_sel = ctx.clone();
+        let mut ctx_probe_val = ctx.clone();
+
         rsx! {
             div {
                 "data-select-slot": "{trigger_tag}",
                 "data-slot-label": "{selected_label}",
                 SelectRoot {
-                    id: slot.attrs.id.clone(),
+                    id: trigger_tag.to_string(),
                     items: Some(select_items),
                     value: Some(current_val.clone()),
-                    disabled: slot.disabled,
-                    on_value_change,
+                    disabled: is_disabled,
+                    on_value_change: move |next: Option<String>| {
+                        if is_disabled {
+                            return;
+                        }
+                        if let Some(s) = next
+                            && let Ok(v) = s.parse::<i32>()
+                        {
+                            if is_month {
+                                if let Ok(m) = u8::try_from(v) {
+                                    ctx_change.set_month(m);
+                                }
+                            } else {
+                                ctx_change.set_year(v);
+                            }
+                        }
+                    },
                     SelectTrigger {
                         style: "min-width: 110px; height: 30px;",
                         SelectValue {}
@@ -783,10 +827,13 @@ mod native_tests {
                     id: "{trigger_tag}-probe-on-select",
                     r#type: "button",
                     onclick: move |_| {
+                        if is_disabled {
+                            return;
+                        }
                         if is_month {
-                            on_select.call(9);
+                            ctx_probe_sel.set_month(9);
                         } else {
-                            on_select.call(2027);
+                            ctx_probe_sel.set_year(2027);
                         }
                     },
                     "on_select"
@@ -795,10 +842,13 @@ mod native_tests {
                     id: "{trigger_tag}-probe-on-value-change",
                     r#type: "button",
                     onclick: move |_| {
+                        if is_disabled {
+                            return;
+                        }
                         if is_month {
-                            on_value_change.call(Some(String::from("10")));
+                            ctx_probe_val.set_month(10);
                         } else {
-                            on_value_change.call(Some(String::from("2028")));
+                            ctx_probe_val.set_year(2028);
                         }
                     },
                     "on_value_change"
@@ -840,17 +890,15 @@ mod native_tests {
             CalendarMonthSelect {
                 id: "cal-custom-month",
                 disabled,
-                as_child: true,
-                render_child: move |slot: CalendarSelectRenderProps| {
-                    render_native_calendar_select(slot, "cal-custom-month")
+                child: move |props: Vec<Attribute>| rsx! {
+                    NativeCalendarCustomSelect { attrs: props, trigger_tag: "cal-custom-month" }
                 },
             }
             CalendarYearSelect {
                 id: "cal-custom-year",
                 disabled,
-                as_child: true,
-                render_child: move |slot: CalendarSelectRenderProps| {
-                    render_native_calendar_select(slot, "cal-custom-year")
+                child: move |props: Vec<Attribute>| rsx! {
+                    NativeCalendarCustomSelect { attrs: props, trigger_tag: "cal-custom-year" }
                 },
             }
         }
@@ -913,16 +961,14 @@ mod native_tests {
                             CalendarHeading { id: "cal-custom-dis-heading" }
                             CalendarMonthSelect {
                                 id: "cal-custom-dis-month",
-                                as_child: true,
-                                render_child: move |slot: CalendarSelectRenderProps| {
-                                    render_native_calendar_select(slot, "cal-custom-dis-month")
+                                child: move |props: Vec<Attribute>| rsx! {
+                                    NativeCalendarCustomSelect { attrs: props, trigger_tag: "cal-custom-dis-month" }
                                 },
                             }
                             CalendarYearSelect {
                                 id: "cal-custom-dis-year",
-                                as_child: true,
-                                render_child: move |slot: CalendarSelectRenderProps| {
-                                    render_native_calendar_select(slot, "cal-custom-dis-year")
+                                child: move |props: Vec<Attribute>| rsx! {
+                                    NativeCalendarCustomSelect { attrs: props, trigger_tag: "cal-custom-dis-year" }
                                 },
                             }
                         }

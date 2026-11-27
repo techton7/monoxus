@@ -11,7 +11,7 @@ use monoxus::{
 #[component]
 pub fn DialogPage() -> Element {
     let mut outside_clicks = use_signal(|| 0_u32);
-    let minimal_open = use_signal(|| false);
+    let mut minimal_open = use_signal(|| false);
 
     rsx! {
         div {
@@ -38,7 +38,8 @@ pub fn DialogPage() -> Element {
 
                     DialogRoot {
                         id: "dialog-minimal",
-                        open: minimal_open,
+                        open: minimal_open(),
+                        on_open_change: move |next: bool| minimal_open.set(next),
                         DialogTrigger {
                             id: "dialog-minimal-trigger",
                             class: "rounded-lg bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white cursor-pointer",

@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use monoxus::aspect_ratio::{AspectRatio, AspectRatioRenderProps};
+use monoxus::aspect_ratio::AspectRatio;
 
 #[component]
 pub fn AspectRatioPlayground() -> Element {
@@ -142,47 +142,22 @@ pub fn AspectRatioPlayground() -> Element {
                     AspectRatio {
                         id: "aspect-ratio-as-child-root",
                         ratio: 16.0 / 9.0,
-                        as_child: true,
                         class: "aspect-ratio-consumer overflow-hidden rounded-lg bg-amber-100",
                         style: "display: flex; align-items: center; justify-content: center",
                         "aria-label": "Forwarded figure consumer",
                         "data-consumer-kind": "figure",
                         on_click: as_child_click_handler,
-                        render_child: |AspectRatioRenderProps {
-                            id,
-                            class,
-                            style,
-                            on_click,
-                            on_mounted,
-                            attributes,
-                            children,
-                            data_aspect_ratio_root,
-                        }| {
+                        child: move |props: Vec<Attribute>| {
                             rsx! {
                                 figure {
-                                    id,
-                                    class,
-                                    style,
-                                    "data-aspect-ratio-root": data_aspect_ratio_root,
-                                    onclick: move |event| {
-                                        if let Some(handler) = on_click.as_ref() {
-                                            handler.call(event);
-                                        }
-                                    },
-                                    onmounted: move |event| {
-                                        if let Some(handler) = on_mounted.as_ref() {
-                                            handler.call(event);
-                                        }
-                                    },
-                                    ..attributes,
-                                    {children}
+                                    ..props,
+                                    figcaption {
+                                        id: "aspect-ratio-as-child-content",
+                                        "Consumer figure"
+                                    }
                                 }
                             }
                         },
-                        figcaption {
-                            id: "aspect-ratio-as-child-content",
-                            "Consumer figure"
-                        }
                     }
                 }
 

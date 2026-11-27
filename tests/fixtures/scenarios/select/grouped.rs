@@ -1,35 +1,15 @@
 use dioxus::prelude::*;
-use monoxus::{
-    foundation::shared::ScopeHandle,
-    select::{
-        Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectRoot, SelectSeparator,
-        SelectTrigger, SelectValue, SelectViewport, use_select_runtime,
-    },
+use monoxus::select::{
+    SelectContent, SelectGroup, SelectItem, SelectLabel, SelectRoot, SelectSeparator,
+    SelectTrigger, SelectValue, SelectViewport,
 };
 
 use super::shared::{BADGE_STYLE, ItemRow};
 
 #[component]
 pub fn GroupedSelectSection() -> Element {
-    let scope = ScopeHandle::root("playground").child("select-grouped");
-    let selected_val = use_signal(|| Some("carrot".to_string()));
-    let is_open = use_signal(|| false);
-
-    let def = Select::new(scope.clone())
-        .with_value(selected_val())
-        .with_open(is_open());
-
-    let runtime = use_select_runtime(
-        def,
-        Some(move |val: Option<String>| {
-            let mut s = selected_val;
-            s.set(val);
-        }),
-        Some(move |open: bool| {
-            let mut s = is_open;
-            s.set(open);
-        }),
-    );
+    let mut selected_val = use_signal(|| Some("carrot".to_string()));
+    let mut is_open = use_signal(|| false);
 
     let curr_val = selected_val().unwrap_or_else(|| "none".into());
 
@@ -48,7 +28,11 @@ pub fn GroupedSelectSection() -> Element {
             div {
                 style: "position: relative; width: 260px;",
                 SelectRoot {
-                    runtime: runtime.clone(),
+                    id: "select-grouped".to_string(),
+                    default_value: "carrot".to_string(),
+                    on_value_change: move |val: Option<String>| selected_val.set(val),
+                    open: Some(is_open()),
+                    on_open_change: move |open: bool| is_open.set(open),
                     SelectTrigger {
                         class: "select-trigger-grouped".to_string(),
                         style: "display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d8b4fe; border-radius: 0.375rem; background: white; font-size: 0.875rem; cursor: pointer; outline: none;",
@@ -61,9 +45,7 @@ pub fn GroupedSelectSection() -> Element {
                         style: "z-index: 50; background: white; border: 1px solid #d8b4fe; border-radius: 0.375rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); padding: 0.25rem; outline: none;",
                         SelectViewport {
                             SelectGroup {
-                                group_key: "fruits".to_string(),
                                 SelectLabel {
-                                    group_key: "fruits".to_string(),
                                     class: "select-label".to_string(),
                                     span { style: "display: block; padding: 0.25rem 0.5rem; font-size: 0.75rem; font-weight: 700; color: #a855f7; text-transform: uppercase;", "Fruits" }
                                 }
@@ -84,9 +66,7 @@ pub fn GroupedSelectSection() -> Element {
                                 class: "select-sep".to_string(),
                             }
                             SelectGroup {
-                                group_key: "vegetables".to_string(),
                                 SelectLabel {
-                                    group_key: "vegetables".to_string(),
                                     class: "select-label".to_string(),
                                     span { style: "display: block; padding: 0.25rem 0.5rem; font-size: 0.75rem; font-weight: 700; color: #a855f7; text-transform: uppercase;", "Vegetables" }
                                 }

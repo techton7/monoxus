@@ -3,10 +3,10 @@ use std::{cell::RefCell, rc::Rc};
 use dioxus::prelude::*;
 use monoxus::context_menu::{
     CheckedState, ContextMenu, ContextMenuCheckboxGroup, ContextMenuCheckboxItem,
-    ContextMenuContent, ContextMenuContentRenderProps, ContextMenuContentStatic, ContextMenuItem,
-    ContextMenuItemIndicator, ContextMenuPortal, ContextMenuRadioGroup, ContextMenuRadioItem,
-    ContextMenuRoot, ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger,
-    ContextMenuTrigger, ContextMenuTriggerRenderProps, MenuRootContext,
+    ContextMenuContent, ContextMenuContentStatic, ContextMenuItem, ContextMenuItemIndicator,
+    ContextMenuPortal, ContextMenuRadioGroup, ContextMenuRadioItem, ContextMenuRoot,
+    ContextMenuSub, ContextMenuSubContent, ContextMenuSubTrigger, ContextMenuTrigger,
+    MenuRootContext,
 };
 
 #[derive(Clone, Default, PartialEq)]
@@ -78,49 +78,26 @@ fn test_context_menu_defaults_to_modal_and_mounts_cleanly() {
 
 #[component]
 fn ContextAsChildAndStaticSample() -> Element {
-    let trig_render = Callback::new(|props: ContextMenuTriggerRenderProps| {
-        rsx! {
-            section {
-                id: "{props.attrs.id}",
-                style: "{props.style}",
-                "data-state": "{props.attrs.data_state.as_str()}",
-                oncontextmenu: move |evt| props.on_context_menu.call(evt),
-                onpointerdown: move |evt| props.on_pointer_down.call(evt),
-                onpointermove: move |evt| props.on_pointer_move.call(evt),
-                onpointerup: move |evt| props.on_pointer_up.call(evt),
-                onpointercancel: move |evt| props.on_pointer_cancel.call(evt),
-                ..props.attributes,
-                {props.children}
-            }
-        }
-    });
-
-    let content_render = Callback::new(|props: ContextMenuContentRenderProps| {
-        rsx! {
-            div {
-                id: "{props.attrs.id}",
-                role: "{props.attrs.role}",
-                tabindex: "{props.attrs.tabindex}",
-                ..props.attributes,
-                {props.children}
-            }
-        }
-    });
-
     rsx! {
         ContextMenu {
             default_open: true,
             ContextMenuTrigger {
                 id: "cm-ac-trig",
-                as_child: true,
-                render_child: Some(trig_render),
-                "Trigger Area"
+                child: move |props: Vec<Attribute>| rsx! {
+                    section {
+                        ..props,
+                        "Trigger Area"
+                    }
+                },
             }
             ContextMenuContentStatic {
                 id: "cm-static-content",
-                as_child: true,
-                render_child: Some(content_render),
-                ContextMenuItem { "Copy Link" }
+                child: move |props: Vec<Attribute>| rsx! {
+                    div {
+                        ..props,
+                        ContextMenuItem { "Copy Link" }
+                    }
+                },
             }
         }
     }

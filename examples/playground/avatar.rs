@@ -54,15 +54,15 @@ fn ValidSourcesScenario() -> Element {
                         id: "avatar-valid-png-root".to_string(),
                         style: AVATAR_STYLE.to_string(),
                         "data-gui-test-id": "avatar-valid-png-root",
-                        on_loading_status_change: move |status| {
-                            png_status.set(status);
-                            png_callbacks += 1;
-                        },
                         AvatarImage {
                             id: "avatar-valid-png-image".to_string(),
                             style: IMAGE_STYLE.to_string(),
                             src: Some(png_src.clone()),
                             alt: "Local PNG avatar".to_string(),
+                            on_loading_status_change: move |status| {
+                                png_status.set(status);
+                                png_callbacks += 1;
+                            },
                         }
                         AvatarFallback {
                             id: "avatar-valid-png-fallback".to_string(),
@@ -84,15 +84,15 @@ fn ValidSourcesScenario() -> Element {
                         id: "avatar-valid-svg-root".to_string(),
                         style: AVATAR_STYLE.to_string(),
                         "data-gui-test-id": "avatar-valid-svg-root",
-                        on_loading_status_change: move |status| {
-                            svg_status.set(status);
-                            svg_callbacks += 1;
-                        },
                         AvatarImage {
                             id: "avatar-valid-svg-image".to_string(),
                             style: IMAGE_STYLE.to_string(),
                             src: Some(svg_src.clone()),
                             alt: "Local SVG avatar".to_string(),
+                            on_loading_status_change: move |status| {
+                                svg_status.set(status);
+                                svg_callbacks += 1;
+                            },
                         }
                         AvatarFallback {
                             id: "avatar-valid-svg-fallback".to_string(),
@@ -170,16 +170,16 @@ fn SourceReplacementScenario() -> Element {
             Avatar {
                 id: "avatar-replacement-root".to_string(),
                 style: AVATAR_STYLE.to_string(),
-                on_loading_status_change: move |next| {
-                    status.set(next);
-                    root_callbacks += 1;
-                },
                 AvatarImage {
                     id: "avatar-replacement-image".to_string(),
                     style: IMAGE_STYLE.to_string(),
                     src: src(),
                     alt: "Replaceable avatar".to_string(),
-                    on_loading_status_change: move |_| image_callbacks += 1,
+                    on_loading_status_change: move |next| {
+                        status.set(next);
+                        root_callbacks += 1;
+                        image_callbacks += 1;
+                    },
                 }
                 AvatarFallback {
                     id: "avatar-replacement-fallback".to_string(),
@@ -262,19 +262,19 @@ fn DelayedFallbackScenario() -> Element {
             Avatar {
                 id: "avatar-delay-root".to_string(),
                 style: AVATAR_STYLE.to_string(),
-                delay_ms: delay_ms(),
-                on_loading_status_change: move |next| {
-                    status.set(next);
-                    callbacks += 1;
-                },
                 AvatarImage {
                     id: "avatar-delay-image".to_string(),
                     style: IMAGE_STYLE.to_string(),
                     src: src(),
                     alt: "Delayed avatar".to_string(),
+                    on_loading_status_change: move |next| {
+                        status.set(next);
+                        callbacks += 1;
+                    },
                 }
                 AvatarFallback {
                     id: "avatar-delay-fallback".to_string(),
+                    delay_ms: delay_ms(),
                     "DLY"
                 }
             }
@@ -329,19 +329,19 @@ fn UnmountScenario() -> Element {
                 Avatar {
                     id: "avatar-unmount-root".to_string(),
                     style: AVATAR_STYLE.to_string(),
-                    delay_ms: 600,
-                    on_loading_status_change: move |next| {
-                        status.set(next);
-                        callbacks += 1;
-                    },
                     AvatarImage {
                         id: "avatar-unmount-image".to_string(),
                         style: IMAGE_STYLE.to_string(),
                         src: src(),
                         alt: "Unmounted avatar target".to_string(),
+                        on_loading_status_change: move |next| {
+                            status.set(next);
+                            callbacks += 1;
+                        },
                     }
                     AvatarFallback {
                         id: "avatar-unmount-fallback".to_string(),
+                        delay_ms: 600,
                         "UNM"
                     }
                 }
@@ -373,10 +373,6 @@ fn PolicyScenario() -> Element {
             Avatar {
                 id: "avatar-policy-root".to_string(),
                 style: AVATAR_STYLE.to_string(),
-                on_loading_status_change: move |next| {
-                    status.set(next);
-                    callbacks += 1;
-                },
                 AvatarImage {
                     id: "avatar-policy-image".to_string(),
                     style: IMAGE_STYLE.to_string(),
@@ -384,6 +380,10 @@ fn PolicyScenario() -> Element {
                     alt: "Policy avatar".to_string(),
                     crossorigin: "anonymous".to_string(),
                     referrerpolicy: "no-referrer".to_string(),
+                    on_loading_status_change: move |next| {
+                        status.set(next);
+                        callbacks += 1;
+                    },
                 }
                 AvatarFallback {
                     id: "avatar-policy-fallback".to_string(),
@@ -419,21 +419,25 @@ fn MultipleImagesScenario() -> Element {
             Avatar {
                 id: "avatar-two-images-root".to_string(),
                 style: AVATAR_STYLE.to_string(),
-                on_loading_status_change: move |next| {
-                    status.set(next);
-                    callbacks += 1;
-                },
                 AvatarImage {
                     id: "avatar-two-images-png-image".to_string(),
                     style: IMAGE_STYLE.to_string(),
                     src: Some(png_src.clone()),
                     alt: "First unsupported avatar image".to_string(),
+                    on_loading_status_change: move |next| {
+                        status.set(next);
+                        callbacks += 1;
+                    },
                 }
                 AvatarImage {
                     id: "avatar-two-images-svg-image".to_string(),
                     style: IMAGE_STYLE.to_string(),
                     src: Some(svg_src.clone()),
                     alt: "Second unsupported avatar image".to_string(),
+                    on_loading_status_change: move |next| {
+                        status.set(next);
+                        callbacks += 1;
+                    },
                 }
                 AvatarFallback {
                     id: "avatar-two-images-fallback".to_string(),

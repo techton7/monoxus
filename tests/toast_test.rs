@@ -931,7 +931,7 @@ fn config_surface_and_directional_gesture_contract_test() {
 #[component]
 fn ToastActionAndCloseTestComponent() -> Element {
     let mut called = use_signal(|| false);
-    let on_click = Callback::new(move |ev: ToastActionEvent| {
+    let on_click = EventHandler::new(move |ev: MouseEvent| {
         called.set(true);
         ev.prevent_default();
     });
@@ -1874,12 +1874,13 @@ fn fm_ovl_1_and_fm_ovl_8_toast_ime_escape_and_nested_dialog_escape_coordination(
 
     #[component]
     fn ToastWithDialogScenario() -> Element {
-        let dialog_open = use_signal(|| false);
+        let mut dialog_open = use_signal(|| false);
         rsx! {
             div {
                 DialogRoot {
                     id: "toast-coord-dialog",
-                    open: dialog_open,
+                    open: dialog_open(),
+                    on_open_change: move |v| dialog_open.set(v),
                     DialogTrigger { id: "toast-coord-dialog-trigger", "Open Dialog" }
                     DialogPortal {
                         DialogOverlay { id: "toast-coord-dialog-overlay" }

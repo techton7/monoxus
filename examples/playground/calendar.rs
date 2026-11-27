@@ -6,8 +6,8 @@ use monoxus::{
         shared::Direction,
     },
     select::{
-        SelectContent, SelectItem, SelectItemIndicator, SelectItemText, SelectPortal, SelectRoot,
-        SelectTrigger, SelectValue, SelectViewport,
+        SelectContent, SelectItem, SelectItemData, SelectItemIndicator, SelectItemText,
+        SelectPortal, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
     },
 };
 
@@ -169,7 +169,7 @@ pub fn CalendarPlayground() -> Element {
 
 #[component]
 fn SingleCalendarScenario() -> Element {
-    let selected = use_signal(|| Some(cal_date(2024, 1, 15)));
+    let mut selected = use_signal(|| Some(cal_date(2024, 1, 15)));
     let mut select_calls = use_signal(|| 0usize);
 
     rsx! {
@@ -195,7 +195,8 @@ fn SingleCalendarScenario() -> Element {
                 style: "display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.5rem;",
                 CalendarRoot {
                     id: "sw5b-cal-single",
-                    value: Some(selected),
+                    value: Some(selected()),
+                    on_value_change: move |next: Option<CalendarDate>| selected.set(next),
                     default_placeholder: cal_date(2024, 1, 15),
                     min_value: cal_date(2024, 1, 3),
                     max_value: cal_date(2026, 12, 20),
@@ -288,7 +289,7 @@ fn SingleCalendarScenario() -> Element {
 
 #[component]
 fn MultipleCalendarScenario() -> Element {
-    let values = use_signal(|| vec![cal_date(2024, 1, 10), cal_date(2024, 1, 12)]);
+    let mut values = use_signal(|| vec![cal_date(2024, 1, 10), cal_date(2024, 1, 12)]);
     let mut prevent_deselect = use_signal(|| false);
     let mut disable_outside = use_signal(|| true);
 
@@ -347,7 +348,8 @@ fn MultipleCalendarScenario() -> Element {
                 CalendarRoot {
                     id: "sw5b-cal-multiple",
                     mode: CalendarMode::Multiple,
-                    values: Some(values),
+                    values: Some(values()),
+                    on_values_change: move |next: Vec<CalendarDate>| values.set(next),
                     default_placeholder: cal_date(2024, 1, 15),
                     max_days: Some(3),
                     prevent_deselect: prevent_deselect(),
@@ -658,20 +660,26 @@ fn LocaleRtlInitialFocusScenario() -> Element {
     }
 }
 
-fn render_custom_calendar_select(slot: CalendarSelectRenderProps, min_width: &str) -> Element {
-    let current_val = slot.value_string.clone();
-    let select_items = slot.select_items();
-    let items = slot.items.clone();
+fn render_custom_calendar_select(
+    id: &str,
+    current_val: String,
+    items: Vec<CalendarSelectOption>,
+    on_value_change: EventHandler<Option<String>>,
+    min_width: &str,
+) -> Element {
+    let select_items: Vec<SelectItemData> = items
+        .iter()
+        .map(|opt| SelectItemData::new(opt.value.to_string(), opt.label.clone(), false))
+        .collect();
     let trigger_style = format!(
         "display: inline-flex; align-items: center; justify-content: space-between; gap: 0.375rem; height: 32px; padding: 0 10px; border-radius: 0.5rem; border: 1px solid #cbd5e1; background-color: #ffffff; color: #0f172a; font-size: 0.8125rem; font-weight: 500; cursor: pointer; {min_width}"
     );
     rsx! {
         SelectRoot {
-            id: slot.attrs.id.clone(),
+            id: id.to_string(),
             items: Some(select_items),
             value: Some(current_val.clone()),
-            disabled: slot.disabled,
-            on_value_change: slot.on_value_change,
+            on_value_change,
             SelectTrigger {
                 class: "cal-select-trigger".to_string(),
                 style: trigger_style,
@@ -689,7 +697,7 @@ fn render_custom_calendar_select(slot: CalendarSelectRenderProps, min_width: &st
                         style: "max-height: 220px;".to_string(),
                         for opt in items {
                             {
-                                let opt_val = opt.value_string();
+                                let opt_val = opt.value.to_string();
                                 let is_selected = opt_val == current_val;
                                 rsx! {
                                     SelectItem {
@@ -716,7 +724,8 @@ fn render_custom_calendar_select(slot: CalendarSelectRenderProps, min_width: &st
 
 #[component]
 fn CustomSelectCalendarScenario() -> Element {
-    let selected = use_signal(|| Some(cal_date(2024, 1, 15)));
+    let mut selected = use_signal(|| Some(cal_date(2024, 1, 15)));
+    let mut placeholder = use_signal(|| cal_date(2024, 1, 15));
     let mut select_calls = use_signal(|| 0usize);
 
     rsx! {
@@ -729,12 +738,12 @@ fn CustomSelectCalendarScenario() -> Element {
                 h3 {
                     class: "text-base font-semibold text-slate-900",
                     style: "margin: 0; font-size: 1rem; font-weight: 600; color: #0f172a;",
-                    "5. Composed Month/Year Select (as_child + monoxus::Select)"
+                    "5. Composed Month/Year Select (monoxus::Select)"
                 }
                 p {
                     class: "text-xs text-slate-500",
                     style: "margin: 0; font-size: 0.75rem; color: #64748b;",
-                    "Same configuration as Scenario 1 (bounded to 2024-01-03..=2026-12-20; Day 18 unavailable; Day 31 disabled), replacing only native <select> with CalendarMonthSelect / CalendarYearSelect as_child + monoxus::SelectRoot."
+                    "Same configuration as Scenario 1 (bounded to 2024-01-03..=2026-12-20; Day 18 unavailable; Day 31 disabled), replacing native <select> with composed monoxus::SelectRoot."
                 }
             }
 
@@ -742,35 +751,60 @@ fn CustomSelectCalendarScenario() -> Element {
                 style: "display: flex; flex-wrap: wrap; align-items: flex-start; gap: 1.5rem;",
                 CalendarRoot {
                     id: "sw5b-cal-custom-select",
-                    value: Some(selected),
-                    default_placeholder: cal_date(2024, 1, 15),
+                    value: Some(selected()),
+                    on_value_change: move |next: Option<CalendarDate>| selected.set(next),
+                    placeholder: Some(placeholder()),
+                    on_placeholder_change: move |next: CalendarDate| placeholder.set(next),
                     min_value: cal_date(2024, 1, 3),
                     max_value: cal_date(2026, 12, 20),
                     is_date_unavailable: Callback::new(|date: CalendarDate| date.day == 18),
                     is_date_disabled: Callback::new(|date: CalendarDate| date.day == 31),
                     on_date_select: move |_| select_calls += 1,
                     style: "{CAL_CARD_STYLE}",
-                    render_children: move |snap: CalendarSnapshot| rsx! {
+                    render_children: move |snap: CalendarSnapshot| {
+                        let month_items = build_calendar_month_options(
+                            None,
+                            &CalendarLocale::EnUs,
+                            MonthFormat::Long,
+                        );
+                        let year_items = build_calendar_year_options(
+                            &[2024, 2025, 2026],
+                            &CalendarLocale::EnUs,
+                            YearFormat::Numeric,
+                        );
+                        let cur_month = snap.placeholder.month.to_string();
+                        let cur_year = snap.placeholder.year.to_string();
+                        rsx! {
                         CalendarHeader {
                             id: "sw5b-cal-custom-header",
                             style: "{HEADER_STYLE}",
                             CalendarPrevButton { id: "sw5b-cal-custom-prev", "‹" }
                             div {
                                 style: "display: flex; align-items: center; gap: 0.375rem;",
-                                CalendarMonthSelect {
-                                    id: "sw5b-cal-custom-month-select",
-                                    as_child: true,
-                                    render_child: move |slot: CalendarSelectRenderProps| {
-                                        render_custom_calendar_select(slot, "min-width: 120px;")
-                                    },
-                                }
-                                CalendarYearSelect {
-                                    id: "sw5b-cal-custom-year-select",
-                                    as_child: true,
-                                    render_child: move |slot: CalendarSelectRenderProps| {
-                                        render_custom_calendar_select(slot, "min-width: 88px;")
-                                    },
-                                }
+                                {render_custom_calendar_select(
+                                    "sw5b-cal-custom-month-select",
+                                    cur_month,
+                                    month_items,
+                                    EventHandler::new(move |val: Option<String>| {
+                                        if let Some(m) = val.and_then(|s| s.parse::<u8>().ok()) {
+                                            let next = placeholder.peek().with_month_clamped(m);
+                                            placeholder.set(next);
+                                        }
+                                    }),
+                                    "min-width: 120px;",
+                                )}
+                                {render_custom_calendar_select(
+                                    "sw5b-cal-custom-year-select",
+                                    cur_year,
+                                    year_items,
+                                    EventHandler::new(move |val: Option<String>| {
+                                        if let Some(y) = val.and_then(|s| s.parse::<i32>().ok()) {
+                                            let next = placeholder.peek().with_year_clamped(y);
+                                            placeholder.set(next);
+                                        }
+                                    }),
+                                    "min-width: 88px;",
+                                )}
                             }
                             CalendarNextButton { id: "sw5b-cal-custom-next", "›" }
                         }
@@ -815,6 +849,7 @@ fn CustomSelectCalendarScenario() -> Element {
                                     }
                                 }
                             }
+                        }
                         }
                     }
                 }

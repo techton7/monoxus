@@ -431,14 +431,23 @@ where
     let rt_for_prev = range_rt.clone();
     let rt_for_next = range_rt.clone();
 
+    let part_controlled = range_rt.value_ctl.is_controlled()
+        || match spec.kind {
+            FieldRangeEndpoint::Start => range_rt.start_ctl.is_controlled(),
+            FieldRangeEndpoint::End => range_rt.end_ctl.is_controlled(),
+        };
+    let ph_controlled = range_rt.placeholder_ctl.is_controlled();
+    let part_val_now = (part_value_sig)();
+    let ph_now = (range_rt.placeholder)();
+
     let root_spec = SegmentFieldRootSpec::<P> {
         id: Some(part_scope_id),
-        value: Some((part_value_sig)()),
+        value: part_controlled.then_some(part_val_now),
         default_value: part_default_value,
         on_value_change: Some(EventHandler::new(move |next| {
             rt_for_change.update_part_value(kind, next);
         })),
-        placeholder: Some((range_rt.placeholder)()),
+        placeholder: ph_controlled.then_some(ph_now),
         on_placeholder_change: Some(EventHandler::new(move |ph| {
             rt_for_ph.update_placeholder(ph);
         })),
@@ -470,7 +479,26 @@ where
         children: rsx! {},
     };
 
-    let field_rt = use_segment_field_runtime::<P>(&root_spec, initial_placeholder);
+    let mut field_rt = use_segment_field_runtime::<P>(&root_spec, initial_placeholder);
+    // Sync parent-initiated changes (calendar selection, form reset) into uncontrolled endpoint
+    // without self-echoing user segment typing (which would clear multi-digit typing buffers).
+    let mut prev_part_val = use_hook(|| CopyValue::new(part_val_now));
+    let mut prev_ph = use_hook(|| CopyValue::new(ph_now));
+    if prev_part_val
+        .try_read()
+        .is_ok_and(|prev| *prev != part_val_now)
+    {
+        prev_part_val.set(part_val_now);
+        if field_rt.state.peek().value() != part_val_now {
+            field_rt.reconcile_external_state(Some(part_val_now), None, None);
+        }
+    }
+    if prev_ph.try_read().is_ok_and(|prev| *prev != ph_now) {
+        prev_ph.set(ph_now);
+        if field_rt.state.peek().placeholder() != ph_now {
+            field_rt.reconcile_external_state(None, Some(ph_now), None);
+        }
+    }
     let registered_kind = use_hook(|| Rc::new(RefCell::new(kind)));
     {
         let mut prev_kind = registered_kind.borrow_mut();

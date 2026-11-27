@@ -1,9 +1,9 @@
 use dioxus::prelude::*;
 use monoxus::{
-    foundation::{overlay::PortalHost, shared::ScopeHandle},
+    foundation::overlay::{PortalHost, StickyStrategy},
     select::{
-        EscapeKeyDownEvent, PointerDownOutsideEvent, Select, SelectContent, SelectItem,
-        SelectPortal, SelectRoot, SelectTrigger, SelectValue, SelectViewport, use_select_runtime,
+        EscapeKeyDownEvent, PointerDownOutsideEvent, SelectContent, SelectItem, SelectItemData,
+        SelectPortal, SelectRoot, SelectTrigger, SelectValue, SelectViewport,
     },
 };
 
@@ -11,9 +11,8 @@ use super::shared::{BADGE_STYLE, ItemRow, MUTED_STYLE};
 
 #[component]
 pub fn PortaledSelectSection() -> Element {
-    let scope = ScopeHandle::root("playground").child("select-portal");
-    let selected_val = use_signal(|| Some("remote-1".to_string()));
-    let is_open = use_signal(|| false);
+    let mut selected_val = use_signal(|| Some("remote-1".to_string()));
+    let mut is_open = use_signal(|| false);
     let mut prevent_escape = use_signal(|| false);
     let mut prevent_outside_click = use_signal(|| false);
     let mut force_mount_enabled = use_signal(|| false);
@@ -23,26 +22,9 @@ pub fn PortaledSelectSection() -> Element {
     let outside_clicks = use_signal(|| 0);
 
     let items = vec![
-        monoxus::select::SelectItemData::new("remote-1", "Remote Item 1", false),
-        monoxus::select::SelectItemData::new("remote-2", "Remote Item 2", false),
+        SelectItemData::new("remote-1", "Remote Item 1", false),
+        SelectItemData::new("remote-2", "Remote Item 2", false),
     ];
-
-    let def = Select::new(scope.clone())
-        .with_items(items)
-        .with_value(selected_val())
-        .with_open(is_open());
-
-    let runtime = use_select_runtime(
-        def,
-        Some(move |val: Option<String>| {
-            let mut s = selected_val;
-            s.set(val);
-        }),
-        Some(move |open: bool| {
-            let mut s = is_open;
-            s.set(open);
-        }),
-    );
 
     let curr_val = selected_val().unwrap_or_else(|| "none".into());
     let open_state = if is_open() { "Open" } else { "Closed" };
@@ -101,7 +83,12 @@ pub fn PortaledSelectSection() -> Element {
                 div {
                     style: "position: relative; width: 260px;",
                     SelectRoot {
-                        runtime: runtime.clone(),
+                        id: "select-portal".to_string(),
+                        items: Some(items),
+                        default_value: "remote-1".to_string(),
+                        on_value_change: move |val: Option<String>| selected_val.set(val),
+                        open: Some(is_open()),
+                        on_open_change: move |open: bool| is_open.set(open),
                         SelectTrigger {
                             class: "select-trigger-portaled".to_string(),
                             style: "display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 0.5rem 0.75rem; border: 1px solid #d8b4fe; border-radius: 0.375rem; background: white; font-size: 0.875rem; cursor: pointer; outline: none; box-shadow: 0 1px 2px rgba(0,0,0,0.05);",
@@ -116,7 +103,7 @@ pub fn PortaledSelectSection() -> Element {
                             SelectContent {
                                 class: "select-content-portaled".to_string(),
                                 style: "z-index: 50; background: white; border: 1px solid #d8b4fe; border-radius: 0.375rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); padding: 0.25rem; outline: none;",
-                                sticky: "always".to_string(),
+                                sticky: Some(StickyStrategy::Always),
                                 prevent_scroll: prevent_scroll_enabled(),
                                 force_mount: force_mount_enabled(),
                                 prevent_overflow_text_selection: prevent_selection_enabled(),

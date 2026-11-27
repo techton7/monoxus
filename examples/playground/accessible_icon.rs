@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use monoxus::accessible_icon::{AccessibleIcon, AccessibleIconChildProps, AccessibleIconRoot};
+use monoxus::accessible_icon::{AccessibleIcon, AccessibleIconRoot};
 
 #[component]
 pub fn AccessibleIconPlayground() -> Element {
@@ -61,12 +61,10 @@ pub fn AccessibleIconPlayground() -> Element {
                                 style: "position: relative; display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 0.5rem; border: 1px solid #cbd5e1; background-color: #ffffff; cursor: pointer; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);",
                                 AccessibleIcon {
                                     label: "Favorite",
-                                    render_child: move |p: AccessibleIconChildProps| {
+                                    child: move |props: Vec<Attribute>| {
                                         rsx! {
                                             svg {
                                                 id: "sw5a-ai-svg-direct",
-                                                "aria-hidden": p.aria_hidden,
-                                                "focusable": p.focusable,
                                                 width: "20",
                                                 height: "20",
                                                 view_box: "0 0 24 24",
@@ -74,6 +72,7 @@ pub fn AccessibleIconPlayground() -> Element {
                                                 stroke: "#dc2626",
                                                 "stroke-width": "1.75",
                                                 style: "width: 20px; height: 20px; display: block; flex-shrink: 0;",
+                                                ..props,
                                                 path {
                                                     d: "M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z",
                                                 }

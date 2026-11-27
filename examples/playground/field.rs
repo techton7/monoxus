@@ -939,7 +939,7 @@ fn PatternBCompositeSection() -> Element {
                     ComboboxRoot {
                         id: Some("field-s4-cbx".to_string()),
                         mode: ComboboxMode::Single,
-                        controlled_value: Some(ReadSignal::from(cbx_selected)),
+                        value: Some(cbx_selected()),
                         default_input_value: Some("Rust".to_string()),
                         items: cbx_items,
                         on_value_change: move |next: Option<String>| {
@@ -1071,9 +1071,8 @@ fn PatternBCompositeSection() -> Element {
 
                     DatePickerRoot {
                         id: Some("field-s4-dp".to_string()),
-                        controlled_value: Some(ReadSignal::from(dp_value)),
+                        value: Some(dp_value()),
                         default_placeholder: Some(sample_date(2025, 4, 15)),
-                        is_invalid_override: Some(dp_invalid()),
                         close_on_date_select: true,
                         locale: CalendarLocale::EnUs,
                         on_value_change: move |next: Option<DateValue>| {

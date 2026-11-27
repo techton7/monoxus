@@ -1405,7 +1405,7 @@ mod native_tests {
                 // 3. Controlled empty multiple values: Some(vec![]) must NOT fall back to default_values
                 SelectRoot {
                     id: "m2b-sel-empty-multi",
-                    multiple: true,
+                    mode: monoxus::select::SelectMode::Multiple,
                     name: Some("multi_sel".to_string()),
                     values: Some(Vec::new()),
                     default_values: Some(vec!["a".to_string()]),
@@ -2251,65 +2251,65 @@ mod native_tests {
             TimeRangeFieldInput, TimeRangeFieldRoot, TimeRangeFieldSegment,
         };
 
-        // 1. Combobox: ReadOnly controlled_value + legacy two-way Signal
+        // 1. Combobox: ReadOnly controlled value + controlled two-way callback
         let cbx_ro_src = use_signal(|| Some("a".to_string()));
         let cbx_ro: ReadSignal<Option<String>> = cbx_ro_src.into();
         let mut cbx_ro_proposed = use_signal(Vec::<String>::new);
-        let cbx_tw = use_signal(|| Some("a".to_string()));
+        let mut cbx_tw = use_signal(|| Some("a".to_string()));
 
-        // 2. DateField: ReadOnly controlled_value (complete + partial) + legacy two-way
+        // 2. DateField: ReadOnly controlled value (complete + partial) + controlled two-way callback
         let df_ro_src = use_signal(|| Some(m3a_date(2025, 5, 10)));
         let df_ro: ReadSignal<Option<DateValue>> = df_ro_src.into();
         let mut df_ro_proposed = use_signal(Vec::<String>::new);
         let df_partial_src = use_signal(|| None::<DateValue>);
         let df_partial_ro: ReadSignal<Option<DateValue>> = df_partial_src.into();
         let mut df_partial_proposed = use_signal(Vec::<String>::new);
-        let df_tw = use_signal(|| Some(m3a_date(2025, 5, 10)));
+        let mut df_tw = use_signal(|| Some(m3a_date(2025, 5, 10)));
 
-        // 3. TimeField: ReadOnly controlled_value + legacy two-way
+        // 3. TimeField: ReadOnly controlled value + controlled two-way callback
         let tf_ro_src = use_signal(|| Some(m3a_time(9, 30)));
         let tf_ro: ReadSignal<Option<TimeValue>> = tf_ro_src.into();
         let mut tf_ro_proposed = use_signal(Vec::<String>::new);
-        let tf_tw = use_signal(|| Some(m3a_time(9, 30)));
+        let mut tf_tw = use_signal(|| Some(m3a_time(9, 30)));
 
-        // 4. DateRangeField: ReadOnly controlled_value + legacy two-way
+        // 4. DateRangeField: ReadOnly controlled value + controlled two-way callback
         let drf_ro_src = use_signal(|| DateValueRange {
             start: Some(m3a_date(2025, 5, 10)),
             end: Some(m3a_date(2025, 5, 20)),
         });
         let drf_ro: ReadSignal<DateValueRange> = drf_ro_src.into();
         let mut drf_ro_proposed = use_signal(Vec::<String>::new);
-        let drf_tw = use_signal(|| DateValueRange {
+        let mut drf_tw = use_signal(|| DateValueRange {
             start: Some(m3a_date(2025, 5, 10)),
             end: Some(m3a_date(2025, 5, 20)),
         });
 
-        // 5. TimeRangeField: ReadOnly controlled_value + legacy two-way
+        // 5. TimeRangeField: ReadOnly controlled value + controlled two-way callback
         let trf_ro_src = use_signal(|| TimeRange {
             start: Some(m3a_time(9, 0)),
             end: Some(m3a_time(17, 0)),
         });
         let trf_ro: ReadSignal<TimeRange> = trf_ro_src.into();
         let mut trf_ro_proposed = use_signal(Vec::<String>::new);
-        let trf_tw = use_signal(|| TimeRange {
+        let mut trf_tw = use_signal(|| TimeRange {
             start: Some(m3a_time(9, 0)),
             end: Some(m3a_time(17, 0)),
         });
 
-        // 6. DatePicker: ReadOnly controlled_value + legacy two-way
+        // 6. DatePicker: ReadOnly controlled value + controlled two-way callback
         let dp_ro_src = use_signal(|| Some(m3a_date(2025, 5, 10)));
         let dp_ro: ReadSignal<Option<DateValue>> = dp_ro_src.into();
         let mut dp_ro_proposed = use_signal(Vec::<String>::new);
-        let dp_tw = use_signal(|| Some(m3a_date(2025, 5, 10)));
+        let mut dp_tw = use_signal(|| Some(m3a_date(2025, 5, 10)));
 
-        // 7. DateRangePicker: ReadOnly controlled_value + legacy two-way
+        // 7. DateRangePicker: ReadOnly controlled value + controlled two-way callback
         let drp_ro_src = use_signal(|| DateValueRange {
             start: Some(m3a_date(2025, 5, 10)),
             end: Some(m3a_date(2025, 5, 20)),
         });
         let drp_ro: ReadSignal<DateValueRange> = drp_ro_src.into();
         let mut drp_ro_proposed = use_signal(Vec::<String>::new);
-        let drp_tw = use_signal(|| DateValueRange {
+        let mut drp_tw = use_signal(|| DateValueRange {
             start: Some(m3a_date(2025, 5, 10)),
             end: Some(m3a_date(2025, 5, 20)),
         });
@@ -2356,7 +2356,7 @@ mod native_tests {
                 ComboboxRoot {
                     id: "m3a-cbx-ro",
                     name: Some("cbx_ro".to_string()),
-                    controlled_value: Some(cbx_ro),
+                    value: Some(cbx_ro()),
                     items: vec![
                         ComboboxItemData::new("a", "Alpha", false),
                         ComboboxItemData::new("b", "Beta", false),
@@ -2372,10 +2372,11 @@ mod native_tests {
                     }
                 }
 
-                // 1b. Combobox TwoWay legacy
+                // 1b. Combobox controlled accepting
                 ComboboxRoot {
                     id: "m3a-cbx-tw",
-                    value: Some(cbx_tw),
+                    value: Some(cbx_tw()),
+                    on_value_change: move |v: Option<String>| cbx_tw.set(v),
                     items: vec![
                         ComboboxItemData::new("a", "Alpha", false),
                         ComboboxItemData::new("b", "Beta", false),
@@ -2391,7 +2392,7 @@ mod native_tests {
                 DateFieldRoot {
                     id: "m3a-df-ro",
                     locale: CalendarLocale::EnUs,
-                    controlled_value: Some(df_ro),
+                    value: Some(df_ro()),
                     on_value_change: move |v: Option<DateValue>| {
                         df_ro_proposed.write().push(fmt_opt_date(v));
                     },
@@ -2415,7 +2416,7 @@ mod native_tests {
                 DateFieldRoot {
                     id: "m3a-df-partial",
                     locale: CalendarLocale::EnUs,
-                    controlled_value: Some(df_partial_ro),
+                    value: Some(df_partial_ro()),
                     on_value_change: move |v: Option<DateValue>| {
                         df_partial_proposed.write().push(fmt_opt_date(v));
                     },
@@ -2434,11 +2435,12 @@ mod native_tests {
                     }
                 }
 
-                // 2c. DateField TwoWay legacy
+                // 2c. DateField controlled accepting
                 DateFieldRoot {
                     id: "m3a-df-tw",
                     locale: CalendarLocale::EnUs,
-                    value: Some(df_tw),
+                    value: Some(df_tw()),
+                    on_value_change: move |v: Option<DateValue>| df_tw.set(v),
                     DateFieldInput {
                         id: "m3a-df-tw-in",
                         render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
@@ -2459,7 +2461,7 @@ mod native_tests {
                     id: "m3a-tf-ro",
                     locale: CalendarLocale::Iso,
                     granularity: TimeGranularity::Minute,
-                    controlled_value: Some(tf_ro),
+                    value: Some(tf_ro()),
                     on_value_change: move |v: Option<TimeValue>| {
                         tf_ro_proposed.write().push(fmt_opt_time(v));
                     },
@@ -2478,12 +2480,13 @@ mod native_tests {
                     }
                 }
 
-                // 3b. TimeField TwoWay legacy
+                // 3b. TimeField controlled accepting
                 TimeFieldRoot {
                     id: "m3a-tf-tw",
                     locale: CalendarLocale::Iso,
                     granularity: TimeGranularity::Minute,
-                    value: Some(tf_tw),
+                    value: Some(tf_tw()),
+                    on_value_change: move |v: Option<TimeValue>| tf_tw.set(v),
                     TimeFieldInput {
                         id: "m3a-tf-tw-in",
                         render_children: move |segs: Vec<TimeFieldSegmentItem>| rsx! {
@@ -2503,7 +2506,7 @@ mod native_tests {
                 DateRangeFieldRoot {
                     id: "m3a-drf-ro",
                     locale: CalendarLocale::EnUs,
-                    controlled_value: Some(drf_ro),
+                    value: Some(drf_ro()),
                     on_value_change: move |v: DateValueRange| {
                         drf_ro_proposed.write().push(format!("{}..{}", fmt_opt_date(v.start), fmt_opt_date(v.end)));
                     },
@@ -2535,11 +2538,12 @@ mod native_tests {
                     }
                 }
 
-                // 4b. DateRangeField TwoWay legacy
+                // 4b. DateRangeField controlled accepting
                 DateRangeFieldRoot {
                     id: "m3a-drf-tw",
                     locale: CalendarLocale::EnUs,
-                    value: Some(drf_tw),
+                    value: Some(drf_tw()),
+                    on_value_change: move |v: DateValueRange| drf_tw.set(v),
                     DateRangeFieldInput {
                         kind: RangeFieldInputKind::Start,
                         render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
@@ -2560,7 +2564,7 @@ mod native_tests {
                     id: "m3a-trf-ro",
                     locale: CalendarLocale::Iso,
                     granularity: TimeGranularity::Minute,
-                    controlled_value: Some(trf_ro),
+                    value: Some(trf_ro()),
                     on_value_change: move |v: TimeRange| {
                         trf_ro_proposed.write().push(format!("{}..{}", fmt_opt_time(v.start), fmt_opt_time(v.end)));
                     },
@@ -2579,12 +2583,13 @@ mod native_tests {
                     }
                 }
 
-                // 5b. TimeRangeField TwoWay legacy
+                // 5b. TimeRangeField controlled accepting
                 TimeRangeFieldRoot {
                     id: "m3a-trf-tw",
                     locale: CalendarLocale::Iso,
                     granularity: TimeGranularity::Minute,
-                    value: Some(trf_tw),
+                    value: Some(trf_tw()),
+                    on_value_change: move |v: TimeRange| trf_tw.set(v),
                     TimeRangeFieldInput {
                         kind: RangeFieldInputKind::Start,
                         render_children: move |segs: Vec<TimeFieldSegmentItem>| rsx! {
@@ -2604,7 +2609,7 @@ mod native_tests {
                 DatePickerRoot {
                     id: "m3a-dp-ro",
                     locale: CalendarLocale::EnUs,
-                    controlled_value: Some(dp_ro),
+                    value: Some(dp_ro()),
                     on_value_change: move |v: Option<DateValue>| {
                         dp_ro_proposed.write().push(fmt_opt_date(v));
                     },
@@ -2624,11 +2629,12 @@ mod native_tests {
                     DatePickerTrigger { id: "m3a-dp-ro-trig", "Cal" }
                 }
 
-                // 6b. DatePicker TwoWay legacy
+                // 6b. DatePicker controlled accepting
                 DatePickerRoot {
                     id: "m3a-dp-tw",
                     locale: CalendarLocale::EnUs,
-                    value: Some(dp_tw),
+                    value: Some(dp_tw()),
+                    on_value_change: move |v: Option<DateValue>| dp_tw.set(v),
                     DatePickerInput {
                         id: "m3a-dp-tw-in",
                         render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
@@ -2648,7 +2654,7 @@ mod native_tests {
                 DateRangePickerRoot {
                     id: "m3a-drp-ro",
                     locale: CalendarLocale::EnUs,
-                    controlled_value: Some(drp_ro),
+                    value: Some(drp_ro()),
                     on_value_change: move |v: DateValueRange| {
                         drp_ro_proposed.write().push(format!("{}..{}", fmt_opt_date(v.start), fmt_opt_date(v.end)));
                     },
@@ -2667,11 +2673,12 @@ mod native_tests {
                     }
                 }
 
-                // 7b. DateRangePicker TwoWay legacy
+                // 7b. DateRangePicker controlled accepting
                 DateRangePickerRoot {
                     id: "m3a-drp-tw",
                     locale: CalendarLocale::EnUs,
-                    value: Some(drp_tw),
+                    value: Some(drp_tw()),
+                    on_value_change: move |v: DateValueRange| drp_tw.set(v),
                     DateRangePickerInput {
                         kind: RangeFieldInputKind::Start,
                         render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
@@ -3220,55 +3227,61 @@ mod native_tests {
 
         rsx! {
             div { style: "padding: 16px; display: flex; flex-direction: column; gap: 12px;",
-                // 1. DatePickerRoot with explicit is_invalid_override: Some(true)
-                DatePickerRoot {
-                    id: "m3a-inv-dp",
-                    locale: CalendarLocale::EnUs,
-                    is_invalid_override: Some(true),
-                    DatePickerInput {
-                        id: "m3a-inv-dp-in",
-                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
-                            for seg in segs {
-                                DatePickerSegment {
-                                    key: "{seg.index}",
-                                    id: format!("m3a-inv-dp-seg-{}", seg.kind().as_data_segment()),
-                                    part: seg.kind(),
-                                    index: Some(seg.index),
+                // 1. DatePickerRoot inside invalid FieldRoot
+                FieldRoot {
+                    id: "m3a-inv-dp-fld",
+                    invalid: true,
+                    DatePickerRoot {
+                        id: "m3a-inv-dp",
+                        locale: CalendarLocale::EnUs,
+                        DatePickerInput {
+                            id: "m3a-inv-dp-in",
+                            render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segs {
+                                    DatePickerSegment {
+                                        key: "{seg.index}",
+                                        id: format!("m3a-inv-dp-seg-{}", seg.kind().as_data_segment()),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                    }
                                 }
                             }
                         }
                     }
                 }
 
-                // 2. DateRangePickerRoot with explicit is_invalid_override: Some(true)
-                DateRangePickerRoot {
-                    id: "m3a-inv-drp",
-                    locale: CalendarLocale::EnUs,
-                    is_invalid_override: Some(true),
-                    DateRangePickerInput {
-                        kind: RangeFieldInputKind::Start,
-                        id: "m3a-inv-drp-start-in",
-                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
-                            for seg in segs {
-                                DateRangePickerSegment {
-                                    key: "{seg.index}",
-                                    id: format!("m3a-inv-drp-start-{}", seg.kind().as_data_segment()),
-                                    part: seg.kind(),
-                                    index: Some(seg.index),
+                // 2. DateRangePickerRoot inside invalid FieldRoot
+                FieldRoot {
+                    id: "m3a-inv-drp-fld",
+                    invalid: true,
+                    DateRangePickerRoot {
+                        id: "m3a-inv-drp",
+                        locale: CalendarLocale::EnUs,
+                        DateRangePickerInput {
+                            kind: RangeFieldInputKind::Start,
+                            id: "m3a-inv-drp-start-in",
+                            render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segs {
+                                    DateRangePickerSegment {
+                                        key: "{seg.index}",
+                                        id: format!("m3a-inv-drp-start-{}", seg.kind().as_data_segment()),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                    }
                                 }
                             }
                         }
-                    }
-                    DateRangePickerInput {
-                        kind: RangeFieldInputKind::End,
-                        id: "m3a-inv-drp-end-in",
-                        render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
-                            for seg in segs {
-                                DateRangePickerSegment {
-                                    key: "{seg.index}",
-                                    id: format!("m3a-inv-drp-end-{}", seg.kind().as_data_segment()),
-                                    part: seg.kind(),
-                                    index: Some(seg.index),
+                        DateRangePickerInput {
+                            kind: RangeFieldInputKind::End,
+                            id: "m3a-inv-drp-end-in",
+                            render_children: move |segs: Vec<DateFieldSegmentItem>| rsx! {
+                                for seg in segs {
+                                    DateRangePickerSegment {
+                                        key: "{seg.index}",
+                                        id: format!("m3a-inv-drp-end-{}", seg.kind().as_data_segment()),
+                                        part: seg.kind(),
+                                        index: Some(seg.index),
+                                    }
                                 }
                             }
                         }
@@ -3499,7 +3512,7 @@ mod native_tests {
                     ComboboxRoot {
                         id: "m3a-audit-cbx",
                         name: Some("audit_cbx".to_string()),
-                        controlled_value: Some(cbx_val.into()),
+                        value: Some(cbx_val()),
                         items: vec![
                             ComboboxItemData::new("a", "Alpha", false),
                             ComboboxItemData::new("b", "Beta", false),

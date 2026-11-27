@@ -102,7 +102,7 @@ pub fn TimeRangeFieldShowcase() -> Element {
 
 #[component]
 fn TwelveHourTimeRangeScenario() -> Element {
-    let range = use_signal(|| TimeRange::new(Some(trf_time("09:00:00")), Some(trf_time("17:00:00"))));
+    let mut range = use_signal(|| TimeRange::new(Some(trf_time("09:00:00")), Some(trf_time("17:00:00"))));
     let mut invalid_reason = use_signal(|| String::from("none"));
 
     rsx! {
@@ -127,7 +127,7 @@ fn TwelveHourTimeRangeScenario() -> Element {
                 style: "display: flex; flex-wrap: wrap; align-items: flex-end; gap: 1rem;",
                 TimeRangeFieldRoot {
                     id: "sw5c-trf-12h",
-                    value: Some(range),
+                    value: Some(range()),
                     default_value: TimeRange::new(
                         Some(trf_time("09:00:00")),
                         Some(trf_time("17:00:00")),
@@ -141,6 +141,7 @@ fn TwelveHourTimeRangeScenario() -> Element {
                             .then(|| vec!["End time must be on or after start time".to_string()])
                     }),
                     on_value_change: move |next: TimeRange| {
+                        range.set(next);
                         if !next.is_inverted() {
                             invalid_reason.set(String::from("none"));
                         }
@@ -235,7 +236,7 @@ fn TwelveHourTimeRangeScenario() -> Element {
 
 #[component]
 fn TwentyFourHourTimeRangeScenario() -> Element {
-    let range = use_signal(|| TimeRange::new(Some(trf_time("20:00:00")), Some(trf_time("05:00:00"))));
+    let mut range = use_signal(|| TimeRange::new(Some(trf_time("20:00:00")), Some(trf_time("05:00:00"))));
 
     rsx! {
         div {
@@ -256,7 +257,8 @@ fn TwentyFourHourTimeRangeScenario() -> Element {
 
             TimeRangeFieldRoot {
                 id: "sw5c-trf-24h",
-                value: Some(range),
+                value: Some(range()),
+                on_value_change: move |next: TimeRange| range.set(next),
                 default_placeholder: Some(trf_time("20:00:00")),
                 granularity: TimeGranularity::Minute,
                 hour_cycle: Some(HourCycle::H24),
