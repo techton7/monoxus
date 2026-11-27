@@ -169,7 +169,8 @@ pub fn ControlledCollapsibleScenario() -> Element {
 
             CollapsibleRoot {
                 id: "collapsible-root-controlled".to_string(),
-                open: open,
+                open: open(),
+                on_open_change: move |next| open.set(next),
                 div {
                     class: "flex items-center justify-between pt-2",
                     span {

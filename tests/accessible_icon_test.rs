@@ -17,15 +17,14 @@ fn AccessibleIconRenderChildScenario() -> Element {
             id: "icon-btn-direct",
             r#type: "button",
             AccessibleIcon {
-                label: "Favorite".to_string(),
-                render_child: move |p: AccessibleIconChildProps| {
+                label: "Favorite",
+                child: move |props: Vec<Attribute>| {
                     rsx! {
                         svg {
                             id: "direct-svg",
-                            "aria-hidden": p.aria_hidden,
-                            "focusable": p.focusable,
                             width: "16",
                             height: "16",
+                            ..props,
                             path { d: "M0 0h16v16H0z" }
                         }
                     }

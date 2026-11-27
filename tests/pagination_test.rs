@@ -10,7 +10,7 @@ use monoxus::{
         NEXT_ROVING_KEY, PAGINATION_PARTS, PREV_ROVING_KEY, PageData, PageItem, PageRange,
         PaginationDefinition, PaginationItemRegistration, PaginationNextButton, PaginationPage,
         PaginationPart, PaginationPrevButton, PaginationRelationships, PaginationRoot,
-        PaginationRootRenderChildProps, PaginationSnapshot, clamp_page, compute_page_items,
+        PaginationSnapshot, clamp_page, compute_page_items,
         compute_range, compute_total_pages, page_roving_key, use_pagination_context,
     },
 };
@@ -268,18 +268,13 @@ fn test_pagination_vdom_mounts_with_context_and_render_children() {
                 id: "vdom-as-child-root",
                 count: 20,
                 per_page: 10,
-                as_child: true,
-                render_child: move |rc: PaginationRootRenderChildProps| rsx! {
+                child: move |props: Vec<Attribute>| rsx! {
                     section {
-                        id: "{rc.attrs.id}",
-                        role: "{rc.attrs.role}",
-                        aria_label: "{rc.attrs.aria_label}",
-                        "data-total-pages": "{rc.snapshot.total_pages}",
-                        {rc.children}
+                        ..props,
+                        PaginationPrevButton { "Prev" }
+                        PaginationNextButton { "Next" }
                     }
                 },
-                PaginationPrevButton { "Prev" }
-                PaginationNextButton { "Next" }
             }
         }
     }

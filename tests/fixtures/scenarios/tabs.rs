@@ -282,7 +282,7 @@ fn Scenario4ControlledState() -> Element {
 
             TabsRoot {
                 id: "tabs-controlled".to_string(),
-                value: current_tab,
+                value: current_tab(),
                 on_value_change: move |val| current_tab.set(val),
                 TabsList {
                     id: "tabs-ctrl-list",

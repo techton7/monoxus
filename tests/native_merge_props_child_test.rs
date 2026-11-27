@@ -462,3 +462,287 @@ fn fm_s1_1_presence_transition_status_and_keep_mounted() {
     );
     assert_eq!(harness.attr("#keep-mounted-panel", "data-starting-style"), None);
 }
+
+#[test]
+fn fm_s1_2_controlled_veto_disabled_guards_child_forwarding_and_empty_attr_hygiene() {
+    use monoxus::accessible_icon::AccessibleIcon;
+    use monoxus::accordion::{
+        Accordion, AccordionContent, AccordionHeader, AccordionItem, AccordionMode,
+        AccordionTrigger,
+    };
+    use monoxus::avatar::{Avatar, AvatarFallback, AvatarImage};
+    use monoxus::collapsible::{Collapsible, CollapsibleContent, CollapsibleTrigger};
+    use monoxus::field::{Field, FieldDescription, FieldError, FieldLabel};
+    use monoxus::pagination::{
+        PageData, Pagination, PaginationNextButton, PaginationPage, PaginationPrevButton,
+    };
+    use monoxus::progress::{Progress, ProgressIndicator};
+    use monoxus::tabs::{Tabs, TabsContent, TabsList, TabsTrigger};
+    use monoxus::toolbar::{Toolbar, ToolbarButton};
+
+    let _lock = NATIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
+    fn scenario() -> Element {
+        let mut accordion_vetoed = use_signal(|| 0usize);
+        let mut tabs_vetoed = use_signal(|| 0usize);
+        let mut col_vetoed = use_signal(|| 0usize);
+        let mut col_disabled_clicks = use_signal(|| 0usize);
+        let mut col_pd_clicks = use_signal(|| 0usize);
+        let mut field_child_clicks = use_signal(|| 0usize);
+
+        rsx! {
+            // 1. Controlled AccordionRoot single-mode veto (stays on "a")
+            Accordion {
+                id: "s12-acc",
+                mode: AccordionMode::Single { collapsible: true },
+                value: "a",
+                on_value_change: move |_next| accordion_vetoed += 1,
+                AccordionItem {
+                    value: "a",
+                    AccordionHeader {
+                        AccordionTrigger { id: "s12-acc-trig-a", "A" }
+                    }
+                    AccordionContent { id: "s12-acc-panel-a", "Body A" }
+                }
+                AccordionItem {
+                    value: "b",
+                    AccordionHeader {
+                        AccordionTrigger { id: "s12-acc-trig-b", "B" }
+                    }
+                    AccordionContent { id: "s12-acc-panel-b", "Body B" }
+                }
+            }
+            div { id: "s12-acc-veto-count", "data-count": "{accordion_vetoed}" }
+
+            // 2. Controlled TabsRoot veto + TabsRoot.disabled
+            Tabs {
+                id: "s12-tabs-ctrl",
+                value: "t1",
+                on_value_change: move |_next| tabs_vetoed += 1,
+                TabsList {
+                    TabsTrigger { id: "s12-tab-1", value: "t1", "Tab 1" }
+                    TabsTrigger { id: "s12-tab-2", value: "t2", "Tab 2" }
+                }
+                TabsContent { id: "s12-panel-1", value: "t1", "P1" }
+                TabsContent { id: "s12-panel-2", value: "t2", "P2" }
+            }
+            div { id: "s12-tabs-veto-count", "data-count": "{tabs_vetoed}" }
+            Tabs {
+                id: "s12-tabs-dis",
+                default_value: "d1",
+                disabled: true,
+                TabsList {
+                    TabsTrigger { id: "s12-tab-d1", value: "d1", "D1" }
+                    TabsTrigger { id: "s12-tab-d2", value: "d2", "D2" }
+                }
+                TabsContent { id: "s12-panel-d1", value: "d1", "DP1" }
+                TabsContent { id: "s12-panel-d2", value: "d2", "DP2" }
+            }
+
+            // 3. Collapsible: controlled veto, disabled trigger guard, prevent_default guard, zero empty class/style
+            Collapsible {
+                id: "s12-col-ctrl",
+                "data-testid": "s12-col-ctrl",
+                open: false,
+                on_open_change: move |_next| col_vetoed += 1,
+                CollapsibleTrigger { id: "s12-col-ctrl-trig", "Ctrl" }
+                CollapsibleContent { id: "s12-col-ctrl-body", "Body" }
+            }
+            div { id: "s12-col-veto-count", "data-count": "{col_vetoed}" }
+            Collapsible {
+                id: "s12-col-dis",
+                "data-testid": "s12-col-dis",
+                disabled: true,
+                CollapsibleTrigger {
+                    id: "s12-col-dis-trig",
+                    on_click: move |_evt| col_disabled_clicks += 1,
+                    "Dis"
+                }
+                CollapsibleContent { id: "s12-col-dis-body", "Body" }
+            }
+            div { id: "s12-col-dis-clicks", "data-count": "{col_disabled_clicks}" }
+            Collapsible {
+                id: "s12-col-pd",
+                "data-testid": "s12-col-pd",
+                CollapsibleTrigger {
+                    id: "s12-col-pd-trig",
+                    on_click: move |evt: MouseEvent| {
+                        col_pd_clicks += 1;
+                        evt.prevent_default();
+                    },
+                    "Prevent"
+                }
+                CollapsibleContent { id: "s12-col-pd-body", "Body" }
+            }
+            div { id: "s12-col-pd-clicks", "data-count": "{col_pd_clicks}" }
+
+            // 4. AvatarImage void <img> + Avatar/Progress/Pagination/Field/AccessibleIcon child forwarding
+            Avatar {
+                id: "s12-avatar",
+                loading_status: monoxus::avatar::AvatarImageLoadingStatus::Loaded,
+                class: "av-cls",
+                child: move |props: Vec<Attribute>| rsx! {
+                    span {
+                        ..props,
+                        AvatarImage { id: "s12-avatar-img", src: "test.png" }
+                        AvatarFallback { id: "s12-avatar-fb", "FB" }
+                    }
+                },
+            }
+            Progress {
+                id: "s12-progress",
+                value: Some(50.0),
+                class: "prog-cls",
+                style: "height: 8px;",
+                "data-prog-extra": "ok",
+                child: move |props: Vec<Attribute>| rsx! {
+                    div {
+                        ..props,
+                        ProgressIndicator {
+                            id: "s12-progress-ind",
+                            class: "ind-cls",
+                            child: move |ind_props: Vec<Attribute>| rsx! {
+                                span { ..ind_props }
+                            },
+                        }
+                    }
+                },
+            }
+            Field {
+                id: "s12-field",
+                invalid: true,
+                class: "fld-cls",
+                style: "gap: 4px;",
+                "data-fld-extra": "yes",
+                child: move |props: Vec<Attribute>| rsx! {
+                    section {
+                        ..props,
+                        FieldLabel {
+                            id: "s12-field-label",
+                            class: "lbl-cls",
+                            on_click: move |_evt| field_child_clicks += 1,
+                            child: move |lp: Vec<Attribute>| rsx! {
+                                label { ..lp, "Email" }
+                            },
+                        }
+                        FieldDescription { id: "s12-field-desc", "Hint" }
+                        FieldError { id: "s12-field-err", errors: vec!["Required".to_string()] }
+                    }
+                },
+            }
+            div { id: "s12-field-clicks", "data-count": "{field_child_clicks}" }
+            AccessibleIcon {
+                label: "Star",
+                "data-icon-extra": "preserved",
+                child: move |props: Vec<Attribute>| rsx! {
+                    svg { id: "s12-icon-svg", ..props }
+                },
+            }
+
+            // 5. Unstyled Toolbar & Pagination emit zero empty class="" / style=""
+            Toolbar {
+                id: "s12-tb",
+                ToolbarButton { id: "s12-tb-btn", "Bold" }
+            }
+            Pagination {
+                id: "s12-pg",
+                count: 30,
+                per_page: 10,
+                PaginationPrevButton { id: "s12-pg-prev", "Prev" }
+                PaginationPage { id: "s12-pg-1", page: PageData { value: 1 }, "1" }
+                PaginationNextButton { id: "s12-pg-next", "Next" }
+            }
+        }
+    }
+
+    let mut harness = mount_native_scenario(scenario);
+
+    // 1. Controlled Accordion veto: click B -> callback fires, DOM stays on A (B remains closed)
+    click_and_pump(&mut harness, "#s12-acc-trig-b");
+    assert_eq!(harness.attr("#s12-acc-veto-count", "data-count").as_deref(), Some("1"));
+    assert_eq!(harness.attr("#s12-acc-trig-a", "data-state").as_deref(), Some("open"));
+    assert_eq!(harness.attr("#s12-acc-trig-b", "data-state").as_deref(), Some("closed"));
+
+    // 2. Controlled Tabs veto + disabled TabsRoot
+    click_and_pump(&mut harness, "#s12-tab-2");
+    assert!(
+        harness
+            .attr("#s12-tabs-veto-count", "data-count")
+            .as_deref()
+            .and_then(|s| s.parse::<usize>().ok())
+            .unwrap_or(0)
+            >= 1,
+        "controlled Tabs on_value_change must fire on user activation"
+    );
+    assert_eq!(harness.attr("#s12-tab-1", "data-state").as_deref(), Some("active"));
+    assert_eq!(harness.attr("#s12-tab-2", "data-state").as_deref(), Some("inactive"));
+
+    assert_eq!(harness.attr("#s12-tab-d2", "data-disabled").as_deref(), Some(""));
+    click_and_pump(&mut harness, "#s12-tab-d2");
+    assert_eq!(harness.attr("#s12-tab-d1", "data-state").as_deref(), Some("active"));
+    assert_eq!(harness.attr("#s12-tab-d2", "data-state").as_deref(), Some("inactive"));
+
+    // 3. Collapsible controlled veto, disabled trigger guard, prevent_default guard
+    click_and_pump(&mut harness, "#s12-col-ctrl-trig");
+    assert_eq!(harness.attr("#s12-col-veto-count", "data-count").as_deref(), Some("1"));
+    assert_eq!(
+        harness
+            .attr("[data-testid=\"s12-col-ctrl\"]", "data-state")
+            .as_deref(),
+        Some("closed")
+    );
+
+    click_and_pump(&mut harness, "#s12-col-dis-trig");
+    assert_eq!(harness.attr("#s12-col-dis-clicks", "data-count").as_deref(), Some("0"));
+    assert_eq!(
+        harness
+            .attr("[data-testid=\"s12-col-dis\"]", "data-state")
+            .as_deref(),
+        Some("closed")
+    );
+
+    click_and_pump(&mut harness, "#s12-col-pd-trig");
+    assert_eq!(harness.attr("#s12-col-pd-clicks", "data-count").as_deref(), Some("1"));
+    assert_eq!(
+        harness
+            .attr("[data-testid=\"s12-col-pd\"]", "data-state")
+            .as_deref(),
+        Some("closed")
+    );
+
+    // 4. AvatarImage void <img> has zero children; child forwarding preserves class/style/attrs/events
+    let img_nid = harness.node("#s12-avatar-img");
+    assert!(
+        harness.base().get_node(img_nid).unwrap().children.is_empty(),
+        "AvatarImage void <img> must render zero child nodes"
+    );
+    assert_eq!(harness.attr("#s12-avatar", "class").as_deref(), Some("av-cls"));
+    assert_eq!(harness.attr("#s12-progress", "class").as_deref(), Some("prog-cls"));
+    assert_eq!(harness.attr("#s12-progress", "data-prog-extra").as_deref(), Some("ok"));
+    assert_eq!(harness.attr("#s12-progress-ind", "class").as_deref(), Some("ind-cls"));
+    assert_eq!(harness.attr("#s12-field", "class").as_deref(), Some("fld-cls"));
+    assert_eq!(harness.attr("#s12-field", "data-fld-extra").as_deref(), Some("yes"));
+    assert_eq!(harness.attr("#s12-field-label", "class").as_deref(), Some("lbl-cls"));
+    click_and_pump(&mut harness, "#s12-field-label");
+    assert_eq!(harness.attr("#s12-field-clicks", "data-count").as_deref(), Some("1"));
+    assert_eq!(
+        harness.attr("#s12-icon-svg", "data-icon-extra").as_deref(),
+        Some("preserved")
+    );
+    assert_eq!(harness.attr("#s12-icon-svg", "aria-hidden").as_deref(), Some("true"));
+
+    // 5. Zero empty class="" or style="" on unstyled Collapsible, Toolbar, Pagination
+    for sel in [
+        "[data-testid=\"s12-col-ctrl\"]",
+        "#s12-col-ctrl-trig",
+        "#s12-tb",
+        "#s12-tb-btn",
+        "#s12-pg",
+        "#s12-pg-prev",
+        "#s12-pg-1",
+        "#s12-pg-next",
+    ] {
+        assert_ne!(harness.attr(sel, "class").as_deref(), Some(""), "{sel} must not emit empty class");
+        assert_ne!(harness.attr(sel, "style").as_deref(), Some(""), "{sel} must not emit empty style");
+    }
+}

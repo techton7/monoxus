@@ -272,21 +272,29 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
     {
         let mut runtime = ctx.0.clone();
         let index = props.index;
+        let on_focus = props.on_focus;
         push_event_handler(
             &mut base,
             "onfocus",
-            Some(EventHandler::new(move |_evt: FocusEvent| {
+            Some(EventHandler::new(move |evt: FocusEvent| {
                 runtime.focused_thumb.set(Some(index));
+                if let Some(handler) = on_focus {
+                    handler.call(evt);
+                }
             })),
         );
     }
     {
         let mut runtime = ctx.0.clone();
+        let on_blur = props.on_blur;
         push_event_handler(
             &mut base,
             "onblur",
-            Some(EventHandler::new(move |_evt: FocusEvent| {
+            Some(EventHandler::new(move |evt: FocusEvent| {
                 runtime.focused_thumb.set(None);
+                if let Some(handler) = on_blur {
+                    handler.call(evt);
+                }
             })),
         );
     }
@@ -298,9 +306,7 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
         })),
     );
 
-    let mut user = collect_user_attrs(props.class, props.style, extracted.rest);
-    push_event_handler(&mut user, "onfocus", props.on_focus);
-    push_event_handler(&mut user, "onblur", props.on_blur);
+    let user = collect_user_attrs(props.class, props.style, extracted.rest);
 
     let merged = merge_props_with_config(
         base,

@@ -2,9 +2,8 @@ use dioxus::prelude::*;
 #[allow(unused_imports)]
 use monoxus::foundation::compose::project_attrs_as_child;
 use monoxus::aspect_ratio::{
-    ASPECT_RATIO_ROOT_STYLE, AspectRatio, AspectRatioAttributes, AspectRatioProps,
-    AspectRatioRenderProps, AspectRatioRoot, normalize_aspect_ratio,
-    render_aspect_ratio_child,
+    ASPECT_RATIO_ROOT_STYLE, AspectRatio, AspectRatioAttributes, AspectRatioProps, AspectRatioRoot,
+    normalize_aspect_ratio, render_aspect_ratio_child,
 };
 use monoxus::foundation::compose::Slottable;
 
@@ -27,18 +26,15 @@ fn AspectRatioAsChildContractScenario() -> Element {
     rsx! {
         AspectRatio {
             ratio: 2.0,
-            as_child: true,
-            render_child: |props: AspectRatioRenderProps| {
+            child: move |props: Vec<Attribute>| {
                 rsx! {
                     figure {
                         id: "custom-ratio-target",
-                        style: props.style,
-                        "data-aspect-ratio-root": props.data_aspect_ratio_root,
-                        {props.children}
+                        ..props,
+                        figcaption { "Custom target" }
                     }
                 }
             },
-            figcaption { "Custom target" }
         }
     }
 }

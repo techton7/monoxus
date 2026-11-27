@@ -7,8 +7,8 @@ use monoxus::foundation::compose::Slottable;
 #[allow(unused_imports)]
 use monoxus::visually_hidden::{
     VISUALLY_HIDDEN_STYLE, VisuallyHidden, VisuallyHiddenAttributes, VisuallyHiddenProps,
-    VisuallyHiddenRenderProps, VisuallyHiddenRoot, VisuallyHiddenState,
-    merge_visually_hidden_style, };
+    VisuallyHiddenRoot, VisuallyHiddenState, merge_visually_hidden_style,
+};
 
 #[cfg(feature = "native")]
 use crate::common;
@@ -32,27 +32,17 @@ fn VisuallyHiddenAsChildScenario(clicks: Rc<Cell<u32>>) -> Element {
             id: "vh-as-child",
             class: "custom-vh-class",
             style: "color: rgb(10, 20, 30);",
-            as_child: true,
             on_click: move |_| {
                 clicks.set(clicks.get() + 1);
             },
-            render_child: move |props: VisuallyHiddenRenderProps| {
+            child: move |props: Vec<Attribute>| {
                 rsx! {
                     article {
-                        id: props.id,
-                        class: props.class,
-                        style: props.style,
-                        "data-visually-hidden-root": props.data_visually_hidden_root,
-                        onclick: move |evt| {
-                            if let Some(handler) = props.on_click.as_ref() {
-                                handler.call(evt);
-                            }
-                        },
-                        {props.children}
+                        ..props,
+                        "Hidden article text"
                     }
                 }
             },
-            "Hidden article text"
         }
     }
 }
@@ -114,18 +104,14 @@ mod native_tests {
                 }
                 VisuallyHiddenRoot {
                     id: "vh-article-wrap",
-                    as_child: true,
-                    render_child: move |props: VisuallyHiddenRenderProps| {
+                    child: move |props: Vec<Attribute>| {
                         rsx! {
                             article {
-                                id: props.id,
-                                style: props.style,
-                                "data-visually-hidden-root": props.data_visually_hidden_root,
-                                {props.children}
+                                ..props,
+                                "Slotted hidden text"
                             }
                         }
                     },
-                    "Slotted hidden text"
                 }
             }
         }

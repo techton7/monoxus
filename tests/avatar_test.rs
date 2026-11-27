@@ -92,8 +92,10 @@ fn stale_source_results_cannot_publish_after_replacement() {
 fn AvatarMountScenario(statuses: Rc<RefCell<Vec<AvatarImageLoadingStatus>>>) -> Element {
     rsx! {
         AvatarRoot {
-            on_loading_status_change: move |status| statuses.borrow_mut().push(status),
-            AvatarImage { src: "".to_string() }
+            AvatarImage {
+                src: "",
+                on_loading_status_change: move |status| statuses.borrow_mut().push(status),
+            }
             AvatarFallback { delay_ms: 0, "fallback" }
         }
     }
@@ -152,8 +154,6 @@ fn avatar_root_unchanged_parent_rerender_does_not_rerender_children() {
         rsx! {
             AvatarRoot {
                 loading_status: AvatarImageLoadingStatus::Loaded,
-                delay_ms: 150,
-                on_loading_status_change: move |_| {},
                 RenderCountingChild {
                     render_count: child_renders,
                 }

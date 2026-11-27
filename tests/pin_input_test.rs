@@ -196,28 +196,21 @@ fn PinInputAsChildVdomApp() -> Element {
         PinInputRoot {
             id: "vdom-as-child-root",
             max_length: 2,
-            as_child: true,
-            render_child: move |rc: PinInputRootRenderChildProps| rsx! {
+            child: move |props: Vec<Attribute>| rsx! {
                 section {
-                    id: "{rc.attrs.id}",
-                    style: "{rc.attrs.style}",
-                    "data-monoxus-pin-input-root": "{rc.attrs.data_monoxus_pin_input_root}",
-                    {rc.children}
+                    ..props,
+                    PinInputCell {
+                        index: 0,
+                        child: move |cell_props: Vec<Attribute>| rsx! {
+                            span {
+                                ..cell_props,
+                                "0"
+                            }
+                        }
+                    }
+                    PinInputCell { index: 1 }
                 }
             },
-            PinInputCell {
-                index: 0,
-                as_child: true,
-                render_child: move |cell_rc: PinInputCellRenderChildProps| rsx! {
-                    span {
-                        id: "{cell_rc.attrs.id}",
-                        "data-active": cell_rc.attrs.data_active,
-                        "data-inactive": cell_rc.attrs.data_inactive,
-                        "{cell_rc.display_char.unwrap_or(' ')}"
-                    }
-                }
-            }
-            PinInputCell { index: 1 }
         }
     }
 }

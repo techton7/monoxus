@@ -239,13 +239,9 @@ fn field_root_and_field_alias_mount_in_vdom() {
                 required: true,
                 FieldLabel { "Email" }
                 FieldControl {
-                    render_child: move |attrs: FieldControlAttrs| rsx! {
+                    child: move |ctrl: monoxus::foundation::compose::ChildProps<FieldControlAttrs>| rsx! {
                         input {
-                            id: attrs.id.as_str(),
-                            name: attrs.name.as_deref(),
-                            "aria-invalid": attrs.aria_invalid,
-                            "aria-describedby": attrs.aria_describedby.as_deref(),
-                            "data-invalid": attrs.data_invalid,
+                            ..ctrl.props,
                         }
                     }
                 }
