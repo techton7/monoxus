@@ -22,6 +22,7 @@ pub mod date_range_picker;
 #[path = "../../tests/fixtures/scenarios/dialog.rs"]
 pub mod dialog;
 pub mod dropdown_menu;
+pub mod field;
 pub mod hover_card;
 pub mod label;
 pub mod menubar;
@@ -68,6 +69,7 @@ use date_range_field::DateRangeFieldShowcase;
 use date_range_picker::DateRangePickerShowcase;
 use dioxus::prelude::*;
 use dropdown_menu::DropdownMenuPlayground;
+use field::FieldPlayground;
 use hover_card::HoverCardPlayground;
 use label::LabelPlayground;
 use menubar::MenubarPlayground;
@@ -171,6 +173,7 @@ fn main() {
 pub enum ComponentPage {
     Button,
     Separator,
+    Field,
     Label,
     Toggle,
     ToggleGroup,
@@ -220,6 +223,7 @@ impl ComponentPage {
         match self {
             Self::Button => "Button",
             Self::Separator => "Separator",
+            Self::Field => "Field",
             Self::Label => "Label",
             Self::Toggle => "Toggle",
             Self::ToggleGroup => "Toggle Group",
@@ -269,6 +273,7 @@ impl ComponentPage {
         match self {
             Self::Button => "▣",
             Self::Separator => "―",
+            Self::Field => "⌺",
             Self::Label => "¶",
             Self::Toggle => "◉",
             Self::ToggleGroup => "⊞",
@@ -318,6 +323,7 @@ impl ComponentPage {
         match self {
             Self::Button => "Polymorphic",
             Self::Separator => "Divider",
+            Self::Field => "Form ARIA",
             Self::Label => "Association",
             Self::Toggle => "2-State",
             Self::ToggleGroup => "Roving",
@@ -387,6 +393,7 @@ pub fn App() -> Element {
         ComponentPage::DateRangePicker,
         ComponentPage::Dialog,
         ComponentPage::DropdownMenu,
+        ComponentPage::Field,
         ComponentPage::HoverCard,
         ComponentPage::Label,
         ComponentPage::Menubar,
@@ -527,6 +534,7 @@ pub fn App() -> Element {
                 match current_page() {
                     ComponentPage::Button => rsx! { ButtonPlayground {} },
                     ComponentPage::Separator => rsx! { SeparatorPlayground {} },
+                    ComponentPage::Field => rsx! { FieldPlayground {} },
                     ComponentPage::Label => rsx! { LabelPlayground {} },
                     ComponentPage::Toggle => rsx! { TogglePlayground {} },
                     ComponentPage::ToggleGroup => rsx! { ToggleGroupPlayground {} },
