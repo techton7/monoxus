@@ -1,13 +1,13 @@
 use std::ops::{Deref, DerefMut};
 
-use monoxus_core::toast::state::{ToastQueue, ToastQueueItem};
+use crate::compat::toast::state::{ToastQueue, ToastQueueItem};
 
-pub use monoxus_core::toast::state::ToastInteractionState;
+pub use crate::compat::toast::state::ToastInteractionState;
 
 use super::types::*;
 
 /// Reactive toast queue store delegating pure queue, height damping, pause/resume countdown,
-/// expand precedence, and pointer-press sequencing to [`monoxus_core::toast::state::ToastQueue`].
+/// expand precedence, and pointer-press sequencing to [`crate::compat::toast::state::ToastQueue`].
 #[derive(Clone)]
 pub struct ToastStore {
     queue: ToastQueue<ToastOptions, ToastInstant>,

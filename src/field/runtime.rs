@@ -4,7 +4,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::state::sync_signal;
 
-use monoxus_core::field::{
+use crate::compat::field::{
     FieldControlAttrs, FieldDefinition, FieldErrorRegistration, FieldOrientation,
     FieldRelationships, push_unique_id_tokens, resolve_aria_describedby,
 };

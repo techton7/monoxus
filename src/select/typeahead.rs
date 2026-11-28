@@ -1,6 +1,6 @@
 use dioxus::prelude::keyboard_types::Key;
 use dioxus::prelude::*;
-use monoxus_core::foundation::typeahead::{TypeaheadCandidate, TypeaheadConfig};
+use ui_sdk::foundation::typeahead::{TypeaheadCandidate, TypeaheadConfig};
 
 use crate::foundation::keyboard::{NavKey, is_ime_composing_key, translate_nav_key};
 
@@ -70,7 +70,7 @@ impl SelectRuntime {
                 .iter()
                 .map(|(v, l, d)| TypeaheadCandidate::with_value(v, l, v, *d))
                 .collect();
-            if let Some(matched) = monoxus_core::foundation::typeahead::match_next_typeahead_item(
+            if let Some(matched) = ui_sdk::foundation::typeahead::match_next_typeahead_item(
                 &candidates,
                 &query,
                 None,
@@ -85,7 +85,7 @@ impl SelectRuntime {
                 .iter()
                 .map(|i| TypeaheadCandidate::with_value(&i.value, &i.text, &i.value, i.disabled))
                 .collect();
-            if let Some(matched) = monoxus_core::foundation::typeahead::match_next_typeahead_item(
+            if let Some(matched) = ui_sdk::foundation::typeahead::match_next_typeahead_item(
                 &candidates,
                 &query,
                 None,
@@ -100,7 +100,7 @@ impl SelectRuntime {
                 .iter()
                 .map(|i| TypeaheadCandidate::with_value(&i.value, &i.text, &i.value, i.disabled))
                 .collect();
-            return monoxus_core::foundation::typeahead::match_next_typeahead_item(
+            return ui_sdk::foundation::typeahead::match_next_typeahead_item(
                 &candidates,
                 &query,
                 None,

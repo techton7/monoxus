@@ -757,7 +757,7 @@ fn parent_remount_order_does_not_steal_topmost_escape_order_from_mounted_child()
 
 #[test]
 fn sloppy_pointer_down_defer_otherwise_ignore_and_rename_layer_branch_merge() {
-    use monoxus_core::kernel::ChangeSource;
+    use ui_sdk::kernel::ChangeSource;
 
     // 1. `Sloppy` outside `pointerdown` (`prevent_default()`) does not double-fire on trailing `click`.
     let mut sloppy_coord = OverlayCoordinator::new();

@@ -1,4 +1,4 @@
-pub use monoxus_core::avatar::types::*;
+pub use ui_sdk::avatar::types::*;
 
 pub fn image_load_status_to_avatar(
     status: oxidase::dom::observer::ImageLoadStatus,

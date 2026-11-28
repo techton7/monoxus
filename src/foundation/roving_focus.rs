@@ -7,7 +7,7 @@ use dioxus::prelude::*;
 use super::browser::{focus_element_by_id, query_descendant_order};
 use super::shared::CollectionRegistry;
 
-pub use monoxus_core::foundation::roving_focus::*;
+pub use ui_sdk::foundation::roving_focus::*;
 
 pub fn roving_modifiers_from_keyboard(modifiers: Modifiers) -> RovingModifiers {
     RovingModifiers::new(

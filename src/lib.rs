@@ -1,3 +1,5 @@
+pub(crate) mod compat;
+
 pub mod accessible_icon;
 pub mod accordion;
 pub mod alert_dialog;
@@ -20,6 +22,7 @@ pub mod field;
 pub use self::field::*;
 pub mod foundation;
 pub mod hover_card;
+pub use ui_sdk::kernel;
 pub mod label;
 #[doc(hidden)]
 pub mod menu;

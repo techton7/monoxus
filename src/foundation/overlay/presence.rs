@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-pub use monoxus_core::foundation::overlay::presence::*;
+pub use ui_sdk::foundation::overlay::presence::*;
 
 use crate::foundation::browser::{PresenceMonitorEvent, start_presence_monitor};
 

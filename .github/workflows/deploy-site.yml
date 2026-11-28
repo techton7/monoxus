@@ -7,7 +7,6 @@ on:
     paths:
       - "site/**"
       - "src/**"
-      - "crates/monoxus-core/**"
       - ".github/workflows/deploy-site.yml"
   workflow_dispatch:
 

@@ -24,7 +24,7 @@ exclude = [
 autotests = false
 
 [dependencies]
-monoxus-core = { path = "crates/monoxus-core", version = "0.1.2" }
+ui-sdk = { version = "0.2.0", default-features = false, features = ["std", "serde", "full"] }
 dioxus = { version = "0.8.0-alpha.3", default-features = false, features = ["devtools", "document", "hooks", "html", "mounted", "signals", "macro", "asset"] }
 # Upstream FFI / host abstraction engine.
 # Note: Keep tagged GitHub release here matching kinetoxus until crates.io publication.

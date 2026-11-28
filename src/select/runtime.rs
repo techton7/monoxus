@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use monoxus_core::foundation::typeahead::{TypeaheadBuffer, TypeaheadConfig};
+use ui_sdk::foundation::typeahead::{TypeaheadBuffer, TypeaheadConfig};
 
 pub use crate::foundation::overlay::serialize_css_custom_properties;
 pub use crate::foundation::shared::{EscapeKeyDownEvent, PointerDownOutsideEvent};
@@ -1432,7 +1432,7 @@ impl SelectRuntime {
             data_placeholder: is_placeholder,
             disabled: self.is_disabled(),
             invalid: is_invalid,
-            data_invalid: monoxus_core::foundation::shared::data_invalid_attr(is_invalid),
+            data_invalid: ui_sdk::foundation::shared::data_invalid_attr(is_invalid),
             tabindex: if self.is_disabled() { -1 } else { 0 },
         }
     }

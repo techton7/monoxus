@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-pub use monoxus_core::foundation::overlay::focus::*;
+pub use ui_sdk::foundation::overlay::focus::*;
 
 use crate::foundation::{
     browser::{

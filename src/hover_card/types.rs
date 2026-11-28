@@ -1,4 +1,4 @@
-pub use monoxus_core::foundation::shared::{
+pub use ui_sdk::foundation::shared::{
     EscapeKeyDownEvent, InteractOutsideEvent, PointerDownOutsideEvent, PreventableEvent,
 };
-pub use monoxus_core::hover_card::types::*;
+pub use crate::compat::hover_card::types::*;

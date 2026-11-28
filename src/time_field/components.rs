@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use monoxus_core::foundation::date_time::field_policy::TimeFieldPolicy;
+use ui_sdk::foundation::date_time::field_policy::TimeFieldPolicy;
 
 use crate::{
     date_field::components::{

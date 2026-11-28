@@ -1,6 +1,6 @@
 use super::runtime::SelectRuntime;
 
-pub use monoxus_core::select::types::*;
+pub use crate::compat::select::types::*;
 
 #[derive(Clone)]
 pub struct SelectContext {

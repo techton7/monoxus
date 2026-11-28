@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 
-pub use monoxus_core::foundation::form::{
+pub use ui_sdk::foundation::form::{
     HIDDEN_INPUT_VISUAL_CLAMP_STYLE, HiddenInputConfig, HiddenInputKind, should_render_hidden_input,
 };
 
@@ -15,21 +15,21 @@ use super::browser::{
 
 pub use super::browser::collect_form_data;
 
-/// Attribute publisher for [`HiddenFormInput`], wrapping `monoxus_core::foundation::form::HiddenInputAttributes`
+/// Attribute publisher for [`HiddenFormInput`], wrapping `ui_sdk::foundation::form::HiddenInputAttributes`
 /// while preserving `from_props(&HiddenFormInputProps)` for existing callers.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HiddenInputAttributes(pub monoxus_core::foundation::form::HiddenInputAttributes);
+pub struct HiddenInputAttributes(pub ui_sdk::foundation::form::HiddenInputAttributes);
 
 impl Deref for HiddenInputAttributes {
-    type Target = monoxus_core::foundation::form::HiddenInputAttributes;
+    type Target = ui_sdk::foundation::form::HiddenInputAttributes;
 
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
 
-impl From<monoxus_core::foundation::form::HiddenInputAttributes> for HiddenInputAttributes {
-    fn from(inner: monoxus_core::foundation::form::HiddenInputAttributes) -> Self {
+impl From<ui_sdk::foundation::form::HiddenInputAttributes> for HiddenInputAttributes {
+    fn from(inner: ui_sdk::foundation::form::HiddenInputAttributes) -> Self {
         Self(inner)
     }
 }
@@ -37,7 +37,7 @@ impl From<monoxus_core::foundation::form::HiddenInputAttributes> for HiddenInput
 impl HiddenInputAttributes {
     /// Derives normalized HTML attributes from [`HiddenInputConfig`].
     pub fn from_config(config: &HiddenInputConfig) -> Self {
-        Self(monoxus_core::foundation::form::HiddenInputAttributes::from_config(config))
+        Self(ui_sdk::foundation::form::HiddenInputAttributes::from_config(config))
     }
 
     /// Derives normalized HTML attributes from [`HiddenFormInputProps`].

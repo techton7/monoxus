@@ -2,7 +2,7 @@ use dioxus::prelude::keyboard_types::{Key, NamedKey};
 
 pub use crate::foundation::compose::{extract_vnode_text, merge_attributes_with_part};
 pub use crate::foundation::shared::PreventableEvent;
-pub use monoxus_core::menu::types::*;
+pub use crate::compat::menu::types::*;
 
 /// Select event passed to `Item`, `CheckboxItem`, `RadioItem`, and `SubTrigger` `on_select` handlers (`M-10`, `3B D-6`).
 pub type MenuSelectEvent = PreventableEvent<()>;

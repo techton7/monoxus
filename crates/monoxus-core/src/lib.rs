@@ -1,9 +1,15 @@
-//! Pure Rust headless UI state machines, relationships, attribute publishers,
-//! roving-focus logic, `as_child` projection helpers, and overlay geometry.
+//! Deprecated compatibility facade for Monoxus headless core.
 //!
-//! All 47 modules (`foundation`, `menu`, and 45 standalone primitives) are now
-//! backed by [`ui_sdk`], with thin tagged compatibility shims (`[KEEP-MONOXUS-BRAND]`
-//! / `[STAGE1-DROP]`) preserved only until Phase 5 decommission.
+//! `monoxus` now depends directly on [`ui_sdk`] (`0.2.0`) and hosts its
+//! Monoxus-specific brand compatibility projections internally. This crate is
+//! kept temporarily in the workspace only for external path dependents until
+//! they migrate directly to [`ui_sdk`].
+
+#![deprecated(
+    since = "0.1.2",
+    note = "Use `ui-sdk` directly; `monoxus-core` is a deprecated compatibility facade."
+)]
+#![allow(deprecated)]
 
 pub use ui_sdk::accessible_icon;
 pub mod accordion;

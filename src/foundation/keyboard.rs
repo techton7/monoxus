@@ -1,7 +1,7 @@
 use dioxus::prelude::KeyboardEvent;
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 
-pub use monoxus_core::foundation::keyboard::*;
+pub use ui_sdk::foundation::keyboard::*;
 
 /// Translates a Dioxus `keyboard_types::Key` into a host-neutral [`NavKey`].
 pub fn translate_nav_key(key: &Key) -> Option<NavKey> {

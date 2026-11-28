@@ -5,7 +5,7 @@ use dioxus::prelude::{
     use_hook, use_signal,
 };
 
-pub use monoxus_core::foundation::state::*;
+pub use ui_sdk::foundation::state::*;
 
 /// Synchronizes a [`Signal`] to `next` without subscribing to it (render-time / SSR frame-1 safe).
 ///

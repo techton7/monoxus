@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use crate::foundation::compose::merge_global_attributes;
 use crate::visually_hidden::VisuallyHidden;
 
-pub use monoxus_core::accessible_icon::*;
+pub use ui_sdk::accessible_icon::*;
 
 /// Properties for the headless `AccessibleIcon` primitive.
 #[derive(Clone, PartialEq, Props)]

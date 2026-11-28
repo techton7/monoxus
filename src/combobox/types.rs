@@ -1,4 +1,4 @@
-pub use monoxus_core::combobox::types::*;
+pub use ui_sdk::combobox::types::*;
 
 use dioxus::prelude::Signal;
 

@@ -7,7 +7,7 @@ pub mod portal;
 pub mod presence;
 pub(crate) mod watcher;
 
-pub use monoxus_core::foundation::overlay::coordinator::*;
+pub use ui_sdk::foundation::overlay::coordinator::*;
 #[allow(unused_imports)]
 pub(crate) use self::arrow::*;
 pub use self::dismiss::*;

@@ -2,7 +2,7 @@ use std::cell::Cell;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use monoxus_core::foundation::typeahead::{TypeaheadBuffer, TypeaheadCandidate, TypeaheadConfig};
+use ui_sdk::foundation::typeahead::{TypeaheadBuffer, TypeaheadCandidate, TypeaheadConfig};
 
 pub(crate) use crate::foundation::browser::focus_element_reliable;
 use crate::foundation::{

@@ -9,7 +9,7 @@ use crate::foundation::{
     state::use_controllable_signal,
 };
 
-pub use monoxus_core::toggle::*;
+pub use ui_sdk::toggle::*;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToggleProps {

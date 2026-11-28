@@ -1,8 +1,8 @@
 pub mod components;
 pub mod runtime;
 
-pub use monoxus_core::collapsible::{attrs, relationships, state, types};
-pub use monoxus_core::collapsible::{attrs::*, relationships::*, state::*, types::*};
+pub use crate::compat::collapsible::{attrs, relationships, state, types};
+pub use crate::compat::collapsible::{attrs::*, relationships::*, state::*, types::*};
 
 pub use self::{components::*, runtime::*};
 

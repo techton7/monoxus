@@ -4,7 +4,7 @@ use dioxus::core::{DynamicNode, VNode, VNodeChild};
 use dioxus::core::AttributeValue;
 use dioxus::prelude::{Attribute, Element, MountedData};
 
-pub use monoxus_core::foundation::compose::*;
+pub use ui_sdk::foundation::compose::*;
 
 pub type MountedHandle = Rc<MountedData>;
 

@@ -1,7 +1,7 @@
 use std::ops::{Deref, DerefMut};
 
 use dioxus::prelude::*;
-use monoxus_core::date_picker::{PickerPolicy, PickerRelationships, PickerState};
+use ui_sdk::date_picker::{PickerPolicy, PickerRelationships, PickerState};
 
 use crate::foundation::{
     date_time::{CalendarConfig, CalendarDate, DateValue},

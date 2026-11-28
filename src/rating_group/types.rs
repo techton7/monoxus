@@ -1,6 +1,6 @@
 use dioxus::prelude::Callback;
 
-pub use monoxus_core::rating_group::types::*;
+pub use ui_sdk::rating_group::types::*;
 
 /// Custom `aria-valuetext` specification for [`crate::rating_group::RatingGroupRoot`].
 #[derive(Clone, PartialEq)]

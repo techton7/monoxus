@@ -3,7 +3,7 @@ use std::{cell::RefCell, rc::Rc, time::Duration};
 use dioxus::prelude::*;
 use futures_timer::Delay;
 
-pub use monoxus_core::foundation::overlay::grace::*;
+pub use ui_sdk::foundation::overlay::grace::*;
 
 use crate::foundation::browser::{spawn_root_task, start_document_pointer_stream};
 

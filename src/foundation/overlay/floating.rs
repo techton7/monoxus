@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-pub use monoxus_core::foundation::overlay::floating::*;
+pub use ui_sdk::foundation::overlay::floating::*;
 
 use crate::foundation::{
     browser::{
@@ -523,7 +523,7 @@ impl FloatingHandle {
     }
 
     /// Serializes `--monoxus-<ns>-*` variables (plus optional Radix compatibility aliases)
-    /// via `monoxus_core::foundation::overlay::floating::serialize_css_custom_properties`.
+    /// via `ui_sdk::foundation::overlay::floating::serialize_css_custom_properties`.
     pub fn css_custom_properties(&self, compat_alias: Option<(&str, &str)>) -> String {
         let Some(placement) = self.placement() else {
             return String::new();

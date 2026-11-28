@@ -4,7 +4,7 @@ use dioxus::prelude::keyboard_types::{Code, Key, Location, Modifiers, NamedKey};
 use dioxus::prelude::*;
 use oxidase::watcher::DismissOptions;
 
-pub use monoxus_core::foundation::overlay::dismiss::*;
+pub use ui_sdk::foundation::overlay::dismiss::*;
 
 use crate::foundation::{
     browser::{

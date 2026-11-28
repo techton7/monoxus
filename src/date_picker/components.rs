@@ -2,7 +2,7 @@ use std::{borrow::Cow, cell::RefCell, rc::Rc};
 
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
-use monoxus_core::foundation::date_time::field_policy::{DateFieldPolicy, FieldRangeRole};
+use ui_sdk::foundation::date_time::field_policy::{DateFieldPolicy, FieldRangeRole};
 
 use crate::{
     calendar::{

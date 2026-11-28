@@ -10,7 +10,7 @@ use crate::{
     foundation::{overlay::PortalHost, shared::ScopeHandle, state::DataState},
 };
 
-pub use monoxus_core::alert_dialog::*;
+pub use ui_sdk::alert_dialog::*;
 
 #[derive(Clone)]
 pub struct AlertDialogRuntime {

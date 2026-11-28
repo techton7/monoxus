@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::compose::merge_global_attributes;
 
-pub use monoxus_core::separator::*;
+pub use ui_sdk::separator::*;
 
 /// Properties for the headless `Separator` component.
 #[derive(Clone, PartialEq, Props)]

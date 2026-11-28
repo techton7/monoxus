@@ -1,7 +1,7 @@
 use std::borrow::Cow;
 
 use dioxus::prelude::*;
-use monoxus_core::foundation::date_time::field_policy::DateFieldPolicy;
+use ui_sdk::foundation::date_time::field_policy::DateFieldPolicy;
 
 use crate::{
     date_field::default_date_field_placeholder,

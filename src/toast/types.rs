@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 use std::rc::Rc;
 use std::time::Duration;
 
-pub use monoxus_core::toast::types::*;
+pub use crate::compat::toast::types::*;
 
 /// Primary or cancel action button configuration.
 /// Helper conversion trait allowing closures or Callbacks to be used as toast action handlers.
@@ -99,7 +99,7 @@ impl ToastInstant {
     }
 }
 
-impl monoxus_core::toast::state::ToastClockInstant for ToastInstant {
+impl crate::compat::toast::state::ToastClockInstant for ToastInstant {
     #[inline]
     fn saturating_duration_since(&self, earlier: Self) -> Duration {
         self.0.saturating_duration_since(earlier.0)
@@ -151,7 +151,7 @@ impl ToastItem {
     }
 }
 
-impl From<ToastItem> for monoxus_core::toast::state::ToastQueueItem<ToastOptions, ToastInstant> {
+impl From<ToastItem> for crate::compat::toast::state::ToastQueueItem<ToastOptions, ToastInstant> {
     fn from(item: ToastItem) -> Self {
         Self {
             id: item.id,
@@ -171,8 +171,8 @@ impl From<ToastItem> for monoxus_core::toast::state::ToastQueueItem<ToastOptions
     }
 }
 
-impl From<monoxus_core::toast::state::ToastQueueItem<ToastOptions, ToastInstant>> for ToastItem {
-    fn from(item: monoxus_core::toast::state::ToastQueueItem<ToastOptions, ToastInstant>) -> Self {
+impl From<crate::compat::toast::state::ToastQueueItem<ToastOptions, ToastInstant>> for ToastItem {
+    fn from(item: crate::compat::toast::state::ToastQueueItem<ToastOptions, ToastInstant>) -> Self {
         Self {
             id: item.id,
             generation: item.generation,

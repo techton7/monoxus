@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::compose::merge_global_attributes;
 
-pub use monoxus_core::aspect_ratio::*;
+pub use crate::compat::aspect_ratio::*;
 
 /// Values supplied to the component-level `render_child` callback.
 #[derive(Clone)]

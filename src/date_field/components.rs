@@ -1,7 +1,7 @@
 use std::{borrow::Cow, cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use dioxus::prelude::*;
-use monoxus_core::foundation::date_time::field_policy::{
+use ui_sdk::foundation::date_time::field_policy::{
     DateFieldPolicy, FieldRangeRole, FieldRelationships, FieldSegmentItem, SegmentFieldDefinition,
     SegmentFieldState,
 };

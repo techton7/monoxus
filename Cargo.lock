@@ -3289,11 +3289,11 @@ dependencies = [
  "futures-util",
  "keyboard-types",
  "manganis",
- "monoxus-core",
  "oxidase",
  "oxidase-floating-ui",
  "serde",
  "serde_json",
+ "ui-sdk",
 ]
 
 [[package]]
@@ -6381,7 +6381,9 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ui-sdk"
-version = "0.1.0"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c7d50573ceab46adea0c9738f83b705b1b16bf4dadb664f92c276762d8b782a6"
 dependencies = [
  "serde",
 ]

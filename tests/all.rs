@@ -299,7 +299,10 @@ fn all_primitives_have_gui_test_manifests() {
             let path = entry.path();
             let name: PathBuf = entry.file_name().into();
             if path.is_dir() {
-                if name == Path::new("foundation") || name == Path::new("menu") {
+                if name == Path::new("compat")
+                    || name == Path::new("foundation")
+                    || name == Path::new("menu")
+                {
                     None
                 } else {
                     Some(name)

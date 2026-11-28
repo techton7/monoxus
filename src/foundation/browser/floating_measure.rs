@@ -1,4 +1,4 @@
-use monoxus_core::foundation::shared::ElementSize;
+use ui_sdk::foundation::shared::ElementSize;
 use oxidase::WatcherGuard;
 use oxidase::watcher::{DismissOptions, FloatingAutoUpdateEvent, PresenceMonitorFallback};
 

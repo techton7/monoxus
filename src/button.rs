@@ -5,7 +5,7 @@ use crate::foundation::{
     keyboard::is_activation_key,
 };
 
-pub use monoxus_core::button::*;
+pub use ui_sdk::button::*;
 
 /// Properties for the headless `Button` component.
 #[derive(Clone, PartialEq, Props)]

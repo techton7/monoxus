@@ -12,8 +12,8 @@ pub mod typeahead;
 pub mod types;
 pub mod viewport;
 
-pub use monoxus_core::select::{attrs, registry, relationships, state};
-pub use monoxus_core::select::{attrs::*, registry::*, relationships::*, state::*};
+pub use crate::compat::select::{attrs, registry, relationships, state};
+pub use crate::compat::select::{attrs::*, registry::*, relationships::*, state::*};
 
 pub use self::arrow::*;
 pub use self::content::*;

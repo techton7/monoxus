@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::compose::merge_global_attributes;
 
-pub use monoxus_core::meter::*;
+pub use ui_sdk::meter::*;
 
 /// Values supplied to an explicit as-child renderer.
 #[derive(Clone, Debug, PartialEq, Props)]

@@ -3,7 +3,7 @@ use dioxus::prelude::*;
 use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::compose::merge_global_attributes;
 
-pub use monoxus_core::label::*;
+pub use ui_sdk::label::*;
 
 /// Properties for the headless `Label` component.
 #[derive(Clone, PartialEq, Props)]

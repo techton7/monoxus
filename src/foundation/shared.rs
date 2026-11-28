@@ -5,7 +5,7 @@ use std::{
 
 use dioxus::prelude::*;
 
-pub use monoxus_core::foundation::shared::*;
+pub use ui_sdk::foundation::shared::*;
 
 use super::{
     browser::{

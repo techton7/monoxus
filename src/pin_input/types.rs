@@ -2,7 +2,7 @@ use std::fmt;
 
 use dioxus::prelude::Callback;
 
-pub use monoxus_core::pin_input::types::*;
+pub use crate::compat::pin_input::types::*;
 
 /// Character/value validation pattern for [`crate::pin_input::PinInputRoot`].
 ///

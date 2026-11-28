@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 
-pub use monoxus_core::foundation::overlay::portal::*;
+pub use ui_sdk::foundation::overlay::portal::*;
 
 /// Plain Rust specification for [`render_overlay_portal`] (zero internal `#[component]` overhead,
 /// compliant with `Dioxus #5894`).

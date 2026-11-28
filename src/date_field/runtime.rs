@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
-use monoxus_core::foundation::date_time::field_policy::{
+use ui_sdk::foundation::date_time::field_policy::{
     DateFieldPolicy, FieldRangeRole, FieldRelationships, FieldSegmentItem, SegmentFieldPolicy,
     SegmentFieldSnapshot, SegmentFieldState, TimeFieldPolicy, first_interactive_field_segment,
     last_interactive_field_segment, resolve_adjacent_interactive_field_index,

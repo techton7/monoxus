@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use dioxus::core::{DynamicNode, VNode, VNodeChild};
 use dioxus::prelude::*;
-use monoxus_core::label::LABEL_INTERACTIVE_TARGET_SELECTOR;
+use ui_sdk::label::LABEL_INTERACTIVE_TARGET_SELECTOR;
 
 use crate::foundation::{
     compose::merge_global_attributes,

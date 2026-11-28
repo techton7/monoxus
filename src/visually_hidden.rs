@@ -2,7 +2,7 @@ use dioxus::prelude::*;
 
 use crate::foundation::compose::merge_global_attributes;
 
-pub use monoxus_core::visually_hidden::*;
+pub use ui_sdk::visually_hidden::*;
 
 /// Props passed to an explicit `render_child` callback for `VisuallyHidden`.
 #[derive(Clone, PartialEq, Props)]

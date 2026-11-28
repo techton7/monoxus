@@ -86,8 +86,8 @@ pub mod runtime;
 pub mod state;
 pub mod types;
 
-pub use monoxus_core::toast::{attrs, gesture, layout};
-pub use monoxus_core::toast::{attrs::*, gesture::*, layout::*};
+pub use crate::compat::toast::{attrs, gesture, layout};
+pub use crate::compat::toast::{attrs::*, gesture::*, layout::*};
 
 pub use self::components::*;
 pub use self::hotkey::*;

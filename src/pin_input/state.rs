@@ -1,6 +1,6 @@
 use dioxus::prelude::Callback;
 
-pub use monoxus_core::pin_input::state::*;
+pub use crate::compat::pin_input::state::*;
 
 use super::types::PinInputPattern;
 

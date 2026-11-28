@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use dioxus::prelude::*;
-use monoxus_core::foundation::shared::{ElementScrollMetrics, ElementSize};
+use ui_sdk::foundation::shared::{ElementScrollMetrics, ElementSize};
 use oxidase::WatcherGuard;
 use oxidase::dom::ResizeObserverBox;
 

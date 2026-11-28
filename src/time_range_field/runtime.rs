@@ -1,4 +1,4 @@
-use monoxus_core::foundation::date_time::field_policy::TimeFieldPolicy;
+use ui_sdk::foundation::date_time::field_policy::TimeFieldPolicy;
 
 use crate::date_range_field::runtime::{
     RangeFieldContext, RangeFieldRuntime, try_use_range_field_context, use_range_field_context,

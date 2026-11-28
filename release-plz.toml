@@ -3,3 +3,7 @@ pr_labels = ["release"]
 allow_dirty = false
 changelog_update = true
 semver_check = false
+
+[[package]]
+name = "monoxus-core"
+release = false

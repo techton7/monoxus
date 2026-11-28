@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use monoxus_core::foundation::date_time::CalendarDate;
+use ui_sdk::foundation::date_time::CalendarDate;
 
 pub(crate) mod floating_measure;
 pub(crate) mod focus;
@@ -27,7 +27,7 @@ pub use oxidase::dom::{
 };
 
 #[allow(unused_imports)]
-pub use monoxus_core::foundation::shared::{ElementScrollMetrics, ElementSize};
+pub use ui_sdk::foundation::shared::{ElementScrollMetrics, ElementSize};
 
 #[allow(unused_imports)]
 pub use self::floating_measure::*;
