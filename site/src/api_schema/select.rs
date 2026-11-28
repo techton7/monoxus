@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
-    PROP_FLOATING_CHILD, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
+    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD,
+    PROP_CLASS, PROP_FLOATING_CHILD, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
 pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
@@ -33,8 +33,11 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "open", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Controlled open state." },
                 PropDoc { name: "default_open", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Initial open state when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<Option<String>>", type_full: "Option<EventHandler<Option<String>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the single selected value changes." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<Option<String>>>", type_full: "Option<EventHandler<ChangeEvent<Option<String>>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the single selected value changes, providing a ChangeEvent with value and change provenance." },
                 PropDoc { name: "on_values_change", type_simple: "EventHandler<Vec<String>>", type_full: "Option<EventHandler<Vec<String>>>", default: None, required: false, group: PropGroup::Core, description: "Called when multiple selected values change." },
+                PropDoc { name: "on_values_change_details", type_simple: "EventHandler<ChangeEvent<Vec<String>>>", type_full: "Option<EventHandler<ChangeEvent<Vec<String>>>>", default: None, required: false, group: PropGroup::Core, description: "Called when multiple selected values change, providing a ChangeEvent with values and change provenance." },
                 PropDoc { name: "on_open_change", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called when the dropdown opens or closes." },
+                PropDoc { name: "on_open_change_details", type_simple: "EventHandler<ChangeEvent<bool>>", type_full: "Option<EventHandler<ChangeEvent<bool>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the dropdown opens or closes, providing a ChangeEvent with open state and change provenance." },
                 PropDoc { name: "on_open_change_complete", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called after open/close presence transition finishes." },
                 PropDoc { name: "on_focus_out", type_simple: "EventHandler<FocusEvent>", type_full: "Option<EventHandler<FocusEvent>>", default: None, required: false, group: PropGroup::Core, description: "Called when focus leaves the composite trigger + content region." },
                 PropDoc { name: "allow_deselect", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Allows clicking a selected item in single mode to clear selection." },
@@ -47,6 +50,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "items", type_simple: "Vec<SelectItemData>", type_full: "Option<Vec<SelectItemData>>", default: None, required: false, group: PropGroup::Core, description: "Optional pre-registered item metadata for closed-state label lookup." },
                 PropDoc { name: "loop_selection", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Wraps keyboard highlight navigation from last to first item." },
                 PropDoc { name: "dir", type_simple: "Direction", type_full: "Option<monoxus::foundation::shared::Direction>", default: None, required: false, group: PropGroup::Core, description: "Reading direction override (Ltr or Rtl)." },
+                PROP_AGENT,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "SelectTrigger and SelectPortal children." },
             ],
             data_attrs: &[],

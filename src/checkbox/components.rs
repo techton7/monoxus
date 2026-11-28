@@ -1,7 +1,13 @@
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
+use crate::agent::{
+    ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+    SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+};
 use crate::button::ButtonType;
 use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
@@ -15,7 +21,7 @@ use crate::foundation::{
     keyboard::is_enter_key,
     overlay::use_presence,
     shared::{ScopeHandle, use_stable_id},
-    state::{sync_signal, use_controllable_signal},
+    state::{ControllableConfig, sync_signal, use_controllable_signal_config},
 };
 
 use super::{
@@ -46,6 +52,10 @@ pub struct CheckboxRootProps {
     pub default_checked: CheckedState,
     #[props(default)]
     pub on_checked_change: Option<EventHandler<CheckedState>>,
+    #[props(default)]
+    pub on_checked_change_details: Option<EventHandler<ChangeEvent<CheckedState>>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default = false)]
@@ -163,10 +173,19 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
     let is_in_group = group_ctx.is_some() && props.checked.is_none();
     let item_val_for_group = props.value.clone();
 
-    let standalone_ctl =
-        use_controllable_signal(props.checked, props.default_checked, props.on_checked_change);
+    let standalone_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.checked, props.default_checked)
+            .with_explicit_default(props.default_checked != CheckedState::default())
+            .with_on_change(props.on_checked_change)
+            .with_on_change_details(props.on_checked_change_details)
+            .with_component("CheckboxRoot")
+            .with_prop("checked"),
+    );
     let mut on_checked_change_slot = use_hook(|| CopyValue::new(props.on_checked_change));
     on_checked_change_slot.set(props.on_checked_change);
+    let mut on_checked_change_details_slot =
+        use_hook(|| CopyValue::new(props.on_checked_change_details));
+    on_checked_change_details_slot.set(props.on_checked_change_details);
 
     let current_checked = if is_in_group {
         let g = group_ctx.as_ref().unwrap();
@@ -185,7 +204,10 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
         let has_group = group_ctx.is_some();
         move || {
             if !has_group {
-                standalone_ctl.set(initial_checked_for_reset);
+                standalone_ctl.set_with_context(
+                    initial_checked_for_reset,
+                    ChangeContext::new(ChangeReason::Reset, ChangeSource::Programmatic),
+                );
             }
         }
     };
@@ -220,6 +242,161 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
         invalid: invalid_sig,
     };
     use_context_provider(|| context);
+
+    let checked_state_to_snap_val = |state: CheckedState| match state {
+        CheckedState::Checked => SnapshotValue::Bool(true),
+        CheckedState::Unchecked => SnapshotValue::Bool(false),
+        CheckedState::Indeterminate => SnapshotValue::text("indeterminate"),
+    };
+    let agent_label = effective_name
+        .clone()
+        .unwrap_or_else(|| root_id.clone());
+    let agent_group_ctx = group_ctx.clone();
+    let agent_item_value = props.value.clone();
+    let agent_reader_group_ctx = group_ctx.clone();
+    let agent_reader_item_value = props.value.clone();
+    use_agent_surface(
+        props.agent.as_ref(),
+        SurfaceMetaDefaults::new(),
+        || {
+            let mut snap = ComponentSnapshot::new()
+                .with_field("checked", checked_state_to_snap_val(current_checked));
+            if effective_read_only {
+                snap = snap.with_field("read_only", SnapshotValue::Bool(true));
+            }
+            let actions = if effective_read_only {
+                Vec::new()
+            } else {
+                vec![
+                    ActionDescriptor::new("toggle", "Toggle checkbox state", false),
+                    ActionDescriptor::new("set", "Set checkbox checked state", true),
+                ]
+            };
+            AgentSurface::new("checkbox", agent_label)
+                .with_disabled(effective_disabled)
+                .with_snapshot(snap)
+                .with_actions(actions)
+        },
+        || {
+            Rc::new(move |dispatch| {
+                if effective_read_only {
+                    return DispatchExecResult::ok().with_host_error("checkbox is read-only");
+                }
+                let target_state = match dispatch.action.as_str() {
+                    "toggle" => {
+                        let cur = if is_in_group
+                            && let Some(ref g) = agent_group_ctx
+                        {
+                            if g.is_item_checked(&agent_item_value) {
+                                CheckedState::Checked
+                            } else {
+                                CheckedState::Unchecked
+                            }
+                        } else {
+                            standalone_ctl.peek()
+                        };
+                        cur.toggle()
+                    }
+                    "set" => {
+                        match dispatch
+                            .args
+                            .get("checked")
+                            .or_else(|| dispatch.args.get("value"))
+                        {
+                            Some(SnapshotValue::Bool(true)) => CheckedState::Checked,
+                            Some(SnapshotValue::Bool(false)) => CheckedState::Unchecked,
+                            Some(SnapshotValue::Text(s)) => match s.as_str() {
+                                "checked" | "true" => CheckedState::Checked,
+                                "unchecked" | "false" => CheckedState::Unchecked,
+                                "indeterminate" => CheckedState::Indeterminate,
+                                _ => {
+                                    return DispatchExecResult::ok().with_host_error(
+                                        "invalid 'checked' value; expected bool or 'checked'|'unchecked'|'indeterminate'",
+                                    );
+                                }
+                            },
+                            _ => {
+                                return DispatchExecResult::ok().with_host_error(
+                                    "missing or invalid argument 'checked'",
+                                );
+                            }
+                        }
+                    }
+                    other => {
+                        return DispatchExecResult::ok()
+                            .with_host_error(format!("unknown checkbox action '{other}'"));
+                    }
+                };
+
+                if is_in_group
+                    && let Some(ref g) = agent_group_ctx
+                {
+                    let currently_checked = g.is_item_checked(&agent_item_value);
+                    let want_checked = target_state.is_checked();
+                    if currently_checked != want_checked {
+                        let outcome = g.toggle_item_with_context(
+                            agent_item_value.clone(),
+                            dispatch.ctx,
+                        );
+                        if outcome.is_canceled() {
+                            return DispatchExecResult::ok().with_canceled(true);
+                        }
+                        if outcome.is_accepted() {
+                            let ev_ctx = outcome.context().unwrap_or(dispatch.ctx);
+                            let ev = ChangeEvent::new(target_state, ev_ctx);
+                            if let Some(details_cb) =
+                                on_checked_change_details_slot.try_read().ok().and_then(|s| *s)
+                            {
+                                details_cb.call(ev.clone());
+                            }
+                            if !ev.is_canceled()
+                                && let Some(cb) =
+                                    on_checked_change_slot.try_read().ok().and_then(|s| *s)
+                            {
+                                cb.call(target_state);
+                            }
+                        }
+                    }
+                    DispatchExecResult::ok()
+                        .with_expected("checked", checked_state_to_snap_val(target_state))
+                } else {
+                    let outcome = standalone_ctl.set_with_context(target_state, dispatch.ctx);
+                    let mut res =
+                        DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                    if !outcome.is_canceled() {
+                        res = res.with_expected(
+                            "checked",
+                            checked_state_to_snap_val(target_state),
+                        );
+                    }
+                    res
+                }
+            })
+        },
+        || {
+            Rc::new(move || {
+                let state = if is_in_group
+                    && let Some(ref g) = agent_reader_group_ctx
+                {
+                    if g.is_item_checked(&agent_reader_item_value) {
+                        CheckedState::Checked
+                    } else {
+                        CheckedState::Unchecked
+                    }
+                } else {
+                    standalone_ctl
+                        .try_peek_cloned()
+                        .unwrap_or(CheckedState::Unchecked)
+                };
+                let mut snap = ComponentSnapshot::new()
+                    .with_field("checked", checked_state_to_snap_val(state));
+                if effective_read_only {
+                    snap = snap.with_field("read_only", SnapshotValue::Bool(true));
+                }
+                snap
+            })
+        },
+    );
 
     let attrs = CheckboxRootAttributes::new(
         Some(root_id.clone()),
@@ -266,6 +443,7 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
             "onclick",
             Some(EventHandler::new(move |_evt: MouseEvent| {
                 if !effective_disabled && !effective_read_only {
+                    let ctx = ChangeContext::new(ChangeReason::Toggle, ChangeSource::Mouse);
                     if is_in_group
                         && let Some(ref g) = group_ctx
                     {
@@ -274,13 +452,25 @@ pub fn CheckboxRoot(props: CheckboxRootProps) -> Element {
                         } else {
                             CheckedState::Checked
                         };
-                        g.toggle_item(item_value.clone());
-                        if let Some(cb) = on_checked_change_slot.try_read().ok().and_then(|s| *s) {
-                            cb.call(next);
+                        let outcome = g.toggle_item_with_context(item_value.clone(), ctx);
+                        if outcome.is_accepted() {
+                            let ev_ctx = outcome.context().unwrap_or(ctx);
+                            let ev = ChangeEvent::new(next, ev_ctx);
+                            if let Some(details_cb) =
+                                on_checked_change_details_slot.try_read().ok().and_then(|s| *s)
+                            {
+                                details_cb.call(ev.clone());
+                            }
+                            if !ev.is_canceled()
+                                && let Some(cb) =
+                                    on_checked_change_slot.try_read().ok().and_then(|s| *s)
+                            {
+                                cb.call(next);
+                            }
                         }
                     } else {
                         let current = standalone_ctl.peek();
-                        standalone_ctl.set(current.toggle());
+                        standalone_ctl.set_with_context(current.toggle(), ctx);
                     }
                 }
             })),
@@ -437,6 +627,10 @@ pub struct CheckboxGroupProps {
     pub default_values: Vec<String>,
     #[props(default)]
     pub on_values_change: Option<EventHandler<Vec<String>>>,
+    #[props(default)]
+    pub on_values_change_details: Option<EventHandler<ChangeEvent<Vec<String>>>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(default, into)]
     pub name: Option<String>,
     #[props(default, into)]
@@ -496,10 +690,13 @@ pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
         field_describedby.as_deref(),
     );
 
-    let values_ctl = use_controllable_signal(
-        props.values.clone(),
-        props.default_values.clone(),
-        props.on_values_change,
+    let values_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.values.clone(), props.default_values.clone())
+            .with_explicit_default(!props.default_values.is_empty())
+            .with_on_change(props.on_values_change)
+            .with_on_change_details(props.on_values_change_details)
+            .with_component("CheckboxGroup")
+            .with_prop("values"),
     );
     let values_sig = values_ctl.signal();
 
@@ -529,11 +726,123 @@ pub fn CheckboxGroup(props: CheckboxGroupProps) -> Element {
         effective_name.as_deref(),
         props.form.as_deref(),
         move || {
-            values_ctl.set(initial_values.clone());
+            values_ctl.set_with_context(
+                initial_values.clone(),
+                ChangeContext::new(ChangeReason::Reset, ChangeSource::Programmatic),
+            );
         },
     );
     let mut reset_epoch_sig = use_signal(|| group_reset_epoch);
     sync_signal(&mut reset_epoch_sig, group_reset_epoch);
+
+    let agent_label = effective_name
+        .clone()
+        .unwrap_or_else(|| group_id.clone());
+    use_agent_surface(
+        props.agent.as_ref(),
+        SurfaceMetaDefaults::new(),
+        || {
+            let vals = values_ctl
+                .try_peek_cloned()
+                .unwrap_or_default()
+                .into_iter()
+                .map(SnapshotValue::Text)
+                .collect();
+            let mut snap =
+                ComponentSnapshot::new().with_field("values", SnapshotValue::List(vals));
+            if effective_read_only {
+                snap = snap.with_field("read_only", SnapshotValue::Bool(true));
+            }
+            let actions = if effective_read_only {
+                Vec::new()
+            } else {
+                vec![
+                    ActionDescriptor::new("toggle", "Toggle an item in the checkbox group", true),
+                    ActionDescriptor::new("set", "Set selected checkbox group values", true),
+                ]
+            };
+            AgentSurface::new("checkbox-group", agent_label)
+                .with_disabled(effective_disabled)
+                .with_snapshot(snap)
+                .with_actions(actions)
+        },
+        || {
+            Rc::new(move |dispatch| {
+                if effective_read_only {
+                    return DispatchExecResult::ok().with_host_error("checkbox-group is read-only");
+                }
+                match dispatch.action.as_str() {
+                    "toggle" => {
+                        let Some(SnapshotValue::Text(val)) = dispatch.args.get("value") else {
+                            return DispatchExecResult::ok()
+                                .with_host_error("missing or invalid string argument 'value'");
+                        };
+                        let mut list = values_ctl.peek();
+                        if let Some(pos) = list.iter().position(|v| v == val) {
+                            list.remove(pos);
+                        } else {
+                            list.push(val.clone());
+                        }
+                        let expected: Vec<SnapshotValue> =
+                            list.iter().cloned().map(SnapshotValue::Text).collect();
+                        let outcome = values_ctl.set_with_context(list, dispatch.ctx);
+                        let mut res =
+                            DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                        if !outcome.is_canceled() {
+                            res = res.with_expected("values", SnapshotValue::List(expected));
+                        }
+                        res
+                    }
+                    "set" => {
+                        let Some(SnapshotValue::List(items)) = dispatch
+                            .args
+                            .get("values")
+                            .or_else(|| dispatch.args.get("value"))
+                        else {
+                            return DispatchExecResult::ok()
+                                .with_host_error("missing or invalid list argument 'values'");
+                        };
+                        let mut next = Vec::with_capacity(items.len());
+                        for item in items {
+                            let SnapshotValue::Text(s) = item else {
+                                return DispatchExecResult::ok().with_host_error(
+                                    "all elements of 'values' must be strings",
+                                );
+                            };
+                            next.push(s.clone());
+                        }
+                        let expected: Vec<SnapshotValue> =
+                            next.iter().cloned().map(SnapshotValue::Text).collect();
+                        let outcome = values_ctl.set_with_context(next, dispatch.ctx);
+                        let mut res =
+                            DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                        if !outcome.is_canceled() {
+                            res = res.with_expected("values", SnapshotValue::List(expected));
+                        }
+                        res
+                    }
+                    other => DispatchExecResult::ok()
+                        .with_host_error(format!("unknown checkbox-group action '{other}'")),
+                }
+            })
+        },
+        || {
+            Rc::new(move || {
+                let vals = values_ctl
+                    .try_peek_cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(SnapshotValue::Text)
+                    .collect();
+                let mut snap =
+                    ComponentSnapshot::new().with_field("values", SnapshotValue::List(vals));
+                if effective_read_only {
+                    snap = snap.with_field("read_only", SnapshotValue::Bool(true));
+                }
+                snap
+            })
+        },
+    );
 
     let group_context = CheckboxGroupContext {
         group_id: group_id.clone(),

@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 pub use crate::foundation::compose::{
     compose_part_event_handlers, compose_part_refs, project_as_child,
@@ -11,21 +12,22 @@ use crate::foundation::{
         get_element_client_rect, is_element_focus_visible_by_id, is_element_focused_by_id,
         start_document_pointer_up_observer,
     },
-    keyboard::{is_escape_key, is_ime_composing_key},
+    keyboard::is_ime_composing_key,
     overlay::{
         CancellableDelay, DismissBehavior, DismissCallbacks, DismissConfig, DismissEvent,
         DismissLayerHandle, FloatingHandle, FloatingLayer, FloatingMonitorSpec, FloatingPlacement,
         FloatingReadiness, FloatingScrollPolicy, GeometryVars, GraceCorridorHandle,
-        GraceCorridorOutcome, GraceTransit, GraceTransitStatus, PlacementAlign, PlacementSide,
-        Point2D, PresenceHandle, Rect, Rect2D, Size, StickyStrategy, WatcherSlot,
+        GraceCorridorOutcome, GraceTransit, GraceTransitStatus, OverlayLayerSpec, PlacementAlign,
+        PlacementSide, Point2D, PresenceHandle, Rect, Rect2D, Size, StickyStrategy, WatcherSlot,
         active_overlay_layers_snapshot, is_overlay_escape_consumed, is_topmost_overlay_layer,
-        mark_overlay_escape_consumed, use_cancellable_delay, use_dismissable_layer,
-        use_floating_layer, use_grace_corridor, use_presence_with_keep_mounted, use_watcher_slot,
+        mark_outside_press_propagating, mark_overlay_escape_consumed, sync_overlay_layer_spec,
+        use_cancellable_delay, use_dismissable_layer_with_details, use_floating_layer,
+        use_grace_corridor, use_presence_with_keep_mounted, use_watcher_slot,
     },
     shared::{
         EscapeKeyDownEvent, InteractOutsideEvent, PointerDownOutsideEvent, PreventableEvent,
     },
-    state::{DataState, sync_signal},
+    state::{ControllableSignal, DataState, sync_signal},
 };
 
 use super::{
@@ -363,12 +365,13 @@ pub struct TooltipDismissConfig {
 
 #[derive(Clone, Copy)]
 struct TooltipRuntimeState {
+    open_ctl: Option<ControllableSignal<bool>>,
+    pending_change_ctx: CopyValue<Option<ChangeContext>>,
     live_tooltip: Signal<Tooltip>,
     trigger_handle: Signal<Option<Rc<MountedData>>>,
     content_handle: Signal<Option<Rc<MountedData>>>,
     presence: PresenceHandle,
     floating: FloatingHandle,
-    #[allow(dead_code)]
     dismiss: DismissLayerHandle,
     grace: GraceCorridorHandle,
     hover_transfer_delay: CancellableDelay,
@@ -380,6 +383,7 @@ struct TooltipRuntimeState {
     pending_standalone_open: CopyValue<bool>,
     opened_via_focus: CopyValue<bool>,
     last_pointer_type: CopyValue<Option<String>>,
+    handle_trigger_id: Signal<Option<String>>,
     registered_trigger_id: Signal<Option<String>>,
     custom_anchor_id: Signal<Option<String>>,
     content_id: Signal<Option<String>>,
@@ -396,6 +400,22 @@ pub struct TooltipRuntime {
     provider_runtime: Option<TooltipProviderRuntime>,
     on_open_change: CopyValue<TooltipOpenChangeHandler>,
     state: TooltipRuntimeState,
+}
+
+fn propose_tooltip_open(
+    open_ctl: Option<ControllableSignal<bool>>,
+    on_open_change: CopyValue<TooltipOpenChangeHandler>,
+    next_open: bool,
+    event: &ChangeEvent<bool>,
+) -> bool {
+    if let Some(ctl) = open_ctl {
+        ctl.set_with_event(next_open, event).is_accepted()
+    } else {
+        if let Ok(cb) = on_open_change.try_read().map(|g| Rc::clone(&*g)) {
+            cb(next_open);
+        }
+        true
+    }
 }
 
 pub fn use_tooltip_runtime<F>(
@@ -418,9 +438,57 @@ pub fn use_tooltip_runtime_with_complete<F>(
 where
     F: Fn(bool) + 'static,
 {
-    let synced_open_change: TooltipOpenChangeHandler = Rc::new(on_open_change);
+    use_tooltip_runtime_inner(
+        tooltip,
+        provider_runtime,
+        None,
+        Rc::new(on_open_change),
+        on_open_change_complete,
+        None,
+        None,
+        Vec::new(),
+    )
+}
+
+pub(crate) fn use_tooltip_runtime_with_ctl(
+    tooltip: Tooltip,
+    provider_runtime: Option<TooltipProviderRuntime>,
+    open_ctl: ControllableSignal<bool>,
+    on_open_change_complete: Option<EventHandler<bool>>,
+    handle_active_trigger_id: Option<String>,
+    handle_active_trigger_mounted: Option<Rc<MountedData>>,
+    handle_trigger_ids: Vec<String>,
+) -> TooltipRuntime {
+    let fallback: TooltipOpenChangeHandler = Rc::new(move |next_open: bool| {
+        open_ctl.set(next_open);
+    });
+    use_tooltip_runtime_inner(
+        tooltip,
+        provider_runtime,
+        Some(open_ctl),
+        fallback,
+        on_open_change_complete,
+        handle_active_trigger_id,
+        handle_active_trigger_mounted,
+        handle_trigger_ids,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn use_tooltip_runtime_inner(
+    tooltip: Tooltip,
+    provider_runtime: Option<TooltipProviderRuntime>,
+    open_ctl: Option<ControllableSignal<bool>>,
+    synced_open_change: TooltipOpenChangeHandler,
+    on_open_change_complete: Option<EventHandler<bool>>,
+    handle_active_trigger_id: Option<String>,
+    handle_active_trigger_mounted: Option<Rc<MountedData>>,
+    handle_trigger_ids: Vec<String>,
+) -> TooltipRuntime {
     let mut on_open_change_slot = use_hook(|| CopyValue::new(Rc::clone(&synced_open_change)));
     on_open_change_slot.set(synced_open_change);
+
+    let pending_change_ctx = use_hook(|| CopyValue::new(Option::<ChangeContext>::None));
 
     let mut live_tooltip = use_signal(|| tooltip.clone());
     sync_signal(&mut live_tooltip, tooltip.clone());
@@ -433,6 +501,8 @@ where
     let pending_standalone_open = use_hook(|| CopyValue::new(false));
     let opened_via_focus = use_hook(|| CopyValue::new(false));
     let last_pointer_type = use_hook(|| CopyValue::new(Option::<String>::None));
+    let mut handle_trigger_id = use_signal(|| handle_active_trigger_id.clone());
+    sync_signal(&mut handle_trigger_id, handle_active_trigger_id.clone());
     let registered_trigger_id = use_signal(|| None::<String>);
     let custom_anchor_id = use_signal(|| None::<String>);
     let content_id = use_signal(|| None::<String>);
@@ -442,9 +512,10 @@ where
     let keep_mounted = use_signal(|| false);
     let mut alive = use_hook(|| CopyValue::new(true));
 
-    let effective_trigger_id = registered_trigger_id
-        .read()
+    let effective_trigger_id = handle_active_trigger_id
         .clone()
+        .filter(|id| !id.is_empty())
+        .or_else(|| registered_trigger_id.read().clone())
         .unwrap_or_else(|| tooltip.relationships().trigger_id().to_owned());
     let effective_anchor_id = custom_anchor_id
         .read()
@@ -482,16 +553,19 @@ where
 
     let on_scroll_close = use_hook(move || {
         EventHandler::new(move |()| {
+            let change_event = ChangeEvent::new(
+                false,
+                ChangeContext::new(ChangeReason::Programmatic, ChangeSource::Programmatic),
+            );
+            if !propose_tooltip_open(open_ctl, on_open_change_slot, false, &change_event) {
+                return;
+            }
             if let Ok(Some(prov)) = provider_slot.try_read().map(|g| g.clone()) {
                 let rid = root_id_slot
                     .try_read()
                     .map(|g| g.clone())
                     .unwrap_or_default();
                 prov.request_close(&rid);
-                return;
-            }
-            if let Ok(cb) = on_open_change_slot.try_read().map(|g| Rc::clone(&*g)) {
-                cb(false);
             }
         })
     });
@@ -521,6 +595,9 @@ where
         floating_spec,
         Some(on_scroll_close),
     );
+    if let Some(mounted) = handle_active_trigger_mounted {
+        floating.capture_anchor(mounted);
+    }
 
     let grace = use_grace_corridor();
     let hover_transfer_delay = use_cancellable_delay();
@@ -561,40 +638,45 @@ where
         })
     });
 
-    let on_dismiss_escape = use_hook(move || {
-        EventHandler::new(move |_event: DismissEvent| {
+    let on_dismiss_details_bridge = use_hook(move || {
+        EventHandler::new(move |(_event, change_event): (DismissEvent, ChangeEvent<bool>)| {
             if !alive.try_read().is_ok_and(|a| *a) {
+                return;
+            }
+            if !propose_tooltip_open(open_ctl, on_open_change_slot, false, &change_event) {
                 return;
             }
             let mut ovf = opened_via_focus;
             let _ = ovf.try_write().map(|mut w| *w = false);
             hover_transfer_delay.cancel();
             grace.clear();
+            let mut pending = pending_standalone_open;
+            let _ = pending.try_write().map(|mut w| *w = false);
+            standalone_open_delay.cancel();
             if let Ok(Some(prov)) = provider_slot.try_read().map(|g| g.clone()) {
                 let rid = root_id_slot
                     .try_read()
                     .map(|g| g.clone())
                     .unwrap_or_default();
                 prov.request_close(&rid);
-                return;
-            }
-            let mut pending = pending_standalone_open;
-            let _ = pending.try_write().map(|mut w| *w = false);
-            standalone_open_delay.cancel();
-            if let Ok(cb) = on_open_change_slot.try_read().map(|g| Rc::clone(&*g)) {
-                cb(false);
             }
         })
     });
 
-    let dismiss_config = DismissConfig::new(effective_content_id)
-        .with_boundaries(vec![effective_trigger_id])
+    let mut dismiss_boundaries = vec![effective_trigger_id];
+    for tid in handle_trigger_ids {
+        if !dismiss_boundaries.contains(&tid) {
+            dismiss_boundaries.push(tid);
+        }
+    }
+    let dismiss_config = DismissConfig::new(effective_content_id.clone())
+        .with_boundaries(dismiss_boundaries)
         .with_modal(false)
         .with_listen_escape(true)
         .with_listen_pointer_down_outside(true)
         .with_listen_focus_outside(false);
 
-    let dismiss = use_dismissable_layer(
+    let dismiss = use_dismissable_layer_with_details(
         tooltip.is_open(),
         dismiss_config,
         DismissCallbacks {
@@ -602,11 +684,24 @@ where
             on_pointer_down_outside: Some(on_ptr_down_bridge),
             on_focus_outside: None,
             on_interact_outside: Some(on_interact_bridge),
-            on_dismiss: Some(on_dismiss_escape),
+            on_dismiss: None,
         },
+        Some(on_dismiss_details_bridge),
     );
 
+    if tooltip.is_open() && !effective_content_id.is_empty() {
+        let cfg = dismiss_config_slot.try_read().map(|g| *g).unwrap_or_default();
+        sync_overlay_layer_spec(
+            OverlayLayerSpec::new(effective_content_id)
+                .with_modal(false)
+                .with_escape_behavior(cfg.escape_key_down_behavior)
+                .with_outside_press_behavior(cfg.interact_outside_behavior),
+        );
+    }
+
     let state = TooltipRuntimeState {
+        open_ctl,
+        pending_change_ctx,
         live_tooltip,
         trigger_handle,
         content_handle,
@@ -623,6 +718,7 @@ where
         pending_standalone_open,
         opened_via_focus,
         last_pointer_type,
+        handle_trigger_id,
         registered_trigger_id,
         custom_anchor_id,
         content_id,
@@ -654,10 +750,33 @@ where
         move |(open_now, render_now, active_id, disable_hover)| {
             if has_provider {
                 let next_open = active_id.as_deref() == Some(root_id_for_close.as_str());
-                if next_open != open_now
-                    && let Ok(cb) = on_open_change_slot.try_read().map(|g| Rc::clone(&*g))
-                {
-                    cb(next_open);
+                if next_open != open_now {
+                    let mut pctx = state.pending_change_ctx;
+                    let ctx = pctx
+                        .try_write()
+                        .ok()
+                        .and_then(|mut slot| slot.take())
+                        .unwrap_or_else(|| {
+                            ChangeContext::new(
+                                ChangeReason::Programmatic,
+                                ChangeSource::Programmatic,
+                            )
+                        });
+                    let change_event = ChangeEvent::new(next_open, ctx);
+                    let accepted = propose_tooltip_open(
+                        open_ctl,
+                        on_open_change_slot,
+                        next_open,
+                        &change_event,
+                    );
+                    if !accepted && let Ok(Some(prov)) = provider_slot.try_read().map(|g| g.clone())
+                    {
+                        if next_open {
+                            prov.request_close(&root_id_for_close);
+                        } else {
+                            prov.request_open(root_id_for_close.clone(), true);
+                        }
+                    }
                 }
             }
 
@@ -917,10 +1036,18 @@ impl TooltipRuntime {
 
     pub fn effective_trigger_id(&self) -> String {
         self.state
-            .registered_trigger_id
+            .handle_trigger_id
             .try_peek()
             .ok()
             .and_then(|id| id.clone())
+            .filter(|id| !id.is_empty())
+            .or_else(|| {
+                self.state
+                    .registered_trigger_id
+                    .try_peek()
+                    .ok()
+                    .and_then(|id| id.clone())
+            })
             .unwrap_or_else(|| self.tooltip.relationships().trigger_id().to_owned())
     }
 
@@ -1062,10 +1189,7 @@ impl TooltipRuntime {
             if is_ime_composing_key(&event) {
                 return;
             }
-            if is_escape_key(&event.key()) && runtime.dismiss_escape() {
-                event.prevent_default();
-                event.stop_propagation();
-            }
+            let _ = runtime.state.dismiss.handle_keydown(&event);
         }
     }
 
@@ -1101,10 +1225,16 @@ impl TooltipRuntime {
             handler.call(esc_evt.clone());
         }
         if cfg.escape_key_down_behavior.dismisses() && !esc_evt.is_default_prevented() {
-            if !cfg.escape_key_down_behavior.bubbles() {
+            let change_event = ChangeEvent::new(
+                false,
+                ChangeContext::new(ChangeReason::EscapeKey, ChangeSource::Keyboard),
+            );
+            if !self.request_close_with_event(&change_event) {
+                return false;
+            }
+            if !cfg.escape_key_down_behavior.bubbles() && !change_event.is_propagation_allowed() {
                 mark_overlay_escape_consumed();
             }
-            self.request_close();
             return true;
         }
         false
@@ -1120,11 +1250,20 @@ impl TooltipRuntime {
             layer.should_dismiss_outside_pointer(target_owned.as_ref(), &stack)
         }) || {
             let mut layer = self.lifecycle().dismiss_layer().clone();
-            layer.set_id(active_cid);
+            layer.set_id(active_cid.clone());
             layer.should_dismiss_outside_pointer(target_owned.as_ref(), &stack)
         };
         if should_dismiss {
-            self.request_close();
+            let change_event = ChangeEvent::new(
+                false,
+                ChangeContext::new(ChangeReason::OutsidePress, ChangeSource::Mouse),
+            );
+            if !self.request_close_with_event(&change_event) {
+                return false;
+            }
+            if change_event.is_propagation_allowed() {
+                mark_outside_press_propagating(&active_cid);
+            }
             return true;
         }
         false
@@ -1140,11 +1279,20 @@ impl TooltipRuntime {
             layer.should_dismiss_outside_focus(target_owned.as_ref(), &stack)
         }) || {
             let mut layer = self.lifecycle().dismiss_layer().clone();
-            layer.set_id(active_cid);
+            layer.set_id(active_cid.clone());
             layer.should_dismiss_outside_focus(target_owned.as_ref(), &stack)
         };
         if should_dismiss {
-            self.request_close();
+            let change_event = ChangeEvent::new(
+                false,
+                ChangeContext::new(ChangeReason::FocusOut, ChangeSource::Programmatic),
+            );
+            if !self.request_close_with_event(&change_event) {
+                return false;
+            }
+            if change_event.is_propagation_allowed() {
+                mark_outside_press_propagating(&active_cid);
+            }
             return true;
         }
         false
@@ -1154,7 +1302,10 @@ impl TooltipRuntime {
         let runtime = self.clone();
         move |event| {
             if runtime.close_on_trigger_click() {
-                runtime.request_close();
+                runtime.request_close_with_context(ChangeContext::new(
+                    ChangeReason::Activation,
+                    ChangeSource::Mouse,
+                ));
             }
             let mut pdi = runtime.state.pointer_down_inside;
             let _ = pdi.try_write().map(|mut w| *w = true);
@@ -1185,7 +1336,10 @@ impl TooltipRuntime {
             }
             runtime.cancel_hover_transfer();
             runtime.stop_grace_monitor();
-            runtime.request_open(false);
+            runtime.request_open_with_context(
+                false,
+                ChangeContext::new(ChangeReason::Hover, ChangeSource::Mouse),
+            );
         }
     }
 
@@ -1200,7 +1354,10 @@ impl TooltipRuntime {
             }
 
             if runtime.disable_hoverable_content() {
-                runtime.request_close();
+                runtime.request_close_with_context(ChangeContext::new(
+                    ChangeReason::Hover,
+                    ChangeSource::Mouse,
+                ));
             } else {
                 let coords = event.client_coordinates();
                 let exit_point = Point2D::new(coords.x, coords.y);
@@ -1256,7 +1413,10 @@ impl TooltipRuntime {
             runtime.cancel_hover_transfer();
             runtime.stop_grace_monitor();
             runtime.state.floating.arm_focus_scroll_guard();
-            runtime.request_open(true);
+            runtime.request_open_with_context(
+                true,
+                ChangeContext::new(ChangeReason::Focus, ChangeSource::Keyboard),
+            );
         }
     }
 
@@ -1273,7 +1433,10 @@ impl TooltipRuntime {
             let trigger_hovered = runtime.state.trigger_hovered.try_read().is_ok_and(|h| *h);
             let content_hovered = runtime.state.content_hovered.try_read().is_ok_and(|h| *h);
             if !trigger_hovered && !content_hovered {
-                runtime.request_close();
+                runtime.request_close_with_context(ChangeContext::new(
+                    ChangeReason::FocusOut,
+                    ChangeSource::Keyboard,
+                ));
             }
         }
     }
@@ -1283,7 +1446,10 @@ impl TooltipRuntime {
         move |_| {
             runtime.clear_pointer_down_inside();
             if runtime.close_on_trigger_click() {
-                runtime.request_close();
+                runtime.request_close_with_context(ChangeContext::new(
+                    ChangeReason::Activation,
+                    ChangeSource::Mouse,
+                ));
             }
         }
     }
@@ -1298,7 +1464,10 @@ impl TooltipRuntime {
             let _ = ch.try_write().map(|mut w| *w = true);
             runtime.cancel_hover_transfer();
             runtime.stop_grace_monitor();
-            runtime.request_open(true);
+            runtime.request_open_with_context(
+                true,
+                ChangeContext::new(ChangeReason::Hover, ChangeSource::Mouse),
+            );
         }
     }
 
@@ -1313,7 +1482,10 @@ impl TooltipRuntime {
             }
 
             if runtime.disable_hoverable_content() {
-                runtime.request_close();
+                runtime.request_close_with_context(ChangeContext::new(
+                    ChangeReason::Hover,
+                    ChangeSource::Mouse,
+                ));
             } else {
                 let coords = event.client_coordinates();
                 let exit_point = Point2D::new(coords.x, coords.y);
@@ -1328,8 +1500,10 @@ impl TooltipRuntime {
         }
     }
 
-    fn request_open(&self, immediate: bool) {
+    fn request_open_with_context(&self, immediate: bool, ctx: ChangeContext) {
         if let Some(provider_runtime) = &self.provider_runtime {
+            let mut pctx = self.state.pending_change_ctx;
+            let _ = pctx.try_write().map(|mut w| *w = Some(ctx));
             provider_runtime.request_open(self.relationships().root_id().to_owned(), immediate);
             return;
         }
@@ -1340,48 +1514,71 @@ impl TooltipRuntime {
         let delay_ms = self.delay_duration_ms();
         if immediate || delay_ms == 0 {
             self.state.standalone_open_delay.cancel();
-            if let Ok(cb) = self.on_open_change.try_read().map(|g| Rc::clone(&*g)) {
-                cb(true);
-            }
+            let change_event = ChangeEvent::new(true, ctx);
+            propose_tooltip_open(
+                self.state.open_ctl,
+                self.on_open_change,
+                true,
+                &change_event,
+            );
             return;
         }
 
         let runtime = self.clone();
         self.state.standalone_open_delay.schedule(delay_ms, move || {
-            if runtime.is_alive()
-                && let Ok(cb) = runtime.on_open_change.try_read().map(|g| Rc::clone(&*g))
-            {
-                cb(true);
+            if runtime.is_alive() {
+                let change_event = ChangeEvent::new(true, ctx);
+                propose_tooltip_open(
+                    runtime.state.open_ctl,
+                    runtime.on_open_change,
+                    true,
+                    &change_event,
+                );
             }
         });
     }
 
     fn request_close(&self) {
-        if !self.is_alive() {
-            return;
-        }
-        let mut ovf = self.state.opened_via_focus;
-        let _ = ovf.try_write().map(|mut w| *w = false);
-        self.cancel_hover_transfer();
-        self.stop_grace_monitor();
-        if let Some(provider_runtime) = &self.provider_runtime {
-            provider_runtime.request_close(self.relationships().root_id());
-            return;
-        }
+        self.request_close_with_context(ChangeContext::new(
+            ChangeReason::Hover,
+            ChangeSource::Mouse,
+        ));
+    }
 
+    fn request_close_with_context(&self, ctx: ChangeContext) {
+        let change_event = ChangeEvent::new(false, ctx);
+        let _ = self.request_close_with_event(&change_event);
+    }
+
+    fn request_close_with_event(&self, change_event: &ChangeEvent<bool>) -> bool {
+        if !self.is_alive() {
+            return false;
+        }
         let was_pending = self
             .state
             .pending_standalone_open
             .try_read()
             .is_ok_and(|p| *p);
+        let accepted = propose_tooltip_open(
+            self.state.open_ctl,
+            self.on_open_change,
+            false,
+            change_event,
+        );
+        if change_event.is_canceled() {
+            return false;
+        }
+        let mut ovf = self.state.opened_via_focus;
+        let _ = ovf.try_write().map(|mut w| *w = false);
+        self.cancel_hover_transfer();
+        self.stop_grace_monitor();
         let mut pending = self.state.pending_standalone_open;
         let _ = pending.try_write().map(|mut w| *w = false);
         self.state.standalone_open_delay.cancel();
-        if (self.is_live_open() || was_pending)
-            && let Ok(cb) = self.on_open_change.try_read().map(|g| Rc::clone(&*g))
-        {
-            cb(false);
+        if let Some(provider_runtime) = &self.provider_runtime {
+            provider_runtime.request_close(self.relationships().root_id());
         }
+        accepted || was_pending
     }
 
     fn is_live_open(&self) -> bool {

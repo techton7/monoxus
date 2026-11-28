@@ -1,6 +1,7 @@
 use std::{collections::HashMap, rc::Rc};
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 pub use crate::foundation::compose::{
     MountedHandle as PopoverMountedHandle, compose_part_event_handlers, compose_part_refs,
@@ -9,19 +10,20 @@ pub use crate::foundation::compose::{
 
 use crate::foundation::{
     browser::focus_mounted_handle,
-    keyboard::{is_escape_key, is_ime_composing_key},
+    keyboard::is_ime_composing_key,
     overlay::{
         DismissBehavior, DismissCallbacks, DismissConfig, DismissEvent, DismissLayerHandle,
         FloatingHandle, FloatingMonitorSpec, FloatingPlacement, FloatingReadiness,
         FocusScopeConfig, FocusScopeHandle, GeometryVars, ModalLayerConfig, ModalLayerHandle,
         ModalShieldPolicy, OverlayEscapeGuardFn, OverlayLayerSpec, PlacementAlign, PlacementSide,
         PresenceHandle, Rect, Size, StickyStrategy, active_overlay_layers_snapshot,
-        is_overlay_escape_consumed, is_topmost_overlay_layer, mark_overlay_escape_consumed,
-        serialize_css_custom_properties, sync_overlay_layer_spec, use_dismissable_layer,
-        use_floating_layer, use_focus_scope, use_modal_layer, use_presence_with_keep_mounted,
+        is_overlay_escape_consumed, is_topmost_overlay_layer, mark_outside_press_propagating,
+        mark_overlay_escape_consumed, serialize_css_custom_properties, sync_overlay_layer_spec,
+        use_dismissable_layer_with_details, use_floating_layer, use_focus_scope, use_modal_layer,
+        use_presence_with_keep_mounted,
     },
     shared::PreventableEvent,
-    state::{DataState, sync_signal},
+    state::{ControllableSignal, DataState, sync_signal},
 };
 
 use super::{
@@ -46,6 +48,7 @@ const POPOVER_RADIX_ANCHOR_LABEL: &str = "trigger";
 
 #[derive(Clone, Copy)]
 struct PopoverRuntimeState {
+    open_ctl: Option<ControllableSignal<bool>>,
     trigger_handle: Signal<Option<PopoverMountedHandle>>,
     anchor_handle: Signal<Option<PopoverMountedHandle>>,
     content_handle: Signal<Option<PopoverMountedHandle>>,
@@ -58,6 +61,7 @@ struct PopoverRuntimeState {
     last_open: CopyValue<bool>,
     last_dismiss_was_pointer: CopyValue<bool>,
     last_dismiss_was_outside_pointer: CopyValue<bool>,
+    handle_trigger_id: Signal<Option<String>>,
     trigger_id: Signal<Option<String>>,
     content_id: Signal<Option<String>>,
     wrapper_id_override: Signal<Option<String>>,
@@ -96,11 +100,54 @@ pub struct PopoverRuntime {
     state: PopoverRuntimeState,
 }
 
+fn propose_popover_open(
+    open_ctl: Option<ControllableSignal<bool>>,
+    on_open_change: CopyValue<PopoverOpenChangeHandler>,
+    next_open: bool,
+    event: &ChangeEvent<bool>,
+) -> bool {
+    if let Some(ctl) = open_ctl {
+        ctl.set_with_event(next_open, event).is_accepted()
+    } else {
+        if let Ok(cb) = on_open_change.try_read().map(|g| Rc::clone(&*g)) {
+            cb(next_open);
+        }
+        true
+    }
+}
+
 pub fn use_popover_runtime<F>(popover: Popover, on_open_change: F) -> PopoverRuntime
 where
     F: Fn(bool) + 'static,
 {
-    let synced_open_change: PopoverOpenChangeHandler = Rc::new(on_open_change);
+    use_popover_runtime_inner(popover, None, Rc::new(on_open_change), None, None)
+}
+
+pub(crate) fn use_popover_runtime_with_ctl(
+    popover: Popover,
+    open_ctl: ControllableSignal<bool>,
+    handle_active_trigger_id: Option<String>,
+    handle_active_trigger_mounted: Option<PopoverMountedHandle>,
+) -> PopoverRuntime {
+    let fallback: PopoverOpenChangeHandler = Rc::new(move |next_open: bool| {
+        open_ctl.set(next_open);
+    });
+    use_popover_runtime_inner(
+        popover,
+        Some(open_ctl),
+        fallback,
+        handle_active_trigger_id,
+        handle_active_trigger_mounted,
+    )
+}
+
+fn use_popover_runtime_inner(
+    popover: Popover,
+    open_ctl: Option<ControllableSignal<bool>>,
+    synced_open_change: PopoverOpenChangeHandler,
+    handle_active_trigger_id: Option<String>,
+    handle_active_trigger_mounted: Option<PopoverMountedHandle>,
+) -> PopoverRuntime {
     let mut on_open_change_slot = use_hook(|| CopyValue::new(Rc::clone(&synced_open_change)));
     on_open_change_slot.set(synced_open_change);
 
@@ -111,6 +158,8 @@ where
     let last_open = use_hook(|| CopyValue::new(popover.is_open()));
     let last_dismiss_was_pointer = use_hook(|| CopyValue::new(false));
     let last_dismiss_was_outside_pointer = use_hook(|| CopyValue::new(false));
+    let mut handle_trigger_id = use_signal(|| handle_active_trigger_id.clone());
+    sync_signal(&mut handle_trigger_id, handle_active_trigger_id.clone());
     let trigger_id = use_signal(|| None::<String>);
     let content_id = use_signal(|| None::<String>);
     let wrapper_id_override = use_signal(|| None::<String>);
@@ -153,9 +202,10 @@ where
         .read()
         .clone()
         .unwrap_or_else(|| popover.relationships().content_id().to_owned());
-    let effective_trigger_id = trigger_id
-        .read()
+    let effective_trigger_id = handle_active_trigger_id
         .clone()
+        .filter(|id| !id.is_empty())
+        .or_else(|| trigger_id.read().clone())
         .unwrap_or_else(|| popover.relationships().trigger_id().to_owned());
     let custom_anchor = custom_anchor_override
         .read()
@@ -218,6 +268,11 @@ where
         floating_spec,
         None,
     );
+    if let Some(mounted) = handle_active_trigger_mounted
+        && anchor_handle.try_peek().is_ok_and(|a| a.is_none())
+    {
+        floating.capture_anchor(mounted);
+    }
 
     let mut dismiss_boundaries = vec![
         effective_content_id.clone(),
@@ -292,20 +347,21 @@ where
             }
         })
     });
-    let on_dismiss_bridge = use_hook(move || {
-        EventHandler::new(move |event: DismissEvent| {
-            let is_pointer = matches!(event, DismissEvent::PointerDownOutside);
-            let mut ptr = last_dismiss_was_pointer;
-            let _ = ptr.try_write().map(|mut w| *w = is_pointer);
-            let mut out_ptr = last_dismiss_was_outside_pointer;
-            let _ = out_ptr.try_write().map(|mut w| *w = is_pointer);
-            if let Ok(cb) = on_open_change_slot.try_read().map(|g| Rc::clone(&*g)) {
-                cb(false);
+    let on_dismiss_details_bridge = use_hook(move || {
+        EventHandler::new(move |(event, change_event): (DismissEvent, ChangeEvent<bool>)| {
+            let accepted =
+                propose_popover_open(open_ctl, on_open_change_slot, false, &change_event);
+            if accepted {
+                let is_pointer = matches!(event, DismissEvent::PointerDownOutside);
+                let mut ptr = last_dismiss_was_pointer;
+                let _ = ptr.try_write().map(|mut w| *w = is_pointer);
+                let mut out_ptr = last_dismiss_was_outside_pointer;
+                let _ = out_ptr.try_write().map(|mut w| *w = is_pointer);
             }
         })
     });
 
-    let dismiss = use_dismissable_layer(
+    let dismiss = use_dismissable_layer_with_details(
         popover.is_open(),
         dismiss_config,
         DismissCallbacks {
@@ -313,8 +369,9 @@ where
             on_pointer_down_outside: Some(on_pointer_down_outside_bridge),
             on_focus_outside: None,
             on_interact_outside: Some(on_interact_bridge),
-            on_dismiss: Some(on_dismiss_bridge),
+            on_dismiss: None,
         },
+        Some(on_dismiss_details_bridge),
     );
 
     if popover.is_open() && !effective_content_id.is_empty() {
@@ -402,8 +459,15 @@ where
         Some(on_open_focus_bridge),
         Some(on_close_focus_bridge),
     );
+    if matches!(close_focus_policy, PopoverCloseFocusPolicy::Trigger)
+        && let Some(ref active_tid) = handle_active_trigger_id
+        && !active_tid.is_empty()
+    {
+        focus_scope.set_restore_target(Some(active_tid.clone()));
+    }
 
     let state = PopoverRuntimeState {
+        open_ctl,
         trigger_handle,
         anchor_handle,
         content_handle,
@@ -416,6 +480,7 @@ where
         last_open,
         last_dismiss_was_pointer,
         last_dismiss_was_outside_pointer,
+        handle_trigger_id,
         trigger_id,
         content_id,
         wrapper_id_override,
@@ -698,11 +763,29 @@ impl PopoverRuntime {
     }
 
     pub fn request_state(&self, request: PopoverStateRequest) -> bool {
+        self.request_state_with_context(
+            request,
+            ChangeContext::new(ChangeReason::Programmatic, ChangeSource::Programmatic),
+        )
+    }
+
+    pub fn request_state_with_context(
+        &self,
+        request: PopoverStateRequest,
+        ctx: ChangeContext,
+    ) -> bool {
         let next_open = request.next_open(self.is_open());
-        if next_open != self.is_open()
-            && let Ok(cb) = self.on_open_change.try_read().map(|g| Rc::clone(&*g))
-        {
-            cb(next_open);
+        if next_open != self.is_open() {
+            let change_event = ChangeEvent::new(next_open, ctx);
+            if propose_popover_open(
+                self.state.open_ctl,
+                self.on_open_change,
+                next_open,
+                &change_event,
+            ) {
+                return next_open;
+            }
+            return self.is_open();
         }
         next_open
     }
@@ -986,10 +1069,7 @@ impl PopoverRuntime {
             if runtime.state.focus_scope.handle_tab_keydown(&event) {
                 return;
             }
-            if is_escape_key(&event.key()) && runtime.dismiss_escape() {
-                event.prevent_default();
-                event.stop_propagation();
-            }
+            let _ = runtime.state.dismiss.handle_keydown(&event);
         }
     }
 
@@ -1028,12 +1108,20 @@ impl PopoverRuntime {
             }
         }
 
-        mark_overlay_escape_consumed();
+        let change_event = ChangeEvent::new(
+            false,
+            ChangeContext::new(ChangeReason::EscapeKey, ChangeSource::Keyboard),
+        );
+        if !propose_popover_open(self.state.open_ctl, self.on_open_change, false, &change_event) {
+            return false;
+        }
+        if !escape_behavior.bubbles() && !change_event.is_propagation_allowed() {
+            mark_overlay_escape_consumed();
+        }
         let mut ptr = self.state.last_dismiss_was_pointer;
         let _ = ptr.try_write().map(|mut w| *w = false);
         let mut out_ptr = self.state.last_dismiss_was_outside_pointer;
         let _ = out_ptr.try_write().map(|mut w| *w = false);
-        self.close_now();
         true
     }
 
@@ -1069,11 +1157,22 @@ impl PopoverRuntime {
             if evt.is_default_prevented() {
                 return false;
             }
+            let change_event = ChangeEvent::new(
+                false,
+                ChangeContext::new(ChangeReason::OutsidePress, ChangeSource::Mouse),
+            );
+            if !propose_popover_open(self.state.open_ctl, self.on_open_change, false, &change_event)
+            {
+                return false;
+            }
+            if change_event.is_propagation_allowed() {
+                let cid = effective_content_id(&self.popover, self.state);
+                mark_outside_press_propagating(&cid);
+            }
             let mut ptr = self.state.last_dismiss_was_pointer;
             let _ = ptr.try_write().map(|mut w| *w = true);
             let mut out_ptr = self.state.last_dismiss_was_outside_pointer;
             let _ = out_ptr.try_write().map(|mut w| *w = true);
-            self.close_now();
             return true;
         }
         false
@@ -1102,11 +1201,22 @@ impl PopoverRuntime {
                     return false;
                 }
             }
+            let change_event = ChangeEvent::new(
+                false,
+                ChangeContext::new(ChangeReason::FocusOut, ChangeSource::Programmatic),
+            );
+            if !propose_popover_open(self.state.open_ctl, self.on_open_change, false, &change_event)
+            {
+                return false;
+            }
+            if change_event.is_propagation_allowed() {
+                let cid = effective_content_id(&self.popover, self.state);
+                mark_outside_press_propagating(&cid);
+            }
             let mut ptr = self.state.last_dismiss_was_pointer;
             let _ = ptr.try_write().map(|mut w| *w = false);
             let mut out_ptr = self.state.last_dismiss_was_outside_pointer;
             let _ = out_ptr.try_write().map(|mut w| *w = false);
-            self.close_now();
             return true;
         }
         false
@@ -1136,12 +1246,22 @@ impl PopoverRuntime {
 
     pub fn trigger_click(&self) -> impl FnMut(Event<MouseData>) + 'static {
         let runtime = self.clone();
-        move |_| runtime.toggle()
+        move |_| {
+            runtime.request_state_with_context(
+                PopoverStateRequest::Toggle,
+                ChangeContext::new(ChangeReason::Activation, ChangeSource::Mouse),
+            );
+        }
     }
 
     pub fn close_click(&self) -> impl FnMut(Event<MouseData>) + 'static {
         let runtime = self.clone();
-        move |_| runtime.close_now()
+        move |_| {
+            runtime.request_state_with_context(
+                PopoverStateRequest::Close,
+                ChangeContext::new(ChangeReason::Close, ChangeSource::Mouse),
+            );
+        }
     }
 
     #[allow(dead_code)]
@@ -1170,10 +1290,12 @@ fn effective_dismiss_layer(
 
 fn effective_trigger_id(popover: &Popover, state: PopoverRuntimeState) -> String {
     state
-        .trigger_id
+        .handle_trigger_id
         .try_peek()
         .ok()
         .and_then(|id| id.clone())
+        .filter(|id| !id.is_empty())
+        .or_else(|| state.trigger_id.try_peek().ok().and_then(|id| id.clone()))
         .unwrap_or_else(|| popover.relationships().trigger_id().to_owned())
 }
 

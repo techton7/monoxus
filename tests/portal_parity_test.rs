@@ -555,7 +555,10 @@ fn DialogWithAllNestedOverlaysHarness(
                         id: Some("inner-dlg".to_string()),
                         default_open: nested_open,
                         DialogPortal {
-                            DialogOverlay { id: Some("inner-dlg-overlay".to_string()) }
+                            DialogOverlay {
+                                id: Some("inner-dlg-overlay".to_string()),
+                                force_render: true,
+                            }
                             DialogContent {
                                 id: Some("inner-dlg-content".to_string()),
                                 "Nested Dialog"

@@ -1,6 +1,7 @@
 use dioxus::core::{AttributeValue, Event, ListenerCallback};
 use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeReason, ChangeSource};
 
 use crate::foundation::{
     compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
@@ -140,8 +141,13 @@ pub fn ToolbarToggleItem(props: ToolbarToggleItemProps) -> Element {
         AttributeValue::Listener(
             ListenerCallback::<PlatformEventData>::new(move |evt: Event<PlatformEventData>| {
                 if evt.default_action_enabled() && !effective_disabled {
-                    group_runtime_click.toggle_item(&val_click);
-                    roving_click.set_current_tab_stop(Some(key_for_click.clone()));
+                    let outcome = group_runtime_click.toggle_item_with_context(
+                        &val_click,
+                        ChangeContext::new(ChangeReason::Toggle, ChangeSource::Mouse),
+                    );
+                    if outcome.is_accepted() {
+                        roving_click.set_current_tab_stop(Some(key_for_click.clone()));
+                    }
                 }
             })
             .erase(),
@@ -159,8 +165,13 @@ pub fn ToolbarToggleItem(props: ToolbarToggleItemProps) -> Element {
                 }
                 if is_activation_key(&kb_evt.key()) {
                     kb_evt.prevent_default();
-                    group_runtime_key.toggle_item(&val_key);
-                    roving_key_down.set_current_tab_stop(Some(key_for_roving.clone()));
+                    let outcome = group_runtime_key.toggle_item_with_context(
+                        &val_key,
+                        ChangeContext::new(ChangeReason::Toggle, ChangeSource::Keyboard),
+                    );
+                    if outcome.is_accepted() {
+                        roving_key_down.set_current_tab_stop(Some(key_for_roving.clone()));
+                    }
                     return;
                 }
                 roving_key_down.handle_keydown(

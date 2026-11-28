@@ -2,17 +2,119 @@ use std::{cell::RefCell, collections::HashMap, ops::{Deref, DerefMut}, rc::Rc};
 
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
-use crate::foundation::{
-    browser::{FocusOptions, focus_element_by_id, focus_element_sync_or_defer, local_today},
-    date_time::{
-        CalendarConfig, CalendarDate, CalendarLocale, CalendarMonth, CalendarNavKey, MonthFormat,
-        YearFormat, build_visible_months, default_placeholder_date, default_year_range,
-        ensure_non_disabled_placeholder, is_next_page_disabled, is_prev_page_disabled,
-        resolve_grid_navigation, resolve_tabbable_date, visible_weekday_headers,
+use crate::{
+    agent::{cancel_current_agent_action, current_change_context},
+    foundation::{
+        browser::{FocusOptions, focus_element_by_id, focus_element_sync_or_defer, local_today},
+        date_time::{
+            CalendarConfig, CalendarDate, CalendarLocale, CalendarMonth, CalendarNavKey,
+            MonthFormat, YearFormat, build_visible_months, default_placeholder_date,
+            default_year_range, ensure_non_disabled_placeholder, is_next_page_disabled,
+            is_prev_page_disabled, resolve_grid_navigation, resolve_tabbable_date,
+            visible_weekday_headers,
+        },
+        state::{
+            ControllableConfig, ControllableSignal, sync_signal, use_controllable_signal_config,
+        },
     },
-    state::{ControllableSignal, sync_signal, use_controllable_signal},
 };
+
+pub(crate) fn calendar_locale_tag(locale: &CalendarLocale) -> &'static str {
+    match locale {
+        CalendarLocale::EnUs => "en-US",
+        CalendarLocale::EnGb => "en-GB",
+        CalendarLocale::KoKr => "ko-KR",
+        CalendarLocale::Iso => "iso",
+        CalendarLocale::Custom(_) => "custom",
+    }
+}
+
+pub(crate) fn parse_agent_range_arg<T, F>(
+    args: &std::collections::BTreeMap<String, crate::agent::SnapshotValue>,
+    parse: F,
+    kind_label: &str,
+) -> Result<(Option<T>, Option<T>), String>
+where
+    F: Fn(&str) -> Option<T>,
+{
+    use crate::agent::SnapshotValue;
+
+    let parse_opt = |val: Option<&SnapshotValue>| -> Result<Option<T>, String> {
+        match val {
+            None | Some(SnapshotValue::Null) => Ok(None),
+            Some(SnapshotValue::Text(raw)) => {
+                let trimmed = raw.trim();
+                if trimmed.is_empty() {
+                    return Ok(None);
+                }
+                parse(trimmed)
+                    .map(Some)
+                    .ok_or_else(|| format!("invalid ISO {kind_label}: {raw}"))
+            }
+            Some(_) => Err(format!("expected ISO {kind_label} string or null")),
+        }
+    };
+
+    if args.contains_key("start") || args.contains_key("end") {
+        let start = parse_opt(args.get("start"))?;
+        let end = parse_opt(args.get("end"))?;
+        return Ok((start, end));
+    }
+
+    match args.get("value") {
+        Some(SnapshotValue::Null) => Ok((None, None)),
+        Some(SnapshotValue::Map(map)) => {
+            let start = parse_opt(map.get("start"))?;
+            let end = parse_opt(map.get("end"))?;
+            Ok((start, end))
+        }
+        Some(SnapshotValue::Text(raw)) => {
+            let trimmed = raw.trim();
+            if let Some((s, e)) = trimmed.split_once("..").or_else(|| trimmed.split_once('/')) {
+                let start = if s.trim().is_empty() {
+                    None
+                } else {
+                    Some(
+                        parse(s.trim())
+                            .ok_or_else(|| format!("invalid ISO {kind_label}: {s}"))?,
+                    )
+                };
+                let end = if e.trim().is_empty() {
+                    None
+                } else {
+                    Some(
+                        parse(e.trim())
+                            .ok_or_else(|| format!("invalid ISO {kind_label}: {e}"))?,
+                    )
+                };
+                Ok((start, end))
+            } else {
+                Err(format!(
+                    "expected `start`/`end` or range string for {kind_label}"
+                ))
+            }
+        }
+        _ => Err(format!(
+            "missing range arguments (`start`/`end` or `value`) for {kind_label}"
+        )),
+    }
+}
+
+pub(crate) fn range_snapshot_value(start: Option<String>, end: Option<String>) -> crate::agent::SnapshotValue {
+    use crate::agent::SnapshotValue;
+    let mut map = std::collections::BTreeMap::new();
+    map.insert(
+        String::from("start"),
+        start.map(SnapshotValue::Text).unwrap_or(SnapshotValue::Null),
+    );
+    map.insert(
+        String::from("end"),
+        end.map(SnapshotValue::Text).unwrap_or(SnapshotValue::Null),
+    );
+    SnapshotValue::Map(map)
+}
 
 use super::{
     attrs::{
@@ -102,6 +204,7 @@ pub(crate) fn use_calendar_base_runtime(
     is_date_disabled: Option<Callback<CalendarDate, bool>>,
     is_date_unavailable: Option<Callback<CalendarDate, bool>>,
     on_placeholder_change: Option<EventHandler<CalendarDate>>,
+    on_placeholder_change_details: Option<EventHandler<ChangeEvent<CalendarDate>>>,
 ) -> CalendarBaseRuntime {
     let today = use_hook(local_today);
     let today_sig = use_signal(|| today);
@@ -146,8 +249,18 @@ pub(crate) fn use_calendar_base_runtime(
         (resolved_ph, Signal::new(months))
     });
 
-    let placeholder_ctl =
-        use_controllable_signal(placeholder_prop, initial_placeholder, on_placeholder_change);
+    let component_name = match kind {
+        CalendarKind::Calendar => "CalendarRoot",
+        CalendarKind::RangeCalendar => "RangeCalendarRoot",
+    };
+    let placeholder_ctl = use_controllable_signal_config(
+        ControllableConfig::new(placeholder_prop, initial_placeholder)
+            .with_explicit_default(default_placeholder.is_some())
+            .with_on_change(on_placeholder_change)
+            .with_on_change_details(on_placeholder_change_details)
+            .with_component(component_name)
+            .with_prop("placeholder"),
+    );
     let placeholder_sig = placeholder_ctl.signal();
     let initial_placeholder_year = initial_placeholder.year;
 
@@ -434,9 +547,15 @@ impl CalendarBaseRuntime {
         &mut self,
         next: CalendarDate,
         rebuild_if_outside: bool,
-    ) {
-        self.placeholder_ctl.set(next);
-        if !self.placeholder_ctl.is_controlled() && rebuild_if_outside {
+    ) -> bool {
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::Navigation, ChangeSource::Mouse));
+        let outcome = self.placeholder_ctl.set_with_context(next, ctx);
+        if outcome.is_canceled() {
+            cancel_current_agent_action();
+            return false;
+        }
+        if outcome.is_committed() && rebuild_if_outside {
             let in_view = self
                 .months
                 .peek()
@@ -446,6 +565,7 @@ impl CalendarBaseRuntime {
                 self.rebuild_months_from(next);
             }
         }
+        outcome.is_committed()
     }
 
     /// Unified paging transition: `sign < 0` pages backward, `sign > 0` pages forward.
@@ -468,10 +588,9 @@ impl CalendarBaseRuntime {
             .first()
             .map_or(*self.placeholder.peek(), |m| m.value);
         let new_first = first.add_months_clamped(step * sign.signum());
-        if !self.placeholder_ctl.is_controlled() {
+        if self.set_placeholder_internal(new_first, false) {
             self.rebuild_months_from(new_first);
         }
-        self.set_placeholder_internal(new_first, false);
     }
 
     pub fn prev_page(&mut self) {
@@ -714,14 +833,21 @@ impl CalendarRuntime {
                 ) else {
                     return;
                 };
-                self.value_ctl.set(update.next_value);
-                if !self.value_ctl.is_controlled() {
+                let ctx = current_change_context()
+                    .unwrap_or_else(|| ChangeContext::new(ChangeReason::Selection, ChangeSource::Mouse));
+                let outcome = self.value_ctl.set_with_context(update.next_value, ctx);
+                if outcome.is_canceled() {
+                    cancel_current_agent_action();
+                    return;
+                }
+                if outcome.is_committed() {
                     if let Some(next_ph) = update.next_placeholder {
                         self.set_placeholder(next_ph);
                     }
                     self.announcement.set(update.announcement);
                 }
-                if let Some(selected) = update.date_selected
+                if outcome.is_accepted()
+                    && let Some(selected) = update.date_selected
                     && let Some(handler) = self
                         .on_date_select
                         .try_read()
@@ -744,8 +870,14 @@ impl CalendarRuntime {
                 ) else {
                     return;
                 };
-                self.values_ctl.set(update.next_values);
-                if !self.values_ctl.is_controlled()
+                let ctx = current_change_context()
+                    .unwrap_or_else(|| ChangeContext::new(ChangeReason::Selection, ChangeSource::Mouse));
+                let outcome = self.values_ctl.set_with_context(update.next_values, ctx);
+                if outcome.is_canceled() {
+                    cancel_current_agent_action();
+                    return;
+                }
+                if outcome.is_committed()
                     && let Some(next_ph) = update.next_placeholder
                 {
                     self.set_placeholder(next_ph);

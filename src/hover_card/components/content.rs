@@ -342,6 +342,7 @@ pub(crate) fn render_hover_card_surface(spec: HoverCardSurfaceSpec) -> Element {
 
 #[component]
 pub fn HoverCardContent(props: HoverCardContentProps) -> Element {
+    let resolved_dir = crate::foundation::shared::use_direction_context(props.dir);
     render_hover_card_surface(HoverCardSurfaceSpec {
         id: props.id,
         class: props.class,
@@ -361,9 +362,9 @@ pub fn HoverCardContent(props: HoverCardContentProps) -> Element {
             sticky: Some(props.sticky),
             hide_when_detached: Some(props.hide_when_detached),
             custom_anchor: props.custom_anchor,
-            dir: props.dir,
+            dir: Some(resolved_dir),
         }),
-        dir: props.dir,
+        dir: Some(resolved_dir),
         outside_config: HoverCardOutsideConfig {
             escape_key_down_behavior: props.escape_key_down_behavior,
             interact_outside_behavior: props.interact_outside_behavior,

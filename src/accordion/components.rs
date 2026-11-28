@@ -1,10 +1,16 @@
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use dioxus::core::{AttributeValue, Event, ListenerCallback};
 use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 use crate::accordion::attrs::format_accordion_css_vars;
+use crate::agent::{
+    ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+    SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+};
 use crate::collapsible::attrs::merge_disclosure_styles;
 use crate::foundation::{
     compose::{
@@ -13,7 +19,7 @@ use crate::foundation::{
     overlay::use_presence,
     roving_focus::key_to_roving_str,
     shared::{ScopeHandle, use_direction_context, use_disclosure_size, use_stable_id},
-    state::{sync_signal, use_controllable_signal},
+    state::{ControllableConfig, sync_signal, use_controllable_signal_config},
 };
 
 use super::{
@@ -56,7 +62,13 @@ pub struct AccordionRootProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
+    #[props(default)]
     pub on_values_change: Option<EventHandler<Vec<String>>>,
+    #[props(default)]
+    pub on_values_change_details: Option<EventHandler<ChangeEvent<Vec<String>>>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(default)]
     pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(extends = GlobalAttributes)]
@@ -81,7 +93,10 @@ pub fn AccordionRoot(props: AccordionRootProps) -> Element {
         values,
         default_values,
         on_value_change,
+        on_value_change_details,
         on_values_change,
+        on_values_change_details,
+        agent,
         child,
         attributes,
         children,
@@ -91,6 +106,7 @@ pub fn AccordionRoot(props: AccordionRootProps) -> Element {
     let scope_id = use_stable_id(id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("accordion").child(scope_id);
 
+    let has_explicit_default = default_value.is_some() || default_values.is_some();
     let controlled_values = match mode {
         AccordionMode::Single { .. } => value.map(|v| {
             if v.is_empty() {
@@ -111,7 +127,47 @@ pub fn AccordionRoot(props: AccordionRootProps) -> Element {
             .or_else(|| default_value.filter(|v| !v.is_empty()).map(|v| vec![v]))
             .unwrap_or_default(),
     };
-    let active_ctl = use_controllable_signal(controlled_values, default_vals, None);
+    let combined_on_change = if on_value_change.is_some() || on_values_change.is_some() {
+        Some(EventHandler::new(move |vals: Vec<String>| {
+            if let Some(cb) = on_value_change {
+                cb.call(vals.first().cloned().unwrap_or_default());
+            }
+            if let Some(cb) = on_values_change {
+                cb.call(vals);
+            }
+        }))
+    } else {
+        None
+    };
+    let combined_on_change_details =
+        if on_value_change_details.is_some() || on_values_change_details.is_some() {
+            Some(EventHandler::new(move |ev: ChangeEvent<Vec<String>>| {
+                if let Some(cb) = on_value_change_details {
+                    let single_val = ev.value().first().cloned().unwrap_or_default();
+                    let single_ev = ChangeEvent::new(single_val, ev.to_context());
+                    cb.call(single_ev.clone());
+                    if single_ev.is_canceled() {
+                        ev.cancel();
+                    }
+                    if single_ev.is_propagation_allowed() {
+                        ev.allow_propagation();
+                    }
+                }
+                if let Some(cb) = on_values_change_details {
+                    cb.call(ev);
+                }
+            }))
+        } else {
+            None
+        };
+    let active_ctl = use_controllable_signal_config(
+        ControllableConfig::new(controlled_values, default_vals)
+            .with_explicit_default(has_explicit_default)
+            .with_on_change(combined_on_change)
+            .with_on_change_details(combined_on_change_details)
+            .with_component("AccordionRoot")
+            .with_prop("values"),
+    );
 
     let accordion = Accordion::new(scope, mode)
         .with_orientation(orientation)
@@ -132,6 +188,112 @@ pub fn AccordionRoot(props: AccordionRootProps) -> Element {
     });
 
     let attrs = runtime.root();
+    let active_now = runtime.active_values();
+    let reveals: Vec<String> = runtime
+        .roving()
+        .registry
+        .read()
+        .iter()
+        .map(|entry| entry.key().clone())
+        .filter(|k| !active_now.iter().any(|v| v == k))
+        .collect();
+    let agent_label = attrs.id().to_string();
+    let agent_rt_dispatch = runtime.clone();
+    let agent_rt_reader = runtime.clone();
+    let build_acc_snap = |vals: Vec<String>| {
+        let single = vals.first().cloned().unwrap_or_default();
+        ComponentSnapshot::new()
+            .with_field("value", SnapshotValue::text(single))
+            .with_field(
+                "values",
+                SnapshotValue::List(vals.into_iter().map(SnapshotValue::Text).collect()),
+            )
+    };
+    use_agent_surface(
+        agent.as_ref(),
+        SurfaceMetaDefaults::new().with_reveals(reveals),
+        || {
+            AgentSurface::new("accordion", agent_label)
+                .with_disabled(disabled)
+                .with_snapshot(build_acc_snap(active_now))
+                .with_actions(vec![
+                    ActionDescriptor::new("toggle", "Toggle an accordion item by value", true),
+                    ActionDescriptor::new("expand", "Expand an accordion item by value", true),
+                    ActionDescriptor::new("collapse", "Collapse an accordion item by value", true),
+                    ActionDescriptor::new("set", "Set open accordion values", true),
+                ])
+        },
+        || {
+            Rc::new(move |dispatch| match dispatch.action.as_str() {
+                "toggle" => {
+                    let Some(SnapshotValue::Text(val)) = dispatch.args.get("value") else {
+                        return DispatchExecResult::ok()
+                            .with_host_error("missing or invalid string argument 'value'");
+                    };
+                    let outcome = agent_rt_dispatch.toggle_item_with_context(val, dispatch.ctx);
+                    DispatchExecResult::ok().with_canceled(outcome.is_canceled())
+                }
+                "expand" => {
+                    let Some(SnapshotValue::Text(val)) = dispatch.args.get("value") else {
+                        return DispatchExecResult::ok()
+                            .with_host_error("missing or invalid string argument 'value'");
+                    };
+                    if agent_rt_dispatch.is_open(val) {
+                        return DispatchExecResult::ok();
+                    }
+                    let outcome = agent_rt_dispatch.toggle_item_with_context(val, dispatch.ctx);
+                    DispatchExecResult::ok().with_canceled(outcome.is_canceled())
+                }
+                "collapse" => {
+                    let Some(SnapshotValue::Text(val)) = dispatch.args.get("value") else {
+                        return DispatchExecResult::ok()
+                            .with_host_error("missing or invalid string argument 'value'");
+                    };
+                    if !agent_rt_dispatch.is_open(val) {
+                        return DispatchExecResult::ok();
+                    }
+                    let outcome = agent_rt_dispatch.toggle_item_with_context(val, dispatch.ctx);
+                    DispatchExecResult::ok().with_canceled(outcome.is_canceled())
+                }
+                "set" => {
+                    let next = if let Some(SnapshotValue::List(items)) = dispatch.args.get("values")
+                    {
+                        let mut parsed = Vec::with_capacity(items.len());
+                        for item in items {
+                            let SnapshotValue::Text(s) = item else {
+                                return DispatchExecResult::ok().with_host_error(
+                                    "all elements of 'values' must be strings",
+                                );
+                            };
+                            parsed.push(s.clone());
+                        }
+                        parsed
+                    } else if let Some(SnapshotValue::Text(s)) = dispatch.args.get("value") {
+                        if s.is_empty() {
+                            Vec::new()
+                        } else {
+                            vec![s.clone()]
+                        }
+                    } else {
+                        return DispatchExecResult::ok().with_host_error(
+                            "missing or invalid argument 'value' or 'values'",
+                        );
+                    };
+                    let expected: Vec<SnapshotValue> =
+                        next.iter().cloned().map(SnapshotValue::Text).collect();
+                    let outcome = agent_rt_dispatch.set_values_with_context(next, dispatch.ctx);
+                    let mut res = DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                    if !outcome.is_canceled() {
+                        res = res.with_expected("values", SnapshotValue::List(expected));
+                    }
+                    res
+                }
+                other => DispatchExecResult::ok()
+                    .with_host_error(format!("unknown accordion action '{other}'")),
+            })
+        },
+        || Rc::new(move || build_acc_snap(agent_rt_reader.active_values_peek())),
+    );
     let mut base = Vec::with_capacity(5);
     base.push(Attribute::new("id", attrs.id().to_string(), None, false));
     base.push(Attribute::new("dir", resolved_dir.as_str(), None, false));
@@ -482,7 +644,10 @@ pub fn AccordionTrigger(props: AccordionTriggerProps) -> Element {
                     return;
                 }
                 let click_val = item_ctx.value.peek().clone();
-                click_runtime.toggle_item(&click_val);
+                let _ = click_runtime.toggle_item_with_context(
+                    &click_val,
+                    ChangeContext::new(ChangeReason::Toggle, ChangeSource::Mouse),
+                );
             })
             .erase(),
         ),

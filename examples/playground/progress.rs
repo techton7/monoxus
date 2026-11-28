@@ -113,9 +113,10 @@ fn normalization_rules(value: Option<f64>, max: f64) -> Vec<&'static str> {
         .validation_issues()
         .iter()
         .map(|issue| match issue {
-            ProgressValidation::InvalidMax => "max <= 0 or NaN -> reset to 100",
+            ProgressValidation::InvalidMin => "non-finite min -> reset to 0",
+            ProgressValidation::InvalidMax => "max <= min or NaN -> reset to default max",
             ProgressValidation::InvalidValue => {
-                "value outside 0..=max or NaN -> normalized to indeterminate, not clamped"
+                "value outside min..=max or NaN -> normalized to indeterminate, not clamped"
             }
         })
         .collect()

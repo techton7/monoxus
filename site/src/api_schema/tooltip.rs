@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
-    PROP_FLOATING_CHILD, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
+    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD,
+    PROP_CLASS, PROP_FLOATING_CHILD, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
 pub(super) const TOOLTIP_DOC: ComponentDoc = ComponentDoc {
@@ -44,12 +44,15 @@ pub(super) const TOOLTIP_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "open", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Controlled open state value." },
                 PropDoc { name: "default_open", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Initial open state when uncontrolled." },
                 PropDoc { name: "on_open_change", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called when open state changes." },
+                PropDoc { name: "on_open_change_details", type_simple: "EventHandler<ChangeEvent<bool>>", type_full: "Option<EventHandler<ChangeEvent<bool>>>", default: None, required: false, group: PropGroup::Core, description: "Called with full ChangeEvent details (reason, source, cancelation) when open state changes." },
                 PropDoc { name: "on_open_change_complete", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called after open/close presence transitions complete." },
                 PropDoc { name: "delay_duration", type_simple: "u64", type_full: "Option<u64>", default: None, required: false, group: PropGroup::Core, description: "Overrides TooltipProvider delay_duration while preserving shared skip-delay coordination." },
                 PropDoc { name: "skip_delay_duration", type_simple: "u64", type_full: "Option<u64>", default: None, required: false, group: PropGroup::Core, description: "Overrides TooltipProvider skip_delay_duration while preserving shared skip-delay coordination." },
                 PropDoc { name: "disable_hoverable_content", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Overrides TooltipProvider disable_hoverable_content for this tooltip." },
                 PropDoc { name: "close_on_trigger_click", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Overrides TooltipProvider close_on_trigger_click for this tooltip." },
                 PropDoc { name: "ignore_non_keyboard_focus", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Overrides TooltipProvider ignore_non_keyboard_focus for this tooltip." },
+                PropDoc { name: "handle", type_simple: "TooltipHandleProp", type_full: "monoxus::foundation::overlay::TooltipHandleProp", default: None, required: false, group: PropGroup::Core, description: "Optional detached overlay handle connecting external triggers or imperative open/close control." },
+                PROP_AGENT,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "TooltipTrigger and TooltipPortal children." },
             ],
             data_attrs: &[],
@@ -63,6 +66,8 @@ pub(super) const TOOLTIP_DOC: ComponentDoc = ComponentDoc {
                 PROP_CLASS,
                 PROP_STYLE,
                 PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Disables the trigger button." },
+                PropDoc { name: "handle", type_simple: "TooltipHandleProp", type_full: "monoxus::foundation::overlay::TooltipHandleProp", default: None, required: false, group: PropGroup::Core, description: "Optional detached overlay handle for driving a TooltipRoot outside its subtree." },
+                PropDoc { name: "payload", type_simple: "OverlayPayload", type_full: "Option<monoxus::foundation::overlay::OverlayPayload>", default: None, required: false, group: PropGroup::Core, description: "Optional payload attached to the handle when this trigger opens the tooltip." },
                 PROP_CHILD,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "Trigger content." },

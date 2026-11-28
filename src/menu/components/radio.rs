@@ -1,11 +1,12 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::ChangeEvent;
 
 use crate::foundation::{
     compose::{collect_user_attrs, merge_props, push_attr_opt},
     shared::use_stable_id,
-    state::{sync_signal, use_controllable_signal},
+    state::{ControllableConfig, sync_signal, use_controllable_signal_config},
 };
 use crate::menu::{
     CheckedState, MenuGroupAttributes, MenuIndicatorContext, MenuItemKind, MenuPart,
@@ -29,6 +30,8 @@ pub struct MenuRadioGroupProps {
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
+    #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
     #[props(default, into)]
     pub aria_labelledby: Option<String>,
     #[props(default)]
@@ -43,10 +46,14 @@ pub struct MenuRadioGroupProps {
 pub fn MenuRadioGroup(props: MenuRadioGroupProps) -> Element {
     let root = use_context::<MenuRootContext>();
     let id = use_stable_id(props.id.map(Into::into)).into_owned();
-    let value_state = use_controllable_signal(
-        props.value,
-        props.default_value.unwrap_or_default(),
-        props.on_value_change,
+    let has_explicit_default = props.default_value.is_some();
+    let value_state = use_controllable_signal_config(
+        ControllableConfig::new(props.value, props.default_value.unwrap_or_default())
+            .with_explicit_default(has_explicit_default)
+            .with_on_change(props.on_value_change)
+            .with_on_change_details(props.on_value_change_details)
+            .with_component("MenuRadioGroup")
+            .with_prop("value"),
     );
 
     use_context_provider(|| MenuRadioGroupContext {

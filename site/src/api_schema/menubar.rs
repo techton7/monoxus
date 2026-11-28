@@ -1,5 +1,5 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
     PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
     shared_menu::menu_parts_slice,
 };
@@ -34,10 +34,12 @@ pub(super) const MENUBAR_DOC: ComponentDoc = ComponentDoc {
                     PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Controlled active menu value (empty string when all menus are closed)." },
                     PropDoc { name: "default_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial active menu value when uncontrolled." },
                     PropDoc { name: "on_value_change", type_simple: "EventHandler<String>", type_full: "Option<EventHandler<String>>", default: None, required: false, group: PropGroup::Core, description: "Called when the active top-level menu value changes." },
+                    PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<String>>", type_full: "Option<EventHandler<ChangeEvent<String>>>", default: None, required: false, group: PropGroup::Core, description: "Called with full ChangeEvent details (reason, source, cancelation) when the active top-level menu value changes." },
                     PropDoc { name: "dir", type_simple: "Direction", type_full: "Option<Direction>", default: None, required: false, group: PropGroup::Core, description: "Reading direction (Ltr | Rtl) inherited from DirectionProvider when omitted." },
                     PropDoc { name: "loop_focus", type_simple: "bool", type_full: "bool", default: Some("true"), required: false, group: PropGroup::Core, description: "Wraps horizontal trigger and vertical menu keyboard navigation." },
                     PropDoc { name: "submenu_open_delay_ms", type_simple: "u64", type_full: "Option<u64>", default: Some("100"), required: false, group: PropGroup::Core, description: "Default hover delay in milliseconds before nested submenus open." },
                     PROP_CHILD,
+                    PROP_AGENT,
                     PROP_ATTRIBUTES,
                     PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "MenubarMenu slots." },
                 ],
@@ -51,6 +53,7 @@ pub(super) const MENUBAR_DOC: ComponentDoc = ComponentDoc {
                 description: "Non-DOM named menu slot owned by MenubarRoot.",
                 props: &[
                     PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Unique menu identifier; auto-generated when omitted." },
+                    PropDoc { name: "on_open_change_details", type_simple: "EventHandler<ChangeEvent<bool>>", type_full: "Option<EventHandler<ChangeEvent<bool>>>", default: None, required: false, group: PropGroup::Core, description: "Called with full ChangeEvent details (reason, source, cancelation) when this menu's open state changes." },
                     PropDoc { name: "on_open_change_complete", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called after this menu's open/close presence transitions complete." },
                     PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "MenubarTrigger and MenubarPortal children." },
                 ],

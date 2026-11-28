@@ -1,7 +1,13 @@
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
+use crate::agent::{
+    ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+    SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+};
 use crate::field::try_use_field_context;
 use crate::foundation::{
     browser::focus::use_composite_focus_out,
@@ -15,7 +21,7 @@ use crate::foundation::{
     overlay::use_presence,
     roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-    state::{sync_signal, use_controllable_signal},
+    state::{ControllableConfig, sync_signal, use_controllable_signal_config},
 };
 
 use super::{
@@ -81,6 +87,10 @@ pub struct RadioGroupRootProps {
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
+    #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default = false)]
@@ -149,7 +159,37 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
     let default_val = props.default_value.clone().filter(|v| !v.is_empty());
     let prev_controlled_val = use_hook(|| CopyValue::new(controlled_val.clone()));
 
-    let value_ctl = use_controllable_signal(controlled_val.clone(), default_val.clone(), None);
+    let on_value_change_opt = props.on_value_change.map(|cb| {
+        EventHandler::new(move |val: Option<String>| {
+            if let Some(v) = val
+                && !v.is_empty()
+            {
+                cb.call(v);
+            }
+        })
+    });
+    let on_value_change_details_opt = props.on_value_change_details.map(|cb| {
+        EventHandler::new(move |ev: ChangeEvent<Option<String>>| {
+            let str_val = ev.value().clone().unwrap_or_default();
+            let child_ev = ChangeEvent::new(str_val, ev.to_context());
+            cb.call(child_ev.clone());
+            if child_ev.is_canceled() {
+                ev.cancel();
+            }
+            if child_ev.is_propagation_allowed() {
+                ev.allow_propagation();
+            }
+        })
+    });
+
+    let value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(controlled_val.clone(), default_val.clone())
+            .with_explicit_default(props.default_value.is_some())
+            .with_on_change(on_value_change_opt)
+            .with_on_change_details(on_value_change_details_opt)
+            .with_component("RadioGroupRoot")
+            .with_prop("value"),
+    );
     let initial_val_for_reset = use_hook(|| {
         controlled_val
             .clone()
@@ -201,6 +241,79 @@ pub fn RadioGroupRoot(props: RadioGroupRootProps) -> Element {
     use_context_provider(|| RadioGroupContext {
         runtime: runtime.clone(),
     });
+
+    let agent_label = effective_name
+        .clone()
+        .unwrap_or_else(|| resolved_id.clone());
+    let agent_rt_dispatch = runtime.clone();
+    let agent_rt_reader = runtime.clone();
+    use_agent_surface(
+        props.agent.as_ref(),
+        SurfaceMetaDefaults::new(),
+        || {
+            let cur_val = runtime.value.peek().clone();
+            let mut snap = ComponentSnapshot::new().with_field(
+                "value",
+                cur_val.map_or(SnapshotValue::Null, SnapshotValue::Text),
+            );
+            if effective_read_only {
+                snap = snap.with_field("read_only", SnapshotValue::Bool(true));
+            }
+            let actions = if effective_read_only {
+                Vec::new()
+            } else {
+                vec![
+                    ActionDescriptor::new("select", "Select a radio option by value", true),
+                    ActionDescriptor::new("set", "Set radio group value", true),
+                ]
+            };
+            AgentSurface::new("radio-group", agent_label)
+                .with_disabled(effective_disabled)
+                .with_snapshot(snap)
+                .with_actions(actions)
+        },
+        || {
+            Rc::new(move |dispatch| {
+                if effective_read_only {
+                    return DispatchExecResult::ok().with_host_error("radio-group is read-only");
+                }
+                match dispatch.action.as_str() {
+                    "select" | "set" => {
+                        let Some(SnapshotValue::Text(val)) = dispatch.args.get("value") else {
+                            return DispatchExecResult::ok()
+                                .with_host_error("missing or invalid string argument 'value'");
+                        };
+                        if val.is_empty() {
+                            return DispatchExecResult::ok()
+                                .with_host_error("argument 'value' must be non-empty");
+                        }
+                        let outcome = agent_rt_dispatch.check_item_with_context(val, dispatch.ctx);
+                        let mut res =
+                            DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                        if !outcome.is_canceled() {
+                            res = res.with_expected("value", SnapshotValue::text(val.clone()));
+                        }
+                        res
+                    }
+                    other => DispatchExecResult::ok()
+                        .with_host_error(format!("unknown radio-group action '{other}'")),
+                }
+            })
+        },
+        || {
+            Rc::new(move || {
+                let cur_val = agent_rt_reader.value_ctl.try_peek_cloned().flatten();
+                let mut snap = ComponentSnapshot::new().with_field(
+                    "value",
+                    cur_val.map_or(SnapshotValue::Null, SnapshotValue::Text),
+                );
+                if effective_read_only {
+                    snap = snap.with_field("read_only", SnapshotValue::Bool(true));
+                }
+                snap
+            })
+        },
+    );
 
     let (handle_focus_in, handle_focus_out) =
         use_composite_focus_out(vec![resolved_id.clone()], props.on_focus_out);
@@ -371,7 +484,10 @@ pub fn RadioGroupItem(props: RadioGroupItemProps) -> Element {
             "onclick",
             Some(EventHandler::new(move |_evt: MouseEvent| {
                 if !effective_disabled && !effective_read_only {
-                    runtime.check_item(&val);
+                    runtime.check_item_with_context(
+                        &val,
+                        ChangeContext::new(ChangeReason::Selection, ChangeSource::Mouse),
+                    );
                 }
             })),
         );
@@ -395,7 +511,10 @@ pub fn RadioGroupItem(props: RadioGroupItemProps) -> Element {
                 let on_focused = if !effective_read_only {
                     let rt = runtime.clone();
                     Some(move |next_key: &str| {
-                        rt.check_item(next_key);
+                        rt.check_item_with_context(
+                            next_key,
+                            ChangeContext::new(ChangeReason::Navigation, ChangeSource::Keyboard),
+                        );
                     })
                 } else {
                     None

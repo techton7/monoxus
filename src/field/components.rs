@@ -1,13 +1,19 @@
-use std::borrow::Cow;
+use std::{borrow::Cow, rc::Rc};
 
 use dioxus::core::{DynamicNode, VNode, VNodeChild};
 use dioxus::prelude::*;
 use ui_sdk::label::LABEL_INTERACTIVE_TARGET_SELECTOR;
 
-use crate::foundation::{
-    compose::{ChildProps, collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
-    shared::use_stable_id,
-    state::sync_signal,
+use crate::{
+    agent::{
+        AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult, SnapshotValue,
+        SurfaceMetaDefaults, use_agent_surface,
+    },
+    foundation::{
+        compose::{ChildProps, collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
+        shared::use_stable_id,
+        state::sync_signal,
+    },
 };
 
 use super::{
@@ -83,6 +89,7 @@ fn use_field_provider(
     let mounted_legend = use_signal(Vec::<(RegistrationToken, String)>::new);
     let mounted_descriptions = use_signal(Vec::<(RegistrationToken, String)>::new);
     let mounted_errors = use_signal(Vec::<(RegistrationToken, FieldErrorRegistration)>::new);
+    let mounted_error_messages = use_signal(Vec::<(RegistrationToken, Vec<String>)>::new);
     let next_control_index = use_hook(|| CopyValue::new(0_usize));
 
     let ctx = FieldContext {
@@ -99,6 +106,7 @@ fn use_field_provider(
         mounted_legend,
         mounted_descriptions,
         mounted_errors,
+        mounted_error_messages,
         next_control_index,
     };
 
@@ -174,6 +182,8 @@ pub struct FieldRootProps {
     pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -193,6 +203,77 @@ pub fn FieldRoot(props: FieldRootProps) -> Element {
         props.read_only,
         props.orientation,
         false,
+    );
+
+    let field_invalid = ctx.is_invalid();
+    let field_errors = ctx.active_error_messages();
+    let has_active_error = field_invalid || !field_errors.is_empty();
+    let effective_agent_hints = if !has_active_error {
+        let mut h = props.agent.clone().unwrap_or_default();
+        h.hidden = true;
+        Some(h)
+    } else {
+        props.agent.clone()
+    };
+
+    let build_field_snapshot = |invalid: bool, errors: &[String]| -> ComponentSnapshot {
+        let mut snap = ComponentSnapshot::new()
+            .with_field("invalid", SnapshotValue::Bool(invalid))
+            .with_field(
+                "errors",
+                SnapshotValue::List(
+                    errors
+                        .iter()
+                        .cloned()
+                        .map(SnapshotValue::Text)
+                        .collect(),
+                ),
+            );
+        if !errors.is_empty() {
+            snap = snap.with_error(errors.join("; "));
+        } else if invalid {
+            snap = snap.with_error("Invalid field");
+        }
+        snap
+    };
+
+    use_agent_surface(
+        effective_agent_hints.as_ref(),
+        SurfaceMetaDefaults::default(),
+        || {
+            let label = props
+                .name
+                .clone()
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| String::from("Field"));
+            AgentSurface::new("field", label)
+                .with_disabled(props.disabled)
+                .with_snapshot(build_field_snapshot(field_invalid, &field_errors))
+        },
+        || Rc::new(|_| DispatchExecResult::ok().with_host_error("field is read-only")),
+        || {
+            let ctx_reader = ctx;
+            Rc::new(move || {
+                let inv = ctx_reader
+                    .invalid
+                    .try_peek()
+                    .map(|g| *g)
+                    .unwrap_or(false);
+                let errs = ctx_reader.peek_active_error_messages();
+                let mut snap = ComponentSnapshot::new()
+                    .with_field("invalid", SnapshotValue::Bool(inv))
+                    .with_field(
+                        "errors",
+                        SnapshotValue::List(errs.iter().cloned().map(SnapshotValue::Text).collect()),
+                    );
+                if !errs.is_empty() {
+                    snap = snap.with_error(errs.join("; "));
+                } else if inv {
+                    snap = snap.with_error("Invalid field");
+                }
+                snap
+            })
+        },
     );
 
     let def = ctx.definition();
@@ -793,14 +874,21 @@ pub fn FieldError(props: FieldErrorProps) -> Element {
     if let Some(ctx) = field_ctx {
         if should_render {
             ctx.register_error(token, error_id.clone(), active);
+            if active && !unique_errors.is_empty() {
+                ctx.register_error_messages(token, unique_errors.clone());
+            } else {
+                ctx.unregister_error_messages(token);
+            }
         } else {
             ctx.unregister_error(token);
+            ctx.unregister_error_messages(token);
         }
     }
 
     use_drop(move || {
         if let Some(ctx) = field_ctx {
             ctx.unregister_error(token);
+            ctx.unregister_error_messages(token);
         }
     });
 

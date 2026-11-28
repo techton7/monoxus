@@ -3,11 +3,15 @@ use std::rc::Rc;
 
 use dioxus::prelude::keyboard_types::Key;
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 use crate::foundation::{
     browser::{FocusOptions, focus_element_sync_or_defer, get_element_client_rect},
     keyboard::{NavKey, translate_nav_key},
-    state::{ControllableSignal, sync_f64_signal, sync_signal, use_controllable_signal_by},
+    state::{
+        ChangeOutcome, ControllableConfig, ControllableSignal, sync_f64_signal, sync_signal,
+        use_controllable_signal_config,
+    },
 };
 
 use super::{
@@ -183,12 +187,20 @@ impl RatingGroupRuntime {
 
     /// Commits a new rating value if enabled/editable and distinct from current value.
     pub fn set_value(&mut self, next: f64) {
+        let _ = self.set_value_with_context(
+            next,
+            ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Programmatic),
+        );
+    }
+
+    /// Commits a new rating value with explicit [`ChangeContext`].
+    pub fn set_value_with_context(&mut self, next: f64, ctx: ChangeContext) -> ChangeOutcome {
         let def = self.def.peek().clone();
         if def.disabled || def.read_only {
-            return;
+            return ChangeOutcome::Unchanged;
         }
         let clamped = clamp_rating_value(next, def.min, def.max);
-        self.value_ctl.set_by(clamped, f64_bits_eq);
+        self.value_ctl.set_by_with_context(clamped, ctx, f64_bits_eq)
     }
 
     /// Updates hover preview value without modifying committed value or emitting `on_value_change`.
@@ -215,7 +227,11 @@ impl RatingGroupRuntime {
         self.clear_hover_value();
         self.cancel_decimal_timer();
         sync_signal(&mut self.key_sequence, RatingGroupKeySequence::Idle);
-        self.value_ctl.set_by(clamped, f64_bits_eq);
+        self.value_ctl.set_by_with_context(
+            clamped,
+            ChangeContext::new(ChangeReason::Reset, ChangeSource::Programmatic),
+            f64_bits_eq,
+        );
     }
 
     /// Dispatches a translated keyboard intent; returns `true` if `prevent_default` should run.
@@ -236,7 +252,10 @@ impl RatingGroupRuntime {
             self.start_decimal_timer();
         }
         if let Some(next_value) = outcome.next_value {
-            self.set_value(next_value);
+            let _ = self.set_value_with_context(
+                next_value,
+                ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Keyboard),
+            );
         }
 
         outcome.prevent_default
@@ -289,7 +308,10 @@ impl RatingGroupRuntime {
         let calculated = self.compute_pointer_rating(index, client_x, client_y, item_dom_id);
         let next =
             resolve_item_click_value(index, *self.value.peek(), def.min, def.max, calculated);
-        self.set_value(next);
+        let _ = self.set_value_with_context(
+            next,
+            ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Mouse),
+        );
 
         if dioxus::core::Runtime::try_current().is_some() {
             let root_dom_id = self.root_dom_id.peek().clone();
@@ -334,14 +356,50 @@ pub fn use_rating_group_runtime(
     aria_labelledby: Option<String>,
     aria_valuetext: Option<RatingGroupAriaValuetext>,
 ) -> RatingGroupRuntime {
+    let default_opt = if default_value.to_bits() == 0.0_f64.to_bits() {
+        None
+    } else {
+        Some(default_value)
+    };
+    use_rating_group_runtime_with_details(
+        def,
+        rels,
+        root_dom_id,
+        value,
+        default_opt,
+        on_value_change,
+        None,
+        aria_label,
+        aria_labelledby,
+        aria_valuetext,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn use_rating_group_runtime_with_details(
+    def: RatingGroupDefinition,
+    rels: RatingGroupRelationships,
+    root_dom_id: String,
+    value: Option<f64>,
+    default_value: Option<f64>,
+    on_value_change: Option<EventHandler<f64>>,
+    on_value_change_details: Option<EventHandler<ChangeEvent<f64>>>,
+    aria_label: Option<String>,
+    aria_labelledby: Option<String>,
+    aria_valuetext: Option<RatingGroupAriaValuetext>,
+) -> RatingGroupRuntime {
     let min = def.min;
     let max = def.max;
-    let value_ctl = use_controllable_signal_by(
-        value,
-        default_value,
-        on_value_change,
-        move |v| clamp_rating_value(v, min, max),
-        f64_bits_eq,
+    let has_explicit_default = default_value.is_some();
+    let value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(value, default_value.unwrap_or(0.0))
+            .with_explicit_default(has_explicit_default)
+            .with_on_change(on_value_change)
+            .with_on_change_details(on_value_change_details)
+            .with_sanitize(move |v| clamp_rating_value(v, min, max))
+            .with_eq(f64_bits_eq)
+            .with_component("RatingGroupRoot")
+            .with_prop("value"),
     );
 
     if !value_ctl.is_controlled() {

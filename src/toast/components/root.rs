@@ -4,7 +4,11 @@ use std::rc::Rc;
 use dioxus::core::{AttributeValue, Event, ListenerCallback};
 use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
+use ui_sdk::agent::{
+    ActionDescriptor, ActionDispatch, AgentHints, AgentSurface, ComponentSnapshot, SnapshotValue,
+};
 
+use crate::agent::{DispatchExecResult, SurfaceMetaDefaults, use_agent_surface};
 use crate::foundation::{
     browser::{try_release_pointer_capture, try_set_pointer_capture},
     compose::{collect_user_attrs, merge_props, push_attr_opt},
@@ -84,6 +88,8 @@ pub struct ToastRootProps {
     pub style: Option<String>,
     #[props(default)]
     pub child: Option<Callback<Vec<Attribute>, Element>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -106,6 +112,7 @@ pub(crate) struct ToastRootSpec {
     pub computed_style: Option<ToastComputedStyle>,
     pub content_generation: u64,
     pub child: Option<Callback<Vec<Attribute>, Element>>,
+    pub agent: Option<AgentHints>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
 }
@@ -155,6 +162,7 @@ pub(crate) fn ManagedToastRoot(props: ManagedToastRootProps) -> Element {
         computed_style: props.computed_style,
         content_generation: props.content_generation,
         child: None,
+        agent: None,
         attributes: Vec::new(),
         children: props.children,
     })
@@ -179,6 +187,7 @@ pub fn ToastRoot(props: ToastRootProps) -> Element {
         computed_style: None,
         content_generation: 0,
         child: props.child,
+        agent: props.agent,
         attributes: props.attributes,
         children: props.children,
     })
@@ -201,6 +210,70 @@ pub(crate) fn render_toast_root(spec: ToastRootSpec) -> Element {
         position,
     )
     .with_dismissible(effective_dismissible);
+
+    let agent_toast_id = spec.id;
+    let is_closed = matches!(spec.phase, ToastPhase::Dismissing);
+    let mut effective_hints = spec.agent.clone().unwrap_or_default();
+    if is_closed {
+        effective_hints.hidden = true;
+    }
+    let build_toast_snapshot = move || {
+        let store = TOAST_STORE.peek();
+        let paused = store.paused;
+        let title = store
+            .toasts
+            .iter()
+            .find(|t| t.id == agent_toast_id)
+            .map(|t| t.title.clone());
+        let mut snap = ComponentSnapshot::new()
+            .with_field("open", SnapshotValue::Bool(!is_closed))
+            .with_field("paused", SnapshotValue::Bool(paused))
+            .with_field("dismissible", SnapshotValue::Bool(effective_dismissible));
+        if let Some(t) = title {
+            snap = snap.with_text(t);
+        }
+        snap
+    };
+    let reader_snap = build_toast_snapshot;
+    use_agent_surface(
+        Some(&effective_hints),
+        SurfaceMetaDefaults::new(),
+        move || {
+            let mut actions = vec![ActionDescriptor::new(
+                "pause",
+                "Pause toast auto-dismiss timer",
+                false,
+            )];
+            if effective_dismissible {
+                actions.insert(
+                    0,
+                    ActionDescriptor::new("dismiss", "Dismiss this toast", false),
+                );
+            }
+            AgentSurface::new("toast", "Toast")
+                .with_snapshot(build_toast_snapshot())
+                .with_actions(actions)
+        },
+        move || {
+            Rc::new(move |dispatch: &ActionDispatch| match dispatch.action.as_str() {
+                "dismiss" => {
+                    if !effective_dismissible {
+                        return DispatchExecResult::ok()
+                            .with_host_error("toast is not dismissible");
+                    }
+                    toast::dismiss(Some(agent_toast_id));
+                    DispatchExecResult::ok()
+                }
+                "pause" => {
+                    TOAST_STORE.write().pause_all();
+                    DispatchExecResult::ok()
+                }
+                other => DispatchExecResult::ok()
+                    .with_host_error(format!("unsupported toast action: {other}")),
+            })
+        },
+        move || Rc::new(reader_snap),
+    );
 
     let mut is_mounted = use_signal(|| false);
     let swipe_delta_x = use_signal(|| 0.0f64);

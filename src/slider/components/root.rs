@@ -1,5 +1,12 @@
-use dioxus::prelude::*;
+use std::rc::Rc;
 
+use dioxus::prelude::*;
+use ui_sdk::kernel::ChangeEvent;
+
+use crate::agent::{
+    ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+    SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+};
 use crate::field::try_use_field_context;
 use crate::foundation::{
     browser::{
@@ -20,7 +27,9 @@ use crate::foundation::{
 
 use crate::slider::{
     relationships::SliderRelationships,
-    runtime::{SliderContext, SliderFieldState, find_closest_thumb, use_slider_runtime},
+    runtime::{
+        SliderContext, SliderFieldState, find_closest_thumb, use_slider_runtime_with_details,
+    },
     state::{SliderDefinition, percent_to_value},
     types::{Direction, Orientation, SliderThumbAlignment, SliderThumbOrderPolicy, SliderValue},
 };
@@ -37,7 +46,11 @@ pub struct SliderRootProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<SliderValue>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<SliderValue>>>,
+    #[props(default)]
     pub on_value_commit: Option<EventHandler<SliderValue>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(default = 0.0)]
     pub min: f64,
     #[props(default = 100.0)]
@@ -131,13 +144,14 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
         .with_inverted(props.inverted)
         .with_disabled(effective_disabled);
 
-    let runtime = use_slider_runtime(
+    let runtime = use_slider_runtime_with_details(
         def,
         rels,
         props.value.clone(),
         props.default_value.clone(),
         props.dir,
         props.on_value_change,
+        props.on_value_change_details,
         props.on_value_commit,
     );
 
@@ -186,6 +200,99 @@ pub fn SliderRoot(props: SliderRootProps) -> Element {
         invalid_override: inv_override_sig,
         aria_describedby: desc_sig,
     });
+
+    let agent_label = effective_name
+        .clone()
+        .unwrap_or_else(|| dom_root_id.clone());
+    let agent_rt_surface = runtime.clone();
+    let agent_rt_dispatch = runtime.clone();
+    let agent_rt_reader = runtime.clone();
+    let build_slider_snap = |rt: &crate::slider::runtime::SliderRuntime| {
+        let def = rt.def.peek().clone();
+        let vals = rt.values.peek().clone();
+        let val_field = if *rt.is_single.peek() {
+            SnapshotValue::Float(vals.first().copied().unwrap_or(def.min))
+        } else {
+            SnapshotValue::List(vals.into_iter().map(SnapshotValue::Float).collect())
+        };
+        ComponentSnapshot::new()
+            .with_field("value", val_field)
+            .with_field("min", SnapshotValue::Float(def.min))
+            .with_field("max", SnapshotValue::Float(def.max))
+            .with_field("step", SnapshotValue::Float(def.step))
+    };
+    use_agent_surface(
+        props.agent.as_ref(),
+        SurfaceMetaDefaults::new(),
+        || {
+            AgentSurface::new("slider", agent_label)
+                .with_disabled(effective_disabled)
+                .with_snapshot(build_slider_snap(&agent_rt_surface))
+                .with_actions(vec![ActionDescriptor::new(
+                    "set",
+                    "Set slider value (clamps/snaps and commits)",
+                    true,
+                )])
+        },
+        || {
+            Rc::new(move |dispatch| {
+                let mut rt = agent_rt_dispatch.clone();
+                match dispatch.action.as_str() {
+                    "set" => {
+                        let arg = dispatch
+                            .args
+                            .get("value")
+                            .or_else(|| dispatch.args.get("values"));
+                        let requested = match arg {
+                            Some(SnapshotValue::Float(v)) if v.is_finite() => vec![*v],
+                            Some(SnapshotValue::Int(n)) => vec![*n as f64],
+                            Some(SnapshotValue::List(items)) if !items.is_empty() => {
+                                let mut parsed = Vec::with_capacity(items.len());
+                                for item in items {
+                                    match item {
+                                        SnapshotValue::Float(v) if v.is_finite() => {
+                                            parsed.push(*v)
+                                        }
+                                        SnapshotValue::Int(n) => parsed.push(*n as f64),
+                                        _ => {
+                                            return DispatchExecResult::ok().with_host_error(
+                                                "all elements of 'value' must be finite numbers",
+                                            );
+                                        }
+                                    }
+                                }
+                                parsed
+                            }
+                            _ => {
+                                return DispatchExecResult::ok().with_host_error(
+                                    "missing or invalid numeric argument 'value'",
+                                );
+                            }
+                        };
+                        let (outcome, snapped) = rt.set_from_agent(requested, dispatch.ctx);
+                        let mut res =
+                            DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                        if !outcome.is_canceled() {
+                            let expected = if *rt.is_single.peek() {
+                                SnapshotValue::Float(
+                                    snapped.first().copied().unwrap_or(rt.def.peek().min),
+                                )
+                            } else {
+                                SnapshotValue::List(
+                                    snapped.into_iter().map(SnapshotValue::Float).collect(),
+                                )
+                            };
+                            res = res.with_expected("value", expected);
+                        }
+                        res
+                    }
+                    other => DispatchExecResult::ok()
+                        .with_host_error(format!("unknown slider action '{other}'")),
+                }
+            })
+        },
+        || Rc::new(move || build_slider_snap(&agent_rt_reader)),
+    );
 
     let (handle_focus_in, handle_focus_out) =
         use_composite_focus_out(vec![dom_root_id.clone()], props.on_focus_out);

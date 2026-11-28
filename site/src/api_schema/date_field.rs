@@ -1,5 +1,5 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
     PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
@@ -28,13 +28,15 @@ pub(super) const DATE_FIELD_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "Option<DateValue>", type_full: "Option<Option<DateValue>>", default: None, required: false, group: PropGroup::Core, description: "Controlled date or date-time value." },
                 PropDoc { name: "default_value", type_simple: "DateValue", type_full: "Option<DateValue>", default: None, required: false, group: PropGroup::Core, description: "Initial value when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<Option<DateValue>>", type_full: "Option<EventHandler<Option<DateValue>>>", default: None, required: false, group: PropGroup::Core, description: "Called when a complete value is committed or cleared." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<Option<DateValue>>>", type_full: "Option<EventHandler<ChangeEvent<Option<DateValue>>>>", default: None, required: false, group: PropGroup::Core, description: "Called with ChangeEvent metadata (value, origin, reason) when a complete value is committed or cleared." },
                 PropDoc { name: "placeholder", type_simple: "DateValue", type_full: "Option<DateValue>", default: None, required: false, group: PropGroup::Core, description: "Controlled reference placeholder used when stepping empty segments." },
                 PropDoc { name: "default_placeholder", type_simple: "DateValue", type_full: "Option<DateValue>", default: None, required: false, group: PropGroup::Core, description: "Initial placeholder date when uncontrolled." },
                 PropDoc { name: "on_placeholder_change", type_simple: "EventHandler<DateValue>", type_full: "Option<EventHandler<DateValue>>", default: None, required: false, group: PropGroup::Core, description: "Called when the placeholder value changes." },
+                PropDoc { name: "on_placeholder_change_details", type_simple: "EventHandler<ChangeEvent<DateValue>>", type_full: "Option<EventHandler<ChangeEvent<DateValue>>>", default: None, required: false, group: PropGroup::Core, description: "Called with ChangeEvent metadata (value, origin, reason) when the placeholder value changes." },
                 PropDoc { name: "on_focus_out", type_simple: "EventHandler<FocusEvent>", type_full: "Option<EventHandler<FocusEvent>>", default: None, required: false, group: PropGroup::Core, description: "Called when focus leaves the composite field input." },
                 PropDoc { name: "granularity", type_simple: "Granularity", type_full: "Option<Granularity>", default: None, required: false, group: PropGroup::Core, description: "Explicit segment precision (Day, Hour, Minute, Second); inferred from value/placeholder when None." },
                 PropDoc { name: "hour_cycle", type_simple: "HourCycle", type_full: "Option<HourCycle>", default: None, required: false, group: PropGroup::Core, description: "12-hour or 24-hour clock override for time segments." },
-                PropDoc { name: "locale", type_simple: "CalendarLocale", type_full: "CalendarLocale", default: Some("CalendarLocale::EnUs"), required: false, group: PropGroup::Core, description: "Locale determining segment order, separators, and announcements." },
+                PropDoc { name: "locale", type_simple: "CalendarLocale", type_full: "Option<CalendarLocale>", default: None, required: false, group: PropGroup::Core, description: "Locale determining segment order, separators, and announcements; inherits from <MonoxusConfig default_locale> when None (falling back to CalendarLocale::EnUs)." },
                 PropDoc { name: "hide_time_zone", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Hides the time-zone literal segment when present." },
                 PropDoc { name: "min_value", type_simple: "DateValue", type_full: "Option<DateValue>", default: None, required: false, group: PropGroup::Core, description: "Minimum valid date/date-time (inclusive)." },
                 PropDoc { name: "max_value", type_simple: "DateValue", type_full: "Option<DateValue>", default: None, required: false, group: PropGroup::Core, description: "Maximum valid date/date-time (inclusive)." },
@@ -47,6 +49,7 @@ pub(super) const DATE_FIELD_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "on_invalid", type_simple: "EventHandler<FieldInvalidEvent>", type_full: "Option<EventHandler<FieldInvalidEvent>>", default: None, required: false, group: PropGroup::Core, description: "Called when validation transitions to an invalid reason." },
                 PropDoc { name: "error_message_id", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::HtmlAria, description: "Element ID of an external error message linked via aria-describedby when invalid." },
                 PropDoc { name: "dir", type_simple: "Direction", type_full: "Option<Direction>", default: None, required: false, group: PropGroup::Core, description: "Reading direction override (Ltr or Rtl)." },
+                PROP_AGENT,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "DateFieldLabel and DateFieldInput children." },
             ],
             data_attrs: &[],

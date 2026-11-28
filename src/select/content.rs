@@ -189,9 +189,7 @@ pub(crate) fn render_select_surface(spec: SelectSurfaceSpec) -> Element {
                 return;
             }
             if let Some(dismiss_handle) = kd_runtime.state.dismiss {
-                if dismiss_handle.handle_keydown(&evt) {
-                    evt.prevent_default();
-                }
+                let _ = dismiss_handle.handle_keydown(&evt);
                 return;
             }
             if is_overlay_escape_consumed() || !is_topmost_overlay_layer(&kd_cid) {

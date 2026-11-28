@@ -85,6 +85,8 @@ mod roving_focus_test;
 mod scroll_area_test;
 mod separator_test;
 mod slider_test;
+mod stage2_change_agent_diag_test;
+mod stage2_handles_config_ux_test;
 mod switch_test;
 mod time_field_test;
 mod time_range_field_test;
@@ -168,6 +170,8 @@ fn all_test_files_are_included() {
         "scroll_area_test.rs",
         "separator_test.rs",
         "slider_test.rs",
+        "stage2_change_agent_diag_test.rs",
+        "stage2_handles_config_ux_test.rs",
         "switch_test.rs",
         "time_field_test.rs",
         "time_range_field_test.rs",
@@ -302,7 +306,8 @@ fn all_primitives_have_gui_test_manifests() {
             let path = entry.path();
             let name: PathBuf = entry.file_name().into();
             if path.is_dir() {
-                if name == Path::new("compat")
+                if name == Path::new("agent")
+                    || name == Path::new("compat")
                     || name == Path::new("foundation")
                     || name == Path::new("menu")
                 {

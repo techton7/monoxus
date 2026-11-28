@@ -562,6 +562,15 @@ pub(super) const MENU_CHECKBOX_GROUP_PROPS: &[PropDoc] = &[
         description: "Called when the selected values vector changes.",
     },
     PropDoc {
+        name: "on_value_change_details",
+        type_simple: "EventHandler<ChangeEvent<Vec<String>>>",
+        type_full: "Option<EventHandler<ChangeEvent<Vec<String>>>>",
+        default: None,
+        required: false,
+        group: PropGroup::Core,
+        description: "Called with full ChangeEvent details (reason, source, cancelation) when the selected values vector changes.",
+    },
+    PropDoc {
         name: "disabled",
         type_simple: "bool",
         type_full: "bool",
@@ -631,6 +640,15 @@ pub(super) const MENU_CHECKBOX_ITEM_PROPS: &[PropDoc] = &[
         required: false,
         group: PropGroup::Core,
         description: "Called when standalone checked state toggles.",
+    },
+    PropDoc {
+        name: "on_checked_change_details",
+        type_simple: "EventHandler<ChangeEvent<CheckedState>>",
+        type_full: "Option<EventHandler<ChangeEvent<CheckedState>>>",
+        default: None,
+        required: false,
+        group: PropGroup::Core,
+        description: "Called with full ChangeEvent details (reason, source, cancelation) when standalone checked state toggles.",
     },
     PropDoc {
         name: "disabled",
@@ -711,6 +729,15 @@ pub(super) const MENU_RADIO_GROUP_PROPS: &[PropDoc] = &[
         required: false,
         group: PropGroup::Core,
         description: "Called when the selected radio item changes.",
+    },
+    PropDoc {
+        name: "on_value_change_details",
+        type_simple: "EventHandler<ChangeEvent<String>>",
+        type_full: "Option<EventHandler<ChangeEvent<String>>>",
+        default: None,
+        required: false,
+        group: PropGroup::Core,
+        description: "Called with full ChangeEvent details (reason, source, cancelation) when the selected radio item changes.",
     },
     PropDoc {
         name: "aria_labelledby",
@@ -857,6 +884,15 @@ pub(super) const MENU_SUB_PROPS: &[PropDoc] = &[
         required: false,
         group: PropGroup::Core,
         description: "Called when the submenu open state changes.",
+    },
+    PropDoc {
+        name: "on_open_change_details",
+        type_simple: "EventHandler<ChangeEvent<bool>>",
+        type_full: "Option<EventHandler<ChangeEvent<bool>>>",
+        default: None,
+        required: false,
+        group: PropGroup::Core,
+        description: "Called with full ChangeEvent details (reason, source, cancelation) when the submenu open state changes.",
     },
     PropDoc {
         name: "open_delay_ms",

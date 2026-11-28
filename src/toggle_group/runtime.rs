@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 use crate::foundation::{
     roving_focus::{
@@ -6,7 +7,10 @@ use crate::foundation::{
         use_roving_focus_group,
     },
     shared::{CollectionRegistry, Direction, ScopeHandle},
-    state::{ControllableSignal, sync_signal, use_controllable_signal},
+    state::{
+        ChangeOutcome, ControllableConfig, ControllableSignal, sync_signal,
+        use_controllable_signal_config,
+    },
 };
 
 use super::{
@@ -54,10 +58,63 @@ pub fn use_toggle_group_runtime(
     root_id: String,
     root_dom_id: String,
 ) -> ToggleGroupRuntime {
-    let single_ctl =
-        use_controllable_signal(value, default_value.unwrap_or_default(), on_value_change);
-    let multiple_ctl =
-        use_controllable_signal(values, default_values.unwrap_or_default(), on_values_change);
+    use_toggle_group_runtime_with_details(
+        mode,
+        value,
+        default_value,
+        on_value_change,
+        None,
+        values,
+        default_values,
+        on_values_change,
+        None,
+        orientation,
+        dir,
+        roving_focus,
+        loop_focus,
+        disabled,
+        root_id,
+        root_dom_id,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn use_toggle_group_runtime_with_details(
+    mode: ToggleGroupMode,
+    value: Option<String>,
+    default_value: Option<String>,
+    on_value_change: Option<EventHandler<String>>,
+    on_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
+    values: Option<Vec<String>>,
+    default_values: Option<Vec<String>>,
+    on_values_change: Option<EventHandler<Vec<String>>>,
+    on_values_change_details: Option<EventHandler<ChangeEvent<Vec<String>>>>,
+    orientation: ToggleGroupOrientation,
+    dir: Direction,
+    roving_focus: bool,
+    loop_focus: bool,
+    disabled: bool,
+    root_id: String,
+    root_dom_id: String,
+) -> ToggleGroupRuntime {
+    let has_explicit_default_value = default_value.is_some();
+    let has_explicit_default_values = default_values.is_some();
+    let single_ctl = use_controllable_signal_config(
+        ControllableConfig::new(value, default_value.unwrap_or_default())
+            .with_explicit_default(has_explicit_default_value)
+            .with_on_change(on_value_change)
+            .with_on_change_details(on_value_change_details)
+            .with_component("ToggleGroupRoot")
+            .with_prop("value"),
+    );
+    let multiple_ctl = use_controllable_signal_config(
+        ControllableConfig::new(values, default_values.unwrap_or_default())
+            .with_explicit_default(has_explicit_default_values)
+            .with_on_change(on_values_change)
+            .with_on_change_details(on_values_change_details)
+            .with_component("ToggleGroupRoot")
+            .with_prop("values"),
+    );
 
     let roving_cfg = RovingFocusConfig::new()
         .with_orientation(orientation.into())
@@ -167,7 +224,14 @@ impl ToggleGroupRuntime {
     }
 
     pub fn toggle_item(&self, value: &str) {
-        match (self.mode)() {
+        let _ = self.toggle_item_with_context(
+            value,
+            ChangeContext::new(ChangeReason::Toggle, ChangeSource::Programmatic),
+        );
+    }
+
+    pub fn toggle_item_with_context(&self, value: &str, ctx: ChangeContext) -> ChangeOutcome {
+        let outcome = match (self.mode)() {
             ToggleGroupMode::Single => {
                 let current = self.single_ctl.peek();
                 let next = if current == value {
@@ -175,8 +239,7 @@ impl ToggleGroupRuntime {
                 } else {
                     value.to_string()
                 };
-                self.single_ctl.set(next);
-                self.roving.set_current_tab_stop(Some(value.to_string()));
+                self.single_ctl.set_with_context(next, ctx)
             }
             ToggleGroupMode::Multiple => {
                 let mut list = self.multiple_ctl.peek();
@@ -185,10 +248,13 @@ impl ToggleGroupRuntime {
                 } else {
                     list.push(value.to_string());
                 }
-                self.multiple_ctl.set(list);
-                self.roving.set_current_tab_stop(Some(value.to_string()));
+                self.multiple_ctl.set_with_context(list, ctx)
             }
+        };
+        if outcome.is_accepted() {
+            self.roving.set_current_tab_stop(Some(value.to_string()));
         }
+        outcome
     }
 
     pub fn focus_item(&self, value: &str) {

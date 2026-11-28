@@ -1,4 +1,5 @@
 use dioxus::prelude::*;
+use ui_sdk::kernel::ChangeEvent;
 
 use crate::foundation::{
     compose::{collect_user_attrs, merge_props, push_attr_opt},
@@ -6,7 +7,7 @@ use crate::foundation::{
 };
 use crate::toolbar::{
     components::{ToolbarRootContext, ToolbarToggleGroupContext},
-    runtime::use_toolbar_toggle_group_runtime,
+    runtime::use_toolbar_toggle_group_runtime_with_details,
     types::ToolbarToggleGroupMode,
 };
 
@@ -27,11 +28,15 @@ pub struct ToolbarToggleGroupProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
+    #[props(default)]
     pub values: Option<Vec<String>>,
     #[props(default)]
     pub default_values: Option<Vec<String>>,
     #[props(default)]
     pub on_values_change: Option<EventHandler<Vec<String>>>,
+    #[props(default)]
+    pub on_values_change_details: Option<EventHandler<ChangeEvent<Vec<String>>>>,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default, into)]
@@ -58,14 +63,16 @@ pub fn ToolbarToggleGroup(props: ToolbarToggleGroupProps) -> Element {
             .toggle_group_id(&group_scope_id)
     });
 
-    let group_runtime = use_toolbar_toggle_group_runtime(
+    let group_runtime = use_toolbar_toggle_group_runtime_with_details(
         props.r#type,
         props.value.clone(),
         props.default_value.clone(),
         props.on_value_change,
+        props.on_value_change_details,
         props.values.clone(),
         props.default_values.clone(),
         props.on_values_change,
+        props.on_values_change_details,
         toolbar_state.toggle_group_orientation(),
         toolbar_state.dir(),
         props.disabled,

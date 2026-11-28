@@ -1,12 +1,15 @@
 use dioxus::prelude::*;
 use ui_sdk::foundation::date_time::field_policy::TimeFieldPolicy;
+use ui_sdk::kernel::ChangeEvent;
 
 use crate::{
+    agent::AgentHints,
     date_range_field::components::{
         RangeFieldInputSpec, RangeFieldLabelSpec, RangeFieldRootSpec, render_range_field_input,
         render_range_field_label, render_range_field_root,
     },
     foundation::{
+        config::use_locale_context,
         date_time::{
             CalendarLocale, EditableSegmentKind, FieldInvalidEvent, HourCycle, TimeGranularity,
             TimeRange, TimeValue,
@@ -39,13 +42,19 @@ pub struct TimeRangeFieldRootProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<TimeRange>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<TimeRange>>>,
+    #[props(default)]
     pub start_value: Option<Option<TimeValue>>,
     #[props(default)]
     pub on_start_value_change: Option<EventHandler<Option<TimeValue>>>,
     #[props(default)]
+    pub on_start_value_change_details: Option<EventHandler<ChangeEvent<Option<TimeValue>>>>,
+    #[props(default)]
     pub end_value: Option<Option<TimeValue>>,
     #[props(default)]
     pub on_end_value_change: Option<EventHandler<Option<TimeValue>>>,
+    #[props(default)]
+    pub on_end_value_change_details: Option<EventHandler<ChangeEvent<Option<TimeValue>>>>,
     #[props(default)]
     pub placeholder: Option<TimeValue>,
     #[props(default)]
@@ -53,13 +62,15 @@ pub struct TimeRangeFieldRootProps {
     #[props(default)]
     pub on_placeholder_change: Option<EventHandler<TimeValue>>,
     #[props(default)]
+    pub on_placeholder_change_details: Option<EventHandler<ChangeEvent<TimeValue>>>,
+    #[props(default)]
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub granularity: TimeGranularity,
     #[props(default)]
     pub hour_cycle: Option<HourCycle>,
-    #[props(default, into)]
-    pub locale: CalendarLocale,
+    #[props(default)]
+    pub locale: Option<CalendarLocale>,
     #[props(default)]
     pub min_value: Option<TimeValue>,
     #[props(default)]
@@ -84,6 +95,8 @@ pub struct TimeRangeFieldRootProps {
     pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -93,6 +106,7 @@ pub struct TimeRangeFieldRootProps {
 /// Root group container (`<div role="group">`) for segmented time range fields.
 #[component]
 pub fn TimeRangeFieldRoot(props: TimeRangeFieldRootProps) -> Element {
+    let resolved_locale = use_locale_context(props.locale);
     let default_range = props.default_value.unwrap_or_default();
     let initial_start = props
         .start_value
@@ -100,6 +114,7 @@ pub fn TimeRangeFieldRoot(props: TimeRangeFieldRootProps) -> Element {
     let initial_end = props
         .end_value
         .unwrap_or_else(|| props.value.map_or(default_range.end, |v| v.end));
+    let has_explicit_default_placeholder = props.default_placeholder.is_some();
     let initial_placeholder = props
         .placeholder
         .or(props.default_placeholder)
@@ -119,16 +134,21 @@ pub fn TimeRangeFieldRoot(props: TimeRangeFieldRootProps) -> Element {
             value: props.value,
             default_value: props.default_value,
             on_value_change: props.on_value_change,
+            on_value_change_details: props.on_value_change_details,
             start_value: props.start_value,
             on_start_value_change: props.on_start_value_change,
+            on_start_value_change_details: props.on_start_value_change_details,
             end_value: props.end_value,
             on_end_value_change: props.on_end_value_change,
+            on_end_value_change_details: props.on_end_value_change_details,
             placeholder: props.placeholder,
+            has_explicit_default_placeholder,
             on_placeholder_change: props.on_placeholder_change,
+            on_placeholder_change_details: props.on_placeholder_change_details,
             on_focus_out: props.on_focus_out,
             granularity: props.granularity,
             hour_cycle: props.hour_cycle,
-            locale: props.locale,
+            locale: resolved_locale,
             hide_time_zone: false,
             min_value: props.min_value,
             max_value: props.max_value,
@@ -144,6 +164,7 @@ pub fn TimeRangeFieldRoot(props: TimeRangeFieldRootProps) -> Element {
             is_invalid_override: None,
             child: props.child,
             on_mounted: props.on_mounted,
+            agent: props.agent,
             attributes: props.attributes,
             children: props.children,
         },

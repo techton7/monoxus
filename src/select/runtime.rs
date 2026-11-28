@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use ui_sdk::foundation::typeahead::{TypeaheadBuffer, TypeaheadConfig};
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 pub use crate::foundation::overlay::serialize_css_custom_properties;
 pub use crate::foundation::shared::{EscapeKeyDownEvent, PointerDownOutsideEvent};
@@ -15,11 +16,11 @@ use crate::foundation::{
         FloatingHandle, FloatingMonitorSpec, FloatingPlacement, FloatingReadiness,
         FloatingScrollPolicy, FocusScopeConfig, FocusScopeHandle, GeometryVars, ModalLayerConfig,
         ModalLayerHandle, ModalShieldPolicy, PlacementAlign, PlacementSide, PresenceController,
-        PresenceHandle, PresenceState, StickyStrategy, use_dismissable_layer, use_floating_layer,
-        use_focus_scope, use_modal_layer, use_presence_with_keep_mounted,
+        PresenceHandle, PresenceState, StickyStrategy, use_dismissable_layer_with_details,
+        use_floating_layer, use_focus_scope, use_modal_layer, use_presence_with_keep_mounted,
     },
     shared::{Direction, PreventableEvent},
-    state::{ControllableSignal, DataState, sync_signal},
+    state::{ChangeOutcome, ControllableSignal, DataState, sync_signal},
 };
 
 use super::{
@@ -568,27 +569,35 @@ fn use_select_runtime_inner(
         })),
         on_focus_outside: None,
         on_interact_outside: None,
-        on_dismiss: Some(EventHandler::new(move |evt: DismissEvent| {
+        on_dismiss: None,
+    };
+    let on_dismiss_details = Some(EventHandler::new(
+        move |(evt, change_evt): (DismissEvent, ChangeEvent<bool>)| {
             let Some(rt) = rt_slot.try_read().ok().and_then(|g| g.clone()) else {
                 return;
             };
             match evt {
                 DismissEvent::Escape => {
                     rt.clear_pointer_dismiss();
-                    rt.close_dropdown();
+                    let _ = rt.close_dropdown_with_event(true, &change_evt);
                 }
                 DismissEvent::PointerDownOutside => {
                     rt.mark_pointer_dismiss();
-                    rt.close_dropdown();
+                    let _ = rt.close_dropdown_with_event(true, &change_evt);
                 }
                 DismissEvent::FocusOutside => {
                     rt.clear_pointer_dismiss();
-                    rt.close_dropdown_without_restore();
+                    let _ = rt.close_dropdown_with_event(false, &change_evt);
                 }
             }
-        })),
-    };
-    let dismiss = use_dismissable_layer(is_open, dismiss_cfg, dismiss_callbacks);
+        },
+    ));
+    let dismiss = use_dismissable_layer_with_details(
+        is_open,
+        dismiss_cfg,
+        dismiss_callbacks,
+        on_dismiss_details,
+    );
 
     // 6. Controlled open transition side-effects (fires when parent updates controlled `open` prop).
     let mut prev_is_open = use_hook(|| CopyValue::new(is_open));
@@ -1460,18 +1469,23 @@ impl SelectRuntime {
     }
 
     pub fn open_dropdown(&self) {
+        let _ = self.open_dropdown_with_context(ChangeContext::new(
+            ChangeReason::Activation,
+            ChangeSource::Mouse,
+        ));
+    }
+
+    pub(crate) fn open_dropdown_with_context(&self, ctx: ChangeContext) -> ChangeOutcome {
         if self.is_disabled() || self.is_open() {
-            return;
+            return ChangeOutcome::Unchanged;
         }
 
         if let Some(open_ctl) = self.state.open_ctl {
-            if open_ctl.is_controlled() {
-                open_ctl.set(true);
-                return;
+            let outcome = open_ctl.set_with_context(true, ctx);
+            if outcome.is_committed() {
+                self.apply_open_side_effects();
             }
-            open_ctl.set(true);
-            self.apply_open_side_effects();
-            return;
+            return outcome;
         }
 
         let mut open_sig = self.state.open;
@@ -1490,6 +1504,7 @@ impl SelectRuntime {
         {
             cb(true);
         }
+        ChangeOutcome::Committed(ctx)
     }
 
     pub fn registry(&self) -> MountedOptionRegistry {
@@ -1679,23 +1694,44 @@ impl SelectRuntime {
     }
 
     pub fn close_dropdown_with_options(&self, restore_focus: bool) {
-        self.clear_initial_highlight_pending();
+        let _ = self.close_dropdown_with_context(
+            restore_focus,
+            ChangeContext::new(ChangeReason::Activation, ChangeSource::Mouse),
+        );
+    }
+
+    pub(crate) fn close_dropdown_with_context(
+        &self,
+        restore_focus: bool,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
+        let event = ChangeEvent::new(false, ctx);
+        self.close_dropdown_with_event(restore_focus, &event)
+    }
+
+    pub(crate) fn close_dropdown_with_event(
+        &self,
+        restore_focus: bool,
+        event: &ChangeEvent<bool>,
+    ) -> ChangeOutcome {
         if !self.is_open() {
-            return;
+            return ChangeOutcome::Unchanged;
         }
 
         if let Some(open_ctl) = self.state.open_ctl {
             if open_ctl.is_controlled() {
                 let mut pending = self.state.pending_restore_focus;
                 let _ = pending.try_write().map(|mut w| *w = restore_focus);
-                open_ctl.set(false);
-                return;
             }
-            open_ctl.set(false);
-            self.apply_close_side_effects(restore_focus);
-            return;
+            let outcome = open_ctl.set_with_event(false, event);
+            if outcome.is_committed() {
+                self.clear_initial_highlight_pending();
+                self.apply_close_side_effects(restore_focus);
+            }
+            return outcome;
         }
 
+        self.clear_initial_highlight_pending();
         let mut open_sig = self.state.open;
         open_sig.set(false);
         self.apply_close_side_effects(restore_focus);
@@ -1712,6 +1748,7 @@ impl SelectRuntime {
         {
             cb(false);
         }
+        ChangeOutcome::Committed(event.to_context())
     }
 
     pub fn toggle_open(&self) {

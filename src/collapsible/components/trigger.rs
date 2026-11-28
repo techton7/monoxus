@@ -1,6 +1,7 @@
 use dioxus::core::{AttributeValue, Event, ListenerCallback};
 use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeReason, ChangeSource};
 
 use crate::collapsible::components::CollapsibleContext;
 use crate::foundation::compose::{
@@ -72,7 +73,10 @@ pub fn CollapsibleTrigger(props: CollapsibleTriggerProps) -> Element {
                     return;
                 }
                 if evt.default_action_enabled() {
-                    click_runtime.toggle();
+                    let _ = click_runtime.toggle_with_context(ChangeContext::new(
+                        ChangeReason::Toggle,
+                        ChangeSource::Mouse,
+                    ));
                 }
             })
             .erase(),

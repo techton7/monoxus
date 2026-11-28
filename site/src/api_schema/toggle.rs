@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, DataAttrDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS, PROP_ID, PROP_ON_MOUNTED,
-    PROP_STYLE, PartDoc, PropDoc, PropGroup,
+    ComponentDoc, DataAttrDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS, PROP_ID,
+    PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup,
 };
 
 pub(super) const TOGGLE_DOC: ComponentDoc = ComponentDoc {
@@ -52,6 +52,15 @@ pub(super) const TOGGLE_DOC: ComponentDoc = ComponentDoc {
                 required: false,
                 group: PropGroup::Core,
                 description: "Invoked when the pressed state changes.",
+            },
+            PropDoc {
+                name: "on_pressed_change_details",
+                type_simple: "EventHandler<ChangeEvent<bool>>",
+                type_full: "Option<EventHandler<ChangeEvent<bool>>>",
+                default: None,
+                required: false,
+                group: PropGroup::Core,
+                description: "Invoked when the pressed state changes, providing a ChangeEvent with pressed state and change provenance.",
             },
             PropDoc {
                 name: "disabled",
@@ -126,6 +135,7 @@ pub(super) const TOGGLE_DOC: ComponentDoc = ComponentDoc {
                 description: "Invoked when the toggle loses focus.",
             },
             PROP_ON_MOUNTED,
+            PROP_AGENT,
             PROP_CHILD,
             PROP_ATTRIBUTES,
             PropDoc {

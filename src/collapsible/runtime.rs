@@ -1,8 +1,9 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeReason, ChangeSource};
 
-use crate::foundation::state::ControllableSignal;
+use crate::foundation::state::{ChangeOutcome, ControllableSignal};
 
 use super::{
     attrs::{CollapsibleContentAttributes, CollapsibleRootAttributes, CollapsibleTriggerAttributes},
@@ -108,12 +109,18 @@ impl CollapsibleRuntime {
     }
 
     pub fn set_open(&self, open: bool) {
+        let _ = self.set_open_with_context(
+            open,
+            ChangeContext::new(ChangeReason::Programmatic, ChangeSource::Programmatic),
+        );
+    }
+
+    pub fn set_open_with_context(&self, open: bool, ctx: ChangeContext) -> ChangeOutcome {
         if self.is_disabled() {
-            return;
+            return ChangeOutcome::Unchanged;
         }
         if let Some(ctl) = self.open_ctl {
-            ctl.set(open);
-            return;
+            return ctl.set_with_context(open, ctx);
         }
         let changed = *self.state.open.peek() != open;
         if changed {
@@ -127,12 +134,20 @@ impl CollapsibleRuntime {
             if let Some(callback) = callback {
                 callback(open);
             }
+            ChangeOutcome::Committed(ctx)
+        } else {
+            ChangeOutcome::Unchanged
         }
     }
 
     pub fn toggle(&self) {
         let current = self.is_open();
         self.set_open(!current);
+    }
+
+    pub fn toggle_with_context(&self, ctx: ChangeContext) -> ChangeOutcome {
+        let current = *self.state.open.peek();
+        self.set_open_with_context(!current, ctx)
     }
 
     pub fn request_state(&self, request: CollapsibleStateRequest) {

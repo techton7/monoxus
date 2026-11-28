@@ -45,6 +45,7 @@ pub struct FieldContext {
     pub(crate) mounted_legend: Signal<Vec<(RegistrationToken, String)>>,
     pub(crate) mounted_descriptions: Signal<Vec<(RegistrationToken, String)>>,
     pub(crate) mounted_errors: Signal<Vec<(RegistrationToken, FieldErrorRegistration)>>,
+    pub(crate) mounted_error_messages: Signal<Vec<(RegistrationToken, Vec<String>)>>,
     pub(crate) next_control_index: CopyValue<usize>,
 }
 
@@ -181,6 +182,73 @@ impl FieldContext {
         if let Ok(mut entries) = sig.try_write() {
             entries.retain(|(tok, _)| *tok != token);
         }
+    }
+
+    /// Registers or updates active error messages for a mounted `FieldError` under `token`.
+    pub fn register_error_messages(&self, token: RegistrationToken, messages: Vec<String>) {
+        if messages.is_empty() {
+            self.unregister_error_messages(token);
+            return;
+        }
+        let unchanged = self.mounted_error_messages.try_peek().is_ok_and(|entries| {
+            entries
+                .iter()
+                .any(|(tok, cur)| *tok == token && *cur == messages)
+        });
+        if unchanged {
+            return;
+        }
+        let mut sig = self.mounted_error_messages;
+        if let Ok(mut entries) = sig.try_write() {
+            if let Some((_, existing)) = entries.iter_mut().find(|(tok, _)| *tok == token) {
+                *existing = messages;
+            } else {
+                entries.push((token, messages));
+            }
+        }
+    }
+
+    /// Unregisters error messages owned by `token`.
+    pub fn unregister_error_messages(&self, token: RegistrationToken) {
+        let present = self
+            .mounted_error_messages
+            .try_peek()
+            .is_ok_and(|entries| entries.iter().any(|(tok, _)| *tok == token));
+        if !present {
+            return;
+        }
+        let mut sig = self.mounted_error_messages;
+        if let Ok(mut entries) = sig.try_write() {
+            entries.retain(|(tok, _)| *tok != token);
+        }
+    }
+
+    /// Returns deduplicated active error messages from mounted `FieldError` parts (subscribing).
+    pub fn active_error_messages(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        for (_, msgs) in self.mounted_error_messages.read().iter() {
+            for msg in msgs {
+                if !out.contains(msg) {
+                    out.push(msg.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// Returns deduplicated active error messages without subscribing (drop-safe for agent readers).
+    pub(crate) fn peek_active_error_messages(&self) -> Vec<String> {
+        let mut out = Vec::new();
+        if let Ok(entries) = self.mounted_error_messages.try_peek() {
+            for (_, msgs) in entries.iter() {
+                for msg in msgs {
+                    if !out.contains(msg) {
+                        out.push(msg.clone());
+                    }
+                }
+            }
+        }
+        out
     }
 
     /// Returns mounted `aria-labelledby` tokens (labels, or legend if present), or `None` if none mounted.

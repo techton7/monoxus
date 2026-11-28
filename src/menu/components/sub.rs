@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::ChangeEvent;
 
 use crate::foundation::{
     compose::{
@@ -13,7 +14,7 @@ use crate::foundation::{
         use_cancellable_delay,
     },
     shared::{Direction, use_stable_id},
-    state::{sync_signal, use_controllable_signal},
+    state::{ControllableConfig, sync_signal, use_controllable_signal_config},
 };
 use crate::menu::{
     ActiveCorridorSubmenu, MenuItemKind, MenuKey, MenuOpenFocusTarget, MenuPart,
@@ -37,6 +38,8 @@ pub struct MenuSubProps {
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
     #[props(default)]
+    pub on_open_change_details: Option<EventHandler<ChangeEvent<bool>>>,
+    #[props(default)]
     pub open_delay_ms: Option<u64>,
     pub children: Element,
 }
@@ -50,7 +53,14 @@ pub fn MenuSub(props: MenuSubProps) -> Element {
     let sub_token = use_stable_id(None);
     let rels = use_hook(|| MenuSubRelationships::new(root.relationships.scope().child(sub_token)));
 
-    let open_state = use_controllable_signal(props.open, props.default_open, props.on_open_change);
+    let open_state = use_controllable_signal_config(
+        ControllableConfig::new(props.open, props.default_open)
+            .with_explicit_default(props.default_open)
+            .with_on_change(props.on_open_change)
+            .with_on_change_details(props.on_open_change_details)
+            .with_component("MenuSub")
+            .with_prop("open"),
+    );
     let open_sig = open_state.signal();
 
     let default_side = match root.direction() {

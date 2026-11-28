@@ -1,11 +1,12 @@
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeReason, ChangeSource};
 
 use crate::foundation::{
     roving_focus::{
         Orientation, RovingFocusConfig, RovingFocusRuntime, use_roving_focus_group,
     },
     shared::{Direction, ScopeHandle},
-    state::{ControllableSignal, sync_signal},
+    state::{ChangeOutcome, ControllableSignal, sync_signal},
 };
 
 use super::{
@@ -148,35 +149,38 @@ impl RadioGroupRuntime {
     /// Selects an item if enabled and not read-only.
     /// Irreversible: checking an already-checked item is a no-op (RG-2).
     pub fn check_item(&self, value: &str) {
+        let _ = self.check_item_with_context(
+            value,
+            ChangeContext::new(ChangeReason::Selection, ChangeSource::Programmatic),
+        );
+    }
+
+    /// Selects an item with an explicit [`ChangeContext`], gating tab-stop update on acceptance.
+    pub fn check_item_with_context(&self, value: &str, ctx: ChangeContext) -> ChangeOutcome {
         if (self.disabled)() || (self.read_only)() {
-            return;
+            return ChangeOutcome::Unchanged;
         }
 
         let current = self.value.peek().clone();
         if current.as_deref() == Some(value) {
-            return;
+            return ChangeOutcome::Unchanged;
         }
 
         let next = Some(value.to_string());
-        self.value_ctl.set(next.clone());
-        self.roving.set_current_tab_stop(next);
-
-        if let Some(handler) = self.on_value_change.try_read().ok().and_then(|s| *s) {
-            handler.call(value.to_string());
+        let outcome = self.value_ctl.set_with_context(next.clone(), ctx);
+        if outcome.is_accepted() {
+            self.roving.set_current_tab_stop(next);
         }
+        outcome
     }
 
     pub(crate) fn reset_to(&self, initial: Option<String>) {
-        if self.value_ctl.set(initial.clone()) {
-            if !self.value_ctl.is_controlled() {
-                self.roving.set_current_tab_stop(initial.clone());
-            }
-            if let Some(val) = initial
-                && !val.is_empty()
-                && let Some(handler) = self.on_value_change.try_read().ok().and_then(|s| *s)
-            {
-                handler.call(val);
-            }
+        let outcome = self.value_ctl.set_with_context(
+            initial.clone(),
+            ChangeContext::new(ChangeReason::Reset, ChangeSource::Programmatic),
+        );
+        if outcome.is_committed() {
+            self.roving.set_current_tab_stop(initial);
         }
     }
 

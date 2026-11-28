@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS, PROP_ID,
-    PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup,
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    PROP_ID, PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup,
 };
 
 pub(super) const CHECKBOX_DOC: ComponentDoc = ComponentDoc {
@@ -53,6 +53,15 @@ pub(super) const CHECKBOX_DOC: ComponentDoc = ComponentDoc {
                     required: false,
                     group: PropGroup::Core,
                     description: "Invoked when the checked state changes.",
+                },
+                PropDoc {
+                    name: "on_checked_change_details",
+                    type_simple: "EventHandler<ChangeEvent<CheckedState>>",
+                    type_full: "Option<EventHandler<ChangeEvent<CheckedState>>>",
+                    default: None,
+                    required: false,
+                    group: PropGroup::Core,
+                    description: "Invoked when the checked state changes, providing a ChangeEvent with state and change provenance.",
                 },
                 PropDoc {
                     name: "disabled",
@@ -163,6 +172,7 @@ pub(super) const CHECKBOX_DOC: ComponentDoc = ComponentDoc {
                     description: "Invoked when the checkbox loses focus.",
                 },
                 PROP_ON_MOUNTED,
+                PROP_AGENT,
                 PROP_CHILD,
                 PROP_ATTRIBUTES,
                 PropDoc {
@@ -302,6 +312,15 @@ pub(super) const CHECKBOX_DOC: ComponentDoc = ComponentDoc {
                     description: "Invoked when the group's checked values change.",
                 },
                 PropDoc {
+                    name: "on_values_change_details",
+                    type_simple: "EventHandler<ChangeEvent<Vec<String>>>",
+                    type_full: "Option<EventHandler<ChangeEvent<Vec<String>>>>",
+                    default: None,
+                    required: false,
+                    group: PropGroup::Core,
+                    description: "Invoked when the group's checked values change, providing a ChangeEvent with values and change provenance.",
+                },
+                PropDoc {
                     name: "name",
                     type_simple: "String",
                     type_full: "Option<String>",
@@ -373,6 +392,7 @@ pub(super) const CHECKBOX_DOC: ComponentDoc = ComponentDoc {
                     group: PropGroup::Core,
                     description: "Invoked when focus leaves the composite checkbox group.",
                 },
+                PROP_AGENT,
                 PROP_CHILD,
                 PROP_ATTRIBUTES,
                 PropDoc {

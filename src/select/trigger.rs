@@ -1,8 +1,16 @@
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use dioxus::core::AttributeValue;
 use dioxus::prelude::*;
+use ui_sdk::agent::{
+    ActionDescriptor, ActionDispatch, AgentHints, AgentSurface, ComponentSnapshot, SnapshotValue,
+};
+use ui_sdk::kernel::ChangeEvent;
 
+use crate::agent::{
+    DispatchExecResult, SurfaceMetaDefaults, cancel_current_agent_action, use_agent_surface,
+};
 use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
     browser::focus::use_composite_focus_out,
@@ -11,7 +19,7 @@ use crate::foundation::{
         push_bool_data_attr, push_event_handler, resolve_invalid_and_describedby,
     },
     shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-    state::use_controllable_signal,
+    state::{ControllableConfig, use_controllable_signal_config},
 };
 
 use super::{
@@ -73,9 +81,15 @@ pub struct SelectRootProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<Option<String>>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<Option<String>>>>,
+    #[props(default)]
     pub on_values_change: Option<EventHandler<Vec<String>>>,
     #[props(default)]
+    pub on_values_change_details: Option<EventHandler<ChangeEvent<Vec<String>>>>,
+    #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub on_open_change_details: Option<EventHandler<ChangeEvent<bool>>>,
     #[props(default)]
     pub on_open_change_complete: Option<EventHandler<bool>>,
     #[props(default)]
@@ -100,6 +114,8 @@ pub struct SelectRootProps {
     pub loop_selection: bool,
     #[props(default)]
     pub dir: Option<Direction>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     pub children: Element,
 }
 
@@ -115,8 +131,11 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
         open,
         default_open,
         on_value_change,
+        on_value_change_details,
         on_values_change,
+        on_values_change_details,
         on_open_change,
+        on_open_change_details,
         on_open_change_complete,
         on_focus_out,
         allow_deselect,
@@ -129,6 +148,7 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
         items,
         loop_selection,
         dir,
+        agent,
         children,
     } = props;
 
@@ -143,17 +163,30 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
         .or_else(|| field_ctx.map(|f| f.is_invalid()))
         .unwrap_or(false);
 
-    let value_ctl = use_controllable_signal(
-        value.clone().map(Some),
-        default_value.clone(),
-        on_value_change,
+    let value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(value.clone().map(Some), default_value.clone())
+            .with_explicit_default(default_value.is_some())
+            .with_on_change(on_value_change)
+            .with_on_change_details(on_value_change_details)
+            .with_component("SelectRoot")
+            .with_prop("value"),
     );
-    let values_ctl = use_controllable_signal(
-        values.clone(),
-        default_values.clone().unwrap_or_default(),
-        on_values_change,
+    let values_ctl = use_controllable_signal_config(
+        ControllableConfig::new(values.clone(), default_values.clone().unwrap_or_default())
+            .with_explicit_default(default_values.is_some())
+            .with_on_change(on_values_change)
+            .with_on_change_details(on_values_change_details)
+            .with_component("SelectRoot")
+            .with_prop("values"),
     );
-    let open_ctl = use_controllable_signal(open, default_open, on_open_change);
+    let open_ctl = use_controllable_signal_config(
+        ControllableConfig::new(open, default_open)
+            .with_explicit_default(default_open)
+            .with_on_change(on_open_change)
+            .with_on_change_details(on_open_change_details)
+            .with_component("SelectRoot")
+            .with_prop("open"),
+    );
 
     let scope_id = use_stable_id(id.clone().map(Cow::Owned));
     let is_value_controlled = value.is_some();
@@ -216,6 +249,158 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
         runtime: runtime.clone(),
         name: effective_name.clone(),
     });
+
+    let build_select_snapshot = {
+        let rt = runtime.clone();
+        move || {
+            let is_open = rt.state.open.try_peek().map(|g| *g).unwrap_or(false);
+            let item_list: Vec<String> = rt
+                .state
+                .items
+                .try_peek()
+                .map(|g| g.iter().map(|i| i.value.clone()).collect())
+                .unwrap_or_default();
+            let mut snap = ComponentSnapshot::new()
+                .with_field("open", SnapshotValue::Bool(is_open))
+                .with_field("read_only", SnapshotValue::Bool(effective_read_only))
+                .with_items(item_list);
+            match mode {
+                SelectMode::Single => {
+                    let cur = rt.state.value.try_peek().ok().and_then(|g| g.clone());
+                    snap = snap.with_field(
+                        "value",
+                        cur.map(SnapshotValue::Text).unwrap_or(SnapshotValue::Null),
+                    );
+                }
+                SelectMode::Multiple => {
+                    let cur = rt
+                        .state
+                        .values
+                        .try_peek()
+                        .map(|g| g.clone())
+                        .unwrap_or_default();
+                    snap = snap.with_field(
+                        "values",
+                        SnapshotValue::List(cur.into_iter().map(SnapshotValue::Text).collect()),
+                    );
+                }
+            }
+            snap
+        }
+    };
+
+    let agent_label = effective_name
+        .clone()
+        .or_else(|| id.clone())
+        .unwrap_or_else(|| String::from("Select"));
+    let agent_rt = runtime.clone();
+    let reader_snap = build_select_snapshot.clone();
+    use_agent_surface(
+        agent.as_ref(),
+        SurfaceMetaDefaults::new(),
+        move || {
+            let mut actions = vec![
+                ActionDescriptor::new("open", "Open select popup", false),
+                ActionDescriptor::new("close", "Close select popup", false),
+            ];
+            if !effective_read_only {
+                actions.push(ActionDescriptor::new("select", "Select an option", true));
+                actions.push(ActionDescriptor::new("set", "Set selected value", true));
+                actions.push(ActionDescriptor::new("clear", "Clear selection", false));
+            }
+            AgentSurface::new("select", agent_label)
+                .with_disabled(effective_disabled)
+                .with_snapshot(build_select_snapshot())
+                .with_actions(actions)
+        },
+        move || {
+            Rc::new(move |dispatch: &ActionDispatch| match dispatch.action.as_str() {
+                "open" => {
+                    let outcome = agent_rt.open_dropdown_with_context(dispatch.ctx);
+                    if outcome.is_canceled() {
+                        cancel_current_agent_action();
+                        DispatchExecResult::ok().with_canceled(true)
+                    } else {
+                        DispatchExecResult::ok()
+                    }
+                }
+                "close" => {
+                    let outcome = agent_rt.close_dropdown_with_context(true, dispatch.ctx);
+                    if outcome.is_canceled() {
+                        cancel_current_agent_action();
+                        DispatchExecResult::ok().with_canceled(true)
+                    } else {
+                        DispatchExecResult::ok()
+                    }
+                }
+                "select" | "set" => {
+                    if effective_read_only {
+                        return DispatchExecResult::ok().with_host_error("select is read-only");
+                    }
+                    let outcome = match dispatch.args.get("value") {
+                        Some(SnapshotValue::Text(v)) => {
+                            if dispatch.action == "set" && mode == SelectMode::Single {
+                                agent_rt.propose_single_value_with_context(
+                                    Some(v.clone()),
+                                    dispatch.ctx,
+                                )
+                            } else {
+                                agent_rt.select_item_with_context(v, dispatch.ctx)
+                            }
+                        }
+                        Some(SnapshotValue::Null) => match mode {
+                            SelectMode::Single => {
+                                agent_rt.propose_single_value_with_context(None, dispatch.ctx)
+                            }
+                            SelectMode::Multiple => agent_rt
+                                .propose_multiple_values_with_context(Vec::new(), dispatch.ctx),
+                        },
+                        Some(SnapshotValue::List(list)) => {
+                            let vals: Vec<String> = list
+                                .iter()
+                                .filter_map(|v| match v {
+                                    SnapshotValue::Text(s) => Some(s.clone()),
+                                    _ => None,
+                                })
+                                .collect();
+                            agent_rt.propose_multiple_values_with_context(vals, dispatch.ctx)
+                        }
+                        _ => {
+                            return DispatchExecResult::ok()
+                                .with_host_error("missing or invalid `value` argument");
+                        }
+                    };
+                    if outcome.is_canceled() {
+                        cancel_current_agent_action();
+                        DispatchExecResult::ok().with_canceled(true)
+                    } else {
+                        DispatchExecResult::ok()
+                    }
+                }
+                "clear" => {
+                    if effective_read_only {
+                        return DispatchExecResult::ok().with_host_error("select is read-only");
+                    }
+                    let outcome = match mode {
+                        SelectMode::Single => {
+                            agent_rt.propose_single_value_with_context(None, dispatch.ctx)
+                        }
+                        SelectMode::Multiple => agent_rt
+                            .propose_multiple_values_with_context(Vec::new(), dispatch.ctx),
+                    };
+                    if outcome.is_canceled() {
+                        cancel_current_agent_action();
+                        DispatchExecResult::ok().with_canceled(true)
+                    } else {
+                        DispatchExecResult::ok()
+                    }
+                }
+                other => DispatchExecResult::ok()
+                    .with_host_error(format!("unsupported select action: {other}")),
+            })
+        },
+        move || Rc::new(reader_snap),
+    );
 
     let eff_req = runtime.select().is_required() || effective_required;
     let eff_form = form.or_else(|| runtime.select().form().map(str::to_owned));

@@ -23,6 +23,8 @@ pub struct ProgressRootProps {
     pub style: Option<String>,
     #[props(default)]
     pub value: Option<f64>,
+    #[props(default = 0.0)]
+    pub min: f64,
     #[props(default = 100.0)]
     pub max: f64,
     #[props(default)]
@@ -43,7 +45,7 @@ pub struct ProgressRootProps {
 pub fn ProgressRoot(props: ProgressRootProps) -> Element {
     let stable_id = use_stable_id(props.id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("progress").child(stable_id);
-    let mut progress = ProgressDefinition::new(scope, props.value, props.max);
+    let mut progress = ProgressDefinition::with_range(scope, props.value, props.min, props.max);
     if let Some(id) = props.id.as_ref() {
         progress = progress.with_root_id(id);
     }
@@ -61,6 +63,7 @@ pub fn ProgressRoot(props: ProgressRootProps) -> Element {
         .zip(props.get_value_label.as_ref())
         .map(|(value, callback)| callback.call((value, progress.max())));
     let attrs = runtime.root(value_label);
+    let min_str = attrs.min_str().to_owned();
 
     let mut base = Vec::with_capacity(12);
     base.push(Attribute::new("id", attrs.id, None, false));
@@ -82,7 +85,7 @@ pub fn ProgressRoot(props: ProgressRootProps) -> Element {
     base.push(Attribute::new("data-state", attrs.data_state, None, false));
     push_attr_opt(&mut base, "data-value", attrs.data_value);
     base.push(Attribute::new("data-max", attrs.data_max, None, false));
-    base.push(Attribute::new("data-min", attrs.data_min, None, false));
+    base.push(Attribute::new("data-min", min_str, None, false));
     push_attr_opt(&mut base, "data-indeterminate", attrs.data_indeterminate);
     base.push(Attribute::new(
         "data-progress-root",
@@ -141,7 +144,12 @@ pub fn ProgressIndicator(props: ProgressIndicatorProps) -> Element {
     base.push(Attribute::new("data-state", attrs.data_state, None, false));
     push_attr_opt(&mut base, "data-value", attrs.data_value);
     base.push(Attribute::new("data-max", attrs.data_max, None, false));
-    base.push(Attribute::new("data-min", attrs.data_min, None, false));
+    base.push(Attribute::new(
+        "data-min",
+        runtime.progress().min_attr(),
+        None,
+        false,
+    ));
     push_attr_opt(&mut base, "data-indeterminate", attrs.data_indeterminate);
     base.push(Attribute::new(
         "data-progress-indicator",

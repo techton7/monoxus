@@ -1,7 +1,15 @@
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::agent::{
+    ActionDescriptor, ActionDispatch, AgentHints, AgentSurface, ComponentSnapshot, SnapshotValue,
+};
+use ui_sdk::kernel::ChangeEvent;
 
+use crate::agent::{
+    DispatchExecResult, SurfaceMetaDefaults, cancel_current_agent_action, use_agent_surface,
+};
 use crate::field::try_use_field_context;
 use crate::foundation::{
     browser::focus::use_composite_focus_out_tracked,
@@ -9,11 +17,11 @@ use crate::foundation::{
     overlay::{
         DismissBehavior, DismissCallbacks, DismissConfig, DismissEvent, FloatingHandle,
         FloatingMonitorSpec, FloatingScrollPolicy, OverlayLayerSpec, PlacementAlign, PlacementSide,
-        PresenceState, StickyStrategy, sync_overlay_layer_spec, use_dismissable_layer,
+        PresenceState, StickyStrategy, sync_overlay_layer_spec, use_dismissable_layer_with_details,
         use_floating_layer, use_presence_with_keep_mounted,
     },
     shared::{ScopeHandle, use_stable_id},
-    state::{sync_signal, use_controllable_signal},
+    state::{ControllableConfig, sync_signal, use_controllable_signal_config},
 };
 
 use super::hidden_input::ComboboxHiddenInput;
@@ -37,11 +45,15 @@ pub struct ComboboxRootProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<Option<String>>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<Option<String>>>>,
+    #[props(default)]
     pub values: Option<Vec<String>>,
     #[props(default)]
     pub default_values: Option<Vec<String>>,
     #[props(default)]
     pub on_values_change: Option<EventHandler<Vec<String>>>,
+    #[props(default)]
+    pub on_values_change_details: Option<EventHandler<ChangeEvent<Vec<String>>>>,
     #[props(default, into)]
     pub input_value: Option<String>,
     #[props(default, into)]
@@ -49,11 +61,15 @@ pub struct ComboboxRootProps {
     #[props(default)]
     pub on_input_value_change: Option<EventHandler<String>>,
     #[props(default)]
+    pub on_input_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
+    #[props(default)]
     pub open: Option<bool>,
     #[props(default = false)]
     pub default_open: bool,
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub on_open_change_details: Option<EventHandler<ChangeEvent<bool>>>,
     #[props(default)]
     pub on_open_change_complete: Option<EventHandler<bool>>,
     #[props(default)]
@@ -78,6 +94,8 @@ pub struct ComboboxRootProps {
     pub items: Vec<ComboboxItemData>,
     #[props(default = true)]
     pub allow_deselect: bool,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     pub children: Element,
 }
 
@@ -123,21 +141,43 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
         (init_val, init_vals, init_input)
     });
 
-    let open_ctl = use_controllable_signal(props.open, props.default_open, props.on_open_change);
+    let open_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.open, props.default_open)
+            .with_explicit_default(props.default_open)
+            .with_on_change(props.on_open_change)
+            .with_on_change_details(props.on_open_change_details)
+            .with_component("ComboboxRoot")
+            .with_prop("open"),
+    );
     let open_sig = open_ctl.signal();
 
-    let value_ctl =
-        use_controllable_signal(props.value.clone(), baseline_value.clone(), props.on_value_change);
+    let value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.value.clone(), baseline_value.clone())
+            .with_explicit_default(props.default_value.is_some())
+            .with_on_change(props.on_value_change)
+            .with_on_change_details(props.on_value_change_details)
+            .with_component("ComboboxRoot")
+            .with_prop("value"),
+    );
     let value_sig = value_ctl.signal();
 
-    let values_ctl =
-        use_controllable_signal(props.values, baseline_values.clone(), props.on_values_change);
+    let values_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.values, baseline_values.clone())
+            .with_explicit_default(props.default_values.is_some())
+            .with_on_change(props.on_values_change)
+            .with_on_change_details(props.on_values_change_details)
+            .with_component("ComboboxRoot")
+            .with_prop("values"),
+    );
     let values_sig = values_ctl.signal();
 
-    let input_value_ctl = use_controllable_signal(
-        props.input_value,
-        baseline_input_value.clone(),
-        props.on_input_value_change,
+    let input_value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.input_value, baseline_input_value.clone())
+            .with_explicit_default(props.default_input_value.is_some())
+            .with_on_change(props.on_input_value_change)
+            .with_on_change_details(props.on_input_value_change_details)
+            .with_component("ComboboxRoot")
+            .with_prop("input_value"),
     );
     let input_value_sig = input_value_ctl.signal();
 
@@ -369,14 +409,26 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
                 cb.call(evt);
             }
         })),
-        on_dismiss: Some(EventHandler::new(move |_evt: DismissEvent| {
-            if let Some(rt) = rt_slot.try_read().ok().and_then(|g| g.clone()) {
-                rt.close_menu();
-            }
-            handle_region_dismiss.call(());
-        })),
+        on_dismiss: None,
     };
-    let dismiss = use_dismissable_layer(is_open, dismiss_cfg, dismiss_callbacks);
+    let on_dismiss_details = Some(EventHandler::new(
+        move |(_evt, change_evt): (DismissEvent, ChangeEvent<bool>)| {
+            let accepted = if let Some(rt) = rt_slot.try_read().ok().and_then(|g| g.clone()) {
+                rt.set_open_with_event(false, &change_evt).is_accepted()
+            } else {
+                true
+            };
+            if accepted {
+                handle_region_dismiss.call(());
+            }
+        },
+    ));
+    let dismiss = use_dismissable_layer_with_details(
+        is_open,
+        dismiss_cfg,
+        dismiss_callbacks,
+        on_dismiss_details,
+    );
 
     if is_open && !content_id.is_empty() {
         sync_overlay_layer_spec(
@@ -499,6 +551,136 @@ pub fn ComboboxRoot(props: ComboboxRootProps) -> Element {
     use_context_provider(|| ComboboxContext {
         runtime: runtime.clone(),
     });
+
+    let build_combobox_snapshot = {
+        let rt = runtime.clone();
+        move || {
+            let is_open = rt.is_open_untracked();
+            let input_val = rt.input_value_untracked();
+            let item_list: Vec<String> = rt
+                .state
+                .registry
+                .try_peek()
+                .map(|r| r.items().iter().map(|i| i.value.clone()).collect())
+                .unwrap_or_default();
+            let mut snap = ComponentSnapshot::new()
+                .with_field("open", SnapshotValue::Bool(is_open))
+                .with_field("input_value", SnapshotValue::Text(input_val))
+                .with_items(item_list);
+            match rt.mode_untracked() {
+                ComboboxMode::Single => {
+                    let cur = rt.value_untracked();
+                    snap = snap.with_field(
+                        "value",
+                        cur.map(SnapshotValue::Text).unwrap_or(SnapshotValue::Null),
+                    );
+                }
+                ComboboxMode::Multiple => {
+                    let cur = rt.values_untracked();
+                    snap = snap.with_field(
+                        "values",
+                        SnapshotValue::List(cur.into_iter().map(SnapshotValue::Text).collect()),
+                    );
+                }
+            }
+            snap
+        }
+    };
+
+    let agent_label = effective_name
+        .clone()
+        .or_else(|| props.id.clone())
+        .unwrap_or_else(|| String::from("Combobox"));
+    let agent_rt = runtime.clone();
+    let reader_snap = build_combobox_snapshot.clone();
+    use_agent_surface(
+        props.agent.as_ref(),
+        SurfaceMetaDefaults::new(),
+        move || {
+            AgentSurface::new("combobox", agent_label)
+                .with_disabled(effective_disabled)
+                .with_snapshot(build_combobox_snapshot())
+                .with_actions(vec![
+                    ActionDescriptor::new("open", "Open combobox popup", false),
+                    ActionDescriptor::new("close", "Close combobox popup", false),
+                    ActionDescriptor::new("select", "Select an option", true),
+                    ActionDescriptor::new("input", "Update combobox input text", true),
+                    ActionDescriptor::new("clear", "Clear selection and input", false),
+                ])
+        },
+        move || {
+            Rc::new(move |dispatch: &ActionDispatch| match dispatch.action.as_str() {
+                "open" => {
+                    let outcome = agent_rt.set_open_with_context(true, dispatch.ctx);
+                    if outcome.is_canceled() {
+                        cancel_current_agent_action();
+                        DispatchExecResult::ok().with_canceled(true)
+                    } else {
+                        DispatchExecResult::ok()
+                    }
+                }
+                "close" => {
+                    let outcome = agent_rt.set_open_with_context(false, dispatch.ctx);
+                    if outcome.is_canceled() {
+                        cancel_current_agent_action();
+                        DispatchExecResult::ok().with_canceled(true)
+                    } else {
+                        DispatchExecResult::ok()
+                    }
+                }
+                "select" => {
+                    let Some(SnapshotValue::Text(v)) = dispatch.args.get("value") else {
+                        return DispatchExecResult::ok()
+                            .with_host_error("missing or invalid `value` argument");
+                    };
+                    let outcome = agent_rt.select_item_with_context(v, dispatch.ctx);
+                    if outcome.is_canceled() {
+                        cancel_current_agent_action();
+                        DispatchExecResult::ok().with_canceled(true)
+                    } else {
+                        DispatchExecResult::ok()
+                    }
+                }
+                "input" => {
+                    let Some(SnapshotValue::Text(v)) = dispatch.args.get("value") else {
+                        return DispatchExecResult::ok()
+                            .with_host_error("missing or invalid `value` argument");
+                    };
+                    let outcome = agent_rt.set_input_value_with_context(v.clone(), true, dispatch.ctx);
+                    if outcome.is_canceled() {
+                        cancel_current_agent_action();
+                        DispatchExecResult::ok().with_canceled(true)
+                    } else {
+                        DispatchExecResult::ok()
+                    }
+                }
+                "clear" => {
+                    let outcome = match agent_rt.mode_untracked() {
+                        ComboboxMode::Single => {
+                            agent_rt.set_value_with_context(None, dispatch.ctx)
+                        }
+                        ComboboxMode::Multiple => {
+                            agent_rt.set_values_with_context(Vec::new(), dispatch.ctx)
+                        }
+                    };
+                    if outcome.is_canceled() {
+                        cancel_current_agent_action();
+                        DispatchExecResult::ok().with_canceled(true)
+                    } else {
+                        let _ = agent_rt.set_input_value_with_context(
+                            String::new(),
+                            true,
+                            dispatch.ctx,
+                        );
+                        DispatchExecResult::ok()
+                    }
+                }
+                other => DispatchExecResult::ok()
+                    .with_host_error(format!("unsupported combobox action: {other}")),
+            })
+        },
+        move || Rc::new(reader_snap),
+    );
 
     let has_name = effective_name.as_deref().is_some_and(|n| !n.is_empty());
 

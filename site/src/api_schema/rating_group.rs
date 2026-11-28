@@ -1,5 +1,5 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
     PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
@@ -30,6 +30,7 @@ pub(super) const RATING_GROUP_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "f64", type_full: "Option<f64>", default: None, required: false, group: PropGroup::Core, description: "Controlled numeric rating value." },
                 PropDoc { name: "default_value", type_simple: "f64", type_full: "Option<f64>", default: Some("0.0"), required: false, group: PropGroup::Core, description: "Initial rating value when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<f64>", type_full: "Option<EventHandler<f64>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked when the committed rating value changes." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<f64>>", type_full: "Option<EventHandler<ChangeEvent<f64>>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked when the committed rating value changes, providing a ChangeEvent with rating value and change provenance." },
                 PropDoc { name: "min", type_simple: "f64", type_full: "f64", default: Some("0.0"), required: false, group: PropGroup::Core, description: "Minimum allowed rating value." },
                 PropDoc { name: "max", type_simple: "usize", type_full: "usize", default: Some("5"), required: false, group: PropGroup::Core, description: "Maximum rating value and item count." },
                 PropDoc { name: "allow_half", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Enables 0.5-step half-star selection and partial item state." },
@@ -51,6 +52,7 @@ pub(super) const RATING_GROUP_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "on_blur", type_simple: "EventHandler<FocusEvent>", type_full: "Option<EventHandler<FocusEvent>>", default: None, required: false, group: PropGroup::Core, description: "Blur handler forwarded to the root element." },
                 PropDoc { name: "on_focus", type_simple: "EventHandler<FocusEvent>", type_full: "Option<EventHandler<FocusEvent>>", default: None, required: false, group: PropGroup::Core, description: "Focus handler forwarded to the root element." },
                 PROP_ON_MOUNTED,
+                PROP_AGENT,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "Static RatingGroupItem children used when render_items is not provided." },
             ],

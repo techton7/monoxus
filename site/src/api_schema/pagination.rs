@@ -1,5 +1,5 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
     PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
@@ -31,6 +31,7 @@ pub(super) const PAGINATION_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "page", type_simple: "usize", type_full: "Option<usize>", default: None, required: false, group: PropGroup::Core, description: "Controlled 1-based current page number." },
                 PropDoc { name: "default_page", type_simple: "usize", type_full: "usize", default: Some("1"), required: false, group: PropGroup::Core, description: "Initial 1-based page number when uncontrolled." },
                 PropDoc { name: "on_page_change", type_simple: "EventHandler<usize>", type_full: "Option<EventHandler<usize>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked when the active page changes." },
+                PropDoc { name: "on_page_change_details", type_simple: "EventHandler<ChangeEvent<usize>>", type_full: "Option<EventHandler<ChangeEvent<usize>>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked when the active page changes, providing a ChangeEvent with page number and change provenance." },
                 PropDoc { name: "loop_focus", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Wraps roving keyboard focus from last item back to first when true." },
                 PropDoc { name: "orientation", type_simple: "Orientation", type_full: "monoxus::foundation::shared::Orientation (Horizontal | Vertical)", default: Some("Orientation::Horizontal"), required: false, group: PropGroup::Core, description: "Roving focus axis exposed via data-orientation." },
                 PropDoc { name: "dir", type_simple: "Direction", type_full: "Option<monoxus::foundation::shared::Direction> (Ltr | Rtl)", default: Some("Direction::Ltr"), required: false, group: PropGroup::Core, description: "Reading direction override; falls back to DirectionProvider context." },
@@ -41,6 +42,7 @@ pub(super) const PAGINATION_DOC: ComponentDoc = ComponentDoc {
                 PROP_CLASS,
                 PROP_STYLE,
                 PROP_CHILD,
+                PROP_AGENT,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "Static children used when render_children is not provided." },
             ],

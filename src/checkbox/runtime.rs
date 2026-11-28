@@ -1,7 +1,8 @@
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeReason, ChangeSource};
 
 pub use crate::foundation::state::use_controllable_state;
-use crate::foundation::state::ControllableSignal;
+use crate::foundation::state::{ChangeOutcome, ControllableSignal};
 
 use super::types::CheckedState;
 
@@ -138,19 +139,28 @@ impl CheckboxGroupContext {
     }
 
     pub fn toggle_item(&self, value: impl Into<String>) {
+        let _ = self.toggle_item_with_context(
+            value,
+            ChangeContext::new(ChangeReason::Toggle, ChangeSource::Programmatic),
+        );
+    }
+
+    pub fn toggle_item_with_context(
+        &self,
+        value: impl Into<String>,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
         if self.is_disabled() || self.is_read_only() {
-            return;
+            return ChangeOutcome::Unchanged;
         }
         let val = value.into();
-        self.values_ctl.update(|current| {
-            let mut list = current.clone();
-            if let Some(pos) = list.iter().position(|v| v == &val) {
-                list.remove(pos);
-            } else {
-                list.push(val);
-            }
-            list
-        });
+        let mut list = self.values_ctl.peek();
+        if let Some(pos) = list.iter().position(|v| v == &val) {
+            list.remove(pos);
+        } else {
+            list.push(val);
+        }
+        self.values_ctl.set_with_context(list, ctx)
     }
 
     pub fn label_id(&self) -> Option<String> {

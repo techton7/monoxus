@@ -2,7 +2,12 @@ use oxidase::dom::{ModalShieldGuard, ModalShieldMode, ScrollLockOptions};
 
 #[allow(dead_code)]
 pub(crate) fn shield_external_dom(keep_ids: &[&str], mode: ModalShieldMode) -> ModalShieldGuard {
-    oxidase::dom::shield_others_with_mode(keep_ids, mode)
+    let mut extended: Vec<&str> = Vec::with_capacity(keep_ids.len() + 1);
+    extended.extend_from_slice(keep_ids);
+    if !extended.contains(&super::announce::LIVE_ANNOUNCER_ID) {
+        extended.push(super::announce::LIVE_ANNOUNCER_ID);
+    }
+    oxidase::dom::shield_others_with_mode(&extended, mode)
 }
 
 #[allow(dead_code)]

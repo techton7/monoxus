@@ -2,11 +2,15 @@ use std::ops::{Deref, DerefMut};
 
 use dioxus::prelude::*;
 use ui_sdk::date_picker::{PickerPolicy, PickerRelationships, PickerState};
+use ui_sdk::kernel::{ChangeContext, ChangeReason, ChangeSource};
 
-use crate::foundation::{
-    date_time::{CalendarConfig, CalendarDate, DateValue},
-    shared::ScopeHandle,
-    state::{ControllableSignal, sync_signal},
+use crate::{
+    agent::{cancel_current_agent_action, current_change_context},
+    foundation::{
+        date_time::{CalendarConfig, CalendarDate, DateValue},
+        shared::ScopeHandle,
+        state::{ControllableSignal, sync_signal},
+    },
 };
 
 use super::state::DatePickerPolicy;
@@ -169,20 +173,28 @@ impl<P: PickerPolicy> PickerRuntimeCore<P> {
     }
 
     pub fn set_open(&mut self, next: bool) {
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Mouse));
+        let _ = self.set_open_with_context(next, ctx);
+    }
+
+    pub(crate) fn set_open_with_context(&mut self, next: bool, ctx: ChangeContext) -> bool {
         let prev = self.state.peek().is_open();
-        if self.open_ctl.is_controlled() {
-            let mut candidate = self.state.peek().clone();
-            let effective = candidate.set_open(next);
-            if effective != prev {
-                self.open_ctl.set(effective);
-            }
-            return;
+        let mut candidate = self.state.peek().clone();
+        let effective = candidate.set_open(next);
+        if effective == prev {
+            return false;
         }
-        let effective = self.state.write().set_open(next);
-        self.sync_signals_from_state();
-        if effective != prev {
-            self.open_ctl.set(effective);
+        let outcome = self.open_ctl.set_with_context(effective, ctx);
+        if outcome.is_canceled() {
+            cancel_current_agent_action();
+            return true;
         }
+        if outcome.is_committed() {
+            self.state.write().set_open(effective);
+            self.sync_signals_from_state();
+        }
+        false
     }
 
     pub fn handle_popover_open_change(&mut self, next: bool) {
@@ -193,29 +205,36 @@ impl<P: PickerPolicy> PickerRuntimeCore<P> {
         if self.state.peek().placeholder() == next {
             return;
         }
-        if self.placeholder_ctl.is_controlled() {
-            self.placeholder_ctl.set(next);
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Mouse));
+        let outcome = self.placeholder_ctl.set_with_context(next, ctx);
+        if outcome.is_canceled() {
+            cancel_current_agent_action();
             return;
         }
-        self.state.write().set_placeholder(next);
-        self.sync_signals_from_state();
-        self.placeholder_ctl.set(next);
+        if outcome.is_committed() {
+            self.state.write().set_placeholder(next);
+            self.sync_signals_from_state();
+        }
     }
 
     pub fn handle_calendar_placeholder_change(&mut self, next_date: CalendarDate) {
         let prev_ph = self.state.peek().placeholder();
-        if self.placeholder_ctl.is_controlled() {
-            let mut candidate = self.state.peek().clone();
-            let next_ph = candidate.set_calendar_placeholder(next_date);
-            if next_ph != prev_ph {
-                self.placeholder_ctl.set(next_ph);
-            }
+        let mut candidate = self.state.peek().clone();
+        let next_ph = candidate.set_calendar_placeholder(next_date);
+        if next_ph == prev_ph {
             return;
         }
-        let next_ph = self.state.write().set_calendar_placeholder(next_date);
-        self.sync_signals_from_state();
-        if next_ph != prev_ph {
-            self.placeholder_ctl.set(next_ph);
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Mouse));
+        let outcome = self.placeholder_ctl.set_with_context(next_ph, ctx);
+        if outcome.is_canceled() {
+            cancel_current_agent_action();
+            return;
+        }
+        if outcome.is_committed() {
+            self.state.write().set_placeholder(next_ph);
+            self.sync_signals_from_state();
         }
     }
 }
@@ -251,29 +270,41 @@ impl PartialEq for DatePickerRuntime {
 
 impl DatePickerRuntime {
     pub fn handle_field_value_change(&mut self, next: Option<DateValue>) {
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Mouse));
+        let _ = self.handle_field_value_change_with_context(next, ctx);
+    }
+
+    pub(crate) fn handle_field_value_change_with_context(
+        &mut self,
+        next: Option<DateValue>,
+        ctx: ChangeContext,
+    ) -> bool {
         let (prev_val, prev_ph) = {
             let st = self.state.peek();
             (st.value(), st.placeholder())
         };
         if prev_val == next {
-            return;
+            return false;
         }
 
-        if self.value_ctl.is_controlled() {
-            self.value_ctl.set(next);
-            return;
+        let outcome = self.value_ctl.set_with_context(next, ctx);
+        if outcome.is_canceled() {
+            cancel_current_agent_action();
+            return true;
         }
-
-        self.state.write().set_field_value(next);
-        let next_ph = self.state.peek().placeholder();
-        if self.placeholder_ctl.is_controlled() && next_ph != prev_ph {
-            self.state.write().set_placeholder(prev_ph);
+        if outcome.is_committed() {
+            self.state.write().set_field_value(next);
+            let next_ph = self.state.peek().placeholder();
+            if next_ph != prev_ph {
+                let ph_outcome = self.placeholder_ctl.set_with_context(next_ph, ctx);
+                if !ph_outcome.is_committed() {
+                    self.state.write().set_placeholder(prev_ph);
+                }
+            }
+            self.sync_signals_from_state();
         }
-        self.sync_signals_from_state();
-        self.value_ctl.set(next);
-        if next_ph != prev_ph {
-            self.placeholder_ctl.set(next_ph);
-        }
+        false
     }
 
     pub fn handle_calendar_value_change(&mut self, next: Option<CalendarDate>) {
@@ -284,24 +315,34 @@ impl DatePickerRuntime {
 
         let mut candidate = self.state.peek().clone();
         let outcome = candidate.apply_calendar_value(next);
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Mouse));
 
-        if !self.value_ctl.is_controlled() && outcome.next_value != prev_val {
-            self.state.write().set_field_value(outcome.next_value);
+        if outcome.next_value != prev_val {
+            let val_outcome = self.value_ctl.set_with_context(outcome.next_value, ctx);
+            if val_outcome.is_canceled() {
+                cancel_current_agent_action();
+                return;
+            }
+            if val_outcome.is_committed() {
+                self.state.write().set_field_value(outcome.next_value);
+            }
         }
-        if !self.placeholder_ctl.is_controlled() && outcome.next_placeholder != prev_ph {
-            self.state.write().set_placeholder(outcome.next_placeholder);
+        if outcome.next_placeholder != prev_ph && !self.value_ctl.is_controlled() {
+            let ph_outcome = self
+                .placeholder_ctl
+                .set_with_context(outcome.next_placeholder, ctx);
+            if ph_outcome.is_committed() {
+                self.state.write().set_placeholder(outcome.next_placeholder);
+            } else {
+                self.state.write().set_placeholder(prev_ph);
+            }
         } else if self.placeholder_ctl.is_controlled() && self.state.peek().placeholder() != prev_ph
         {
             self.state.write().set_placeholder(prev_ph);
         }
 
         self.sync_signals_from_state();
-        if outcome.next_value != prev_val {
-            self.value_ctl.set(outcome.next_value);
-        }
-        if outcome.next_placeholder != prev_ph && !self.value_ctl.is_controlled() {
-            self.placeholder_ctl.set(outcome.next_placeholder);
-        }
     }
 
     pub fn handle_calendar_date_select(&mut self, selected: CalendarDate) {
@@ -313,30 +354,40 @@ impl DatePickerRuntime {
         let mut candidate = self.state.peek().clone();
         let outcome = candidate.commit_calendar_date_select(selected);
         let next_open = candidate.is_open();
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Mouse));
 
-        if !self.value_ctl.is_controlled() && outcome.next_value != prev_val {
-            self.state.write().set_field_value(outcome.next_value);
+        if outcome.next_value != prev_val {
+            let val_outcome = self.value_ctl.set_with_context(outcome.next_value, ctx);
+            if val_outcome.is_canceled() {
+                cancel_current_agent_action();
+                return;
+            }
+            if val_outcome.is_committed() {
+                self.state.write().set_field_value(outcome.next_value);
+            }
         }
-        if !self.placeholder_ctl.is_controlled() && outcome.next_placeholder != prev_ph {
-            self.state.write().set_placeholder(outcome.next_placeholder);
+        if outcome.next_placeholder != prev_ph && !self.value_ctl.is_controlled() {
+            let ph_outcome = self
+                .placeholder_ctl
+                .set_with_context(outcome.next_placeholder, ctx);
+            if ph_outcome.is_committed() {
+                self.state.write().set_placeholder(outcome.next_placeholder);
+            } else {
+                self.state.write().set_placeholder(prev_ph);
+            }
         } else if self.placeholder_ctl.is_controlled() && self.state.peek().placeholder() != prev_ph
         {
             self.state.write().set_placeholder(prev_ph);
         }
-        if !self.open_ctl.is_controlled() && next_open != prev_open {
-            self.state.write().set_open(next_open);
+        if next_open != prev_open {
+            let open_outcome = self.open_ctl.set_with_context(next_open, ctx);
+            if open_outcome.is_committed() {
+                self.state.write().set_open(next_open);
+            }
         }
 
         self.sync_signals_from_state();
-        if outcome.next_value != prev_val {
-            self.value_ctl.set(outcome.next_value);
-        }
-        if outcome.next_placeholder != prev_ph && !self.value_ctl.is_controlled() {
-            self.placeholder_ctl.set(outcome.next_placeholder);
-        }
-        if next_open != prev_open {
-            self.open_ctl.set(next_open);
-        }
     }
 
     pub fn reconcile_external_state(

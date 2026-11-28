@@ -1,5 +1,5 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
     PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
@@ -28,7 +28,10 @@ pub(super) const ALERT_DIALOG_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "open", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Controlled open state value." },
                 PropDoc { name: "default_open", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Initial open state when uncontrolled." },
                 PropDoc { name: "on_open_change", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked when open state changes." },
+                PropDoc { name: "on_open_change_details", type_simple: "EventHandler<ChangeEvent<bool>>", type_full: "Option<EventHandler<ChangeEvent<bool>>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked with full ChangeEvent details (reason, source, cancelation) when open state changes." },
                 PropDoc { name: "on_open_change_complete", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked after open/close presence transitions complete." },
+                PropDoc { name: "handle", type_simple: "AlertDialogHandleProp", type_full: "monoxus::foundation::overlay::AlertDialogHandleProp", default: None, required: false, group: PropGroup::Core, description: "Optional detached overlay handle connecting external triggers or imperative open/close control." },
+                PROP_AGENT,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "Alert dialog trigger and portal content." },
             ],
             data_attrs: &[],
@@ -44,6 +47,7 @@ pub(super) const ALERT_DIALOG_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "on_click", type_simple: "EventHandler<MouseEvent>", type_full: "Option<EventHandler<MouseEvent>>", default: None, required: false, group: PropGroup::Core, description: "Click handler chained before closing; call prevent_default() to keep the dialog open." },
                 PropDoc { name: "on_key_down", type_simple: "EventHandler<KeyboardEvent>", type_full: "Option<EventHandler<KeyboardEvent>>", default: None, required: false, group: PropGroup::Core, description: "Keydown handler forwarded to the action button." },
                 PROP_ON_MOUNTED,
+                PROP_AGENT,
                 PROP_CHILD,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "Action button label." },
@@ -63,6 +67,7 @@ pub(super) const ALERT_DIALOG_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "on_click", type_simple: "EventHandler<MouseEvent>", type_full: "Option<EventHandler<MouseEvent>>", default: None, required: false, group: PropGroup::Core, description: "Click handler chained before closing; call prevent_default() to veto close." },
                 PropDoc { name: "on_key_down", type_simple: "EventHandler<KeyboardEvent>", type_full: "Option<EventHandler<KeyboardEvent>>", default: None, required: false, group: PropGroup::Core, description: "Keydown handler forwarded to the cancel button." },
                 PROP_ON_MOUNTED,
+                PROP_AGENT,
                 PROP_CHILD,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "Cancel button label." },

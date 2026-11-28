@@ -12,7 +12,7 @@ use crate::toast::components::{
 };
 use crate::toast::layout::ToastStackLayout;
 use crate::toast::runtime::TOAST_STORE;
-use crate::toast::types::{ToastActionEvent, ToastPosition};
+use crate::toast::types::{ToastActionEvent, ToastDirection, ToastPosition};
 
 #[derive(Props, Clone, PartialEq)]
 pub struct ToastViewportProps {
@@ -108,12 +108,18 @@ pub fn ToastViewport(props: ToastViewportProps) -> Element {
 
     crate::toast::runtime::ensure_toast_watcher(&viewport_id);
 
+    let context_dir = crate::foundation::shared::use_direction_context(props.dir);
     let store = TOAST_STORE.read();
     let is_expanded = store.expanded;
-    let dir = props
-        .dir
-        .map(|d| d.as_str())
-        .unwrap_or_else(|| store.config.dir.as_str());
+    let dir = if props.dir.is_some() {
+        context_dir.as_str()
+    } else {
+        match store.config.dir {
+            ToastDirection::Auto => context_dir.as_str(),
+            ToastDirection::Ltr => "ltr",
+            ToastDirection::Rtl => "rtl",
+        }
+    };
     let effective_position = props.position.unwrap_or(store.config.position);
 
     let visible_items = store.visible_items();

@@ -1,10 +1,11 @@
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeReason, ChangeSource};
 
 use crate::foundation::{
     browser::{FocusOptions, focus_element_sync_or_defer, query_descendant_order},
     keyboard::is_ime_composing_key,
     shared::Direction,
-    state::{ControllableSignal, sync_signal},
+    state::{ChangeOutcome, ControllableSignal, sync_signal},
 };
 use crate::menu::{MenuKey, MenuOpenFocusTarget, translate_menu_key};
 
@@ -197,23 +198,40 @@ impl MenubarRuntimeContext {
     }
 
     pub fn open_menu(&self, value: &str, focus_target: MenuOpenFocusTarget) {
+        let _ = self.open_menu_with_context(
+            value,
+            focus_target,
+            ChangeContext::new(ChangeReason::Activation, ChangeSource::Mouse),
+        );
+    }
+
+    pub(crate) fn open_menu_with_context(
+        &self,
+        value: &str,
+        focus_target: MenuOpenFocusTarget,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
         let prev = self.active_value();
+        let outcome = self.value_state.set_with_context(value.to_owned(), ctx);
+        if outcome.is_canceled() {
+            return outcome;
+        }
         self.set_menu_open_focus_target(value, focus_target);
         if let Some(prev_val) = prev.as_deref()
             && prev_val != value
         {
             self.mark_fast_swap_cleanup(prev_val);
         }
-        if !self.value_state.is_controlled() {
+        if outcome.is_committed() {
             let mut st = self.state;
             let _ = st.try_write().map(|mut w| w.open_menu(value));
-        } else {
+        } else if self.value_state.is_controlled() {
             let mut st = self.state;
             let _ = st
                 .try_write()
                 .map(|mut w| w.set_current_tabstop_value(Some(value.to_owned())));
         }
-        self.value_state.set(value.to_owned());
+        outcome
     }
 
     pub fn close_menu(&self, value: &str) {
@@ -223,11 +241,19 @@ impl MenubarRuntimeContext {
     }
 
     pub fn close_all(&self) {
-        if !self.value_state.is_controlled() {
+        let _ = self.close_all_with_context(ChangeContext::new(
+            ChangeReason::Activation,
+            ChangeSource::Mouse,
+        ));
+    }
+
+    pub(crate) fn close_all_with_context(&self, ctx: ChangeContext) -> ChangeOutcome {
+        let outcome = self.value_state.set_with_context(String::new(), ctx);
+        if outcome.is_committed() {
             let mut st = self.state;
             let _ = st.try_write().map(|mut w| w.close_all());
         }
-        self.value_state.set(String::new());
+        outcome
     }
 
     pub fn on_trigger_pointer_enter(&self, value: &str) {

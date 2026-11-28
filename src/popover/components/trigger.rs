@@ -7,7 +7,10 @@ use crate::foundation::{
         collect_user_attrs, merge_attributes_with_part, merge_global_attributes, merge_props,
         push_attr_opt, push_bool_data_attr, push_event_handler,
     },
-    shared::data_disabled_attr,
+    overlay::{
+        AnyPopoverHandle, OverlayPayload, PopoverHandleProp, use_overlay_handle_version,
+    },
+    shared::{data_disabled_attr, use_stable_id},
 };
 use crate::popover::components::PopoverContext;
 
@@ -21,6 +24,10 @@ pub struct PopoverTriggerProps {
     pub style: Option<String>,
     #[props(default = false)]
     pub disabled: bool,
+    #[props(default, into)]
+    pub handle: PopoverHandleProp,
+    #[props(default)]
+    pub payload: Option<OverlayPayload>,
     #[props(default)]
     pub on_click: Option<EventHandler<MouseEvent>>,
     #[props(default)]
@@ -270,6 +277,8 @@ pub fn PopoverTrigger(props: PopoverTriggerProps) -> Element {
         class,
         style,
         disabled,
+        handle,
+        payload,
         on_click,
         on_key_down,
         on_mounted,
@@ -277,42 +286,146 @@ pub fn PopoverTrigger(props: PopoverTriggerProps) -> Element {
         attributes,
         children,
     } = props;
-    let ctx = use_context::<PopoverContext>();
-    let runtime = ctx.runtime.read().clone();
-    let trigger = runtime.trigger();
-    let trigger_id = id.unwrap_or_else(|| trigger.id().to_string());
 
-    let latest_tid = use_hook(|| Rc::new(RefCell::new(trigger_id.clone())));
+    let _handle_version = use_overlay_handle_version(handle.as_any());
+    let stable_id = use_stable_id(None);
+    let ctx = try_consume_context::<PopoverContext>();
+    let runtime = ctx.as_ref().map(|c| c.runtime.read().clone());
+    let inline_trigger = runtime.as_ref().map(|rt| rt.trigger());
+
+    let trigger_id = if let Some(custom_id) = id {
+        custom_id
+    } else if handle.is_none()
+        && let Some(ref trigger) = inline_trigger
     {
-        let mut prev = latest_tid.borrow_mut();
-        if *prev != trigger_id {
-            runtime.unregister_trigger_id(&prev);
-            *prev = trigger_id.clone();
+        trigger.id().to_string()
+    } else {
+        format!("popover-trigger-{stable_id}")
+    };
+
+    let mounted_slot: Rc<RefCell<Option<Rc<MountedData>>>> =
+        use_hook(|| Rc::new(RefCell::new(None)));
+
+    // Register/unregister with inline PopoverRuntime only when no detached handle is active.
+    let latest_inline_tid: Rc<RefCell<Option<String>>> = use_hook(|| Rc::new(RefCell::new(None)));
+    if handle.is_none() {
+        let rt = runtime
+            .as_ref()
+            .expect("PopoverTrigger must be rendered inside PopoverRoot or given a `handle` prop");
+        let mut prev = latest_inline_tid.borrow_mut();
+        if prev.as_deref() != Some(trigger_id.as_str()) {
+            if let Some(old) = prev.as_deref() {
+                rt.unregister_trigger_id(old);
+            }
+            *prev = Some(trigger_id.clone());
         }
+        rt.register_trigger_id(&trigger_id);
+    } else if let Some(old) = latest_inline_tid.borrow_mut().take()
+        && let Some(ref rt) = runtime
+    {
+        rt.unregister_trigger_id(&old);
     }
-    runtime.register_trigger_id(&trigger_id);
-    let tid_for_drop = Rc::clone(&latest_tid);
+
+    let tid_for_inline_drop = Rc::clone(&latest_inline_tid);
     let runtime_for_drop = runtime.clone();
     use_drop(move || {
-        let current = tid_for_drop.borrow().clone();
-        runtime_for_drop.unregister_trigger_id(&current);
+        if let Some(current) = tid_for_inline_drop.borrow_mut().take()
+            && let Some(rt) = runtime_for_drop
+        {
+            rt.unregister_trigger_id(&current);
+        }
+    });
+
+    // Register/update/unregister on detached handle when `handle` is provided.
+    let registered_handle_entry: Rc<RefCell<Option<(AnyPopoverHandle, String)>>> =
+        use_hook(|| Rc::new(RefCell::new(None)));
+    {
+        let mut slot = registered_handle_entry.borrow_mut();
+        match (&*slot, handle.as_any()) {
+            (Some((prev_h, prev_id)), Some(next_h))
+                if prev_h == next_h && prev_id == &trigger_id =>
+            {
+                next_h.update_trigger_payload(&trigger_id, payload.clone());
+            }
+            (_, Some(next_h)) => {
+                if let Some((prev_h, prev_id)) = slot.take() {
+                    prev_h.unregister_trigger(&prev_id);
+                }
+                next_h.register_trigger(
+                    trigger_id.clone(),
+                    mounted_slot.borrow().clone(),
+                    payload.clone(),
+                );
+                *slot = Some((next_h.clone(), trigger_id.clone()));
+            }
+            (Some(_), None) => {
+                if let Some((prev_h, prev_id)) = slot.take() {
+                    prev_h.unregister_trigger(&prev_id);
+                }
+            }
+            (None, None) => {}
+        }
+    }
+    let handle_entry_for_drop = Rc::clone(&registered_handle_entry);
+    use_drop(move || {
+        if let Some((prev_h, prev_id)) = handle_entry_for_drop.borrow_mut().take() {
+            prev_h.unregister_trigger(&prev_id);
+        }
     });
 
     let tabindex = (!disabled).then_some("0");
-    let data_state = match trigger.data_state() {
-        crate::foundation::state::DataState::Open => "open",
-        _ => "closed",
-    };
-    let aria_expanded = if trigger.aria_expanded() {
-        "true"
+    let (data_state, aria_expanded, aria_controls) = if let Some(any_handle) = handle.as_any() {
+        let opened_by_this = any_handle.is_opened_by_trigger(&trigger_id);
+        let controls = if opened_by_this {
+            inline_trigger
+                .as_ref()
+                .and_then(|t| t.aria_controls().map(str::to_owned))
+        } else {
+            None
+        };
+        (
+            if opened_by_this { "open" } else { "closed" },
+            if opened_by_this { "true" } else { "false" },
+            controls,
+        )
     } else {
-        "false"
+        let trigger = inline_trigger
+            .as_ref()
+            .expect("PopoverTrigger requires PopoverContext when `handle` is not provided");
+        let ds = match trigger.data_state() {
+            crate::foundation::state::DataState::Open => "open",
+            _ => "closed",
+        };
+        let ae = if trigger.aria_expanded() {
+            "true"
+        } else {
+            "false"
+        };
+        (ds, ae, trigger.aria_controls().map(str::to_owned))
     };
-    let aria_controls = trigger.aria_controls().map(str::to_owned);
 
-    let mut mount_cb = runtime.mount_trigger();
-    let mut pd_cb = runtime.trigger_pointer_down();
-    let mut click_cb = runtime.trigger_click();
+    let handle_for_mount = handle.as_any().cloned();
+    let tid_for_mount = trigger_id.clone();
+    let mounted_slot_for_cb = Rc::clone(&mounted_slot);
+    let mut inline_mount_cb = if handle.is_none() {
+        runtime.as_ref().map(|rt| rt.mount_trigger())
+    } else {
+        None
+    };
+
+    let mut inline_pd_cb = if handle.is_none() {
+        runtime.as_ref().map(|rt| rt.trigger_pointer_down())
+    } else {
+        None
+    };
+
+    let handle_for_click = handle.as_any().cloned();
+    let tid_for_click = trigger_id.clone();
+    let mut inline_click_cb = if handle.is_none() {
+        runtime.as_ref().map(|rt| rt.trigger_click())
+    } else {
+        None
+    };
 
     let mut base = Vec::with_capacity(13);
     base.push(Attribute::new("id", trigger_id, None, false));
@@ -329,14 +442,24 @@ pub fn PopoverTrigger(props: PopoverTriggerProps) -> Element {
     push_event_handler(
         &mut base,
         "onmounted",
-        Some(EventHandler::new(move |evt: MountedEvent| mount_cb(evt))),
+        Some(EventHandler::new(move |evt: MountedEvent| {
+            let data = evt.data();
+            *mounted_slot_for_cb.borrow_mut() = Some(data.clone());
+            if let Some(ref h) = handle_for_mount {
+                h.update_trigger_mounted(&tid_for_mount, Some(data));
+            } else if let Some(ref mut cb) = inline_mount_cb {
+                cb(evt);
+            }
+        })),
     );
     push_event_handler(
         &mut base,
         "onpointerdown",
         Some(EventHandler::new(move |evt: PointerEvent| {
-            if !disabled {
-                pd_cb(evt);
+            if !disabled
+                && let Some(ref mut cb) = inline_pd_cb
+            {
+                cb(evt);
             }
         })),
     );
@@ -349,7 +472,15 @@ pub fn PopoverTrigger(props: PopoverTriggerProps) -> Element {
                 return;
             }
             if evt.default_action_enabled() {
-                click_cb(evt);
+                if let Some(ref h) = handle_for_click {
+                    if h.is_opened_by_trigger(&tid_for_click) {
+                        h.close();
+                    } else {
+                        h.activate_trigger(&tid_for_click, true);
+                    }
+                } else if let Some(ref mut cb) = inline_click_cb {
+                    cb(evt);
+                }
             }
         })),
     );

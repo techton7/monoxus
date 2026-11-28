@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
-    PROP_FLOATING_CHILD, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
+    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD,
+    PROP_CLASS, PROP_FLOATING_CHILD, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
 pub(super) const COMBOBOX_DOC: ComponentDoc = ComponentDoc {
@@ -29,15 +29,19 @@ pub(super) const COMBOBOX_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "Option<String>", type_full: "Option<Option<String>>", default: None, required: false, group: PropGroup::Core, description: "Controlled single selected value (Some(None) clears selection)." },
                 PropDoc { name: "default_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial single selected value when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<Option<String>>", type_full: "Option<EventHandler<Option<String>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the single selected value changes." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<Option<String>>>", type_full: "Option<EventHandler<ChangeEvent<Option<String>>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the single selected value changes, providing a ChangeEvent with value and change provenance." },
                 PropDoc { name: "values", type_simple: "Vec<String>", type_full: "Option<Vec<String>>", default: None, required: false, group: PropGroup::Core, description: "Controlled multiple selected values." },
                 PropDoc { name: "default_values", type_simple: "Vec<String>", type_full: "Option<Vec<String>>", default: None, required: false, group: PropGroup::Core, description: "Initial multiple selected values when uncontrolled." },
                 PropDoc { name: "on_values_change", type_simple: "EventHandler<Vec<String>>", type_full: "Option<EventHandler<Vec<String>>>", default: None, required: false, group: PropGroup::Core, description: "Called when multiple selected values change." },
+                PropDoc { name: "on_values_change_details", type_simple: "EventHandler<ChangeEvent<Vec<String>>>", type_full: "Option<EventHandler<ChangeEvent<Vec<String>>>>", default: None, required: false, group: PropGroup::Core, description: "Called when multiple selected values change, providing a ChangeEvent with values and change provenance." },
                 PropDoc { name: "input_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Controlled text value displayed in ComboboxInput." },
                 PropDoc { name: "default_input_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial text value for ComboboxInput when uncontrolled." },
                 PropDoc { name: "on_input_value_change", type_simple: "EventHandler<String>", type_full: "Option<EventHandler<String>>", default: None, required: false, group: PropGroup::Core, description: "Called when the combobox input value changes." },
+                PropDoc { name: "on_input_value_change_details", type_simple: "EventHandler<ChangeEvent<String>>", type_full: "Option<EventHandler<ChangeEvent<String>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the combobox input value changes, providing a ChangeEvent with text value and change provenance." },
                 PropDoc { name: "open", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Controlled open state." },
                 PropDoc { name: "default_open", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Initial open state when uncontrolled." },
                 PropDoc { name: "on_open_change", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called when the popup opens or closes." },
+                PropDoc { name: "on_open_change_details", type_simple: "EventHandler<ChangeEvent<bool>>", type_full: "Option<EventHandler<ChangeEvent<bool>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the popup opens or closes, providing a ChangeEvent with open state and change provenance." },
                 PropDoc { name: "on_open_change_complete", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called after open/close presence transitions complete." },
                 PropDoc { name: "on_focus_out", type_simple: "EventHandler<FocusEvent>", type_full: "Option<EventHandler<FocusEvent>>", default: None, required: false, group: PropGroup::Core, description: "Called when focus leaves the composite input, trigger, and content region." },
                 PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Disables the entire combobox." },
@@ -50,6 +54,7 @@ pub(super) const COMBOBOX_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "scroll_alignment", type_simple: "ComboboxScrollAlignment", type_full: "monoxus::combobox::ComboboxScrollAlignment (Nearest | Center)", default: Some("ComboboxScrollAlignment::Nearest"), required: false, group: PropGroup::Core, description: "Scroll alignment strategy used when scrolling the highlighted item into view." },
                 PropDoc { name: "items", type_simple: "Vec<ComboboxItemData>", type_full: "Vec<ComboboxItemData>", default: Some("Vec::new()"), required: false, group: PropGroup::Core, description: "Optional pre-seeded item metadata for closed-state label resolution." },
                 PropDoc { name: "allow_deselect", type_simple: "bool", type_full: "bool", default: Some("true"), required: false, group: PropGroup::Core, description: "Allows selecting an already-selected item in single mode to clear selection." },
+                PROP_AGENT,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "ComboboxInput, ComboboxTrigger, and ComboboxPortal children." },
             ],
             data_attrs: &[],

@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeReason, ChangeSource};
 
 pub use crate::foundation::compose::{
     compose_part_event_handlers, compose_part_refs, project_as_child,
@@ -10,7 +11,7 @@ pub use crate::foundation::state::{ControllableStateProps, use_controllable_stat
 use crate::foundation::{
     browser::focus_element_by_id,
     roving_focus::{RovingFocusRuntime, RovingItemMeta, RovingModifiers},
-    state::{ControllableSignal, sync_signal},
+    state::{ChangeOutcome, ControllableSignal, sync_signal},
 };
 
 use super::{
@@ -156,6 +157,14 @@ impl TabsRuntime {
         self.state.active_value.read().clone()
     }
 
+    pub(crate) fn active_value_peek(&self) -> String {
+        self.state
+            .active_value
+            .try_peek()
+            .map(|v| v.clone())
+            .unwrap_or_default()
+    }
+
     pub fn resolve_tab_stop(&self) -> Option<String> {
         if self.tabs.read().is_disabled() {
             return None;
@@ -263,15 +272,24 @@ impl TabsRuntime {
     }
 
     pub fn select_tab(&self, value: &str) {
+        let _ = self.select_tab_with_context(
+            value,
+            ChangeContext::new(ChangeReason::TabChange, ChangeSource::Programmatic),
+        );
+    }
+
+    pub fn select_tab_with_context(&self, value: &str, ctx: ChangeContext) -> ChangeOutcome {
         if self.tabs.peek().is_disabled() {
-            return;
+            return ChangeOutcome::Unchanged;
         }
         if let Some(ctl) = self.value_ctl {
-            ctl.set(value.to_string());
-            self.state
-                .roving
-                .set_current_tab_stop(Some(value.to_string()));
-            return;
+            let outcome = ctl.set_with_context(value.to_string(), ctx);
+            if outcome.is_accepted() {
+                self.state
+                    .roving
+                    .set_current_tab_stop(Some(value.to_string()));
+            }
+            return outcome;
         }
         let changed = *self.state.active_value.peek() != value;
         if changed {
@@ -285,10 +303,16 @@ impl TabsRuntime {
             if let Some(callback) = callback {
                 callback(value.to_string());
             }
+            self.state
+                .roving
+                .set_current_tab_stop(Some(value.to_string()));
+            ChangeOutcome::Committed(ctx)
+        } else {
+            self.state
+                .roving
+                .set_current_tab_stop(Some(value.to_string()));
+            ChangeOutcome::Unchanged
         }
-        self.state
-            .roving
-            .set_current_tab_stop(Some(value.to_string()));
     }
 
     pub fn trigger_element_id(&self, value: &str) -> String {

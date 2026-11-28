@@ -1,12 +1,20 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
+use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::agent::{
+    ActionDescriptor, ActionDispatch, AgentHints, AgentSurface, ComponentSnapshot, SnapshotValue,
+};
+use ui_sdk::kernel::ChangeEvent;
 
+use crate::agent::{
+    DispatchExecResult, SurfaceMetaDefaults, cancel_current_agent_action, use_agent_surface,
+};
 use crate::foundation::{
     compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
     shared::{ScopeHandle, use_stable_id},
-    state::{sync_signal, use_controllable_signal},
+    state::{ControllableConfig, sync_signal, use_controllable_signal_config},
 };
 use crate::visually_hidden::VisuallyHiddenState;
 
@@ -28,6 +36,8 @@ pub struct CommandRootProps {
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
+    #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
     #[props(default)]
     pub on_state_change: Option<EventHandler<CommandStateSnapshot>>,
     #[props(default, into)]
@@ -56,6 +66,8 @@ pub struct CommandRootProps {
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -75,10 +87,14 @@ pub fn CommandRoot(props: CommandRootProps) -> Element {
     });
     let registry = use_signal(CommandRegistry::new);
     let search = use_signal(String::new);
-    let value_ctl = use_controllable_signal(
-        props.value,
-        props.default_value.unwrap_or_default(),
-        props.on_value_change,
+    let has_explicit_default = props.default_value.is_some();
+    let value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.value, props.default_value.unwrap_or_default())
+            .with_explicit_default(has_explicit_default)
+            .with_on_change(props.on_value_change)
+            .with_on_change_details(props.on_value_change_details)
+            .with_component("CommandRoot")
+            .with_prop("value"),
     );
     let value_sig = value_ctl.signal();
 
@@ -149,6 +165,70 @@ pub fn CommandRoot(props: CommandRootProps) -> Element {
     if should_filter_changed || filter_changed {
         ctx.recompute_filtered(false);
     }
+
+    let build_command_snapshot = {
+        move || {
+            let val = ctx.value.try_peek().map(|g| g.clone()).unwrap_or_default();
+            let q = ctx.search.try_peek().map(|g| g.clone()).unwrap_or_default();
+            let items = ctx.valid_items();
+            ComponentSnapshot::new()
+                .with_field("value", SnapshotValue::Text(val))
+                .with_field("search", SnapshotValue::Text(q))
+                .with_items(items)
+        }
+    };
+    let agent_label = if !props.label.trim().is_empty() {
+        props.label.clone()
+    } else {
+        props.id.clone().unwrap_or_else(|| String::from("Command"))
+    };
+    let agent_ctx = ctx;
+    let reader_snap = build_command_snapshot;
+    use_agent_surface(
+        props.agent.as_ref(),
+        SurfaceMetaDefaults::new(),
+        move || {
+            AgentSurface::new("command", agent_label)
+                .with_snapshot(build_command_snapshot())
+                .with_actions(vec![
+                    ActionDescriptor::new("input", "Update command search query", true),
+                    ActionDescriptor::new("select", "Select and activate a command item", true),
+                ])
+        },
+        move || {
+            Rc::new(move |dispatch: &ActionDispatch| {
+                let mut agent_ctx = agent_ctx;
+                match dispatch.action.as_str() {
+                    "input" => {
+                        let Some(SnapshotValue::Text(q)) = dispatch.args.get("value") else {
+                            return DispatchExecResult::ok()
+                                .with_host_error("missing or invalid `value` argument");
+                        };
+                        agent_ctx.set_search(q.clone());
+                        DispatchExecResult::ok()
+                    }
+                    "select" => {
+                        let Some(SnapshotValue::Text(v)) = dispatch.args.get("value") else {
+                            return DispatchExecResult::ok()
+                                .with_host_error("missing or invalid `value` argument");
+                        };
+                        let outcome =
+                            agent_ctx.set_value_with_context(v.clone(), false, dispatch.ctx);
+                        if outcome.is_canceled() {
+                            cancel_current_agent_action();
+                            DispatchExecResult::ok().with_canceled(true)
+                        } else {
+                            let _ = agent_ctx.activate_selected();
+                            DispatchExecResult::ok()
+                        }
+                    }
+                    other => DispatchExecResult::ok()
+                        .with_host_error(format!("unsupported command action: {other}")),
+                }
+            })
+        },
+        move || Rc::new(reader_snap),
+    );
 
     let mut ctx_for_init = ctx;
     use_effect(move || {

@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, DataAttrDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS, PROP_ID, PROP_ON_MOUNTED,
-    PROP_STYLE, PartDoc, PropDoc, PropGroup,
+    ComponentDoc, DataAttrDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS, PROP_ID,
+    PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup,
 };
 
 pub(super) const BUTTON_DOC: ComponentDoc = ComponentDoc {
@@ -90,6 +90,33 @@ pub(super) const BUTTON_DOC: ComponentDoc = ComponentDoc {
                 description: "Disables interaction, prevents click/keyboard activation, and sets data-disabled.",
             },
             PropDoc {
+                name: "pending",
+                type_simple: "bool",
+                type_full: "bool",
+                default: Some("false"),
+                required: false,
+                group: PropGroup::Core,
+                description: "Marks the button as busy/pending, preventing re-activation while keeping focusability and setting data-pending.",
+            },
+            PropDoc {
+                name: "focusable_when_disabled",
+                type_simple: "bool",
+                type_full: "bool",
+                default: Some("false"),
+                required: false,
+                group: PropGroup::Core,
+                description: "Keeps a disabled button in the tab order using aria-disabled instead of the native disabled attribute.",
+            },
+            PropDoc {
+                name: "pending_announcement",
+                type_simple: "String",
+                type_full: "Option<String>",
+                default: None,
+                required: false,
+                group: PropGroup::HtmlAria,
+                description: "Polite screen-reader announcement spoken if the button remains pending for over 1000ms.",
+            },
+            PropDoc {
                 name: "tabindex",
                 type_simple: "i32",
                 type_full: "Option<i32>",
@@ -106,6 +133,24 @@ pub(super) const BUTTON_DOC: ComponentDoc = ComponentDoc {
                 required: false,
                 group: PropGroup::HtmlAria,
                 description: "Overrides the computed ARIA role.",
+            },
+            PropDoc {
+                name: "on_press",
+                type_simple: "EventHandler<()>",
+                type_full: "Option<EventHandler<()>>",
+                default: None,
+                required: false,
+                group: PropGroup::Core,
+                description: "Invoked on button activation when neither disabled nor pending.",
+            },
+            PropDoc {
+                name: "on_action",
+                type_simple: "AsyncButtonAction",
+                type_full: "Option<monoxus::button::AsyncButtonAction>",
+                default: None,
+                required: false,
+                group: PropGroup::Core,
+                description: "Async click action managed internally with double-submit guarding and pending state.",
             },
             PropDoc {
                 name: "on_click",
@@ -126,6 +171,7 @@ pub(super) const BUTTON_DOC: ComponentDoc = ComponentDoc {
                 description: "Invoked on keydown while enabled (Enter/Space suppressed when disabled).",
             },
             PROP_ON_MOUNTED,
+            PROP_AGENT,
             PROP_CHILD,
             PROP_ATTRIBUTES,
             PropDoc {
@@ -148,6 +194,11 @@ pub(super) const BUTTON_DOC: ComponentDoc = ComponentDoc {
                 name: "data-disabled",
                 values: "\"\"",
                 description: "Present when disabled is true; omitted when enabled.",
+            },
+            DataAttrDoc {
+                name: "data-pending",
+                values: "\"\"",
+                description: "Present when pending or an internal on_action future is active.",
             },
         ],
         css_vars: &[],

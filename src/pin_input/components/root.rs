@@ -1,8 +1,14 @@
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use dioxus::core::AttributeValue;
 use dioxus::prelude::*;
+use ui_sdk::kernel::ChangeEvent;
 
+use crate::agent::{
+    ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+    SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+};
 use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
     browser::{focus_element_by_id, is_element_focused_by_id},
@@ -17,7 +23,7 @@ use crate::foundation::{
 
 use super::super::{
     relationships::PinInputRelationships,
-    runtime::{PinInputContext, use_pin_input_runtime},
+    runtime::{PinInputContext, use_pin_input_runtime_with_details},
     state::sanitize_pin_value,
     types::{
         PinInputAutoComplete, PinInputMode, PinInputPattern, PinInputSnapshot, PinInputTextAlign,
@@ -87,7 +93,11 @@ pub struct PinInputRootProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
+    #[props(default)]
     pub on_complete: Option<EventHandler<String>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(default)]
     pub on_blur: Option<EventHandler<FocusEvent>>,
     #[props(default)]
@@ -240,13 +250,14 @@ pub fn PinInputRoot(props: PinInputRootProps) -> Element {
         )
     });
 
-    let mut runtime = use_pin_input_runtime(
+    let mut runtime = use_pin_input_runtime_with_details(
         props.value.clone(),
-        props.default_value.clone().unwrap_or_default(),
+        props.default_value.clone(),
         effective_max_length,
         props.pattern.clone(),
         props.paste_transformer,
         props.on_value_change,
+        props.on_value_change_details,
         props.on_complete,
         props.text_align,
         props.input_mode,
@@ -267,7 +278,95 @@ pub fn PinInputRoot(props: PinInputRootProps) -> Element {
     sync_signal(&mut runtime.invalid, effective_invalid);
     sync_signal(&mut runtime.aria_describedby, effective_describedby);
     sync_signal(&mut runtime.aria_labelledby, effective_labelledby);
-    sync_signal(&mut runtime.aria_label, effective_label);
+    sync_signal(&mut runtime.aria_label, effective_label.clone());
+
+    let agent_label = effective_label
+        .clone()
+        .or_else(|| effective_name.clone())
+        .unwrap_or_else(|| resolved_root_id.clone());
+    let agent_rt_surface = runtime.clone();
+    let agent_rt_dispatch = runtime.clone();
+    let agent_rt_reader = runtime.clone();
+    use_agent_surface(
+        props.agent.as_ref(),
+        SurfaceMetaDefaults::new().with_secret(true),
+        || {
+            let mut snap = ComponentSnapshot::new()
+                .with_field(
+                    "value",
+                    SnapshotValue::text(agent_rt_surface.value.peek().clone()),
+                )
+                .with_field(
+                    "max_length",
+                    SnapshotValue::Int(effective_max_length as i64),
+                );
+            if effective_read_only {
+                snap = snap.with_field("read_only", SnapshotValue::Bool(true));
+            }
+            let actions = if effective_read_only {
+                Vec::new()
+            } else {
+                vec![
+                    ActionDescriptor::new("set", "Set PIN input value", true),
+                    ActionDescriptor::new("clear", "Clear PIN input value", false),
+                ]
+            };
+            AgentSurface::new("pin-input", agent_label)
+                .with_disabled(effective_disabled)
+                .with_snapshot(snap)
+                .with_actions(actions)
+        },
+        || {
+            Rc::new(move |dispatch| {
+                if effective_read_only {
+                    return DispatchExecResult::ok().with_host_error("pin-input is read-only");
+                }
+                let mut rt = agent_rt_dispatch.clone();
+                match dispatch.action.as_str() {
+                    "set" => {
+                        let Some(SnapshotValue::Text(raw)) = dispatch.args.get("value") else {
+                            return DispatchExecResult::ok()
+                                .with_host_error("missing or invalid string argument 'value'");
+                        };
+                        let max_len = *rt.max_length.peek();
+                        let pat = rt.pattern.borrow().clone();
+                        let sanitized = sanitize_pin_value(raw, max_len, &pat);
+                        let outcome =
+                            rt.commit_value_with_context(sanitized, dispatch.ctx);
+                        DispatchExecResult::ok().with_canceled(outcome.is_canceled())
+                    }
+                    "clear" => {
+                        let outcome = rt.commit_value_with_context(String::new(), dispatch.ctx);
+                        DispatchExecResult::ok().with_canceled(outcome.is_canceled())
+                    }
+                    other => DispatchExecResult::ok()
+                        .with_host_error(format!("unknown pin-input action '{other}'")),
+                }
+            })
+        },
+        || {
+            Rc::new(move || {
+                let mut snap = ComponentSnapshot::new()
+                    .with_field(
+                        "value",
+                        SnapshotValue::text(
+                            agent_rt_reader
+                                .value_ctl
+                                .try_peek_cloned()
+                                .unwrap_or_default(),
+                        ),
+                    )
+                    .with_field(
+                        "max_length",
+                        SnapshotValue::Int(*agent_rt_reader.max_length.peek() as i64),
+                    );
+                if effective_read_only {
+                    snap = snap.with_field("read_only", SnapshotValue::Bool(true));
+                }
+                snap
+            })
+        },
+    );
 
     let mut on_focus_slot = use_hook(|| CopyValue::new(props.on_focus));
     on_focus_slot.set(props.on_focus);

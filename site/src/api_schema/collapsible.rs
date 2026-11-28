@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, CssVarDoc, DataAttrDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS, PROP_ID,
-    PROP_STYLE, PartDoc, PropDoc, PropGroup,
+    ComponentDoc, CssVarDoc, DataAttrDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    PROP_ID, PROP_STYLE, PartDoc, PropDoc, PropGroup,
 };
 
 pub(super) const COLLAPSIBLE_DOC: ComponentDoc = ComponentDoc {
@@ -63,6 +63,16 @@ pub(super) const COLLAPSIBLE_DOC: ComponentDoc = ComponentDoc {
                     group: PropGroup::Core,
                     description: "Invoked when the open state changes.",
                 },
+                PropDoc {
+                    name: "on_open_change_details",
+                    type_simple: "EventHandler<ChangeEvent<bool>>",
+                    type_full: "Option<EventHandler<ChangeEvent<bool>>>",
+                    default: None,
+                    required: false,
+                    group: PropGroup::Core,
+                    description: "Invoked when the open state changes, providing a ChangeEvent with open state and change provenance.",
+                },
+                PROP_AGENT,
                 PROP_CHILD,
                 PROP_ATTRIBUTES,
                 PropDoc {

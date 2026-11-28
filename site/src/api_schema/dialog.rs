@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
-    PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
+    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD,
+    PROP_CLASS, PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
 pub(super) const DIALOG_DOC: ComponentDoc = ComponentDoc {
@@ -29,8 +29,11 @@ pub(super) const DIALOG_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "open", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Controlled open state value." },
                 PropDoc { name: "default_open", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Initial open state when uncontrolled." },
                 PropDoc { name: "on_open_change", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked when open state changes." },
+                PropDoc { name: "on_open_change_details", type_simple: "EventHandler<ChangeEvent<bool>>", type_full: "Option<EventHandler<ChangeEvent<bool>>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked with full ChangeEvent details (reason, source, cancelation) when open state changes." },
                 PropDoc { name: "on_open_change_complete", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked after open/close presence transitions complete." },
                 PropDoc { name: "mode", type_simple: "DialogMode", type_full: "Option<monoxus::dialog::DialogMode> (Modal | NonModal)", default: Some("DialogMode::Modal"), required: false, group: PropGroup::Core, description: "Modal or non-modal dialog behavior." },
+                PropDoc { name: "handle", type_simple: "DialogHandleProp", type_full: "monoxus::foundation::overlay::DialogHandleProp", default: None, required: false, group: PropGroup::Core, description: "Optional detached overlay handle connecting external triggers or imperative open/close control." },
+                PROP_AGENT,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "Dialog trigger and portal content." },
             ],
             data_attrs: &[],
@@ -44,6 +47,8 @@ pub(super) const DIALOG_DOC: ComponentDoc = ComponentDoc {
                 PROP_CLASS,
                 PROP_STYLE,
                 PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Prevents opening the dialog when true." },
+                PropDoc { name: "handle", type_simple: "DialogHandleProp", type_full: "monoxus::foundation::overlay::DialogHandleProp", default: None, required: false, group: PropGroup::Core, description: "Optional detached overlay handle for driving a DialogRoot outside its subtree." },
+                PropDoc { name: "payload", type_simple: "OverlayPayload", type_full: "Option<monoxus::foundation::overlay::OverlayPayload>", default: None, required: false, group: PropGroup::Core, description: "Optional payload attached to the handle when this trigger opens the dialog." },
                 PropDoc { name: "on_click", type_simple: "EventHandler<MouseEvent>", type_full: "Option<EventHandler<MouseEvent>>", default: None, required: false, group: PropGroup::Core, description: "Click handler chained before dialog open; call prevent_default() to veto opening." },
                 PropDoc { name: "on_key_down", type_simple: "EventHandler<KeyboardEvent>", type_full: "Option<EventHandler<KeyboardEvent>>", default: None, required: false, group: PropGroup::Core, description: "Keydown handler forwarded to the trigger element." },
                 PROP_ON_MOUNTED,
@@ -81,6 +86,7 @@ pub(super) const DIALOG_DOC: ComponentDoc = ComponentDoc {
                 PROP_STYLE,
                 PropDoc { name: "force_mount", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Keeps the overlay mounted and visible to CSS when closed." },
                 PropDoc { name: "keep_mounted", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Keeps the DOM node mounted with the `hidden` attribute after exit animations complete." },
+                PropDoc { name: "force_render", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Renders the overlay backdrop even for nested dialogs that normally suppress duplicate backdrops." },
                 PROP_CHILD,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "Option<Element>", default: None, required: false, group: PropGroup::Core, description: "Optional overlay children." },
@@ -124,8 +130,12 @@ pub(super) const DIALOG_DOC: ComponentDoc = ComponentDoc {
                 DataAttrDoc { name: "data-state", values: "\"open\" | \"closed\"", description: "Current dialog open state." },
                 DataAttrDoc { name: "data-starting-style", values: "\"\"", description: "Present on the initial enter frame before settling to idle." },
                 DataAttrDoc { name: "data-ending-style", values: "\"\"", description: "Present while closing exit animations are active." },
+                DataAttrDoc { name: "data-nested", values: "\"\"", description: "Present when this dialog is nested inside an ancestor DialogRoot or AlertDialogRoot." },
+                DataAttrDoc { name: "data-nested-dialog-open", values: "\"\"", description: "Present when one or more descendant dialogs are currently open." },
             ],
-            css_vars: &[],
+            css_vars: &[
+                CssVarDoc { name: "--nested-dialogs", description: "Number of currently open descendant dialogs stacked above this dialog." },
+            ],
         },
         PartDoc {
             name: "DialogTitle",

@@ -5,8 +5,10 @@ use ui_sdk::foundation::date_time::field_policy::{
     DateFieldPolicy, FieldRangeEndpoint, RangeFieldPolicy, RangeFieldRelationships,
     RangeFieldSnapshot, RangeFieldState,
 };
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 use crate::{
+    agent::{cancel_current_agent_action, current_change_context},
     date_field::runtime::{SegmentFieldRuntime, SegmentFieldUiPolicy},
     foundation::{
         browser::focus_element_by_id,
@@ -36,8 +38,13 @@ pub struct RangeFieldRuntime<P: RangeFieldPolicy + SegmentFieldUiPolicy> {
     pub(crate) end_ctl: ControllableSignal<Option<P::Value>>,
     pub(crate) placeholder_ctl: ControllableSignal<P::Value>,
     pub on_value_change: CopyValue<Option<EventHandler<ChronoRange<P::Value>>>>,
+    pub on_value_change_details: CopyValue<Option<EventHandler<ChangeEvent<ChronoRange<P::Value>>>>>,
     pub on_start_value_change: CopyValue<Option<EventHandler<Option<P::Value>>>>,
+    pub on_start_value_change_details:
+        CopyValue<Option<EventHandler<ChangeEvent<Option<P::Value>>>>>,
     pub on_end_value_change: CopyValue<Option<EventHandler<Option<P::Value>>>>,
+    pub on_end_value_change_details:
+        CopyValue<Option<EventHandler<ChangeEvent<Option<P::Value>>>>>,
     pub is_date_unavailable: CopyValue<Option<Callback<CalendarDate, bool>>>,
     pub validate: CopyValue<Option<Callback<ChronoRange<P::Value>, Option<Vec<String>>>>>,
     pub on_invalid: CopyValue<Option<EventHandler<FieldInvalidEvent>>>,
@@ -65,8 +72,11 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> Clone for RangeFieldRuntime<P> 
             end_ctl: self.end_ctl,
             placeholder_ctl: self.placeholder_ctl,
             on_value_change: self.on_value_change,
+            on_value_change_details: self.on_value_change_details,
             on_start_value_change: self.on_start_value_change,
+            on_start_value_change_details: self.on_start_value_change_details,
             on_end_value_change: self.on_end_value_change,
+            on_end_value_change_details: self.on_end_value_change_details,
             is_date_unavailable: self.is_date_unavailable,
             validate: self.validate,
             on_invalid: self.on_invalid,
@@ -380,6 +390,87 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
         }
     }
 
+    fn notify_controlled_fallback<T: Clone + 'static>(
+        next: T,
+        ctx: ChangeContext,
+        on_details: CopyValue<Option<EventHandler<ChangeEvent<T>>>>,
+        on_legacy: CopyValue<Option<EventHandler<T>>>,
+    ) -> bool {
+        let event = ChangeEvent::new(next.clone(), ctx);
+        if let Some(handler) = on_details.try_read().ok().and_then(|slot| *slot) {
+            handler.call(event.clone());
+        }
+        if event.is_canceled() {
+            return true;
+        }
+        if let Some(handler) = on_legacy.try_read().ok().and_then(|slot| *slot) {
+            handler.call(next);
+        }
+        false
+    }
+
+    pub(crate) fn set_range_from_agent(
+        &mut self,
+        next: ChronoRange<P::Value>,
+        ctx: ChangeContext,
+    ) -> bool {
+        let prev = self.state.peek().value();
+        if prev == next {
+            return false;
+        }
+
+        let start_controlled = self.value_ctl.is_controlled() || self.start_ctl.is_controlled();
+        let end_controlled = self.value_ctl.is_controlled() || self.end_ctl.is_controlled();
+        let any_controlled = start_controlled || end_controlled;
+
+        if !any_controlled || self.value_ctl.is_controlled() {
+            let outcome = self.value_ctl.set_with_context(next, ctx);
+            if outcome.is_canceled() {
+                cancel_current_agent_action();
+                return true;
+            }
+        } else if Self::notify_controlled_fallback(
+            next,
+            ctx,
+            self.on_value_change_details,
+            self.on_value_change,
+        ) {
+            cancel_current_agent_action();
+            return true;
+        }
+
+        if prev.start != next.start {
+            if !start_controlled || self.start_ctl.is_controlled() {
+                let _ = self.start_ctl.set_with_context(next.start, ctx);
+            } else {
+                let _ = Self::notify_controlled_fallback(
+                    next.start,
+                    ctx,
+                    self.on_start_value_change_details,
+                    self.on_start_value_change,
+                );
+            }
+        }
+        if prev.end != next.end {
+            if !end_controlled || self.end_ctl.is_controlled() {
+                let _ = self.end_ctl.set_with_context(next.end, ctx);
+            } else {
+                let _ = Self::notify_controlled_fallback(
+                    next.end,
+                    ctx,
+                    self.on_end_value_change_details,
+                    self.on_end_value_change,
+                );
+            }
+        }
+
+        if !any_controlled {
+            self.state.write().set_value(next);
+        }
+        self.sync_validation_and_notify();
+        false
+    }
+
     pub fn update_part_value(&mut self, kind: FieldRangeEndpoint, next: Option<P::Value>) {
         let prev_range = self.state.peek().value();
         let prev_part = match kind {
@@ -402,47 +493,73 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
             FieldRangeEndpoint::Start => start_controlled,
             FieldRangeEndpoint::End => end_controlled,
         };
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::Input, ChangeSource::Keyboard));
 
         if !part_controlled {
+            let value_canceled = if !self.value_ctl.is_controlled() {
+                self.value_ctl.set_with_context(next_range, ctx).is_canceled()
+            } else {
+                Self::notify_controlled_fallback(
+                    next_range,
+                    ctx,
+                    self.on_value_change_details,
+                    self.on_value_change,
+                )
+            };
+            if value_canceled {
+                cancel_current_agent_action();
+                return;
+            }
+            let part_outcome = match kind {
+                FieldRangeEndpoint::Start => self.start_ctl.set_with_context(next, ctx),
+                FieldRangeEndpoint::End => self.end_ctl.set_with_context(next, ctx),
+            };
+            if part_outcome.is_canceled() {
+                cancel_current_agent_action();
+                return;
+            }
             self.state.write().set_part_value(kind, next);
-            match kind {
-                FieldRangeEndpoint::Start => {
-                    self.start_ctl.set(next);
-                }
-                FieldRangeEndpoint::End => {
-                    self.end_ctl.set(next);
-                }
-            }
-            if !self.value_ctl.is_controlled() {
-                self.value_ctl.set(next_range);
-            } else if let Some(cb) = self.on_value_change.try_read().ok().and_then(|slot| *slot) {
-                cb.call(next_range);
-            }
         } else {
+            let value_canceled = if self.value_ctl.is_controlled() {
+                self.value_ctl.set_with_context(next_range, ctx).is_canceled()
+            } else {
+                Self::notify_controlled_fallback(
+                    next_range,
+                    ctx,
+                    self.on_value_change_details,
+                    self.on_value_change,
+                )
+            };
+            if value_canceled {
+                cancel_current_agent_action();
+                return;
+            }
             match kind {
                 FieldRangeEndpoint::Start => {
-                    if let Some(cb) = self
-                        .on_start_value_change
-                        .try_read()
-                        .ok()
-                        .and_then(|slot| *slot)
-                    {
-                        cb.call(next);
+                    if self.start_ctl.is_controlled() {
+                        let _ = self.start_ctl.set_with_context(next, ctx);
+                    } else {
+                        let _ = Self::notify_controlled_fallback(
+                            next,
+                            ctx,
+                            self.on_start_value_change_details,
+                            self.on_start_value_change,
+                        );
                     }
                 }
                 FieldRangeEndpoint::End => {
-                    if let Some(cb) = self
-                        .on_end_value_change
-                        .try_read()
-                        .ok()
-                        .and_then(|slot| *slot)
-                    {
-                        cb.call(next);
+                    if self.end_ctl.is_controlled() {
+                        let _ = self.end_ctl.set_with_context(next, ctx);
+                    } else {
+                        let _ = Self::notify_controlled_fallback(
+                            next,
+                            ctx,
+                            self.on_end_value_change_details,
+                            self.on_end_value_change,
+                        );
                     }
                 }
-            }
-            if let Some(cb) = self.on_value_change.try_read().ok().and_then(|slot| *slot) {
-                cb.call(next_range);
             }
         }
 
@@ -453,10 +570,16 @@ impl<P: RangeFieldPolicy + SegmentFieldUiPolicy> RangeFieldRuntime<P> {
         if *self.placeholder.peek() == next {
             return;
         }
-        if !self.placeholder_ctl.is_controlled() {
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::Input, ChangeSource::Keyboard));
+        let outcome = self.placeholder_ctl.set_with_context(next, ctx);
+        if outcome.is_canceled() {
+            cancel_current_agent_action();
+            return;
+        }
+        if outcome.is_committed() {
             self.state.write().set_placeholder(next);
         }
-        self.placeholder_ctl.set(next);
     }
 
     pub fn reconcile_external_state(

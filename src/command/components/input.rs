@@ -1,9 +1,10 @@
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 use crate::foundation::{
     browser::{FocusOptions, focus_element_sync_or_defer},
     compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
-    state::{sync_signal, use_controllable_signal},
+    state::{ControllableConfig, sync_signal, use_controllable_signal_config},
 };
 
 use super::super::{attrs::CommandInputAttrs, runtime::CommandContext};
@@ -18,6 +19,8 @@ pub struct CommandInputProps {
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
+    #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
     #[props(default, into)]
     pub placeholder: Option<String>,
     #[props(default = false)]
@@ -47,10 +50,14 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
         .unwrap_or_else(|| ctx.relationships.peek().input_id());
     sync_signal(&mut ctx.input_id, resolved_id.clone());
 
-    let value_ctl = use_controllable_signal(
-        props.value,
-        props.default_value.unwrap_or_default(),
-        props.on_value_change,
+    let has_explicit_default = props.default_value.is_some();
+    let value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.value, props.default_value.unwrap_or_default())
+            .with_explicit_default(has_explicit_default)
+            .with_on_change(props.on_value_change)
+            .with_on_change_details(props.on_value_change_details)
+            .with_component("CommandInput")
+            .with_prop("value"),
     );
     let val_sig = value_ctl.signal();
 
@@ -91,9 +98,11 @@ pub fn CommandInput(props: CommandInputProps) -> Element {
     let mut ctx_for_input = ctx;
     let base_input = EventHandler::new(move |evt: FormEvent| {
         let next = evt.value();
-        let is_controlled = value_ctl.is_controlled();
-        value_ctl.set(next.clone());
-        if !is_controlled {
+        let outcome = value_ctl.set_with_context(
+            next.clone(),
+            ChangeContext::new(ChangeReason::Input, ChangeSource::Keyboard),
+        );
+        if outcome.is_committed() {
             ctx_for_input.set_search(next);
         }
     });

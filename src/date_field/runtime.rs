@@ -7,17 +7,21 @@ use ui_sdk::foundation::date_time::field_policy::{
     SegmentFieldSnapshot, SegmentFieldState, TimeFieldPolicy, first_interactive_field_segment,
     last_interactive_field_segment, resolve_adjacent_interactive_field_index,
 };
+use ui_sdk::kernel::{ChangeContext, ChangeReason, ChangeSource};
 
-use crate::foundation::{
-    browser::focus_element_by_id,
-    date_time::{
-        CalendarDate, DateValue, FieldInvalidEvent, FieldInvalidReason, FieldSegmentIntent,
-        SegmentFocusMove, SegmentKind, parse_day_period_key, parse_pasted_date_value,
-        parse_pasted_time_value,
+use crate::{
+    agent::{cancel_current_agent_action, current_change_context},
+    foundation::{
+        browser::focus_element_by_id,
+        date_time::{
+            CalendarDate, DateValue, FieldInvalidEvent, FieldInvalidReason, FieldSegmentIntent,
+            SegmentFocusMove, SegmentKind, TimeValue, parse_day_period_key,
+            parse_pasted_date_value, parse_pasted_time_value,
+        },
+        keyboard::is_ime_composing_key,
+        shared::Direction,
+        state::{ControllableSignal, sync_signal},
     },
-    keyboard::is_ime_composing_key,
-    shared::Direction,
-    state::{ControllableSignal, sync_signal},
 };
 
 use super::attrs::{SegmentFieldInputAttrs, SegmentFieldLabelAttrs, SegmentFieldSegmentAttrs};
@@ -28,15 +32,33 @@ use super::attrs::{SegmentFieldInputAttrs, SegmentFieldLabelAttrs, SegmentFieldS
 pub trait SegmentFieldUiPolicy: SegmentFieldPolicy {
     const SCOPE_PREFIX: &'static str;
     const RANGE_SCOPE_PREFIX: &'static str;
+    const COMPONENT_NAME: &'static str;
+    const RANGE_COMPONENT_NAME: &'static str;
+    const AGENT_KIND: &'static str;
+    const AGENT_DEFAULT_LABEL: &'static str;
+    const RANGE_AGENT_KIND: &'static str;
+    const RANGE_AGENT_DEFAULT_LABEL: &'static str;
+    const AGENT_VALUE_LABEL: &'static str;
 
     fn extract_calendar_date(value: Self::Value) -> Option<CalendarDate>;
 
     fn can_parse_paste(text: &str, granularity: Self::ResolvedGranularity) -> bool;
+
+    fn format_iso(value: Self::Value) -> String;
+
+    fn parse_iso(raw: &str) -> Option<Self::Value>;
 }
 
 impl SegmentFieldUiPolicy for DateFieldPolicy {
     const SCOPE_PREFIX: &'static str = "date-field";
     const RANGE_SCOPE_PREFIX: &'static str = "date-range-field";
+    const COMPONENT_NAME: &'static str = "DateFieldRoot";
+    const RANGE_COMPONENT_NAME: &'static str = "DateRangeFieldRoot";
+    const AGENT_KIND: &'static str = "date-field";
+    const AGENT_DEFAULT_LABEL: &'static str = "Date field";
+    const RANGE_AGENT_KIND: &'static str = "date-range-field";
+    const RANGE_AGENT_DEFAULT_LABEL: &'static str = "Date range field";
+    const AGENT_VALUE_LABEL: &'static str = "date";
 
     #[inline]
     fn extract_calendar_date(value: DateValue) -> Option<CalendarDate> {
@@ -47,11 +69,28 @@ impl SegmentFieldUiPolicy for DateFieldPolicy {
     fn can_parse_paste(text: &str, granularity: Self::ResolvedGranularity) -> bool {
         parse_pasted_date_value(text, granularity).is_some()
     }
+
+    #[inline]
+    fn format_iso(value: DateValue) -> String {
+        value.to_iso_string()
+    }
+
+    #[inline]
+    fn parse_iso(raw: &str) -> Option<DateValue> {
+        DateValue::from_iso_str(raw)
+    }
 }
 
 impl SegmentFieldUiPolicy for TimeFieldPolicy {
     const SCOPE_PREFIX: &'static str = "time-field";
     const RANGE_SCOPE_PREFIX: &'static str = "time-range-field";
+    const COMPONENT_NAME: &'static str = "TimeFieldRoot";
+    const RANGE_COMPONENT_NAME: &'static str = "TimeRangeFieldRoot";
+    const AGENT_KIND: &'static str = "time-field";
+    const AGENT_DEFAULT_LABEL: &'static str = "Time field";
+    const RANGE_AGENT_KIND: &'static str = "time-range-field";
+    const RANGE_AGENT_DEFAULT_LABEL: &'static str = "Time range field";
+    const AGENT_VALUE_LABEL: &'static str = "time";
 
     #[inline]
     fn extract_calendar_date(_value: Self::Value) -> Option<CalendarDate> {
@@ -61,6 +100,16 @@ impl SegmentFieldUiPolicy for TimeFieldPolicy {
     #[inline]
     fn can_parse_paste(text: &str, _granularity: Self::ResolvedGranularity) -> bool {
         parse_pasted_time_value(text).is_some()
+    }
+
+    #[inline]
+    fn format_iso(value: TimeValue) -> String {
+        value.to_iso_string()
+    }
+
+    #[inline]
+    fn parse_iso(raw: &str) -> Option<TimeValue> {
+        TimeValue::from_iso_str(raw)
     }
 }
 
@@ -444,6 +493,26 @@ impl<P: SegmentFieldUiPolicy> SegmentFieldRuntime<P> {
         }
     }
 
+    pub(crate) fn set_value_from_agent(
+        &mut self,
+        next: Option<P::Value>,
+        ctx: ChangeContext,
+    ) -> bool {
+        let prev = self.state.peek().value();
+        if prev == next {
+            return false;
+        }
+        let outcome = self.value_ctl.set_with_context(next, ctx);
+        if outcome.is_canceled() {
+            return true;
+        }
+        if outcome.is_committed() {
+            self.state.write().set_value(next);
+            self.sync_validation_and_notify();
+        }
+        false
+    }
+
     fn emit_value_and_placeholder_changes(
         &mut self,
         prev_value: Option<P::Value>,
@@ -456,10 +525,12 @@ impl<P: SegmentFieldUiPolicy> SegmentFieldRuntime<P> {
 
         let val_controlled = self.value_ctl.is_controlled();
         let ph_controlled = self.placeholder_ctl.is_controlled();
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::Input, ChangeSource::Keyboard));
 
         // Partial-segment invariant: only when a complete value transition occurs (`next_value != prev_value`)
         // under controlled mode do we revert `state` to `prev_value` (zero 1-frame flash on veto)
-        // and propose `next_value` via `value_ctl.set(next_value)`.
+        // and propose `next_value` via `value_ctl.set_with_context(next_value, ctx)`.
         if next_value != prev_value {
             if val_controlled {
                 self.state.write().reset_value(prev_value);
@@ -467,7 +538,17 @@ impl<P: SegmentFieldUiPolicy> SegmentFieldRuntime<P> {
                     self.state.write().set_placeholder(prev_placeholder);
                 }
             }
-            self.value_ctl.set(next_value);
+            let outcome = self.value_ctl.set_with_context(next_value, ctx);
+            if outcome.is_canceled() {
+                cancel_current_agent_action();
+                if !val_controlled {
+                    self.state.write().reset_value(prev_value);
+                    if next_placeholder != prev_placeholder {
+                        self.state.write().set_placeholder(prev_placeholder);
+                    }
+                }
+                return;
+            }
         }
 
         if next_placeholder != prev_placeholder {
@@ -475,7 +556,13 @@ impl<P: SegmentFieldUiPolicy> SegmentFieldRuntime<P> {
                 self.state.write().set_placeholder(prev_placeholder);
             }
             if !val_controlled || next_value == prev_value {
-                self.placeholder_ctl.set(next_placeholder);
+                let ph_outcome = self.placeholder_ctl.set_with_context(next_placeholder, ctx);
+                if ph_outcome.is_canceled() {
+                    cancel_current_agent_action();
+                    if !ph_controlled {
+                        self.state.write().set_placeholder(prev_placeholder);
+                    }
+                }
             }
         }
     }

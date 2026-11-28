@@ -3,8 +3,13 @@ use std::{borrow::Cow, cell::RefCell, rc::Rc};
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
 use ui_sdk::foundation::date_time::field_policy::{DateFieldPolicy, FieldRangeRole};
+use ui_sdk::kernel::ChangeEvent;
 
 use crate::{
+    agent::{
+        ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+        SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+    },
     calendar::{CalendarMode, CalendarRootProps, CalendarSnapshot, components::render_calendar_root},
     date_field::{
         components::{
@@ -19,6 +24,7 @@ use crate::{
             FloatingContentChildProps, collect_user_attrs, join_styles, merge_props, push_attr_opt,
             push_bool_data_attr, push_event_handler,
         },
+        config::use_locale_context,
         date_time::{
             CalendarConfig, CalendarDate, CalendarLocale, DateValue, EditableSegmentKind,
             FieldInvalidEvent, Granularity, HourCycle, MonthFormat, Weekday, WeekdayFormat,
@@ -31,7 +37,7 @@ use crate::{
             use_register_parent_overlay_branches,
         },
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-        state::{DataState, sync_signal, use_controllable_signal},
+        state::{ControllableConfig, DataState, sync_signal, use_controllable_signal_config},
     },
     popover::{
         CloseAutoFocusEvent, EscapeKeyDownEvent, InteractOutsideEvent, OpenAutoFocusEvent,
@@ -544,17 +550,23 @@ pub struct DatePickerRootProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<Option<DateValue>>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<Option<DateValue>>>>,
+    #[props(default)]
     pub placeholder: Option<DateValue>,
     #[props(default)]
     pub default_placeholder: Option<DateValue>,
     #[props(default)]
     pub on_placeholder_change: Option<EventHandler<DateValue>>,
     #[props(default)]
+    pub on_placeholder_change_details: Option<EventHandler<ChangeEvent<DateValue>>>,
+    #[props(default)]
     pub open: Option<bool>,
     #[props(default = false)]
     pub default_open: bool,
     #[props(default)]
     pub on_open_change: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub on_open_change_details: Option<EventHandler<ChangeEvent<bool>>>,
     #[props(default)]
     pub on_open_change_complete: Option<EventHandler<bool>>,
     #[props(default)]
@@ -565,8 +577,8 @@ pub struct DatePickerRootProps {
     pub granularity: Option<Granularity>,
     #[props(default)]
     pub hour_cycle: Option<HourCycle>,
-    #[props(default, into)]
-    pub locale: CalendarLocale,
+    #[props(default)]
+    pub locale: Option<CalendarLocale>,
     #[props(default = false)]
     pub hide_time_zone: bool,
     #[props(default)]
@@ -618,6 +630,8 @@ pub struct DatePickerRootProps {
     #[props(default)]
     pub modal: Option<bool>,
     #[props(default)]
+    pub agent: Option<AgentHints>,
+    #[props(default)]
     pub children: Element,
 }
 
@@ -631,13 +645,22 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
     let effective_invalid_override = field_ctx.map(|f| f.is_invalid());
 
     let resolved_dir = use_direction_context(props.dir);
+    let resolved_locale = use_locale_context(props.locale);
     let stable_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
     let scope = use_hook(|| ScopeHandle::root("date-picker").child(stable_id.clone()));
     let rels = use_hook(|| DatePickerRelationships::new(scope.clone()));
     let today = use_hook(local_today);
 
-    let value_ctl = use_controllable_signal(props.value, props.default_value, props.on_value_change);
+    let value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.value, props.default_value)
+            .with_explicit_default(props.default_value.is_some())
+            .with_on_change(props.on_value_change)
+            .with_on_change_details(props.on_value_change_details)
+            .with_component("DatePickerRoot")
+            .with_prop("value"),
+    );
     let initial_value = value_ctl.peek();
+    let has_explicit_default_placeholder = props.default_placeholder.is_some();
     let initial_placeholder = props
         .placeholder
         .or(props.default_placeholder)
@@ -650,12 +673,22 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
                 today,
             )
         });
-    let placeholder_ctl = use_controllable_signal(
-        props.placeholder,
-        initial_placeholder,
-        props.on_placeholder_change,
+    let placeholder_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.placeholder, initial_placeholder)
+            .with_explicit_default(has_explicit_default_placeholder)
+            .with_on_change(props.on_placeholder_change)
+            .with_on_change_details(props.on_placeholder_change_details)
+            .with_component("DatePickerRoot")
+            .with_prop("placeholder"),
     );
-    let open_ctl = use_controllable_signal(props.open, props.default_open, props.on_open_change);
+    let open_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.open, props.default_open)
+            .with_explicit_default(props.default_open)
+            .with_on_change(props.on_open_change)
+            .with_on_change_details(props.on_open_change_details)
+            .with_component("DatePickerRoot")
+            .with_prop("open"),
+    );
     let initial_open = open_ctl.peek();
 
     let def = DatePickerDefinition::new()
@@ -690,7 +723,7 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
             .with_weekday_format(props.weekday_format)
             .with_month_format(props.month_format)
             .with_year_format(props.year_format)
-            .with_locale(props.locale.clone())
+            .with_locale(resolved_locale.clone())
             .with_calendar_label(props.calendar_label.clone())
             .with_direction(resolved_dir)
             .with_disable_days_outside_month(props.disable_days_outside_month),
@@ -785,6 +818,112 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
 
     use_context_provider(|| DatePickerContext(runtime.clone()));
 
+    {
+        fn build_dp_snap(rt: &DatePickerRuntime) -> ComponentSnapshot {
+            let open = rt.open.try_peek().map(|v| *v).unwrap_or(false);
+            let val = rt
+                .value
+                .try_peek()
+                .ok()
+                .and_then(|v| *v)
+                .map(|d| SnapshotValue::Text(d.to_iso_string()))
+                .unwrap_or(SnapshotValue::Null);
+            let ph = rt
+                .placeholder
+                .try_peek()
+                .map(|p| SnapshotValue::Text(p.to_iso_string()))
+                .unwrap_or(SnapshotValue::Null);
+            let ro = rt
+                .state
+                .try_peek()
+                .map(|st| st.def().read_only)
+                .unwrap_or(false);
+            ComponentSnapshot::new()
+                .with_field("open", SnapshotValue::Bool(open))
+                .with_field("value", val)
+                .with_field("placeholder", ph)
+                .with_field("read_only", SnapshotValue::Bool(ro))
+        }
+
+        let rt_for_surface = runtime.clone();
+        let rt_for_dispatch = runtime.clone();
+        let rt_for_reader = runtime.clone();
+
+        use_agent_surface(
+            props.agent.as_ref(),
+            SurfaceMetaDefaults::default(),
+            || {
+                let mut actions = vec![
+                    ActionDescriptor::new("open", "Open date picker popover", false),
+                    ActionDescriptor::new("close", "Close date picker popover", false),
+                ];
+                if !effective_read_only {
+                    actions.push(ActionDescriptor::new(
+                        "set",
+                        "Set ISO date value",
+                        true,
+                    ));
+                    actions.push(ActionDescriptor::new(
+                        "clear",
+                        "Clear selected date value",
+                        false,
+                    ));
+                }
+                AgentSurface::new("date-picker", "Date picker")
+                    .with_disabled(effective_disabled)
+                    .with_snapshot(build_dp_snap(&rt_for_surface))
+                    .with_actions(actions)
+            },
+            || {
+                let rt_handle = rt_for_dispatch;
+                Rc::new(move |dispatch| {
+                    let mut rt = rt_handle.clone();
+                    match dispatch.action.as_str() {
+                    "open" => {
+                        let canceled = rt.set_open_with_context(true, dispatch.ctx);
+                        DispatchExecResult::ok().with_canceled(canceled)
+                    }
+                    "close" => {
+                        let canceled = rt.set_open_with_context(false, dispatch.ctx);
+                        DispatchExecResult::ok().with_canceled(canceled)
+                    }
+                    "set" => match dispatch.args.get("value") {
+                        Some(SnapshotValue::Null) => {
+                            let canceled =
+                                rt.handle_field_value_change_with_context(None, dispatch.ctx);
+                            DispatchExecResult::ok().with_canceled(canceled)
+                        }
+                        Some(SnapshotValue::Text(raw)) => {
+                            let Some(parsed) = DateValue::from_iso_str(raw.trim()) else {
+                                return DispatchExecResult::ok()
+                                    .with_host_error(format!("invalid ISO date: {raw}"));
+                            };
+                            let canceled = rt.handle_field_value_change_with_context(
+                                Some(parsed),
+                                dispatch.ctx,
+                            );
+                            DispatchExecResult::ok().with_canceled(canceled)
+                        }
+                        _ => DispatchExecResult::ok()
+                            .with_host_error("missing ISO date argument `value`"),
+                    },
+                    "clear" => {
+                        let canceled =
+                            rt.handle_field_value_change_with_context(None, dispatch.ctx);
+                        DispatchExecResult::ok().with_canceled(canceled)
+                    }
+                    other => DispatchExecResult::ok()
+                        .with_host_error(format!("unsupported date-picker action: {other}")),
+                    }
+                })
+            },
+            || {
+                let rt = rt_for_reader;
+                Rc::new(move || build_dp_snap(&rt))
+            },
+        );
+    }
+
     let mut rt_for_field_val = runtime.clone();
     let mut rt_for_field_ph = runtime.clone();
     let mut rt_for_popover_open = runtime.clone();
@@ -815,14 +954,17 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
         on_value_change: Some(EventHandler::new(move |next| {
             rt_for_field_val.handle_field_value_change(next);
         })),
+        on_value_change_details: None,
         placeholder: props.placeholder,
+        has_explicit_default_placeholder: false,
         on_placeholder_change: Some(EventHandler::new(move |next| {
             rt_for_field_ph.handle_field_placeholder_change(next);
         })),
+        on_placeholder_change_details: None,
         on_focus_out: None,
         granularity: props.granularity,
         hour_cycle: props.hour_cycle,
-        locale: props.locale,
+        locale: resolved_locale,
         hide_time_zone: props.hide_time_zone,
         min_value: props.min_value,
         max_value: props.max_value,
@@ -840,6 +982,7 @@ pub fn DatePickerRoot(props: DatePickerRootProps) -> Element {
         label_id_override: None,
         on_prev_boundary: None,
         on_next_boundary: None,
+        agent: None,
         children: rsx! {
             PopoverRoot {
                 id: Some(rels.popover_scope().token().to_string()),
@@ -1306,9 +1449,11 @@ pub fn DatePickerCalendar(props: DatePickerCalendarProps) -> Element {
         on_value_change: Some(EventHandler::new(move |next| {
             rt_for_val.handle_calendar_value_change(next);
         })),
+        on_value_change_details: None,
         values: None,
         default_values: None,
         on_values_change: None,
+        on_values_change_details: None,
         on_date_select: Some(EventHandler::new(move |date| {
             rt_for_select.handle_calendar_date_select(date);
         })),
@@ -1318,6 +1463,7 @@ pub fn DatePickerCalendar(props: DatePickerCalendarProps) -> Element {
         on_placeholder_change: Some(EventHandler::new(move |ph| {
             rt_for_ph.handle_calendar_placeholder_change(ph);
         })),
+        on_placeholder_change_details: None,
         min_value: cal_cfg.min_value,
         max_value: cal_cfg.max_value,
         disabled: cal_cfg.disabled,
@@ -1330,7 +1476,7 @@ pub fn DatePickerCalendar(props: DatePickerCalendarProps) -> Element {
         weekday_format: cal_cfg.weekday_format,
         month_format: cal_cfg.month_format,
         year_format: cal_cfg.year_format,
-        locale: cal_cfg.locale,
+        locale: Some(cal_cfg.locale),
         calendar_label: cal_cfg.calendar_label,
         dir: Some(cal_cfg.dir),
         disable_days_outside_month: cal_cfg.disable_days_outside_month,
@@ -1341,6 +1487,7 @@ pub fn DatePickerCalendar(props: DatePickerCalendarProps) -> Element {
         render_children: props.render_children,
         on_key_down: props.on_key_down,
         on_mounted: props.on_mounted,
+        agent: Some(AgentHints::new().with_hidden(true)),
         attributes: props.attributes,
         children: props.children,
     })

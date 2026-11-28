@@ -1,5 +1,5 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
     PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
     shared_menu::menu_parts_slice,
 };
@@ -31,11 +31,13 @@ pub(super) const CONTEXT_MENU_DOC: ComponentDoc = ComponentDoc {
                     PropDoc { name: "open", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Controlled open state." },
                     PropDoc { name: "default_open", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Initial open state when uncontrolled." },
                     PropDoc { name: "on_open_change", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called when open state changes." },
+                    PropDoc { name: "on_open_change_details", type_simple: "EventHandler<ChangeEvent<bool>>", type_full: "Option<EventHandler<ChangeEvent<bool>>>", default: None, required: false, group: PropGroup::Core, description: "Called with full ChangeEvent details (reason, source, cancelation) when open state changes." },
                     PropDoc { name: "on_open_change_complete", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called after open/close presence transitions complete." },
                     PropDoc { name: "modal", type_simple: "bool", type_full: "bool", default: Some("true"), required: false, group: PropGroup::Core, description: "Enables modal outside-pointer blocking while open." },
                     PropDoc { name: "dir", type_simple: "Direction", type_full: "Option<Direction>", default: None, required: false, group: PropGroup::Core, description: "Reading direction (Ltr | Rtl) inherited from DirectionProvider when omitted." },
                     PropDoc { name: "loop_focus", type_simple: "bool", type_full: "bool", default: Some("true"), required: false, group: PropGroup::Core, description: "Wraps keyboard arrow navigation from last item to first and vice versa." },
                     PropDoc { name: "submenu_open_delay_ms", type_simple: "u64", type_full: "Option<u64>", default: Some("100"), required: false, group: PropGroup::Core, description: "Default hover delay in milliseconds before nested submenus open." },
+                    PROP_AGENT,
                     PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "ContextMenuTrigger and ContextMenuPortal children." },
                 ],
                 data_attrs: &[],

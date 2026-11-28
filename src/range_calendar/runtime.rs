@@ -1,8 +1,10 @@
 use std::ops::{Deref, DerefMut};
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 use crate::{
+    agent::{cancel_current_agent_action, current_change_context},
     calendar::{
         attrs::CalendarRootAttrs,
         runtime::CalendarBaseRuntime,
@@ -41,8 +43,13 @@ pub struct RangeCalendarRuntime {
     pub last_pressed: Signal<Option<CalendarDate>>,
     pub focused_value: Signal<Option<CalendarDate>>,
     pub on_value_change: CopyValue<Option<EventHandler<DateRange>>>,
+    pub on_value_change_details: CopyValue<Option<EventHandler<ChangeEvent<DateRange>>>>,
     pub on_start_value_change: CopyValue<Option<EventHandler<Option<CalendarDate>>>>,
+    pub on_start_value_change_details:
+        CopyValue<Option<EventHandler<ChangeEvent<Option<CalendarDate>>>>>,
     pub on_end_value_change: CopyValue<Option<EventHandler<Option<CalendarDate>>>>,
+    pub on_end_value_change_details:
+        CopyValue<Option<EventHandler<ChangeEvent<Option<CalendarDate>>>>>,
     pub on_range_select: CopyValue<Option<EventHandler<DateRange>>>,
 }
 
@@ -110,7 +117,49 @@ impl RangeCalendarRuntime {
         }
     }
 
+    fn notify_controlled_fallback<T: Clone + 'static>(
+        next: T,
+        ctx: ChangeContext,
+        on_details: CopyValue<Option<EventHandler<ChangeEvent<T>>>>,
+        on_legacy: CopyValue<Option<EventHandler<T>>>,
+    ) -> bool {
+        let event = ChangeEvent::new(next.clone(), ctx);
+        if let Some(handler) = on_details.try_read().ok().and_then(|slot| *slot) {
+            handler.call(event.clone());
+        }
+        if event.is_canceled() {
+            return true;
+        }
+        if let Some(handler) = on_legacy.try_read().ok().and_then(|slot| *slot) {
+            handler.call(next);
+        }
+        false
+    }
+
+    pub(crate) fn set_range_from_agent(&mut self, next: DateRange, ctx: ChangeContext) -> bool {
+        let update = RangeCalendarUpdate {
+            value: next,
+            start_value: next.start,
+            end_value: next.end,
+            last_pressed: next.end.or(next.start),
+            placeholder: next.start.or(next.end),
+            announcement: None,
+            range_completed: (next.start.is_some() && next.end.is_some()).then_some(next),
+        };
+        self.commit_update_with_context(update, ctx)
+    }
+
     fn commit_update(&mut self, update: RangeCalendarUpdate) {
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::Selection, ChangeSource::Mouse));
+        let _ = self.commit_update_with_context(update, ctx);
+    }
+
+    fn commit_update_with_context(
+        &mut self,
+        update: RangeCalendarUpdate,
+        ctx: ChangeContext,
+    ) -> bool {
         let prev_start = *self.start_value.peek();
         let prev_end = *self.end_value.peek();
         let prev_val = *self.value.peek();
@@ -119,43 +168,60 @@ impl RangeCalendarRuntime {
         let end_controlled = self.value_ctl.is_controlled() || self.end_ctl.is_controlled();
         let any_controlled = start_controlled || end_controlled;
 
-        if !any_controlled && *self.last_pressed.peek() != update.last_pressed {
-            self.last_pressed.set(update.last_pressed);
+        if prev_val != update.value {
+            if !any_controlled || self.value_ctl.is_controlled() {
+                let outcome = self.value_ctl.set_with_context(update.value, ctx);
+                if outcome.is_canceled() {
+                    cancel_current_agent_action();
+                    return true;
+                }
+            } else if Self::notify_controlled_fallback(
+                update.value,
+                ctx,
+                self.on_value_change_details,
+                self.on_value_change,
+            ) {
+                cancel_current_agent_action();
+                return true;
+            }
         }
-        if !start_controlled {
-            self.start_ctl.set(update.start_value);
-        } else if prev_start != update.start_value
-            && let Some(handler) = self
-                .on_start_value_change
-                .try_read()
-                .ok()
-                .and_then(|slot| *slot)
-        {
-            handler.call(update.start_value);
+
+        if prev_start != update.start_value {
+            if !start_controlled || self.start_ctl.is_controlled() {
+                let outcome = self.start_ctl.set_with_context(update.start_value, ctx);
+                if outcome.is_canceled() {
+                    cancel_current_agent_action();
+                }
+            } else {
+                let _ = Self::notify_controlled_fallback(
+                    update.start_value,
+                    ctx,
+                    self.on_start_value_change_details,
+                    self.on_start_value_change,
+                );
+            }
         }
-        if !end_controlled {
-            self.end_ctl.set(update.end_value);
-        } else if prev_end != update.end_value
-            && let Some(handler) = self
-                .on_end_value_change
-                .try_read()
-                .ok()
-                .and_then(|slot| *slot)
-        {
-            handler.call(update.end_value);
+
+        if prev_end != update.end_value {
+            if !end_controlled || self.end_ctl.is_controlled() {
+                let outcome = self.end_ctl.set_with_context(update.end_value, ctx);
+                if outcome.is_canceled() {
+                    cancel_current_agent_action();
+                }
+            } else {
+                let _ = Self::notify_controlled_fallback(
+                    update.end_value,
+                    ctx,
+                    self.on_end_value_change_details,
+                    self.on_end_value_change,
+                );
+            }
         }
+
         if !any_controlled {
-            self.value_ctl.set(update.value);
-        } else if prev_val != update.value
-            && let Some(handler) = self
-                .on_value_change
-                .try_read()
-                .ok()
-                .and_then(|slot| *slot)
-        {
-            handler.call(update.value);
-        }
-        if !any_controlled {
+            if *self.last_pressed.peek() != update.last_pressed {
+                self.last_pressed.set(update.last_pressed);
+            }
             if let Some(next_ph) = update.placeholder {
                 self.set_placeholder(next_ph);
             }
@@ -172,6 +238,7 @@ impl RangeCalendarRuntime {
         {
             handler.call(completed);
         }
+        false
     }
 
     pub fn activate_date(&mut self, date: CalendarDate, is_outside_month: bool) {

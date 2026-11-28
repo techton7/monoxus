@@ -1,5 +1,5 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
     PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
@@ -30,11 +30,13 @@ pub(super) const TABS_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Controlled active tab value." },
                 PropDoc { name: "default_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial active tab value when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<String>", type_full: "Option<EventHandler<String>>", default: None, required: false, group: PropGroup::Core, description: "Called when the active tab changes." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<String>>", type_full: "Option<EventHandler<ChangeEvent<String>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the active tab changes, providing a ChangeEvent with tab value and change provenance." },
                 PropDoc { name: "orientation", type_simple: "TabsOrientation", type_full: "Option<TabsOrientation>", default: Some("TabsOrientation::Horizontal"), required: false, group: PropGroup::Core, description: "Layout and keyboard navigation orientation." },
                 PropDoc { name: "dir", type_simple: "TabsDirection", type_full: "Option<TabsDirection>", default: Some("DirectionContext / Ltr"), required: false, group: PropGroup::Core, description: "Reading direction override (Ltr or Rtl)." },
                 PropDoc { name: "activation_mode", type_simple: "TabsActivationMode", type_full: "Option<TabsActivationMode>", default: Some("TabsActivationMode::Automatic"), required: false, group: PropGroup::Core, description: "Automatic activates on focus; Manual requires Enter/Space/click." },
                 PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Disables all tab triggers and keyboard navigation." },
                 PROP_CHILD,
+                PROP_AGENT,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "TabsList and TabsContent children." },
             ],

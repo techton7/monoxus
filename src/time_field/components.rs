@@ -1,13 +1,16 @@
 use dioxus::prelude::*;
 use ui_sdk::foundation::date_time::field_policy::{FieldRangeRole, TimeFieldPolicy};
+use ui_sdk::kernel::ChangeEvent;
 
 use crate::{
+    agent::AgentHints,
     date_field::components::{
         SegmentFieldInputSpec, SegmentFieldLabelSpec, SegmentFieldRootSpec,
         SegmentFieldSegmentSpec, render_segment_field_input, render_segment_field_label,
         render_segment_field_root, render_segment_field_segment,
     },
     foundation::{
+        config::use_locale_context,
         date_time::{
             CalendarLocale, EditableSegmentKind, FieldInvalidEvent, HourCycle, SegmentKind,
             TimeGranularity, TimeValue,
@@ -30,19 +33,23 @@ pub struct TimeFieldRootProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<Option<TimeValue>>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<Option<TimeValue>>>>,
+    #[props(default)]
     pub placeholder: Option<TimeValue>,
     #[props(default)]
     pub default_placeholder: Option<TimeValue>,
     #[props(default)]
     pub on_placeholder_change: Option<EventHandler<TimeValue>>,
     #[props(default)]
+    pub on_placeholder_change_details: Option<EventHandler<ChangeEvent<TimeValue>>>,
+    #[props(default)]
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub granularity: TimeGranularity,
     #[props(default)]
     pub hour_cycle: Option<HourCycle>,
-    #[props(default, into)]
-    pub locale: CalendarLocale,
+    #[props(default)]
+    pub locale: Option<CalendarLocale>,
     #[props(default)]
     pub min_value: Option<TimeValue>,
     #[props(default)]
@@ -64,13 +71,17 @@ pub struct TimeFieldRootProps {
     #[props(default)]
     pub dir: Option<Direction>,
     #[props(default)]
+    pub agent: Option<AgentHints>,
+    #[props(default)]
     pub children: Element,
 }
 
 /// Root provider for segmented wall-clock time spinbutton fields.
 #[component]
 pub fn TimeFieldRoot(props: TimeFieldRootProps) -> Element {
+    let resolved_locale = use_locale_context(props.locale);
     let initial_value = props.value.unwrap_or(props.default_value);
+    let has_explicit_default_placeholder = props.default_placeholder.is_some();
     let initial_placeholder = props
         .placeholder
         .or(props.default_placeholder)
@@ -84,12 +95,15 @@ pub fn TimeFieldRoot(props: TimeFieldRootProps) -> Element {
             value: props.value,
             default_value: props.default_value,
             on_value_change: props.on_value_change,
+            on_value_change_details: props.on_value_change_details,
             placeholder: props.placeholder,
+            has_explicit_default_placeholder,
             on_placeholder_change: props.on_placeholder_change,
+            on_placeholder_change_details: props.on_placeholder_change_details,
             on_focus_out: props.on_focus_out,
             granularity: props.granularity,
             hour_cycle: props.hour_cycle,
-            locale: props.locale,
+            locale: resolved_locale,
             hide_time_zone: false,
             min_value: props.min_value,
             max_value: props.max_value,
@@ -107,6 +121,7 @@ pub fn TimeFieldRoot(props: TimeFieldRootProps) -> Element {
             label_id_override: None,
             on_prev_boundary: None,
             on_next_boundary: None,
+            agent: props.agent,
             children: props.children,
         },
         initial_placeholder,

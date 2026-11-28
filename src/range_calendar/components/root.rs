@@ -2,15 +2,24 @@ use std::{borrow::Cow, cell::Cell, rc::Rc};
 
 use dioxus::prelude::keyboard_types::{Key, NamedKey};
 use dioxus::prelude::*;
+use ui_sdk::kernel::ChangeEvent;
 
 use crate::{
+    agent::{
+        ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+        SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+    },
     calendar::{
         components::root::render_calendar_internal_children,
-        runtime::{CalendarSharedContext, use_calendar_base_runtime},
+        runtime::{
+            CalendarSharedContext, calendar_locale_tag, parse_agent_range_arg,
+            range_snapshot_value, use_calendar_base_runtime,
+        },
         types::CalendarKind,
     },
     foundation::{
         compose::{collect_user_attrs, merge_props, push_attr_opt, push_event_handler},
+        config::use_locale_context,
         date_time::{
             CalendarDate, CalendarLocale, DateRange, MonthFormat, Weekday, WeekdayFormat,
             YearFormat,
@@ -18,7 +27,7 @@ use crate::{
         keyboard::is_ime_composing_key,
         overlay::OverlayEscapeGuardContext,
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-        state::{sync_signal, use_controllable_signal},
+        state::{ControllableConfig, sync_signal, use_controllable_signal_config},
     },
 };
 
@@ -44,13 +53,19 @@ pub struct RangeCalendarRootProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<DateRange>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<DateRange>>>,
+    #[props(default)]
     pub start_value: Option<Option<CalendarDate>>,
     #[props(default)]
     pub on_start_value_change: Option<EventHandler<Option<CalendarDate>>>,
     #[props(default)]
+    pub on_start_value_change_details: Option<EventHandler<ChangeEvent<Option<CalendarDate>>>>,
+    #[props(default)]
     pub end_value: Option<Option<CalendarDate>>,
     #[props(default)]
     pub on_end_value_change: Option<EventHandler<Option<CalendarDate>>>,
+    #[props(default)]
+    pub on_end_value_change_details: Option<EventHandler<ChangeEvent<Option<CalendarDate>>>>,
     #[props(default)]
     pub on_range_select: Option<EventHandler<DateRange>>,
     #[props(default)]
@@ -65,6 +80,8 @@ pub struct RangeCalendarRootProps {
     pub default_placeholder: Option<CalendarDate>,
     #[props(default)]
     pub on_placeholder_change: Option<EventHandler<CalendarDate>>,
+    #[props(default)]
+    pub on_placeholder_change_details: Option<EventHandler<ChangeEvent<CalendarDate>>>,
     #[props(default)]
     pub min_value: Option<CalendarDate>,
     #[props(default)]
@@ -89,8 +106,8 @@ pub struct RangeCalendarRootProps {
     pub month_format: MonthFormat,
     #[props(default)]
     pub year_format: YearFormat,
-    #[props(default, into)]
-    pub locale: CalendarLocale,
+    #[props(default)]
+    pub locale: Option<CalendarLocale>,
     #[props(default = String::from("Event"), into)]
     pub calendar_label: String,
     #[props(default)]
@@ -111,6 +128,8 @@ pub struct RangeCalendarRootProps {
     pub on_key_down: Option<EventHandler<KeyboardEvent>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -127,10 +146,13 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         value,
         default_value,
         on_value_change,
+        on_value_change_details,
         start_value,
         on_start_value_change,
+        on_start_value_change_details,
         end_value,
         on_end_value_change,
+        on_end_value_change_details,
         on_range_select,
         min_days,
         max_days,
@@ -138,6 +160,7 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         placeholder,
         default_placeholder,
         on_placeholder_change,
+        on_placeholder_change_details,
         min_value,
         max_value,
         disabled,
@@ -161,11 +184,13 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         render_children,
         on_key_down,
         on_mounted,
+        agent,
         attributes,
         children,
     } = props;
 
     let resolved_dir = use_direction_context(dir);
+    let resolved_locale = use_locale_context(locale);
     let stable_id = use_stable_id(id.clone().map(Cow::Owned)).into_owned();
     let scope = use_hook(|| ScopeHandle::root("range-calendar").child(stable_id.clone()));
     let rels = use_hook(|| RangeCalendarRelationships::new(scope.clone()));
@@ -181,13 +206,32 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         end: initial_end,
     };
 
-    let value_ctl = use_controllable_signal(value, initial_range, on_value_change);
+    let value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(value, initial_range)
+            .with_explicit_default(default_value.is_some())
+            .with_on_change(on_value_change)
+            .with_on_change_details(on_value_change_details)
+            .with_component("RangeCalendarRoot")
+            .with_prop("value"),
+    );
     let mut value_sig = value_ctl.signal();
 
-    let start_ctl = use_controllable_signal(start_value, initial_start, on_start_value_change);
+    let start_ctl = use_controllable_signal_config(
+        ControllableConfig::new(start_value, initial_start)
+            .with_on_change(on_start_value_change)
+            .with_on_change_details(on_start_value_change_details)
+            .with_component("RangeCalendarRoot")
+            .with_prop("start_value"),
+    );
     let mut start_sig = start_ctl.signal();
 
-    let end_ctl = use_controllable_signal(end_value, initial_end, on_end_value_change);
+    let end_ctl = use_controllable_signal_config(
+        ControllableConfig::new(end_value, initial_end)
+            .with_on_change(on_end_value_change)
+            .with_on_change_details(on_end_value_change_details)
+            .with_component("RangeCalendarRoot")
+            .with_prop("end_value"),
+    );
     let mut end_sig = end_ctl.signal();
 
     // Synchronize uncontrolled endpoints/aggregate with controlled counterpart synchronously.
@@ -219,8 +263,8 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         .with_weekday_format(weekday_format)
         .with_month_format(month_format)
         .with_year_format(year_format)
-        .with_locale(locale)
-        .with_calendar_label(calendar_label)
+        .with_locale(resolved_locale)
+        .with_calendar_label(calendar_label.clone())
         .with_direction(resolved_dir)
         .with_disable_days_outside_month(disable_days_outside_month)
         .with_min_days(min_days)
@@ -239,6 +283,7 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         is_date_disabled,
         is_date_unavailable,
         on_placeholder_change,
+        on_placeholder_change_details,
     );
 
     let mut def_sig = use_signal(|| def.clone());
@@ -246,12 +291,20 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
     let focused_value_sig = use_signal(|| None::<CalendarDate>);
 
     let mut on_value_change_slot = use_hook(|| CopyValue::new(on_value_change));
+    let mut on_value_change_details_slot = use_hook(|| CopyValue::new(on_value_change_details));
     let mut on_start_value_change_slot = use_hook(|| CopyValue::new(on_start_value_change));
+    let mut on_start_value_change_details_slot =
+        use_hook(|| CopyValue::new(on_start_value_change_details));
     let mut on_end_value_change_slot = use_hook(|| CopyValue::new(on_end_value_change));
+    let mut on_end_value_change_details_slot =
+        use_hook(|| CopyValue::new(on_end_value_change_details));
     let mut on_range_select_slot = use_hook(|| CopyValue::new(on_range_select));
     on_value_change_slot.set(on_value_change);
+    on_value_change_details_slot.set(on_value_change_details);
     on_start_value_change_slot.set(on_start_value_change);
+    on_start_value_change_details_slot.set(on_start_value_change_details);
     on_end_value_change_slot.set(on_end_value_change);
+    on_end_value_change_details_slot.set(on_end_value_change_details);
     on_range_select_slot.set(on_range_select);
 
     use_effect(use_reactive(&def, move |next_def| {
@@ -270,8 +323,11 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         last_pressed: last_pressed_sig,
         focused_value: focused_value_sig,
         on_value_change: on_value_change_slot,
+        on_value_change_details: on_value_change_details_slot,
         on_start_value_change: on_start_value_change_slot,
+        on_start_value_change_details: on_start_value_change_details_slot,
         on_end_value_change: on_end_value_change_slot,
+        on_end_value_change_details: on_end_value_change_details_slot,
         on_range_select: on_range_select_slot,
     };
 
@@ -311,6 +367,112 @@ pub(crate) fn render_range_calendar_root(props: RangeCalendarRootProps) -> Eleme
         runtime: runtime.clone(),
     });
     use_context_provider(|| CalendarSharedContext { runtime: base });
+
+    {
+        fn build_rc_snap(rt: &RangeCalendarRuntime) -> ComponentSnapshot {
+            let start = rt
+                .start_value
+                .try_peek()
+                .ok()
+                .and_then(|v| *v)
+                .map(|d| d.to_iso_string());
+            let end = rt
+                .end_value
+                .try_peek()
+                .ok()
+                .and_then(|v| *v)
+                .map(|d| d.to_iso_string());
+            let ph = rt
+                .placeholder
+                .try_peek()
+                .map(|p| p.to_iso_string())
+                .unwrap_or_default();
+            let loc = rt
+                .config
+                .try_peek()
+                .map(|c| calendar_locale_tag(&c.locale))
+                .unwrap_or("en-US");
+            let ro = rt.config.try_peek().map(|c| c.read_only).unwrap_or(false);
+            ComponentSnapshot::new()
+                .with_field("value", range_snapshot_value(start, end))
+                .with_field("placeholder", SnapshotValue::Text(ph))
+                .with_field("locale", SnapshotValue::Text(String::from(loc)))
+                .with_field("read_only", SnapshotValue::Bool(ro))
+        }
+
+        let rt_for_surface = runtime.clone();
+        let rt_for_dispatch = runtime.clone();
+        let rt_for_reader = runtime.clone();
+        let default_label = if calendar_label.trim().is_empty() {
+            String::from("Range calendar")
+        } else {
+            calendar_label
+        };
+
+        use_agent_surface(
+            agent.as_ref(),
+            SurfaceMetaDefaults::default(),
+            || {
+                let mut actions = Vec::new();
+                if !read_only {
+                    actions.push(ActionDescriptor::new(
+                        "set",
+                        "Set calendar date range (ISO YYYY-MM-DD start/end)",
+                        true,
+                    ));
+                    actions.push(ActionDescriptor::new(
+                        "clear",
+                        "Clear selected date range",
+                        false,
+                    ));
+                }
+                AgentSurface::new("range-calendar", default_label)
+                    .with_disabled(disabled)
+                    .with_snapshot(build_rc_snap(&rt_for_surface))
+                    .with_actions(actions)
+            },
+            || {
+                let rt_handle = rt_for_dispatch;
+                Rc::new(move |dispatch| {
+                    let mut rt = rt_handle.clone();
+                    match dispatch.action.as_str() {
+                    "set" => {
+                        match parse_agent_range_arg(
+                            &dispatch.args,
+                            CalendarDate::from_iso_str,
+                            "date",
+                        ) {
+                            Ok((start, end)) => {
+                                let canceled = rt.set_range_from_agent(
+                                    DateRange { start, end },
+                                    dispatch.ctx,
+                                );
+                                DispatchExecResult::ok().with_canceled(canceled)
+                            }
+                            Err(err) => DispatchExecResult::ok().with_host_error(err),
+                        }
+                    }
+                    "clear" => {
+                        let canceled = rt.set_range_from_agent(
+                            DateRange {
+                                start: None,
+                                end: None,
+                            },
+                            dispatch.ctx,
+                        );
+                        DispatchExecResult::ok().with_canceled(canceled)
+                    }
+                    other => DispatchExecResult::ok()
+                        .with_host_error(format!("unsupported range-calendar action: {other}")),
+                    }
+                })
+            },
+            || {
+                let rt = rt_for_reader;
+                Rc::new(move || build_rc_snap(&rt))
+            },
+        );
+    }
 
     let overlay_escape_guard = try_consume_context::<OverlayEscapeGuardContext>();
     let guard_consumed_escape = use_hook(|| Rc::new(Cell::new(false)));

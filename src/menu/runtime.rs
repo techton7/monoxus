@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::*;
 use ui_sdk::foundation::typeahead::{TypeaheadBuffer, TypeaheadCandidate, TypeaheadConfig};
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 pub(crate) use crate::foundation::browser::focus_element_reliable;
 use crate::foundation::{
@@ -22,11 +23,12 @@ use crate::foundation::{
         ModalLayerHandle, ModalShieldPolicy, PlacementAlign, PlacementSide, Point2D,
         PresenceHandle, PresenceState, Rect2D, SUBMENU_INTENT_MIN_PROGRESS_PX, StickyStrategy,
         is_overlay_escape_consumed, is_topmost_overlay_layer, mark_overlay_escape_consumed,
-        use_cancellable_delay, use_dismissable_layer, use_floating_layer, use_focus_scope,
-        use_grace_corridor, use_modal_layer, use_presence_with_keep_mounted, use_watcher_slot,
+        use_cancellable_delay, use_dismissable_layer_with_details, use_floating_layer,
+        use_focus_scope, use_grace_corridor, use_modal_layer, use_presence_with_keep_mounted,
+        use_watcher_slot,
     },
     shared::Direction,
-    state::{ControllableSignal, sync_signal},
+    state::{ChangeOutcome, ControllableSignal, sync_signal},
 };
 
 use super::{
@@ -183,7 +185,26 @@ impl MenuRootContext {
     }
 
     pub fn request_open_change(&self, next: bool) {
-        self.open_state.set(next);
+        let _ = self.request_open_change_with_context(
+            next,
+            ChangeContext::new(ChangeReason::Activation, ChangeSource::Mouse),
+        );
+    }
+
+    pub(crate) fn request_open_change_with_context(
+        &self,
+        next: bool,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
+        self.open_state.set_with_context(next, ctx)
+    }
+
+    pub(crate) fn request_open_change_with_event(
+        &self,
+        next: bool,
+        event: &ChangeEvent<bool>,
+    ) -> ChangeOutcome {
+        self.open_state.set_with_event(next, event)
     }
 
     pub fn close_submenus(&self) {
@@ -195,12 +216,27 @@ impl MenuRootContext {
     }
 
     pub fn close_menu_tree(&self, focus_trigger: bool) {
+        let event = ChangeEvent::new(
+            false,
+            ChangeContext::new(ChangeReason::Activation, ChangeSource::Mouse),
+        );
+        let _ = self.close_menu_tree_with_event(focus_trigger, &event);
+    }
+
+    pub(crate) fn close_menu_tree_with_event(
+        &self,
+        focus_trigger: bool,
+        event: &ChangeEvent<bool>,
+    ) -> ChangeOutcome {
         let mut ignore = self.ignore_close_auto_focus;
         if let Ok(mut w) = ignore.try_write() {
             *w = !focus_trigger;
         }
-        self.close_submenus();
-        self.request_open_change(false);
+        let outcome = self.request_open_change_with_event(false, event);
+        if outcome.is_accepted() {
+            self.close_submenus();
+        }
+        outcome
     }
 
     pub fn register_sub_close_handler(&self, id: String, close_fn: Rc<dyn Fn()>) {
@@ -1399,21 +1435,23 @@ pub fn use_menu_surface_lifecycle(surface: MenuSurfaceRuntime, root: MenuRootCon
                 evt.prevent_default();
             }
         })),
-        on_dismiss: Some(EventHandler::new(move |evt: DismissEvent| match evt {
-            DismissEvent::Escape => dismiss_root.close_menu_tree(true),
-            DismissEvent::PointerDownOutside | DismissEvent::FocusOutside => {
-                if let Some(bridge) = dismiss_root.menubar_bridge.as_ref() {
-                    (bridge.close_menubar)();
-                } else {
-                    dismiss_root.close_menu_tree(false);
-                }
-            }
-        })),
+        on_dismiss: None,
     };
-    let dismiss_handle = use_dismissable_layer(
+    let on_dismiss_details = Some(EventHandler::new(
+        move |(evt, change_evt): (DismissEvent, ChangeEvent<bool>)| match evt {
+            DismissEvent::Escape => {
+                let _ = dismiss_root.close_menu_tree_with_event(true, &change_evt);
+            }
+            DismissEvent::PointerDownOutside | DismissEvent::FocusOutside => {
+                let _ = dismiss_root.close_menu_tree_with_event(false, &change_evt);
+            }
+        },
+    ));
+    let dismiss_handle = use_dismissable_layer_with_details(
         !surface.is_submenu && is_open,
         dismiss_cfg,
         dismiss_callbacks,
+        on_dismiss_details,
     );
     let mut dismiss_slot = surface.dismiss;
     dismiss_slot.set(Some(dismiss_handle));

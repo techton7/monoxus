@@ -5,8 +5,13 @@ use ui_sdk::foundation::date_time::field_policy::{
     DateFieldPolicy, FieldRangeRole, FieldRelationships, FieldSegmentItem, SegmentFieldDefinition,
     SegmentFieldState,
 };
+use ui_sdk::kernel::ChangeEvent;
 
 use crate::{
+    agent::{
+        ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+        SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+    },
     field::try_use_field_context,
     foundation::{
         browser::{focus::use_composite_focus_out, local_today},
@@ -14,13 +19,14 @@ use crate::{
             collect_user_attrs, extract_aria_invalid_and_describedby, merge_aria_describedby,
             merge_props, push_attr_opt, push_event_handler, resolve_invalid_and_describedby,
         },
+        config::use_locale_context,
         date_time::{
             CalendarDate, CalendarLocale, DateValue, EditableSegmentKind, FieldInvalidEvent,
             FieldSegment, Granularity, HourCycle, SegmentKind,
         },
         form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-        state::{sync_signal, use_controllable_signal},
+        state::{ControllableConfig, sync_signal, use_controllable_signal_config},
     },
     visually_hidden::VisuallyHidden,
 };
@@ -40,8 +46,11 @@ pub(crate) struct SegmentFieldRootSpec<P: SegmentFieldUiPolicy> {
     pub value: Option<Option<P::Value>>,
     pub default_value: Option<P::Value>,
     pub on_value_change: Option<EventHandler<Option<P::Value>>>,
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<Option<P::Value>>>>,
     pub placeholder: Option<P::Value>,
+    pub has_explicit_default_placeholder: bool,
     pub on_placeholder_change: Option<EventHandler<P::Value>>,
+    pub on_placeholder_change_details: Option<EventHandler<ChangeEvent<P::Value>>>,
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
     pub granularity: P::GranularityProp,
     pub hour_cycle: Option<HourCycle>,
@@ -63,6 +72,7 @@ pub(crate) struct SegmentFieldRootSpec<P: SegmentFieldUiPolicy> {
     pub label_id_override: Option<String>,
     pub on_prev_boundary: Option<EventHandler<()>>,
     pub on_next_boundary: Option<EventHandler<()>>,
+    pub agent: Option<AgentHints>,
     pub children: Element,
 }
 
@@ -85,9 +95,22 @@ pub(crate) fn use_segment_field_runtime<P: SegmentFieldUiPolicy>(
     let scope = use_hook(|| ScopeHandle::root(P::SCOPE_PREFIX).child(stable_id.clone()));
     let rels = use_hook(|| FieldRelationships::new(scope.clone()));
 
-    let value_ctl = use_controllable_signal(spec.value, spec.default_value, spec.on_value_change);
-    let placeholder_ctl =
-        use_controllable_signal(spec.placeholder, initial_placeholder, spec.on_placeholder_change);
+    let value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(spec.value, spec.default_value)
+            .with_explicit_default(spec.default_value.is_some())
+            .with_on_change(spec.on_value_change)
+            .with_on_change_details(spec.on_value_change_details)
+            .with_component(P::COMPONENT_NAME)
+            .with_prop("value"),
+    );
+    let placeholder_ctl = use_controllable_signal_config(
+        ControllableConfig::new(spec.placeholder, initial_placeholder)
+            .with_explicit_default(spec.has_explicit_default_placeholder)
+            .with_on_change(spec.on_placeholder_change)
+            .with_on_change_details(spec.on_placeholder_change_details)
+            .with_component(P::COMPONENT_NAME)
+            .with_prop("placeholder"),
+    );
 
     let initial_value = value_ctl.peek();
 
@@ -282,6 +305,104 @@ pub(crate) fn render_segment_field_root<P: SegmentFieldUiPolicy>(
     initial_placeholder: P::Value,
 ) -> Element {
     let runtime = use_segment_field_runtime::<P>(&spec, initial_placeholder);
+
+    {
+        fn build_snap<P: SegmentFieldUiPolicy>(rt: &SegmentFieldRuntime<P>) -> ComponentSnapshot {
+            let (val, ph, ro) = rt
+                .state
+                .try_peek()
+                .map(|st| (st.value(), Some(st.placeholder()), st.def().read_only))
+                .unwrap_or((None, None, false));
+            ComponentSnapshot::new()
+                .with_field(
+                    "value",
+                    val.map(P::format_iso)
+                        .map(SnapshotValue::Text)
+                        .unwrap_or(SnapshotValue::Null),
+                )
+                .with_field(
+                    "placeholder",
+                    ph.map(P::format_iso)
+                        .map(SnapshotValue::Text)
+                        .unwrap_or(SnapshotValue::Null),
+                )
+                .with_field("read_only", SnapshotValue::Bool(ro))
+        }
+
+        let rt_for_surface = runtime.clone();
+        let rt_for_dispatch = runtime.clone();
+        let rt_for_reader = runtime.clone();
+        let (eff_disabled, eff_read_only) = runtime
+            .state
+            .try_peek()
+            .map(|st| (st.def().disabled, st.def().read_only))
+            .unwrap_or((spec.disabled, spec.read_only));
+
+        use_agent_surface(
+            spec.agent.as_ref(),
+            SurfaceMetaDefaults::default(),
+            || {
+                let mut actions = Vec::new();
+                if !eff_read_only {
+                    actions.push(ActionDescriptor::new(
+                        "set",
+                        format!("Set ISO {} value", P::AGENT_VALUE_LABEL),
+                        true,
+                    ));
+                    actions.push(ActionDescriptor::new(
+                        "clear",
+                        format!("Clear {} value", P::AGENT_VALUE_LABEL),
+                        false,
+                    ));
+                }
+                AgentSurface::new(P::AGENT_KIND, P::AGENT_DEFAULT_LABEL)
+                    .with_disabled(eff_disabled)
+                    .with_snapshot(build_snap(&rt_for_surface))
+                    .with_actions(actions)
+            },
+            || {
+                let rt_handle = rt_for_dispatch;
+                Rc::new(move |dispatch| {
+                    let mut rt = rt_handle.clone();
+                    match dispatch.action.as_str() {
+                    "set" => match dispatch.args.get("value") {
+                        Some(SnapshotValue::Null) => {
+                            let canceled = rt.set_value_from_agent(None, dispatch.ctx);
+                            DispatchExecResult::ok().with_canceled(canceled)
+                        }
+                        Some(SnapshotValue::Text(raw)) => {
+                            let Some(parsed) = P::parse_iso(raw.trim()) else {
+                                return DispatchExecResult::ok().with_host_error(format!(
+                                    "invalid ISO {}: {raw}",
+                                    P::AGENT_VALUE_LABEL
+                                ));
+                            };
+                            let canceled = rt.set_value_from_agent(Some(parsed), dispatch.ctx);
+                            DispatchExecResult::ok().with_canceled(canceled)
+                        }
+                        _ => DispatchExecResult::ok().with_host_error(format!(
+                            "missing ISO {} argument `value`",
+                            P::AGENT_VALUE_LABEL
+                        )),
+                    },
+                    "clear" => {
+                        let canceled = rt.set_value_from_agent(None, dispatch.ctx);
+                        DispatchExecResult::ok().with_canceled(canceled)
+                    }
+                    other => DispatchExecResult::ok().with_host_error(format!(
+                        "unsupported {} action: {other}",
+                        P::AGENT_KIND
+                    )),
+                    }
+                })
+            },
+            || {
+                let rt = rt_for_reader;
+                Rc::new(move || build_snap(&rt))
+            },
+        );
+    }
+
     render_segment_field_chrome(&runtime, spec.children)
 }
 
@@ -665,19 +786,23 @@ pub struct DateFieldRootProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<Option<DateValue>>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<Option<DateValue>>>>,
+    #[props(default)]
     pub placeholder: Option<DateValue>,
     #[props(default)]
     pub default_placeholder: Option<DateValue>,
     #[props(default)]
     pub on_placeholder_change: Option<EventHandler<DateValue>>,
     #[props(default)]
+    pub on_placeholder_change_details: Option<EventHandler<ChangeEvent<DateValue>>>,
+    #[props(default)]
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub granularity: Option<Granularity>,
     #[props(default)]
     pub hour_cycle: Option<HourCycle>,
-    #[props(default, into)]
-    pub locale: CalendarLocale,
+    #[props(default)]
+    pub locale: Option<CalendarLocale>,
     #[props(default = false)]
     pub hide_time_zone: bool,
     #[props(default)]
@@ -703,14 +828,18 @@ pub struct DateFieldRootProps {
     #[props(default)]
     pub dir: Option<Direction>,
     #[props(default)]
+    pub agent: Option<AgentHints>,
+    #[props(default)]
     pub children: Element,
 }
 
 /// Root provider for segmented date / date-time spinbutton fields.
 #[component]
 pub fn DateFieldRoot(props: DateFieldRootProps) -> Element {
+    let resolved_locale = use_locale_context(props.locale);
     let today = use_hook(local_today);
     let initial_value = props.value.unwrap_or(props.default_value);
+    let has_explicit_default_placeholder = props.default_placeholder.is_some();
     let initial_placeholder = props
         .placeholder
         .or(props.default_placeholder)
@@ -730,12 +859,15 @@ pub fn DateFieldRoot(props: DateFieldRootProps) -> Element {
             value: props.value,
             default_value: props.default_value,
             on_value_change: props.on_value_change,
+            on_value_change_details: props.on_value_change_details,
             placeholder: props.placeholder,
+            has_explicit_default_placeholder,
             on_placeholder_change: props.on_placeholder_change,
+            on_placeholder_change_details: props.on_placeholder_change_details,
             on_focus_out: props.on_focus_out,
             granularity: props.granularity,
             hour_cycle: props.hour_cycle,
-            locale: props.locale,
+            locale: resolved_locale,
             hide_time_zone: props.hide_time_zone,
             min_value: props.min_value,
             max_value: props.max_value,
@@ -753,6 +885,7 @@ pub fn DateFieldRoot(props: DateFieldRootProps) -> Element {
             label_id_override: None,
             on_prev_boundary: None,
             on_next_boundary: None,
+            agent: props.agent,
             children: props.children,
         },
         initial_placeholder,

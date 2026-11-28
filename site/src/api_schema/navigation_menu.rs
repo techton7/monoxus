@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
-    PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
+    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD,
+    PROP_CLASS, PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
 pub(super) const NAVIGATION_MENU_DOC: ComponentDoc = ComponentDoc {
@@ -30,6 +30,7 @@ pub(super) const NAVIGATION_MENU_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Controlled active item value (empty string when closed)." },
                 PropDoc { name: "default_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial active item value when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<String>", type_full: "Option<EventHandler<String>>", default: None, required: false, group: PropGroup::Core, description: "Called when the active menu item value changes." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<String>>", type_full: "Option<EventHandler<ChangeEvent<String>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the active menu item value changes, providing a ChangeEvent with value and change provenance." },
                 PropDoc { name: "delay_duration", type_simple: "u64", type_full: "u64", default: Some("200"), required: false, group: PropGroup::Core, description: "Hover delay in milliseconds before opening a menu panel." },
                 PropDoc { name: "skip_delay_duration", type_simple: "u64", type_full: "u64", default: Some("300"), required: false, group: PropGroup::Core, description: "Window in milliseconds after closing during which hovering another trigger opens immediately." },
                 PropDoc { name: "dir", type_simple: "Direction", type_full: "Option<monoxus::foundation::shared::Direction>", default: None, required: false, group: PropGroup::Core, description: "Reading direction override (Ltr or Rtl)." },
@@ -38,6 +39,7 @@ pub(super) const NAVIGATION_MENU_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "aria_label", type_simple: "String", type_full: "Option<String>", default: Some("\"Main\""), required: false, group: PropGroup::HtmlAria, description: "Accessible name for the <nav> landmark." },
                 PROP_CHILD,
                 PROP_ON_MOUNTED,
+                PROP_AGENT,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "NavigationMenuList and optional NavigationMenuViewport children." },
             ],
@@ -57,6 +59,7 @@ pub(super) const NAVIGATION_MENU_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Controlled active sub-menu item value." },
                 PropDoc { name: "default_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial active sub-menu item value when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<String>", type_full: "Option<EventHandler<String>>", default: None, required: false, group: PropGroup::Core, description: "Called when the active sub-menu item changes." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<String>>", type_full: "Option<EventHandler<ChangeEvent<String>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the active sub-menu item changes, providing a ChangeEvent with value and change provenance." },
                 PropDoc { name: "orientation", type_simple: "Orientation", type_full: "monoxus::foundation::shared::Orientation", default: Some("Orientation::Horizontal"), required: false, group: PropGroup::Core, description: "Sub-menu orientation." },
                 PropDoc { name: "activation_mode", type_simple: "NavigationMenuActivationMode", type_full: "Option<monoxus::navigation_menu::NavigationMenuActivationMode>", default: None, required: false, group: PropGroup::Core, description: "Overrides parent activation_mode when set." },
                 PropDoc { name: "disable_toggle", type_simple: "bool", type_full: "bool", default: Some("true"), required: false, group: PropGroup::Core, description: "Prevents clicking the currently active sub-menu trigger from closing it." },

@@ -2,6 +2,7 @@ pub(crate) mod compat;
 
 pub mod accessible_icon;
 pub mod accordion;
+pub mod agent;
 pub mod alert_dialog;
 pub mod aspect_ratio;
 pub mod avatar;
@@ -21,6 +22,9 @@ pub mod dropdown_menu;
 pub mod field;
 pub use self::field::*;
 pub mod foundation;
+pub use self::foundation::config::{
+    MonoxusConfig, MonoxusConfigProps, MonoxusConfigValues, use_monoxus_config,
+};
 pub mod hover_card;
 pub use ui_sdk::kernel;
 pub mod label;

@@ -1,10 +1,14 @@
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 use crate::foundation::{
     browser::{restore_body_user_select, set_body_user_select_none},
     overlay::Rect2D,
     shared::use_direction_context,
-    state::{ControllableSignal, sync_signal, use_controllable_signal_by},
+    state::{
+        ChangeOutcome, ControllableConfig, ControllableSignal, sync_signal,
+        use_controllable_signal_config,
+    },
 };
 
 use super::{
@@ -99,11 +103,13 @@ impl SliderRuntime {
         }
     }
 
-    /// Proposes `new_vals` through [`ControllableSignal`] (skipping internal signal mutation in
-    /// controlled mode so rejected updates produce zero 1-frame flash, `FM-COL-1`).
-    pub(crate) fn propose_values(&mut self, new_vals: Vec<f64>) -> bool {
+    pub(crate) fn propose_values_with_context(
+        &mut self,
+        new_vals: Vec<f64>,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
         if let Some(ctl) = self.values_ctl {
-            ctl.set_by(new_vals, f64_vec_bits_eq)
+            ctl.set_by_with_context(new_vals, ctx, f64_vec_bits_eq)
         } else {
             let changed = self
                 .values
@@ -111,16 +117,59 @@ impl SliderRuntime {
                 .is_ok_and(|cur| !f64_vec_bits_eq(&cur, &new_vals));
             if changed {
                 self.values.set(new_vals);
+                ChangeOutcome::Committed(ctx)
+            } else {
+                ChangeOutcome::Unchanged
             }
-            changed
         }
     }
 
     /// Resets slider values on enclosing `<form>` reset, respecting controlled ownership.
     pub(crate) fn reset_values(&mut self, initial_values: Vec<f64>) {
-        if self.propose_values(initial_values.clone()) {
+        let outcome = self.propose_values_with_context(
+            initial_values.clone(),
+            ChangeContext::new(ChangeReason::Reset, ChangeSource::Programmatic),
+        );
+        if outcome.is_accepted() && self.values_ctl.is_none() {
             self.emit_change(initial_values);
         }
+    }
+
+    /// Clamps and snaps agent-supplied values through [`SliderDefinition`], proposes them via
+    /// the controllable transition gate, and emits `on_value_commit` when accepted (`FM-9`).
+    pub(crate) fn set_from_agent(
+        &mut self,
+        requested: Vec<f64>,
+        ctx: ChangeContext,
+    ) -> (ChangeOutcome, Vec<f64>) {
+        let def = self.def.peek().clone();
+        let mut vals = self.values.peek().clone();
+        if vals.is_empty() {
+            vals.push(def.min);
+        }
+        let target_len = vals.len();
+        for (idx, &raw_val) in requested.iter().take(target_len).enumerate() {
+            let (next_vals, _) = update_thumb_value(
+                &vals,
+                idx,
+                raw_val,
+                def.min,
+                def.max,
+                def.step,
+                def.steps.as_deref(),
+                def.min_steps_between_thumbs,
+                def.order_policy,
+            );
+            vals = next_vals;
+        }
+        let outcome = self.propose_values_with_context(vals.clone(), ctx);
+        if outcome.is_accepted() {
+            if self.values_ctl.is_none() {
+                self.emit_change(vals.clone());
+            }
+            self.emit_commit(vals.clone());
+        }
+        (outcome, vals)
     }
 
     /// Computes the normalized `[0.0, 1.0]` pointer fraction along the slider track given orientation,
@@ -475,14 +524,20 @@ impl SliderRuntime {
             def.order_policy,
         );
 
-        if self.propose_values(new_vals.clone()) {
+        let outcome = self.propose_values_with_context(
+            new_vals.clone(),
+            ChangeContext::new(ChangeReason::Drag, ChangeSource::Mouse),
+        );
+        if outcome.is_accepted() {
             self.active_thumb.set(Some(new_active_idx));
             if new_active_idx != active_idx && dioxus::core::Runtime::try_current().is_some() {
                 crate::foundation::browser::focus_element_by_id(
                     &self.resolved_thumb_id(new_active_idx),
                 );
             }
-            self.emit_change(new_vals);
+            if self.values_ctl.is_none() {
+                self.emit_change(new_vals);
+            }
         }
     }
 
@@ -556,14 +611,20 @@ impl SliderRuntime {
             def.order_policy,
         );
 
-        if self.propose_values(new_vals.clone()) {
+        let outcome = self.propose_values_with_context(
+            new_vals.clone(),
+            ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Keyboard),
+        );
+        if outcome.is_accepted() {
             self.active_thumb.set(Some(new_active_idx));
             if new_active_idx != thumb_idx && dioxus::core::Runtime::try_current().is_some() {
                 crate::foundation::browser::focus_element_by_id(
                     &self.resolved_thumb_id(new_active_idx),
                 );
             }
-            self.emit_change(new_vals.clone());
+            if self.values_ctl.is_none() {
+                self.emit_change(new_vals.clone());
+            }
             self.emit_commit(new_vals);
         }
     }
@@ -594,12 +655,35 @@ pub(crate) fn try_use_slider_field_state() -> Option<SliderFieldState> {
 
 /// Initializes and binds the reactive slider runtime hook.
 pub fn use_slider_runtime(
+    def: SliderDefinition,
+    rels: SliderRelationships,
+    value: Option<SliderValue>,
+    default_value: Option<SliderValue>,
+    dir: Option<Direction>,
+    on_value_change: Option<EventHandler<SliderValue>>,
+    on_value_commit: Option<EventHandler<SliderValue>>,
+) -> SliderRuntime {
+    use_slider_runtime_with_details(
+        def,
+        rels,
+        value,
+        default_value,
+        dir,
+        on_value_change,
+        None,
+        on_value_commit,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn use_slider_runtime_with_details(
     mut def: SliderDefinition,
     rels: SliderRelationships,
     value: Option<SliderValue>,
     default_value: Option<SliderValue>,
     dir: Option<Direction>,
     on_value_change: Option<EventHandler<SliderValue>>,
+    on_value_change_details: Option<EventHandler<ChangeEvent<SliderValue>>>,
     on_value_commit: Option<EventHandler<SliderValue>>,
 ) -> SliderRuntime {
     let resolved_direction = use_direction_context(dir);
@@ -622,17 +706,49 @@ pub fn use_slider_runtime(
     let mut is_single_sig = use_signal(|| is_single);
     sync_signal(&mut is_single_sig, is_single);
 
+    let has_explicit_default = default_value.is_some();
     let default_values = default_value
         .as_ref()
         .map(SliderValue::to_vec)
         .unwrap_or_else(|| vec![min_fallback]);
 
-    let values_ctl = use_controllable_signal_by(
-        value.as_ref().map(SliderValue::to_vec),
-        default_values,
-        None,
-        move |vals| sanitize_slider_values(vals, min_fallback),
-        f64_vec_bits_eq,
+    let on_value_change_vec = on_value_change.map(|cb| {
+        EventHandler::new(move |vals: Vec<f64>| {
+            let projected = if *is_single_sig.peek() {
+                SliderValue::Single(vals.first().copied().unwrap_or(min_fallback))
+            } else {
+                SliderValue::Multiple(vals)
+            };
+            cb.call(projected);
+        })
+    });
+    let on_value_change_details_vec = on_value_change_details.map(|cb| {
+        EventHandler::new(move |ev: ChangeEvent<Vec<f64>>| {
+            let projected = if *is_single_sig.peek() {
+                SliderValue::Single(ev.value().first().copied().unwrap_or(min_fallback))
+            } else {
+                SliderValue::Multiple(ev.value().clone())
+            };
+            let child_ev = ChangeEvent::new(projected, ev.to_context());
+            cb.call(child_ev.clone());
+            if child_ev.is_canceled() {
+                ev.cancel();
+            }
+            if child_ev.is_propagation_allowed() {
+                ev.allow_propagation();
+            }
+        })
+    });
+
+    let values_ctl = use_controllable_signal_config(
+        ControllableConfig::new(value.as_ref().map(SliderValue::to_vec), default_values)
+            .with_explicit_default(has_explicit_default)
+            .with_on_change(on_value_change_vec)
+            .with_on_change_details(on_value_change_details_vec)
+            .with_sanitize(move |vals| sanitize_slider_values(vals, min_fallback))
+            .with_eq(f64_vec_bits_eq)
+            .with_component("SliderRoot")
+            .with_prop("value"),
     );
     let initial_len = values_ctl.peek().len().max(1);
 

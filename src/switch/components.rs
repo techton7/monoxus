@@ -1,7 +1,13 @@
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
+use crate::agent::{
+    ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+    SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+};
 use crate::button::ButtonType;
 use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
@@ -11,7 +17,7 @@ use crate::foundation::{
     },
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
     shared::{ScopeHandle, use_stable_id},
-    state::{sync_signal, use_controllable_signal},
+    state::{ControllableConfig, sync_signal, use_controllable_signal_config},
 };
 
 use super::{
@@ -35,6 +41,10 @@ pub struct SwitchRootProps {
     pub default_checked: bool,
     #[props(default)]
     pub on_checked_change: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub on_checked_change_details: Option<EventHandler<ChangeEvent<bool>>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default = false)]
@@ -130,8 +140,14 @@ pub fn SwitchRoot(props: SwitchRootProps) -> Element {
         field_describedby.as_deref(),
     );
 
-    let checked_ctl =
-        use_controllable_signal(props.checked, props.default_checked, props.on_checked_change);
+    let checked_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.checked, props.default_checked)
+            .with_explicit_default(props.default_checked)
+            .with_on_change(props.on_checked_change)
+            .with_on_change_details(props.on_checked_change_details)
+            .with_component("SwitchRoot")
+            .with_prop("checked"),
+    );
     let is_checked = checked_ctl.get();
 
     let initial_checked_for_reset =
@@ -141,7 +157,89 @@ pub fn SwitchRoot(props: SwitchRootProps) -> Element {
         effective_name.as_deref(),
         props.form.as_deref(),
         move || {
-            checked_ctl.set(initial_checked_for_reset);
+            checked_ctl.set_with_context(
+                initial_checked_for_reset,
+                ChangeContext::new(ChangeReason::Reset, ChangeSource::Programmatic),
+            );
+        },
+    );
+
+    let agent_label = effective_name
+        .clone()
+        .unwrap_or_else(|| root_id.clone());
+    use_agent_surface(
+        props.agent.as_ref(),
+        SurfaceMetaDefaults::new(),
+        || {
+            let mut snap = ComponentSnapshot::new()
+                .with_field("checked", SnapshotValue::Bool(is_checked));
+            if effective_read_only {
+                snap = snap.with_field("read_only", SnapshotValue::Bool(true));
+            }
+            let actions = if effective_read_only {
+                Vec::new()
+            } else {
+                vec![
+                    ActionDescriptor::new("toggle", "Toggle switch state", false),
+                    ActionDescriptor::new("set", "Set switch checked state", true),
+                ]
+            };
+            AgentSurface::new("switch", agent_label)
+                .with_disabled(effective_disabled)
+                .with_snapshot(snap)
+                .with_actions(actions)
+        },
+        || {
+            Rc::new(move |dispatch| {
+                if effective_read_only {
+                    return DispatchExecResult::ok().with_host_error("switch is read-only");
+                }
+                match dispatch.action.as_str() {
+                    "toggle" => {
+                        let next = !checked_ctl.peek();
+                        let outcome = checked_ctl.set_with_context(next, dispatch.ctx);
+                        let mut res =
+                            DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                        if !outcome.is_canceled() {
+                            res = res.with_expected("checked", SnapshotValue::Bool(next));
+                        }
+                        res
+                    }
+                    "set" => {
+                        let Some(SnapshotValue::Bool(next)) = dispatch
+                            .args
+                            .get("checked")
+                            .or_else(|| dispatch.args.get("value"))
+                        else {
+                            return DispatchExecResult::ok().with_host_error(
+                                "missing or invalid boolean argument 'checked'",
+                            );
+                        };
+                        let next = *next;
+                        let outcome = checked_ctl.set_with_context(next, dispatch.ctx);
+                        let mut res =
+                            DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                        if !outcome.is_canceled() {
+                            res = res.with_expected("checked", SnapshotValue::Bool(next));
+                        }
+                        res
+                    }
+                    other => DispatchExecResult::ok()
+                        .with_host_error(format!("unknown switch action '{other}'")),
+                }
+            })
+        },
+        || {
+            Rc::new(move || {
+                let mut snap = ComponentSnapshot::new().with_field(
+                    "checked",
+                    SnapshotValue::Bool(checked_ctl.try_peek_cloned().unwrap_or(false)),
+                );
+                if effective_read_only {
+                    snap = snap.with_field("read_only", SnapshotValue::Bool(true));
+                }
+                snap
+            })
         },
     );
 
@@ -207,7 +305,10 @@ pub fn SwitchRoot(props: SwitchRootProps) -> Element {
         Some(EventHandler::new(move |_evt: MouseEvent| {
             if !effective_disabled && !effective_read_only {
                 let current = checked_ctl.peek();
-                checked_ctl.set(!current);
+                checked_ctl.set_with_context(
+                    !current,
+                    ChangeContext::new(ChangeReason::Toggle, ChangeSource::Mouse),
+                );
             }
         })),
     );

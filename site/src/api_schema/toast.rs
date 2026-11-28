@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
-    PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
+    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD,
+    PROP_CLASS, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
 pub(super) const TOAST_DOC: ComponentDoc = ComponentDoc {
@@ -28,6 +28,7 @@ pub(super) const TOAST_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "config", type_simple: "ToastConfig", type_full: "Option<ToastConfig>", default: None, required: false, group: PropGroup::Core, description: "Full toast store configuration override (position, visible_toasts, duration, gap, offsets, swipe_directions)." },
                 PropDoc { name: "close_button", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Overrides whether dismissible toasts render a ToastClose button by default." },
                 PropDoc { name: "expand", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Overrides whether the toast stack starts expanded by default." },
+                PROP_AGENT,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "Application subtree containing ToastViewport and toast triggers." },
             ],
             data_attrs: &[],
@@ -79,6 +80,7 @@ pub(super) const TOAST_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "position", type_simple: "ToastPosition", type_full: "Option<ToastPosition>", default: Some("ToastPosition::BottomRight"), required: false, group: PropGroup::Core, description: "Per-toast position override." },
                 PROP_CLASS,
                 PROP_STYLE,
+                PROP_AGENT,
                 PROP_CHILD,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "ToastTitle, ToastDescription, ToastAction, and ToastClose children." },

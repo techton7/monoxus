@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::ChangeEvent;
 
 pub use crate::foundation::compose::{
     compose_part_event_handlers, compose_part_refs, project_as_child,
@@ -11,8 +12,9 @@ use crate::foundation::{
     overlay::{
         DismissBehavior, DismissCallbacks, DismissConfig, DismissEvent, DismissLayerHandle,
         FocusScopeConfig, FocusScopeHandle, ModalLayerConfig, ModalLayerHandle, ModalShieldPolicy,
-        OverlayLayerSpec, PresenceHandle, sync_overlay_layer_spec, use_dismissable_layer,
-        use_focus_scope, use_modal_layer, use_presence_with_keep_mounted,
+        OverlayLayerSpec, PresenceHandle, sync_overlay_layer_spec,
+        use_dismissable_layer_with_details, use_focus_scope, use_modal_layer,
+        use_presence_with_keep_mounted,
     },
     state::{DataState, sync_signal},
 };
@@ -58,7 +60,10 @@ struct DialogRuntimeState {
     trigger_id: Signal<Option<String>>,
     open_focus_target: Signal<Option<String>>,
     is_alert_override: Signal<bool>,
+    is_nested: Signal<bool>,
+    nested_open_count: Signal<usize>,
     on_dismiss_request: CopyValue<Option<EventHandler<bool>>>,
+    on_dismiss_details_request: CopyValue<Option<EventHandler<(DismissEvent, ChangeEvent<bool>)>>>,
     on_open_change: CopyValue<Option<EventHandler<bool>>>,
     has_on_open_change_slot: CopyValue<bool>,
     on_open_change_complete: CopyValue<Option<EventHandler<bool>>>,
@@ -94,7 +99,17 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
     let trigger_id_sig = use_signal(|| None::<String>);
     let open_focus_target_sig = use_signal(|| None::<String>);
     let is_alert_override = use_signal(|| false);
+    let mut is_nested = use_signal(|| dialog.nested_state().is_nested());
+    sync_signal(&mut is_nested, dialog.nested_state().is_nested());
+    let mut nested_open_count = use_signal(|| dialog.nested_state().nested_open_dialog_count());
+    sync_signal(
+        &mut nested_open_count,
+        dialog.nested_state().nested_open_dialog_count(),
+    );
     let on_dismiss_request = use_hook(|| CopyValue::new(Option::<EventHandler<bool>>::None));
+    let on_dismiss_details_request = use_hook(|| {
+        CopyValue::new(Option::<EventHandler<(DismissEvent, ChangeEvent<bool>)>>::None)
+    });
     let on_open_change_slot = use_hook(|| CopyValue::new(Option::<EventHandler<bool>>::None));
     let has_on_open_change_slot = use_hook(|| CopyValue::new(false));
     let on_open_change_complete = use_hook(|| CopyValue::new(Option::<EventHandler<bool>>::None));
@@ -228,7 +243,17 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
             }
         })
     });
-    let dismiss_layer = use_dismissable_layer(
+    let on_dismiss_details = use_hook(move || {
+        EventHandler::new(move |(evt, change_evt): (DismissEvent, ChangeEvent<bool>)| {
+            if let Some(handler) = on_dismiss_details_request.try_read().ok().and_then(|g| *g) {
+                handler.call((evt, change_evt));
+            } else if let Some(handler) = on_dismiss_request.try_read().ok().and_then(|g| *g) {
+                let was_pointer = matches!(evt, DismissEvent::PointerDownOutside);
+                handler.call(was_pointer);
+            }
+        })
+    });
+    let dismiss_layer = use_dismissable_layer_with_details(
         is_open,
         dismiss_config,
         DismissCallbacks {
@@ -238,6 +263,7 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
             on_interact_outside: Some(on_interact_outside_bridge),
             on_dismiss: Some(on_dismiss),
         },
+        Some(on_dismiss_details),
     );
 
     if is_open && !effective_content_id.is_empty() {
@@ -412,7 +438,10 @@ pub fn use_dialog_runtime(dialog: Dialog) -> DialogRuntime {
         trigger_id: trigger_id_sig,
         open_focus_target: open_focus_target_sig,
         is_alert_override,
+        is_nested,
+        nested_open_count,
         on_dismiss_request,
+        on_dismiss_details_request,
         on_open_change: on_open_change_slot,
         has_on_open_change_slot,
         on_open_change_complete,
@@ -728,6 +757,42 @@ impl DialogRuntime {
             || is_body_pointer_events_locked()
     }
 
+    pub fn is_nested(&self) -> bool {
+        self.state
+            .is_nested
+            .try_peek()
+            .map(|v| *v)
+            .unwrap_or_else(|_| self.dialog.nested_state().is_nested())
+    }
+
+    pub fn is_nested_reactive(&self) -> bool {
+        *self.state.is_nested.read()
+    }
+
+    pub fn nested_open_count(&self) -> usize {
+        self.state
+            .nested_open_count
+            .try_peek()
+            .map(|v| *v)
+            .unwrap_or_else(|_| self.dialog.nested_state().nested_open_dialog_count())
+    }
+
+    pub fn nested_open_count_reactive(&self) -> usize {
+        *self.state.nested_open_count.read()
+    }
+
+    pub fn is_topmost_dismiss_layer(&self) -> bool {
+        self.state.dismiss_layer.is_topmost()
+    }
+
+    pub fn is_topmost_dialog(&self) -> bool {
+        self.nested_open_count() == 0 && self.state.dismiss_layer.is_topmost()
+    }
+
+    pub fn set_restore_focus_target(&self, target_id: Option<String>) {
+        self.state.focus_scope.set_restore_target(target_id);
+    }
+
     pub(crate) fn set_dismiss_callback(
         &self,
         is_alert_dialog: bool,
@@ -736,6 +801,19 @@ impl DialogRuntime {
         let mut alert_sig = self.state.is_alert_override;
         sync_signal(&mut alert_sig, is_alert_dialog);
         let mut cb_slot = self.state.on_dismiss_request;
+        if let Ok(mut w) = cb_slot.try_write() {
+            *w = callback;
+        }
+    }
+
+    pub(crate) fn set_dismiss_details_callback(
+        &self,
+        is_alert_dialog: bool,
+        callback: Option<EventHandler<(DismissEvent, ChangeEvent<bool>)>>,
+    ) {
+        let mut alert_sig = self.state.is_alert_override;
+        sync_signal(&mut alert_sig, is_alert_dialog);
+        let mut cb_slot = self.state.on_dismiss_details_request;
         if let Ok(mut w) = cb_slot.try_write() {
             *w = callback;
         }

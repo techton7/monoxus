@@ -1,5 +1,5 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
     PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
@@ -28,13 +28,15 @@ pub(super) const TIME_FIELD_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "Option<TimeValue>", type_full: "Option<Option<TimeValue>>", default: None, required: false, group: PropGroup::Core, description: "Controlled wall-clock time value." },
                 PropDoc { name: "default_value", type_simple: "TimeValue", type_full: "Option<TimeValue>", default: None, required: false, group: PropGroup::Core, description: "Initial time value when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<Option<TimeValue>>", type_full: "Option<EventHandler<Option<TimeValue>>>", default: None, required: false, group: PropGroup::Core, description: "Called when a complete time is committed or cleared." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<Option<TimeValue>>>", type_full: "Option<EventHandler<ChangeEvent<Option<TimeValue>>>>", default: None, required: false, group: PropGroup::Core, description: "Called with ChangeEvent metadata (value, origin, reason) when a complete time is committed or cleared." },
                 PropDoc { name: "placeholder", type_simple: "TimeValue", type_full: "Option<TimeValue>", default: None, required: false, group: PropGroup::Core, description: "Controlled reference placeholder used when stepping empty segments." },
                 PropDoc { name: "default_placeholder", type_simple: "TimeValue", type_full: "Option<TimeValue>", default: None, required: false, group: PropGroup::Core, description: "Initial placeholder time when uncontrolled." },
                 PropDoc { name: "on_placeholder_change", type_simple: "EventHandler<TimeValue>", type_full: "Option<EventHandler<TimeValue>>", default: None, required: false, group: PropGroup::Core, description: "Called when the placeholder time changes." },
+                PropDoc { name: "on_placeholder_change_details", type_simple: "EventHandler<ChangeEvent<TimeValue>>", type_full: "Option<EventHandler<ChangeEvent<TimeValue>>>", default: None, required: false, group: PropGroup::Core, description: "Called with ChangeEvent metadata (value, origin, reason) when the placeholder time changes." },
                 PropDoc { name: "on_focus_out", type_simple: "EventHandler<FocusEvent>", type_full: "Option<EventHandler<FocusEvent>>", default: None, required: false, group: PropGroup::Core, description: "Called when focus leaves the composite time input." },
                 PropDoc { name: "granularity", type_simple: "TimeGranularity", type_full: "TimeGranularity (Hour | Minute | Second)", default: Some("TimeGranularity::Minute"), required: false, group: PropGroup::Core, description: "Segment precision (Hour, Minute, or Second)." },
                 PropDoc { name: "hour_cycle", type_simple: "HourCycle", type_full: "Option<HourCycle>", default: None, required: false, group: PropGroup::Core, description: "12-hour or 24-hour clock override." },
-                PropDoc { name: "locale", type_simple: "CalendarLocale", type_full: "CalendarLocale", default: Some("CalendarLocale::EnUs"), required: false, group: PropGroup::Core, description: "Locale determining clock formatting and announcements." },
+                PropDoc { name: "locale", type_simple: "CalendarLocale", type_full: "Option<CalendarLocale>", default: None, required: false, group: PropGroup::Core, description: "Locale determining clock formatting and announcements; inherits from <MonoxusConfig default_locale> when None (falling back to CalendarLocale::EnUs)." },
                 PropDoc { name: "min_value", type_simple: "TimeValue", type_full: "Option<TimeValue>", default: None, required: false, group: PropGroup::Core, description: "Minimum valid time (inclusive)." },
                 PropDoc { name: "max_value", type_simple: "TimeValue", type_full: "Option<TimeValue>", default: None, required: false, group: PropGroup::Core, description: "Maximum valid time (inclusive)." },
                 PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Disables all segments and hidden form input." },
@@ -45,6 +47,7 @@ pub(super) const TIME_FIELD_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "on_invalid", type_simple: "EventHandler<FieldInvalidEvent>", type_full: "Option<EventHandler<FieldInvalidEvent>>", default: None, required: false, group: PropGroup::Core, description: "Called when validation transitions to invalid." },
                 PropDoc { name: "error_message_id", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::HtmlAria, description: "External error message ID linked via aria-describedby when invalid." },
                 PropDoc { name: "dir", type_simple: "Direction", type_full: "Option<Direction>", default: None, required: false, group: PropGroup::Core, description: "Reading direction override (Ltr or Rtl)." },
+                PROP_AGENT,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "TimeFieldLabel and TimeFieldInput children." },
             ],
             data_attrs: &[],

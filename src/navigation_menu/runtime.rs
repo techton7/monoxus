@@ -8,6 +8,7 @@ use dioxus::prelude::*;
 use futures_timer::Delay;
 use oxidase::dom::FocusOptions;
 use oxidase::dom::observer::{CaptureEventKind, CaptureEventMask, observe_capture_events_with_mask};
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 use crate::foundation::{
     browser::{
@@ -19,14 +20,14 @@ use crate::foundation::{
     },
     overlay::{
         DismissCallbacks, DismissConfig, DismissEvent, DismissLayerHandle, WatcherSlot,
-        use_dismissable_layer, use_watcher_slot,
+        use_dismissable_layer_with_details, use_watcher_slot,
     },
     roving_focus::RovingFocusRuntime,
     shared::{
         Direction, EscapeKeyDownEvent, FocusOutsideEvent, InteractOutsideEvent, Orientation,
         PointerDownOutsideEvent, ScopeHandle,
     },
-    state::ControllableSignal,
+    state::{ChangeOutcome, ControllableSignal},
 };
 
 use super::{
@@ -534,8 +535,18 @@ pub fn use_navigation_menu_root_runtime(
             }
         });
 
-        let ctx_dismiss = ctx_for_callbacks;
-        let on_dismiss = EventHandler::new(move |event: DismissEvent| {
+        DismissCallbacks {
+            on_escape_key_down: Some(on_escape_key_down),
+            on_pointer_down_outside: Some(on_pointer_down_outside),
+            on_focus_outside: Some(on_focus_outside),
+            on_interact_outside: None,
+            on_dismiss: None,
+        }
+    });
+
+    let ctx_dismiss = base_ctx.clone();
+    let on_dismiss_details = use_hook(|| {
+        EventHandler::new(move |(event, change_evt): (DismissEvent, ChangeEvent<bool>)| {
             if !ctx_dismiss.is_alive()
                 || ctx_dismiss
                     .value
@@ -551,21 +562,32 @@ pub fn use_navigation_menu_root_runtime(
                 .ok()
                 .and_then(|c| c.clone())
                 .unwrap_or_default();
+            let str_evt = ChangeEvent::new(String::new(), change_evt.to_context());
+            let was_inside_content = matches!(event, DismissEvent::Escape)
+                && !cfg.content_id.is_empty()
+                && (ctx_dismiss
+                    .focus_tracker
+                    .try_borrow()
+                    .is_ok_and(|ft| ft.current_within(&cfg.content_id))
+                    || is_active_element_inside(&cfg.content_id));
+            let outcome = ctx_dismiss.set_value_with_event(String::new(), &str_evt);
+            if str_evt.is_canceled() {
+                change_evt.cancel();
+            }
+            if str_evt.is_propagation_allowed() {
+                change_evt.allow_propagation();
+            }
+            if !outcome.is_accepted() {
+                return;
+            }
             match event {
                 DismissEvent::Escape => {
                     if let Some(ref item_state) = cfg.item_state {
                         item_state.set_was_escape_close(true);
                     }
-                    let was_inside_content = !cfg.content_id.is_empty()
-                        && (ctx_dismiss
-                            .focus_tracker
-                            .try_borrow()
-                            .is_ok_and(|ft| ft.current_within(&cfg.content_id))
-                            || is_active_element_inside(&cfg.content_id));
                     if !cfg.content_id.is_empty() {
                         remove_from_tab_order(&cfg.content_id);
                     }
-                    ctx_dismiss.on_item_dismiss();
                     if was_inside_content && !cfg.trigger_id.is_empty() {
                         restore_focus_element_by_id_with_options(
                             &cfg.trigger_id,
@@ -577,24 +599,18 @@ pub fn use_navigation_menu_root_runtime(
                     if !cfg.content_id.is_empty() {
                         remove_from_tab_order(&cfg.content_id);
                     }
-                    ctx_dismiss.on_item_dismiss();
                 }
-                DismissEvent::FocusOutside => {
-                    ctx_dismiss.on_item_dismiss();
-                }
+                DismissEvent::FocusOutside => {}
             }
-        });
-
-        DismissCallbacks {
-            on_escape_key_down: Some(on_escape_key_down),
-            on_pointer_down_outside: Some(on_pointer_down_outside),
-            on_focus_outside: Some(on_focus_outside),
-            on_interact_outside: None,
-            on_dismiss: Some(on_dismiss),
-        }
+        })
     });
 
-    let dismiss_layer = use_dismissable_layer(is_open, dismiss_config, dismiss_callbacks);
+    let dismiss_layer = use_dismissable_layer_with_details(
+        is_open,
+        dismiss_config,
+        dismiss_callbacks,
+        Some(on_dismiss_details),
+    );
     base_ctx.dismiss_layer = Some(dismiss_layer);
 
     let cleanup_ctx = base_ctx.clone();
@@ -810,8 +826,28 @@ impl NavigationMenuContext {
     }
 
     pub fn set_value(&self, next_value: String) {
+        let _ = self.set_value_with_context(
+            next_value,
+            ChangeContext::new(ChangeReason::Selection, ChangeSource::Mouse),
+        );
+    }
+
+    pub(crate) fn set_value_with_context(
+        &self,
+        next_value: String,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
+        let event = ChangeEvent::new(next_value.clone(), ctx);
+        self.set_value_with_event(next_value, &event)
+    }
+
+    pub(crate) fn set_value_with_event(
+        &self,
+        next_value: String,
+        event: &ChangeEvent<String>,
+    ) -> ChangeOutcome {
         if !self.is_alive() {
-            return;
+            return ChangeOutcome::Unchanged;
         }
         let current = self
             .value
@@ -819,9 +855,10 @@ impl NavigationMenuContext {
             .map(|v| v.clone())
             .unwrap_or_default();
         if current == next_value {
-            return;
+            return ChangeOutcome::Unchanged;
         }
-        if !self.value_state.is_controlled() {
+        let outcome = self.value_state.set_with_event(next_value.clone(), event);
+        if outcome.is_committed() {
             let mut prev_sig = self.previous_value;
             if let Ok(mut prev) = prev_sig.try_write() {
                 *prev = current;
@@ -832,17 +869,15 @@ impl NavigationMenuContext {
             }
             if let Some(mut hm) = self.hover_machine {
                 let cmds = if let Ok(mut m) = hm.try_write() {
-                    m.dispatch(NavigationMenuHoverAction::ValueCommitted {
-                        next_value: next_value.clone(),
-                    })
-                    .commands
+                    m.dispatch(NavigationMenuHoverAction::ValueCommitted { next_value })
+                        .commands
                 } else {
                     Vec::new()
                 };
                 self.run_timer_commands(cmds);
             }
         }
-        self.value_state.set(next_value);
+        outcome
     }
 
     pub fn on_trigger_enter(&self, item_value: &str, item_open_on_hover: Option<bool>) {

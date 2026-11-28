@@ -138,6 +138,16 @@ pub(super) const PROP_FLOATING_CHILD: PropDoc = PropDoc {
     description: "Custom render callback receiving `FloatingContentChildProps { wrapper_props, props }` for composing both the floating positioning wrapper and inner content element.",
 };
 
+pub(super) const PROP_AGENT: PropDoc = PropDoc {
+    name: "agent",
+    type_simple: "AgentHints",
+    type_full: "Option<AgentHints>",
+    default: None,
+    required: false,
+    group: PropGroup::Common,
+    description: "Optional semantic hints overriding label, description, confirmation, secret, hidden, or inert flags when mounted inside `<AgentProvider>`.",
+};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DataAttrDoc {
     pub name: &'static str,

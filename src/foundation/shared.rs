@@ -12,6 +12,7 @@ use super::{
         ResizeObserverBox, get_element_client_rect, is_element_animating,
         measure_element_without_animation, spawn_root_task, start_resize_monitor,
     },
+    config::MonoxusConfigContext,
     overlay::{PresenceHandle, use_watcher_slot},
     state::sync_signal,
 };
@@ -26,15 +27,38 @@ pub struct DirectionContext(pub Signal<Direction>);
 
 #[component]
 pub fn DirectionProvider(dir: Direction, children: Element) -> Element {
+    let parent_config = use_hook(|| try_consume_context::<MonoxusConfigContext>());
+    let inherited_portal = parent_config.and_then(|ctx| (ctx.default_portal_to)());
+    let inherited_locale = parent_config.and_then(|ctx| (ctx.default_locale)());
+
     let mut signal = use_signal(|| dir);
     sync_signal(&mut signal, dir);
+
+    let mut cfg_dir = use_signal(|| Some(dir));
+    sync_signal(&mut cfg_dir, Some(dir));
+
+    let mut cfg_portal = use_signal(|| inherited_portal.clone());
+    sync_signal(&mut cfg_portal, inherited_portal);
+
+    let mut cfg_locale = use_signal(|| inherited_locale.clone());
+    sync_signal(&mut cfg_locale, inherited_locale);
+
     use_context_provider(|| DirectionContext(signal));
+    use_context_provider(|| MonoxusConfigContext {
+        dir: cfg_dir,
+        default_portal_to: cfg_portal,
+        default_locale: cfg_locale,
+    });
     children
 }
 
 pub fn use_direction_context(override_direction: Option<Direction>) -> Direction {
+    let config_ctx = try_consume_context::<MonoxusConfigContext>();
     let inherited = try_consume_context::<DirectionContext>();
     if let Some(dir) = override_direction {
+        return dir;
+    }
+    if let Some(dir) = config_ctx.and_then(|ctx| (ctx.dir)()) {
         return dir;
     }
     if let Some(ctx) = inherited {

@@ -1,11 +1,12 @@
 use std::borrow::Cow;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::ChangeEvent;
 
 use crate::foundation::{
     compose::{collect_user_attrs, merge_props, push_event_handler},
     shared::{Orientation, use_stable_id},
-    state::use_controllable_signal,
+    state::{ControllableConfig, use_controllable_signal_config},
 };
 
 use super::super::{
@@ -31,6 +32,8 @@ pub struct NavigationMenuSubProps {
     pub default_value: Option<String>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
+    #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
     #[props(default = Orientation::Horizontal)]
     pub orientation: Orientation,
     #[props(default)]
@@ -58,10 +61,14 @@ pub fn NavigationMenuSub(props: NavigationMenuSubProps) -> Element {
         .clone()
         .unwrap_or_else(|| initial_rels.root_id().to_owned());
 
-    let value_state = use_controllable_signal(
-        props.value,
-        props.default_value.unwrap_or_default(),
-        props.on_value_change,
+    let has_explicit_default = props.default_value.is_some();
+    let value_state = use_controllable_signal_config(
+        ControllableConfig::new(props.value, props.default_value.unwrap_or_default())
+            .with_explicit_default(has_explicit_default)
+            .with_on_change(props.on_value_change)
+            .with_on_change_details(props.on_value_change_details)
+            .with_component("NavigationMenuSub")
+            .with_prop("value"),
     );
 
     let effective_mode = props

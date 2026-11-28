@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS, PROP_STYLE,
-    PartDoc, PropDoc, PropGroup, prop_id,
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
 pub(super) const SLIDER_DOC: ComponentDoc = ComponentDoc {
@@ -28,6 +28,7 @@ pub(super) const SLIDER_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "SliderValue", type_full: "Option<monoxus::slider::SliderValue>", default: None, required: false, group: PropGroup::Core, description: "Controlled slider value (Single(f64) or Multiple(Vec<f64>))." },
                 PropDoc { name: "default_value", type_simple: "SliderValue", type_full: "Option<monoxus::slider::SliderValue>", default: Some("SliderValue::Single(min)"), required: false, group: PropGroup::Core, description: "Initial slider value when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<SliderValue>", type_full: "Option<EventHandler<SliderValue>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked continuously as values change during drag or keyboard input." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<SliderValue>>", type_full: "Option<EventHandler<ChangeEvent<SliderValue>>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked continuously as values change, providing a ChangeEvent with slider value and change provenance." },
                 PropDoc { name: "on_value_commit", type_simple: "EventHandler<SliderValue>", type_full: "Option<EventHandler<SliderValue>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked when a drag or keyboard interaction commits." },
                 PropDoc { name: "min", type_simple: "f64", type_full: "f64", default: Some("0.0"), required: false, group: PropGroup::Core, description: "Minimum slider bound." },
                 PropDoc { name: "max", type_simple: "f64", type_full: "f64", default: Some("100.0"), required: false, group: PropGroup::Core, description: "Maximum slider bound." },
@@ -51,6 +52,7 @@ pub(super) const SLIDER_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "SliderTrack, SliderThumb, and optional tick/label parts." },
                 PROP_CLASS,
                 PROP_STYLE,
+                PROP_AGENT,
                 PROP_ATTRIBUTES,
             ],
             data_attrs: &[

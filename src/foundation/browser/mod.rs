@@ -3,6 +3,7 @@ use std::rc::Rc;
 
 use ui_sdk::foundation::date_time::CalendarDate;
 
+pub(crate) mod announce;
 pub(crate) mod floating_measure;
 pub(crate) mod focus;
 pub(crate) mod pointer;
@@ -29,6 +30,11 @@ pub use oxidase::dom::{
 #[allow(unused_imports)]
 pub use ui_sdk::foundation::shared::{ElementScrollMetrics, ElementSize};
 
+#[allow(unused_imports)]
+pub use self::announce::{
+    AnnouncerRecorderGuard, LIVE_ANNOUNCER_ID, announce_polite, capture_announcements,
+    set_announcer_recorder,
+};
 #[allow(unused_imports)]
 pub use self::floating_measure::*;
 #[allow(unused_imports)]

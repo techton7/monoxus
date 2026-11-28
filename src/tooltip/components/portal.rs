@@ -1,6 +1,9 @@
 use dioxus::prelude::*;
 
-use crate::foundation::overlay::{OverlayPortalSpec, PortalHost, render_overlay_portal};
+use crate::foundation::{
+    config::use_portal_host_context,
+    overlay::{OverlayPortalSpec, PortalHost, render_overlay_portal},
+};
 use crate::tooltip::components::TooltipRootContext;
 
 #[derive(Props, Clone, PartialEq)]
@@ -18,9 +21,7 @@ pub struct TooltipPortalProps {
 pub fn TooltipPortal(props: TooltipPortalProps) -> Element {
     let ctx = use_context::<TooltipRootContext>();
     let runtime = ctx.runtime.read();
-    let resolved_host = props
-        .host
-        .unwrap_or_else(|| runtime.portal().host().clone());
+    let resolved_host = use_portal_host_context(props.host, PortalHost::default());
 
     render_overlay_portal(OverlayPortalSpec {
         portal_id: runtime.relationships().scope().qualify("portal"),

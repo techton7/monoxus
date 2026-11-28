@@ -33,12 +33,18 @@ pub fn MenuPortal(props: MenuPortalProps) -> Element {
     let mut portal_id_sig = portal_surface.portal_id;
     sync_signal(&mut portal_id_sig, Some(pid.clone()));
 
+    let resolved_host = if props.disabled {
+        PortalHost::inline()
+    } else {
+        crate::foundation::config::use_portal_host_context(props.host, PortalHost::default())
+    };
+
     render_overlay_portal(OverlayPortalSpec {
         portal_id: pid,
         should_render: portal_surface.should_render_content(),
         disabled: props.disabled,
         force_mount: props.force_mount,
-        host: props.host.unwrap_or_else(PortalHost::default_host),
+        host: resolved_host,
         emit_status_attrs: false,
         children: props.children,
     })

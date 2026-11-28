@@ -1,12 +1,19 @@
-use dioxus::prelude::*;
+use std::rc::Rc;
 
+use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
+
+use crate::agent::{
+    ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+    SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+};
 use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
     compose::{
         collect_user_attrs, extract_aria_invalid_and_describedby, merge_props, push_attr_opt,
         push_event_handler, resolve_invalid_and_describedby,
     },
-    state::use_controllable_signal,
+    state::{ControllableConfig, use_controllable_signal_config},
 };
 
 pub use ui_sdk::toggle::*;
@@ -25,6 +32,10 @@ pub struct ToggleProps {
     pub default_pressed: bool,
     #[props(default)]
     pub on_pressed_change: Option<EventHandler<bool>>,
+    #[props(default)]
+    pub on_pressed_change_details: Option<EventHandler<ChangeEvent<bool>>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default)]
@@ -91,9 +102,76 @@ pub fn Toggle(props: ToggleProps) -> Element {
         field_describedby.as_deref(),
     );
 
-    let pressed_ctl =
-        use_controllable_signal(props.pressed, props.default_pressed, props.on_pressed_change);
+    let pressed_ctl = use_controllable_signal_config(
+        ControllableConfig::new(props.pressed, props.default_pressed)
+            .with_explicit_default(props.default_pressed)
+            .with_on_change(props.on_pressed_change)
+            .with_on_change_details(props.on_pressed_change_details)
+            .with_component("Toggle")
+            .with_prop("pressed"),
+    );
     let is_pressed = pressed_ctl.get();
+
+    let agent_label = resolved_id
+        .clone()
+        .unwrap_or_else(|| String::from("Toggle"));
+    use_agent_surface(
+        props.agent.as_ref(),
+        SurfaceMetaDefaults::new(),
+        || {
+            AgentSurface::new("toggle", agent_label)
+                .with_disabled(effective_disabled)
+                .with_snapshot(
+                    ComponentSnapshot::new()
+                        .with_field("pressed", SnapshotValue::Bool(is_pressed)),
+                )
+                .with_actions(vec![
+                    ActionDescriptor::new("toggle", "Toggle pressed state", false),
+                    ActionDescriptor::new("set", "Set pressed state", true),
+                ])
+        },
+        || {
+            Rc::new(move |dispatch| match dispatch.action.as_str() {
+                "toggle" => {
+                    let next = !pressed_ctl.peek();
+                    let outcome = pressed_ctl.set_with_context(next, dispatch.ctx);
+                    let mut res = DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                    if !outcome.is_canceled() {
+                        res = res.with_expected("pressed", SnapshotValue::Bool(next));
+                    }
+                    res
+                }
+                "set" => {
+                    let Some(SnapshotValue::Bool(next)) = dispatch
+                        .args
+                        .get("pressed")
+                        .or_else(|| dispatch.args.get("value"))
+                    else {
+                        return DispatchExecResult::ok().with_host_error(
+                            "missing or invalid boolean argument 'pressed'",
+                        );
+                    };
+                    let next = *next;
+                    let outcome = pressed_ctl.set_with_context(next, dispatch.ctx);
+                    let mut res = DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                    if !outcome.is_canceled() {
+                        res = res.with_expected("pressed", SnapshotValue::Bool(next));
+                    }
+                    res
+                }
+                other => DispatchExecResult::ok()
+                    .with_host_error(format!("unknown toggle action '{other}'")),
+            })
+        },
+        || {
+            Rc::new(move || {
+                ComponentSnapshot::new().with_field(
+                    "pressed",
+                    SnapshotValue::Bool(pressed_ctl.try_peek_cloned().unwrap_or(false)),
+                )
+            })
+        },
+    );
 
     let mut toggle_state = Toggle::new()
         .with_pressed(is_pressed)
@@ -135,7 +213,10 @@ pub fn Toggle(props: ToggleProps) -> Element {
         Some(EventHandler::new(move |_evt: MouseEvent| {
             if !effective_disabled {
                 let current = pressed_ctl.peek();
-                pressed_ctl.set(!current);
+                pressed_ctl.set_with_context(
+                    !current,
+                    ChangeContext::new(ChangeReason::Toggle, ChangeSource::Mouse),
+                );
             }
         })),
     );

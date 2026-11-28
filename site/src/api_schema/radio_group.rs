@@ -1,5 +1,5 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
     PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
@@ -31,6 +31,7 @@ pub(super) const RADIO_GROUP_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Controlled selected radio item value." },
                 PropDoc { name: "default_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial selected value when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<String>", type_full: "Option<EventHandler<String>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked when the selected value changes." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<String>>", type_full: "Option<EventHandler<ChangeEvent<String>>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked when the selected value changes, providing a ChangeEvent with value and change provenance." },
                 PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Disables all radio items in the group." },
                 PropDoc { name: "required", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Marks the group as required for form submission." },
                 PropDoc { name: "read_only", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Allows keyboard navigation without changing the selected value." },
@@ -45,6 +46,7 @@ pub(super) const RADIO_GROUP_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "autocomplete", type_simple: "String", type_full: "Option<String>", default: Some("\"off\""), required: false, group: PropGroup::HtmlAria, description: "Autocomplete attribute forwarded to hidden radio inputs." },
                 PropDoc { name: "role", type_simple: "String", type_full: "Option<String>", default: Some("\"radiogroup\""), required: false, group: PropGroup::HtmlAria, description: "ARIA role override on the root element." },
                 PROP_CHILD,
+                PROP_AGENT,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "RadioGroupItem elements and labels." },
             ],

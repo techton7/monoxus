@@ -4,8 +4,19 @@ use dioxus::prelude::{
     CopyValue, EventHandler, ReadSignal, ReadableExt, Signal, WritableExt, use_drop, use_effect,
     use_hook, use_signal,
 };
+#[cfg(debug_assertions)]
+use ui_sdk::kernel::AskToken;
+use ui_sdk::kernel::{
+    ChangeContext, ChangeEvent, ChangeReason, ChangeSource, CommitDecision, TransitionGate,
+};
 
 pub use ui_sdk::foundation::state::*;
+
+#[cfg(debug_assertions)]
+use super::diagnostics::{
+    DevDiagnostic, DiagnosticKind, cancel_pending_controlled_check, emit_diagnostic,
+    next_diagnostic_instance_id, register_pending_controlled_check,
+};
 
 /// Synchronizes a [`Signal`] to `next` without subscribing to it (render-time / SSR frame-1 safe).
 ///
@@ -99,6 +110,18 @@ impl<T: 'static> ControlledBinding<T> {
         two_way: Option<Signal<T>>,
         read_only: Option<ReadSignal<T>>,
     ) -> Self {
+        #[cfg(debug_assertions)]
+        if two_way.is_some() && read_only.is_some() {
+            emit_diagnostic(DevDiagnostic {
+                kind: DiagnosticKind::TwoWayAndReadOnlyConflict,
+                component: "ControlledBinding",
+                instance_id: String::new(),
+                prop: "value",
+                message: String::from(
+                    "two-way `value` and unidirectional `controlled_value` cannot both be provided simultaneously",
+                ),
+            });
+        }
         debug_assert!(
             !(two_way.is_some() && read_only.is_some()),
             "monoxus: two-way `value` and unidirectional `controlled_value` cannot both be provided simultaneously"
@@ -196,12 +219,174 @@ impl<T: 'static> ControlledBinding<T> {
     }
 }
 
-/// Zero-overhead `Copy` controllable state handle backed by a [`Signal`] for reactive value reads
-/// and non-reactive [`CopyValue`] slots for ownership mode and `on_change` callback updates.
+/// Result of proposing a state transition through [`ControllableSignal`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChangeOutcome {
+    /// Uncontrolled transition committed into the internal [`Signal`].
+    Committed(ChangeContext),
+    /// Controlled transition accepted by listeners and forwarded to `on_change`;
+    /// the parent owns the authoritative value.
+    ControlledPending(ChangeContext),
+    /// A listener called `event.cancel()`; state remained untouched and legacy
+    /// `on_change` was skipped.
+    Canceled(ChangeContext),
+    /// A re-entrant transition superseded this outer proposal; state and legacy
+    /// `on_change` were skipped for the outer call.
+    Superseded(ChangeContext),
+    /// Proposed value matched the current (or top in-flight) value; no-op.
+    Unchanged,
+}
+
+impl ChangeOutcome {
+    /// Returns `true` when the transition committed into uncontrolled state.
+    #[inline]
+    pub const fn is_committed(&self) -> bool {
+        matches!(self, Self::Committed(_))
+    }
+
+    /// Returns `true` when the transition was accepted (`Committed` or
+    /// `ControlledPending`).
+    #[inline]
+    pub const fn is_accepted(&self) -> bool {
+        matches!(self, Self::Committed(_) | Self::ControlledPending(_))
+    }
+
+    /// Returns `true` when a listener explicitly canceled the transition.
+    #[inline]
+    pub const fn is_canceled(&self) -> bool {
+        matches!(self, Self::Canceled(_))
+    }
+
+    /// Returns the finalized [`ChangeContext`] if a transition was proposed.
+    #[inline]
+    pub const fn context(&self) -> Option<ChangeContext> {
+        match *self {
+            Self::Committed(ctx)
+            | Self::ControlledPending(ctx)
+            | Self::Canceled(ctx)
+            | Self::Superseded(ctx) => Some(ctx),
+            Self::Unchanged => None,
+        }
+    }
+}
+
+/// Configuration for [`use_controllable_signal_config`].
+pub struct ControllableConfig<T: 'static, S = fn(T) -> T, E = fn(&T, &T) -> bool> {
+    pub controlled: Option<T>,
+    pub default_value: T,
+    pub has_explicit_default: bool,
+    pub on_change: Option<EventHandler<T>>,
+    pub on_change_details: Option<EventHandler<ChangeEvent<T>>>,
+    pub sanitize: S,
+    pub eq: E,
+    pub component: &'static str,
+    pub prop: &'static str,
+}
+
+#[inline]
+fn identity_sanitize<T>(value: T) -> T {
+    value
+}
+
+impl<T: PartialEq + 'static> ControllableConfig<T> {
+    /// Creates a [`ControllableConfig`] with identity sanitization and
+    /// [`PartialEq::eq`] equality.
+    pub fn new(controlled: Option<T>, default_value: T) -> Self {
+        Self {
+            controlled,
+            default_value,
+            has_explicit_default: false,
+            on_change: None,
+            on_change_details: None,
+            sanitize: identity_sanitize::<T>,
+            eq: PartialEq::eq,
+            component: "ControllableSignal",
+            prop: "value",
+        }
+    }
+}
+
+impl<T: 'static, S, E> ControllableConfig<T, S, E> {
+    pub fn with_explicit_default(mut self, has_explicit_default: bool) -> Self {
+        self.has_explicit_default = has_explicit_default;
+        self
+    }
+
+    pub fn with_on_change(mut self, on_change: Option<EventHandler<T>>) -> Self {
+        self.on_change = on_change;
+        self
+    }
+
+    pub fn with_on_change_details(
+        mut self,
+        on_change_details: Option<EventHandler<ChangeEvent<T>>>,
+    ) -> Self {
+        self.on_change_details = on_change_details;
+        self
+    }
+
+    pub fn with_component(mut self, component: &'static str) -> Self {
+        self.component = component;
+        self
+    }
+
+    pub fn with_prop(mut self, prop: &'static str) -> Self {
+        self.prop = prop;
+        self
+    }
+
+    pub fn with_sanitize<S2>(self, sanitize: S2) -> ControllableConfig<T, S2, E> {
+        ControllableConfig {
+            controlled: self.controlled,
+            default_value: self.default_value,
+            has_explicit_default: self.has_explicit_default,
+            on_change: self.on_change,
+            on_change_details: self.on_change_details,
+            sanitize,
+            eq: self.eq,
+            component: self.component,
+            prop: self.prop,
+        }
+    }
+
+    pub fn with_eq<E2>(self, eq: E2) -> ControllableConfig<T, S, E2> {
+        ControllableConfig {
+            controlled: self.controlled,
+            default_value: self.default_value,
+            has_explicit_default: self.has_explicit_default,
+            on_change: self.on_change,
+            on_change_details: self.on_change_details,
+            sanitize: self.sanitize,
+            eq,
+            component: self.component,
+            prop: self.prop,
+        }
+    }
+}
+
+#[cfg(debug_assertions)]
+#[derive(Clone, Debug)]
+struct DiagMeta {
+    instance_key: u64,
+    instance_id: String,
+    component: &'static str,
+    prop: &'static str,
+    initially_controlled: bool,
+    mode_switch_warned: bool,
+    refusal_warned: bool,
+    alive: bool,
+}
+
+/// Zero-overhead `Copy` controllable state handle backed by a [`Signal`] for reactive value reads,
+/// a [`TransitionGate`] for borrow-safe 3-phase `Propose -> Veto -> Commit` transitions, and
+/// non-reactive [`CopyValue`] slots for callback updates.
 pub struct ControllableSignal<T: 'static> {
     value: Signal<T>,
-    controlled: CopyValue<bool>,
+    gate: CopyValue<TransitionGate<T>>,
     on_change: CopyValue<Option<EventHandler<T>>>,
+    on_change_details: CopyValue<Option<EventHandler<ChangeEvent<T>>>>,
+    #[cfg(debug_assertions)]
+    diag: CopyValue<DiagMeta>,
 }
 
 impl<T: 'static> Clone for ControllableSignal<T> {
@@ -215,8 +400,9 @@ impl<T: 'static> Copy for ControllableSignal<T> {}
 impl<T: 'static> PartialEq for ControllableSignal<T> {
     fn eq(&self, other: &Self) -> bool {
         self.value == other.value
-            && self.controlled == other.controlled
+            && self.gate == other.gate
             && self.on_change == other.on_change
+            && self.on_change_details == other.on_change_details
     }
 }
 
@@ -225,7 +411,10 @@ impl<T: 'static> Eq for ControllableSignal<T> {}
 impl<T: 'static> ControllableSignal<T> {
     /// Returns `true` when the value is externally controlled by props.
     pub fn is_controlled(&self) -> bool {
-        self.controlled.try_read().map(|g| *g).unwrap_or(false)
+        self.gate
+            .try_read()
+            .map(|g| g.is_controlled())
+            .unwrap_or(false)
     }
 
     /// Returns the underlying reactive [`Signal<T>`].
@@ -257,15 +446,17 @@ impl<T: 'static> ControllableSignal<T> {
         self.value.try_peek().ok().map(|g| g.clone())
     }
 
-    /// Proposes a new value `next`.
+    /// Updates the `on_change_details` callback slot without triggering reactivity.
+    pub fn set_on_change_details(&self, handler: Option<EventHandler<ChangeEvent<T>>>) {
+        let mut slot = self.on_change_details;
+        if let Ok(mut guard) = slot.try_write() {
+            *guard = handler;
+        }
+    }
+
+    /// Proposes a new value `next` with programmatic context.
     ///
-    /// - Suppresses no-op updates when `*current == next`.
-    /// - In uncontrolled mode, writes `next` to the internal signal immediately before invoking
-    ///   `on_change`.
-    /// - In controlled mode, keeps the internal signal untouched (avoiding 1-frame rejected flashes)
-    ///   and invokes `on_change(next)`.
-    ///
-    /// Returns `true` if `next` differed from the current value.
+    /// Returns `true` when the transition was accepted (`Committed` or `ControlledPending`).
     pub fn set(&self, next: T) -> bool
     where
         T: Clone + PartialEq,
@@ -274,35 +465,216 @@ impl<T: 'static> ControllableSignal<T> {
     }
 
     /// Proposes a new value `next` using a custom equality comparator `eq` (e.g. `f64::to_bits`).
+    ///
+    /// Returns `true` when the transition was accepted (`Committed` or `ControlledPending`).
     pub fn set_by(&self, next: T, eq: impl Fn(&T, &T) -> bool) -> bool
     where
         T: Clone,
     {
-        let changed = self
-            .value
-            .try_peek()
-            .is_ok_and(|cur| !eq(&*cur, &next));
-        if !changed {
-            return false;
-        }
+        self.set_by_with_context(
+            next,
+            ChangeContext::new(ChangeReason::Programmatic, ChangeSource::Programmatic),
+            eq,
+        )
+        .is_accepted()
+    }
 
-        if !self.is_controlled() {
-            let mut sig = self.value;
-            if let Ok(mut guard) = sig.try_write() {
-                *guard = next.clone();
-            }
-        }
+    /// Proposes a new value `next` with explicit [`ChangeContext`] via the 3-phase
+    /// `Propose -> Veto -> Commit` protocol.
+    pub fn set_with_context(&self, next: T, ctx: ChangeContext) -> ChangeOutcome
+    where
+        T: Clone + PartialEq,
+    {
+        self.set_by_with_context(next, ctx, PartialEq::eq)
+    }
 
-        let cb = self
-            .on_change
+    /// Proposes a new value `next` with explicit [`ChangeContext`] and custom equality `eq`.
+    pub fn set_by_with_context(
+        &self,
+        next: T,
+        ctx: ChangeContext,
+        eq: impl Fn(&T, &T) -> bool,
+    ) -> ChangeOutcome
+    where
+        T: Clone,
+    {
+        let event = ChangeEvent::new(next.clone(), ctx);
+        self.set_by_with_event(next, &event, eq)
+    }
+
+    /// Proposes a new value `next` using a caller-supplied [`ChangeEvent<T>`] so shared
+    /// `cancel()` and `allow_propagation()` flags remain observable by the caller.
+    pub fn set_with_event(&self, next: T, event: &ChangeEvent<T>) -> ChangeOutcome
+    where
+        T: Clone + PartialEq,
+    {
+        self.set_by_with_event(next, event, PartialEq::eq)
+    }
+
+    /// Proposes a new value `next` using a caller-supplied [`ChangeEvent<T>`] and custom
+    /// equality comparator `eq`.
+    pub fn set_by_with_event(
+        &self,
+        next: T,
+        event: &ChangeEvent<T>,
+        eq: impl Fn(&T, &T) -> bool,
+    ) -> ChangeOutcome
+    where
+        T: Clone,
+    {
+        self.propose_and_commit(next, event, eq, true)
+    }
+
+    /// Proposes a non-cancelable transition: `on_change_details` is still notified (and may
+    /// set `allow_propagation()`), but `event.cancel()` is ignored during the Commit phase.
+    pub fn set_non_cancelable(&self, next: T, ctx: ChangeContext) -> ChangeOutcome
+    where
+        T: Clone + PartialEq,
+    {
+        let event = ChangeEvent::new(next.clone(), ctx);
+        self.propose_and_commit(next, &event, PartialEq::eq, false)
+    }
+
+    fn propose_and_commit(
+        &self,
+        next: T,
+        event: &ChangeEvent<T>,
+        eq: impl Fn(&T, &T) -> bool,
+        cancelable: bool,
+    ) -> ChangeOutcome
+    where
+        T: Clone,
+    {
+        // Phase 1: Propose (short write borrow on TransitionGate, dropped immediately).
+        let initial_ctx = event.to_context();
+        let token = {
+            let mut gate_slot = self.gate;
+            let Ok(mut gate) = gate_slot.try_write() else {
+                return ChangeOutcome::Unchanged;
+            };
+            gate.begin_ask_by(next.clone(), &initial_ctx, eq)
+        };
+        let Some(token) = token else {
+            return ChangeOutcome::Unchanged;
+        };
+
+        // Phase 2: Veto / Notify (zero CopyValue borrows held across user callback).
+        let details_cb = self
+            .on_change_details
             .try_read()
             .ok()
             .and_then(|slot| *slot);
-        if let Some(handler) = cb {
-            handler.call(next);
+        if let Some(handler) = details_cb {
+            handler.call(event.clone());
         }
 
-        true
+        let final_ctx = if cancelable {
+            event.to_context()
+        } else {
+            let mut ctx = ChangeContext::new(event.reason(), event.source());
+            if event.is_propagation_allowed() {
+                ctx.allow_propagation();
+            }
+            ctx
+        };
+
+        // Phase 3: Commit (short write borrow on TransitionGate, dropped before side effects).
+        let decision = {
+            let mut gate_slot = self.gate;
+            let Ok(mut gate) = gate_slot.try_write() else {
+                return ChangeOutcome::Superseded(final_ctx);
+            };
+            gate.finish_ask(token, next, &final_ctx)
+        };
+
+        match decision {
+            CommitDecision::Canceled => {
+                #[cfg(debug_assertions)]
+                self.cancel_pending_refusal();
+                ChangeOutcome::Canceled(final_ctx)
+            }
+            CommitDecision::Superseded => ChangeOutcome::Superseded(final_ctx),
+            CommitDecision::Commit { value, .. } => {
+                let mut sig = self.value;
+                if let Ok(mut guard) = sig.try_write() {
+                    *guard = value.clone();
+                }
+                let cb = self.on_change.try_read().ok().and_then(|slot| *slot);
+                if let Some(handler) = cb {
+                    handler.call(value);
+                }
+                ChangeOutcome::Committed(final_ctx)
+            }
+            CommitDecision::ControlledPending { pending } => {
+                let cb = self.on_change.try_read().ok().and_then(|slot| *slot);
+                if let Some(handler) = cb {
+                    handler.call(pending.value);
+                }
+                #[cfg(debug_assertions)]
+                self.arm_pending_refusal(token);
+                ChangeOutcome::ControlledPending(final_ctx)
+            }
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    fn cancel_pending_refusal(&self) {
+        if let Ok(meta) = self.diag.try_read() {
+            cancel_pending_controlled_check(meta.instance_key);
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    fn arm_pending_refusal(&self, token: AskToken) {
+        let still_pending = self
+            .gate
+            .try_read()
+            .is_ok_and(|g| g.pending_controlled_for(token).is_some());
+        if !still_pending {
+            return;
+        }
+        let Ok(meta_read) = self.diag.try_read() else {
+            return;
+        };
+        if !meta_read.alive || meta_read.refusal_warned {
+            return;
+        }
+        let key = meta_read.instance_key;
+        drop(meta_read);
+
+        let gate = self.gate;
+        let mut diag_slot = self.diag;
+        register_pending_controlled_check(
+            key,
+            token.epoch(),
+            Box::new(move || {
+                let still_refused = gate
+                    .try_read()
+                    .is_ok_and(|g| g.pending_controlled_for(token).is_some());
+                if !still_refused {
+                    return;
+                }
+                let diag = diag_slot.try_write().ok().and_then(|mut meta| {
+                    if !meta.alive || meta.refusal_warned {
+                        return None;
+                    }
+                    meta.refusal_warned = true;
+                    Some(DevDiagnostic {
+                        kind: DiagnosticKind::ControlledRefusal,
+                        component: meta.component,
+                        instance_id: meta.instance_id.clone(),
+                        prop: meta.prop,
+                        message: format!(
+                            "{} requested a controlled `{}` update that was not applied within the grace window. Update the controlled prop in `on_{}_change`, or call `event.cancel()` in `on_{}_change_details` if the refusal is intentional.",
+                            meta.component, meta.prop, meta.prop, meta.prop
+                        ),
+                    })
+                });
+                if let Some(diag) = diag {
+                    emit_diagnostic(diag);
+                }
+            }),
+        );
     }
 
     /// Computes a next value from the current value via `f` and proposes it with [`Self::set`].
@@ -332,9 +704,160 @@ impl<T: 'static> ControllableSignal<T> {
     }
 }
 
+/// Full-featured hook returning a `Copy` [`ControllableSignal<T>`] backed by
+/// [`TransitionGate<T>`] with `on_change_details` veto support and dev-only
+/// diagnostics.
+pub fn use_controllable_signal_config<T, S, E>(
+    config: ControllableConfig<T, S, E>,
+) -> ControllableSignal<T>
+where
+    T: Clone + 'static,
+    S: Fn(T) -> T,
+    E: Fn(&T, &T) -> bool,
+{
+    let is_controlled_now = config.controlled.is_some();
+    let sanitized_controlled = config.controlled.map(&config.sanitize);
+    #[cfg(debug_assertions)]
+    let (component, prop, has_explicit_default) = (
+        config.component,
+        config.prop,
+        config.has_explicit_default,
+    );
+
+    let mut value = use_signal(|| {
+        sanitized_controlled
+            .clone()
+            .unwrap_or_else(|| (config.sanitize)(config.default_value))
+    });
+
+    let mut gate = use_hook(|| {
+        let initial = value.peek().clone();
+        let initial_gate = if is_controlled_now {
+            TransitionGate::new_controlled(initial)
+        } else {
+            TransitionGate::new_uncontrolled(initial)
+        };
+        CopyValue::new(initial_gate)
+    });
+
+    let mut on_change_slot = use_hook(|| CopyValue::new(config.on_change));
+    on_change_slot.set(config.on_change);
+
+    let mut on_change_details_slot = use_hook(|| CopyValue::new(config.on_change_details));
+    on_change_details_slot.set(config.on_change_details);
+
+    #[cfg(debug_assertions)]
+    let diag = {
+        let mut diag = use_hook(|| {
+            let key = next_diagnostic_instance_id();
+            let instance_id = format!("{component}-{key}");
+            if is_controlled_now && has_explicit_default {
+                emit_diagnostic(DevDiagnostic {
+                    kind: DiagnosticKind::ControlledAndDefaultProvided,
+                    component,
+                    instance_id: instance_id.clone(),
+                    prop,
+                    message: format!(
+                        "{component} received both a controlled `{prop}` prop and an explicit default value. Choose either controlled or uncontrolled mode.",
+                    ),
+                });
+            }
+            CopyValue::new(DiagMeta {
+                instance_key: key,
+                instance_id,
+                component,
+                prop,
+                initially_controlled: is_controlled_now,
+                mode_switch_warned: false,
+                refusal_warned: false,
+                alive: true,
+            })
+        });
+
+        let mode_switch_diag = diag.try_write().ok().and_then(|mut meta| {
+            if meta.initially_controlled != is_controlled_now && !meta.mode_switch_warned {
+                meta.mode_switch_warned = true;
+                let from = if meta.initially_controlled {
+                    "controlled"
+                } else {
+                    "uncontrolled"
+                };
+                let to = if is_controlled_now {
+                    "controlled"
+                } else {
+                    "uncontrolled"
+                };
+                Some(DevDiagnostic {
+                    kind: DiagnosticKind::ControlledModeSwitch,
+                    component: meta.component,
+                    instance_id: meta.instance_id.clone(),
+                    prop: meta.prop,
+                    message: format!(
+                        "{} switched `{}` from {} to {} mode within a single component lifetime.",
+                        meta.component, meta.prop, from, to
+                    ),
+                })
+            } else {
+                None
+            }
+        });
+        if let Some(d) = mode_switch_diag {
+            emit_diagnostic(d);
+        }
+
+        use_drop(move || {
+            let key = diag.try_write().ok().map(|mut meta| {
+                meta.alive = false;
+                meta.instance_key
+            });
+            if let Some(key) = key {
+                cancel_pending_controlled_check(key);
+            }
+        });
+
+        diag
+    };
+
+    if let Some(next) = sanitized_controlled {
+        let sync_changed = gate
+            .try_write()
+            .ok()
+            .map(|mut g| {
+                if !g.is_controlled() {
+                    g.set_controlled(true);
+                }
+                g.sync_controlled_outcome_by(next.clone(), &config.eq)
+                    .changed()
+            })
+            .unwrap_or(false);
+        if sync_changed {
+            #[cfg(debug_assertions)]
+            if let Ok(meta) = diag.try_read() {
+                cancel_pending_controlled_check(meta.instance_key);
+            }
+        }
+        sync_signal_by(&mut value, next, &config.eq);
+    } else if let Ok(mut g) = gate.try_write()
+        && g.is_controlled()
+    {
+        g.set_controlled(false);
+        #[cfg(debug_assertions)]
+        if let Ok(meta) = diag.try_read() {
+            cancel_pending_controlled_check(meta.instance_key);
+        }
+    }
+
+    ControllableSignal {
+        value,
+        gate,
+        on_change: on_change_slot,
+        on_change_details: on_change_details_slot,
+        #[cfg(debug_assertions)]
+        diag,
+    }
+}
+
 /// Zero-overhead hook returning a `Copy` [`ControllableSignal<T>`] without `Rc<dyn Fn>` boxing.
-///
-/// Panics in debug builds if `controlled` switches between `Some` and `None` across renders.
 pub fn use_controllable_signal<T>(
     controlled: Option<T>,
     default_value: T,
@@ -372,29 +895,17 @@ pub fn use_controllable_signal_by<T>(
 where
     T: Clone + 'static,
 {
-    let is_controlled_now = controlled.is_some();
-    let controlled_slot = use_hook(|| CopyValue::new(is_controlled_now));
-    debug_assert_mode_stable(*controlled_slot.read(), is_controlled_now);
-
-    let sanitized_controlled = controlled.map(&sanitize);
-    let mut value = use_signal(|| {
-        sanitized_controlled
-            .clone()
-            .unwrap_or_else(|| sanitize(default_value))
-    });
-
-    if let Some(next) = sanitized_controlled {
-        sync_signal_by(&mut value, next, eq);
-    }
-
-    let mut on_change_slot = use_hook(|| CopyValue::new(on_change));
-    on_change_slot.set(on_change);
-
-    ControllableSignal {
-        value,
-        controlled: controlled_slot,
-        on_change: on_change_slot,
-    }
+    use_controllable_signal_config(ControllableConfig {
+        controlled,
+        default_value,
+        has_explicit_default: false,
+        on_change,
+        on_change_details: None,
+        sanitize,
+        eq,
+        component: "ControllableSignal",
+        prop: "value",
+    })
 }
 
 /// Runs a reactive `effect` returning a cleanup closure executed before each subsequent re-run
@@ -651,10 +1162,12 @@ mod tests {
     use std::rc::Rc;
 
     use dioxus::prelude::*;
+    use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
     use super::{
-        ControllableSignal, sync_f64_signal, sync_signal, use_controllable_signal,
-        use_controllable_signal_with, use_effect_with_cleanup,
+        ChangeOutcome, ControllableConfig, ControllableSignal, sync_f64_signal, sync_signal,
+        use_controllable_signal, use_controllable_signal_config, use_controllable_signal_with,
+        use_effect_with_cleanup,
     };
 
     #[component]
@@ -876,5 +1389,256 @@ mod tests {
         dom.rebuild_in_place();
         let (sig, ro) = captured.borrow().expect("signals captured");
         let _ = ControlledBinding::from_props(Some(sig), Some(ro));
+    }
+
+    #[test]
+    fn transition_gate_cancel_reentrant_clamp_back_and_shared_event() {
+        let handle_slot: Rc<RefCell<Option<ControllableSignal<i32>>>> =
+            Rc::new(RefCell::new(None));
+        let legacy_calls: Rc<RefCell<Vec<i32>>> = Rc::new(RefCell::new(Vec::new()));
+        let cancel_next = Rc::new(Cell::new(false));
+        let clamp_back = Rc::new(Cell::new(false));
+        let allow_prop = Rc::new(Cell::new(false));
+
+        #[component]
+        fn GateHarness(
+            handle_slot: Rc<RefCell<Option<ControllableSignal<i32>>>>,
+            legacy_calls: Rc<RefCell<Vec<i32>>>,
+            cancel_next: Rc<Cell<bool>>,
+            clamp_back: Rc<Cell<bool>>,
+            allow_prop: Rc<Cell<bool>>,
+        ) -> Element {
+            let legacy = Rc::clone(&legacy_calls);
+            let handle_for_cb = Rc::clone(&handle_slot);
+            let cancel_flag = Rc::clone(&cancel_next);
+            let clamp_flag = Rc::clone(&clamp_back);
+            let prop_flag = Rc::clone(&allow_prop);
+
+            let sig = use_controllable_signal_config(
+                ControllableConfig::new(None, 10_i32)
+                    .with_component("Slider")
+                    .with_prop("value")
+                    .with_on_change(Some(EventHandler::new(move |v| {
+                        legacy.borrow_mut().push(v);
+                    })))
+                    .with_on_change_details(Some(EventHandler::new(move |ev: ChangeEvent<i32>| {
+                        if prop_flag.get() {
+                            ev.allow_propagation();
+                        }
+                        if cancel_flag.get() {
+                            ev.cancel();
+                        } else if clamp_flag.get() && *ev.value() == 50 {
+                            if let Some(h) = *handle_for_cb.borrow() {
+                                let _ = h.set_with_context(
+                                    10,
+                                    ChangeContext::new(
+                                        ChangeReason::Programmatic,
+                                        ChangeSource::Programmatic,
+                                    ),
+                                );
+                            }
+                        }
+                    }))),
+            );
+            *handle_slot.borrow_mut() = Some(sig);
+            rsx! { div {} }
+        }
+
+        let mut dom = VirtualDom::new_with_props(
+            GateHarness,
+            GateHarnessProps {
+                handle_slot: Rc::clone(&handle_slot),
+                legacy_calls: Rc::clone(&legacy_calls),
+                cancel_next: Rc::clone(&cancel_next),
+                clamp_back: Rc::clone(&clamp_back),
+                allow_prop: Rc::clone(&allow_prop),
+            },
+        );
+        dom.rebuild_in_place();
+
+        let h = handle_slot.borrow().expect("handle");
+
+        // 1. Cancel prevents mutation and skips legacy on_change
+        cancel_next.set(true);
+        let outcome = h.set_with_context(
+            20,
+            ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Keyboard),
+        );
+        assert!(outcome.is_canceled());
+        assert!(!outcome.is_committed());
+        assert_eq!(h.peek(), 10);
+        assert!(legacy_calls.borrow().is_empty());
+
+        // 2. set_non_cancelable ignores ev.cancel() and still commits
+        let non_cancel = h.set_non_cancelable(
+            15,
+            ChangeContext::new(ChangeReason::Reset, ChangeSource::Programmatic),
+        );
+        assert!(non_cancel.is_committed());
+        assert_eq!(h.peek(), 15);
+        assert_eq!(*legacy_calls.borrow(), vec![15]);
+
+        // Reset to 10
+        cancel_next.set(false);
+        assert!(h.set(10));
+        legacy_calls.borrow_mut().clear();
+
+        // 3. Re-entrant clamp-back (10 -> 50 -> 10) keeps value at 10 (outer Superseded)
+        clamp_back.set(true);
+        let clamped = h.set_with_context(
+            50,
+            ChangeContext::new(ChangeReason::Drag, ChangeSource::Mouse),
+        );
+        assert!(matches!(clamped, ChangeOutcome::Superseded(_)));
+        assert_eq!(h.peek(), 10);
+        assert!(legacy_calls.borrow().is_empty());
+        clamp_back.set(false);
+
+        // 4. set_with_event shares allow_propagation() with caller's ChangeEvent
+        allow_prop.set(true);
+        let shared_ev = ChangeEvent::new(
+            25,
+            ChangeContext::new(ChangeReason::EscapeKey, ChangeSource::Keyboard),
+        );
+        let res = h.set_with_event(25, &shared_ev);
+        assert!(res.is_committed());
+        assert!(shared_ev.is_propagation_allowed());
+        assert!(res.context().is_some_and(|c| c.is_propagation_allowed()));
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn diagnostics_controlled_refusal_mode_switch_and_explicit_default() {
+        use crate::foundation::diagnostics::{
+            DiagnosticKind, capture_diagnostics, flush_pending_controlled_checks,
+        };
+
+        let guard = capture_diagnostics();
+
+        let ctl_prop_holder: Rc<RefCell<Option<Signal<Option<bool>>>>> =
+            Rc::new(RefCell::new(None));
+        let mount_holder: Rc<RefCell<Option<Signal<bool>>>> = Rc::new(RefCell::new(None));
+        let sig_holder: Rc<RefCell<Option<ControllableSignal<bool>>>> =
+            Rc::new(RefCell::new(None));
+        let cancel_flag = Rc::new(Cell::new(false));
+
+        #[component]
+        fn Child(
+            open: Option<bool>,
+            has_explicit_default: bool,
+            sig_holder: Rc<RefCell<Option<ControllableSignal<bool>>>>,
+            cancel_flag: Rc<Cell<bool>>,
+        ) -> Element {
+            let cancel = Rc::clone(&cancel_flag);
+            let s = use_controllable_signal_config(
+                ControllableConfig::new(open, false)
+                    .with_explicit_default(has_explicit_default)
+                    .with_component("Dialog")
+                    .with_prop("open")
+                    .with_on_change_details(Some(EventHandler::new(move |ev: ChangeEvent<bool>| {
+                        if cancel.get() {
+                            ev.cancel();
+                        }
+                    }))),
+            );
+            *sig_holder.borrow_mut() = Some(s);
+            rsx! { div {} }
+        }
+
+        #[component]
+        fn Root(
+            ctl_prop_holder: Rc<RefCell<Option<Signal<Option<bool>>>>>,
+            mount_holder: Rc<RefCell<Option<Signal<bool>>>>,
+            sig_holder: Rc<RefCell<Option<ControllableSignal<bool>>>>,
+            cancel_flag: Rc<Cell<bool>>,
+        ) -> Element {
+            let open = use_signal(|| Some(false));
+            let mounted = use_signal(|| true);
+            *ctl_prop_holder.borrow_mut() = Some(open);
+            *mount_holder.borrow_mut() = Some(mounted);
+            rsx! {
+                if mounted() {
+                    Child {
+                        open: open(),
+                        has_explicit_default: true,
+                        sig_holder: Rc::clone(&sig_holder),
+                        cancel_flag: Rc::clone(&cancel_flag),
+                    }
+                }
+            }
+        }
+
+        let mut dom = VirtualDom::new_with_props(
+            Root,
+            RootProps {
+                ctl_prop_holder: Rc::clone(&ctl_prop_holder),
+                mount_holder: Rc::clone(&mount_holder),
+                sig_holder: Rc::clone(&sig_holder),
+                cancel_flag: Rc::clone(&cancel_flag),
+            },
+        );
+        dom.rebuild_in_place();
+
+        // Explicit default + controlled triggers ControlledAndDefaultProvided on mount
+        let initial_diags = guard.take();
+        assert_eq!(initial_diags.len(), 1);
+        assert_eq!(
+            initial_diags[0].kind,
+            DiagnosticKind::ControlledAndDefaultProvided
+        );
+
+        let h = sig_holder.borrow().unwrap();
+
+        // Guard 1: Intentional cancel -> zero refusal diagnostic
+        cancel_flag.set(true);
+        assert!(
+            h.set_with_context(
+                true,
+                ChangeContext::new(ChangeReason::Open, ChangeSource::Mouse)
+            )
+            .is_canceled()
+        );
+        flush_pending_controlled_checks();
+        assert!(guard.take().is_empty());
+        cancel_flag.set(false);
+
+        // Guard 2: Parent applies controlled update before flush -> zero refusal diagnostic
+        assert!(
+            h.set_with_context(
+                true,
+                ChangeContext::new(ChangeReason::Open, ChangeSource::Mouse)
+            )
+            .is_accepted()
+        );
+        ctl_prop_holder.borrow().unwrap().set(Some(true));
+        dom.render_immediate(&mut dioxus::core::NoOpMutations);
+        flush_pending_controlled_checks();
+        assert!(guard.take().is_empty());
+
+        // Guard 3: Parent ignores controlled update -> ControlledRefusal emitted once on flush
+        assert!(
+            h.set_with_context(
+                false,
+                ChangeContext::new(ChangeReason::EscapeKey, ChangeSource::Keyboard)
+            )
+            .is_accepted()
+        );
+        flush_pending_controlled_checks();
+        let refusal_diags = guard.take();
+        assert_eq!(refusal_diags.len(), 1);
+        assert_eq!(refusal_diags[0].kind, DiagnosticKind::ControlledRefusal);
+
+        // Mode switch emits ControlledModeSwitch once (without panicking when strict mode is off)
+        ctl_prop_holder.borrow().unwrap().set(None);
+        dom.render_immediate(&mut dioxus::core::NoOpMutations);
+        let switch_diags = guard.take();
+        assert_eq!(switch_diags.len(), 1);
+        assert_eq!(switch_diags[0].kind, DiagnosticKind::ControlledModeSwitch);
+
+        // Unmount cancels any pending checks cleanly
+        mount_holder.borrow().unwrap().set(false);
+        dom.render_immediate(&mut dioxus::core::NoOpMutations);
+        flush_pending_controlled_checks();
+        assert!(guard.take().is_empty());
     }
 }

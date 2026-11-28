@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, DataAttrDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS, PROP_ID, PROP_ON_MOUNTED,
-    PROP_STYLE, PartDoc, PropDoc, PropGroup,
+    ComponentDoc, DataAttrDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS, PROP_ID,
+    PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup,
 };
 
 pub(super) const SWITCH_DOC: ComponentDoc = ComponentDoc {
@@ -53,6 +53,15 @@ pub(super) const SWITCH_DOC: ComponentDoc = ComponentDoc {
                     required: false,
                     group: PropGroup::Core,
                     description: "Invoked when the checked state toggles.",
+                },
+                PropDoc {
+                    name: "on_checked_change_details",
+                    type_simple: "EventHandler<ChangeEvent<bool>>",
+                    type_full: "Option<EventHandler<ChangeEvent<bool>>>",
+                    default: None,
+                    required: false,
+                    group: PropGroup::Core,
+                    description: "Invoked when the checked state toggles, providing a ChangeEvent with checked state and change provenance.",
                 },
                 PropDoc {
                     name: "disabled",
@@ -163,6 +172,7 @@ pub(super) const SWITCH_DOC: ComponentDoc = ComponentDoc {
                     description: "Invoked when the switch loses focus.",
                 },
                 PROP_ON_MOUNTED,
+                PROP_AGENT,
                 PROP_CHILD,
                 PROP_ATTRIBUTES,
                 PropDoc {

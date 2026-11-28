@@ -1,7 +1,13 @@
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::ChangeEvent;
 
+use crate::agent::{
+    ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+    SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+};
 use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
     compose::{
@@ -15,7 +21,7 @@ use crate::foundation::{
 };
 
 use crate::rating_group::{
-    runtime::{RatingGroupContext, translate_keyboard_key, use_rating_group_runtime},
+    runtime::{RatingGroupContext, translate_keyboard_key, use_rating_group_runtime_with_details},
     state::{RatingGroupDefinition, clamp_rating_value, format_rating_value},
     types::{Direction, Orientation, RatingGroupAriaValuetext, RatingGroupItemData},
 };
@@ -35,6 +41,10 @@ pub struct RatingGroupRootProps {
     pub default_value: Option<f64>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<f64>>,
+    #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<f64>>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(default = 0.0)]
     pub min: f64,
     #[props(default = 5)]
@@ -170,19 +180,100 @@ pub fn RatingGroupRoot(props: RatingGroupRootProps) -> Element {
         )
     });
 
-    let mut runtime = use_rating_group_runtime(
+    let mut runtime = use_rating_group_runtime_with_details(
         def,
         rels.clone(),
         dom_root_id.clone(),
         props.value,
-        props.default_value.unwrap_or(0.0),
+        props.default_value,
         props.on_value_change,
-        attr_aria_label,
+        props.on_value_change_details,
+        attr_aria_label.clone(),
         effective_labelledby,
         props.aria_valuetext.clone(),
     );
     sync_signal(&mut runtime.invalid, effective_invalid);
     sync_signal(&mut runtime.aria_describedby, effective_describedby);
+
+    let agent_label = attr_aria_label
+        .or_else(|| effective_name.clone())
+        .unwrap_or_else(|| dom_root_id.clone());
+    let agent_rt_surface = runtime.clone();
+    let agent_rt_dispatch = runtime.clone();
+    let agent_rt_reader = runtime.clone();
+    let build_rating_snap = move |rt: &crate::rating_group::runtime::RatingGroupRuntime| {
+        let def = rt.def.peek().clone();
+        let val = rt.value_ctl.try_peek_cloned().unwrap_or(def.min);
+        let mut snap = ComponentSnapshot::new()
+            .with_field("value", SnapshotValue::Float(val))
+            .with_field("min", SnapshotValue::Float(def.min))
+            .with_field("max", SnapshotValue::Int(def.max as i64));
+        if effective_read_only {
+            snap = snap.with_field("read_only", SnapshotValue::Bool(true));
+        }
+        snap
+    };
+    use_agent_surface(
+        props.agent.as_ref(),
+        SurfaceMetaDefaults::new(),
+        || {
+            let actions = if effective_read_only {
+                Vec::new()
+            } else {
+                vec![
+                    ActionDescriptor::new("set", "Set rating value", true),
+                    ActionDescriptor::new("clear", "Reset rating to minimum", false),
+                ]
+            };
+            AgentSurface::new("rating-group", agent_label)
+                .with_disabled(effective_disabled)
+                .with_snapshot(build_rating_snap(&agent_rt_surface))
+                .with_actions(actions)
+        },
+        || {
+            Rc::new(move |dispatch| {
+                if effective_read_only {
+                    return DispatchExecResult::ok().with_host_error("rating-group is read-only");
+                }
+                let mut rt = agent_rt_dispatch.clone();
+                match dispatch.action.as_str() {
+                    "set" => {
+                        let raw = match dispatch.args.get("value") {
+                            Some(SnapshotValue::Float(v)) if v.is_finite() => *v,
+                            Some(SnapshotValue::Int(n)) => *n as f64,
+                            _ => {
+                                return DispatchExecResult::ok().with_host_error(
+                                    "missing or invalid numeric argument 'value'",
+                                );
+                            }
+                        };
+                        let def = rt.def.peek().clone();
+                        let clamped = clamp_rating_value(raw, def.min, def.max);
+                        let outcome = rt.set_value_with_context(clamped, dispatch.ctx);
+                        let mut res =
+                            DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                        if !outcome.is_canceled() {
+                            res = res.with_expected("value", SnapshotValue::Float(clamped));
+                        }
+                        res
+                    }
+                    "clear" => {
+                        let min = rt.def.peek().min;
+                        let outcome = rt.set_value_with_context(min, dispatch.ctx);
+                        let mut res =
+                            DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                        if !outcome.is_canceled() {
+                            res = res.with_expected("value", SnapshotValue::Float(min));
+                        }
+                        res
+                    }
+                    other => DispatchExecResult::ok()
+                        .with_host_error(format!("unknown rating-group action '{other}'")),
+                }
+            })
+        },
+        || Rc::new(move || build_rating_snap(&agent_rt_reader)),
+    );
 
     let mut reset_runtime = runtime.clone();
     let (should_render_hidden, reset_epoch) = use_form_control_sync_with_epoch(

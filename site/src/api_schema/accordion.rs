@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
-    PROP_ID, PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup,
+    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD,
+    PROP_CLASS, PROP_ID, PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup,
 };
 
 pub(super) const ACCORDION_DOC: ComponentDoc = ComponentDoc {
@@ -118,6 +118,15 @@ pub(super) const ACCORDION_DOC: ComponentDoc = ComponentDoc {
                     description: "Invoked when the expanded value changes in Single mode (empty string when collapsed).",
                 },
                 PropDoc {
+                    name: "on_value_change_details",
+                    type_simple: "EventHandler<ChangeEvent<String>>",
+                    type_full: "Option<EventHandler<ChangeEvent<String>>>",
+                    default: None,
+                    required: false,
+                    group: PropGroup::Core,
+                    description: "Invoked when the expanded value changes in Single mode, providing a ChangeEvent with value and change provenance.",
+                },
+                PropDoc {
                     name: "on_values_change",
                     type_simple: "EventHandler<Vec<String>>",
                     type_full: "Option<EventHandler<Vec<String>>>",
@@ -126,6 +135,16 @@ pub(super) const ACCORDION_DOC: ComponentDoc = ComponentDoc {
                     group: PropGroup::Core,
                     description: "Invoked when the expanded values list changes.",
                 },
+                PropDoc {
+                    name: "on_values_change_details",
+                    type_simple: "EventHandler<ChangeEvent<Vec<String>>>",
+                    type_full: "Option<EventHandler<ChangeEvent<Vec<String>>>>",
+                    default: None,
+                    required: false,
+                    group: PropGroup::Core,
+                    description: "Invoked when the expanded values list changes, providing a ChangeEvent with values and change provenance.",
+                },
+                PROP_AGENT,
                 PROP_CHILD,
                 PROP_ATTRIBUTES,
                 PropDoc {

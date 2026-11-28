@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1](https://github.com/techton7/monoxus/compare/monoxus-v0.2.0...monoxus-v0.2.1) - 2026-11-28
+
+### Added
+
+- *(monoxus)* upgrade `ui-sdk` to `0.2.2` and re-export `monoxus::agent` alongside `monoxus::kernel`
+- *(monoxus)* add `on_*_change_details: Option<EventHandler<ChangeEvent<T>>>` across all stateful primitive roots backed by `TransitionGate` LIFO `Propose -> Veto -> Commit` with `ev.cancel()` side-effect ordering guarantees and dynamic overlay Escape / Outside-Press `ev.allow_propagation()`
+- *(monoxus)* add `monoxus::agent` runtime (`AgentProvider`, `<AgentBoundary>`, `AgentBridgeHandle::{handle_request, handle_json, handle_request_settled, handle_json_settled}`, `use_agent_surface`, and `wasm32` WebMCP bridge strictly exposing `["snapshot", "query", "act"]`) wired across all interactive primitives with zero-allocation fast path when `<AgentProvider>` is absent
+- *(monoxus)* add dev-only diagnostics (`monoxus::foundation::diagnostics`) covering `ControlledRefusal` (with 5 false-positive guards), `ControlledModeSwitch`, `ControlledAndDefaultProvided`, `DetachedHandleAction`, `HandleOverlap`, and `InvalidProp` (compiling to inline no-ops in release)
+- *(monoxus)* add detached triggers and typed `OverlayHandle<K, P = ()>` (`DialogHandle`, `AlertDialogHandle`, `PopoverHandle`, `TooltipHandle`, `HoverCardHandle`) with non-generic `OverlayHandleProp<K>`, reactive `handle.payload()`, multi-trigger switching without closing, floating re-anchoring, and LIFO attach stack
+- *(monoxus)* add `<MonoxusConfig>` cascading context (`dir`, `default_portal_to`, `default_locale`) with bidirectional `DirectionProvider` inheritance, 7 `*Portal` host inheritance, `HoverCard`/`ToastViewport` `dir` inheritance, and `locale: Option<CalendarLocale>` across all 8 Date/Time/Calendar roots
+- *(monoxus)* add nested `DialogOverlay` auto-suppression (`force_render: bool = false`), `is_topmost_dialog()` backdrop click guard, `data-nested`/`data-nested-dialog-open`, and `--nested-dialogs` CSS custom property across `Dialog` and `AlertDialog`
+- *(monoxus)* add async pending `Button` (`pending`, `focusable_when_disabled`, `pending_announcement`, `on_press`, `on_action`, `use_async_action()`) with shared polite live-region announcer (`monoxus::foundation::announce`) excluded from modal DOM shielding
+- *(monoxus)* expose `ProgressRoot.min: f64 = 0.0` with dynamic `data-min` on Root/Indicator, `runtime.min()`/`runtime.percentage()`, and `ProgressValidation::InvalidMin` diagnostics
+- *(site)* sync all 45 component API schemas and documentation to `v0.2.1` (0 drift)
+
 ## [0.2.0](https://github.com/techton7/monoxus/compare/monoxus-v0.1.2...monoxus-v0.2.0) - 2026-11-28
 
 ### Changed

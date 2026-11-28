@@ -37,6 +37,15 @@ pub(super) const PROGRESS_DOC: ComponentDoc = ComponentDoc {
                     description: "Current progress value; None represents an indeterminate progress bar.",
                 },
                 PropDoc {
+                    name: "min",
+                    type_simple: "f64",
+                    type_full: "f64",
+                    default: Some("0.0"),
+                    required: false,
+                    group: PropGroup::Core,
+                    description: "Minimum progress value.",
+                },
+                PropDoc {
                     name: "max",
                     type_simple: "f64",
                     type_full: "f64",
@@ -99,7 +108,7 @@ pub(super) const PROGRESS_DOC: ComponentDoc = ComponentDoc {
                 },
                 DataAttrDoc {
                     name: "data-min",
-                    values: "\"0\"",
+                    values: "<number>",
                     description: "Minimum value.",
                 },
                 DataAttrDoc {
@@ -153,7 +162,7 @@ pub(super) const PROGRESS_DOC: ComponentDoc = ComponentDoc {
                 },
                 DataAttrDoc {
                     name: "data-min",
-                    values: "\"0\"",
+                    values: "<number>",
                     description: "Minimum value.",
                 },
                 DataAttrDoc {

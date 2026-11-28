@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, DataAttrDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS, PROP_ON_MOUNTED,
-    PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
+    ComponentDoc, DataAttrDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
 pub(super) const FIELD_DOC: ComponentDoc = ComponentDoc {
@@ -35,6 +35,7 @@ pub(super) const FIELD_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "read_only", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Marks the field and descendant controls as read-only." },
                 PropDoc { name: "orientation", type_simple: "FieldOrientation", type_full: "monoxus::field::FieldOrientation (Vertical | Horizontal | Responsive)", default: Some("FieldOrientation::Vertical"), required: false, group: PropGroup::Core, description: "Layout orientation hint exposed via data-orientation." },
                 PropDoc { name: "role", type_simple: "&'static str", type_full: "Option<&'static str>", default: Some("Some(\"group\")"), required: false, group: PropGroup::HtmlAria, description: "ARIA role override on the field root element." },
+                PROP_AGENT,
                 PROP_CHILD,
                 PROP_ON_MOUNTED,
                 PROP_ATTRIBUTES,

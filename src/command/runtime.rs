@@ -2,11 +2,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use dioxus::prelude::keyboard_types::Key;
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeReason, ChangeSource};
 
 use crate::foundation::{
     browser::{click_element_by_id, scroll_element_into_view_nearest},
     keyboard::{NavKey, is_enter_key, is_ime_composing_key, translate_nav_key},
-    state::{ControllableSignal, sync_signal},
+    state::{ChangeOutcome, ControllableSignal, sync_signal},
 };
 
 use super::{
@@ -126,14 +127,27 @@ impl CommandContext {
     }
 
     pub fn set_value(&mut self, next: String, prevent_scroll: bool) {
-        let changed = self.value_ctl.set(next.clone());
-        if changed {
-            self.emit_state_change();
-        }
+        let _ = self.set_value_with_context(
+            next,
+            prevent_scroll,
+            ChangeContext::new(ChangeReason::Selection, ChangeSource::Mouse),
+        );
+    }
 
-        if !prevent_scroll && !next.is_empty() {
-            self.scroll_selected_into_view(&next);
+    pub(crate) fn set_value_with_context(
+        &mut self,
+        next: String,
+        prevent_scroll: bool,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
+        let outcome = self.value_ctl.set_with_context(next.clone(), ctx);
+        if outcome.is_accepted() {
+            self.emit_state_change();
+            if !prevent_scroll && !next.is_empty() {
+                self.scroll_selected_into_view(&next);
+            }
         }
+        outcome
     }
 
     pub(crate) fn scroll_selected_into_view(&self, value: &str) {

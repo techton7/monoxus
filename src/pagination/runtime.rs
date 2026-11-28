@@ -1,9 +1,13 @@
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 use crate::foundation::{
     roving_focus::{RovingFocusConfig, RovingFocusRuntime, use_roving_focus_group},
     shared::{Direction, Orientation, ScopeHandle},
-    state::{ControllableSignal, sync_signal, use_controllable_signal_with},
+    state::{
+        ChangeOutcome, ControllableConfig, ControllableSignal, sync_signal,
+        use_controllable_signal_config,
+    },
 };
 
 use super::{
@@ -48,11 +52,50 @@ pub fn use_pagination_runtime(
     scope_id: String,
     root_dom_id: String,
 ) -> PaginationRuntime {
+    use_pagination_runtime_with_details(
+        count,
+        per_page,
+        sibling_count,
+        page,
+        default_page,
+        on_page_change,
+        None,
+        loop_focus,
+        orientation,
+        dir,
+        aria_label,
+        scope_id,
+        root_dom_id,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn use_pagination_runtime_with_details(
+    count: usize,
+    per_page: usize,
+    sibling_count: usize,
+    page: Option<usize>,
+    default_page: usize,
+    on_page_change: Option<EventHandler<usize>>,
+    on_page_change_details: Option<EventHandler<ChangeEvent<usize>>>,
+    loop_focus: bool,
+    orientation: Orientation,
+    dir: Direction,
+    aria_label: String,
+    scope_id: String,
+    root_dom_id: String,
+) -> PaginationRuntime {
     let effective_per_page = per_page.max(1);
     let total_pages = compute_total_pages(count, effective_per_page);
-    let page_ctl = use_controllable_signal_with(page, default_page, on_page_change, move |p| {
-        clamp_page(p, total_pages)
-    });
+    let page_ctl = use_controllable_signal_config(
+        ControllableConfig::new(page, default_page)
+            .with_explicit_default(default_page != 1)
+            .with_on_change(on_page_change)
+            .with_on_change_details(on_page_change_details)
+            .with_sanitize(move |p| clamp_page(p, total_pages))
+            .with_component("PaginationRoot")
+            .with_prop("page"),
+    );
 
     if !page_ctl.is_controlled() {
         let mut page_sig = page_ctl.signal();
@@ -125,23 +168,48 @@ impl PaginationRuntime {
     }
 
     pub fn set_page(&self, next_raw: usize) {
+        let _ = self.set_page_with_context(
+            next_raw,
+            ChangeContext::new(ChangeReason::Navigation, ChangeSource::Programmatic),
+        );
+    }
+
+    pub fn set_page_with_context(&self, next_raw: usize, ctx: ChangeContext) -> ChangeOutcome {
         let total_pages = compute_total_pages(*self.count.peek(), *self.per_page.peek());
         let next = clamp_page(next_raw, total_pages);
-        self.page_ctl.set(next);
+        self.page_ctl.set_with_context(next, ctx)
     }
 
     pub fn prev_page(&self) {
+        let _ = self.prev_page_with_context(ChangeContext::new(
+            ChangeReason::Navigation,
+            ChangeSource::Programmatic,
+        ));
+    }
+
+    pub fn prev_page_with_context(&self, ctx: ChangeContext) -> ChangeOutcome {
         let current = *self.page.peek();
         if current > 1 {
-            self.set_page(current - 1);
+            self.set_page_with_context(current - 1, ctx)
+        } else {
+            ChangeOutcome::Unchanged
         }
     }
 
     pub fn next_page(&self) {
+        let _ = self.next_page_with_context(ChangeContext::new(
+            ChangeReason::Navigation,
+            ChangeSource::Programmatic,
+        ));
+    }
+
+    pub fn next_page_with_context(&self, ctx: ChangeContext) -> ChangeOutcome {
         let total_pages = compute_total_pages(*self.count.peek(), *self.per_page.peek());
         let current = *self.page.peek();
         if current < total_pages {
-            self.set_page(current + 1);
+            self.set_page_with_context(current + 1, ctx)
+        } else {
+            ChangeOutcome::Unchanged
         }
     }
 

@@ -7,10 +7,10 @@ Install [monoxus](https://github.com/techton7/monoxus) in a [Dioxus](https://dio
 
 ## Installation
 
-Add `monoxus` pinned to the `monoxus-v0.2.0` release tag (compatible with `monoxus = "0.2"` semver):
+Add `monoxus` pinned to the `monoxus-v0.2.1` release tag (compatible with `monoxus = "0.2"` semver):
 
 ```bash
-cargo add monoxus --git https://github.com/techton7/monoxus --tag monoxus-v0.2.0
+cargo add monoxus --git https://github.com/techton7/monoxus --tag monoxus-v0.2.1
 ```
 
 ### Dual-Target Setup (Web + Blitz Native)
@@ -20,7 +20,7 @@ Configure a single `Cargo.toml` with `web` and `native` features so you can swit
 ```toml
 [dependencies]
 dioxus = "0.8.0-alpha.3"
-monoxus = { version = "0.2.0", git = "https://github.com/techton7/monoxus.git", tag = "monoxus-v0.2.0" }
+monoxus = { version = "0.2.1", git = "https://github.com/techton7/monoxus.git", tag = "monoxus-v0.2.1" }
 
 [features]
 default = ["web"]

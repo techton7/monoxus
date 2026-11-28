@@ -1,5 +1,5 @@
 use super::{
-    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
     PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
@@ -29,6 +29,7 @@ pub(super) const PIN_INPUT_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Controlled PIN/OTP string value." },
                 PropDoc { name: "default_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial PIN/OTP string when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<String>", type_full: "Option<EventHandler<String>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked whenever the sanitized value changes." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<String>>", type_full: "Option<EventHandler<ChangeEvent<String>>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked whenever the sanitized value changes, providing a ChangeEvent with value and change provenance." },
                 PropDoc { name: "on_complete", type_simple: "EventHandler<String>", type_full: "Option<EventHandler<String>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked once when the value reaches max_length." },
                 PropDoc { name: "on_blur", type_simple: "EventHandler<FocusEvent>", type_full: "Option<EventHandler<FocusEvent>>", default: None, required: false, group: PropGroup::Core, description: "Blur handler forwarded from the overlaid input." },
                 PropDoc { name: "on_focus", type_simple: "EventHandler<FocusEvent>", type_full: "Option<EventHandler<FocusEvent>>", default: None, required: false, group: PropGroup::Core, description: "Focus handler forwarded from the overlaid input." },
@@ -56,6 +57,7 @@ pub(super) const PIN_INPUT_DOC: ComponentDoc = ComponentDoc {
                 PROP_ON_MOUNTED,
                 PROP_CLASS,
                 PROP_STYLE,
+                PROP_AGENT,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "PinInputCell slots and optional separators." },
             ],

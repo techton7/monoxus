@@ -35,7 +35,7 @@ pub fn SelectPortal(props: SelectPortalProps) -> Element {
     let resolved_host = if disabled {
         PortalHost::inline()
     } else {
-        host.unwrap_or_else(|| ctx.runtime.select().portal_host().clone())
+        crate::foundation::config::use_portal_host_context(host, PortalHost::default())
     };
 
     use_context_provider(|| SelectPortalContext {

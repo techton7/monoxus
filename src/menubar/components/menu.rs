@@ -1,10 +1,11 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::ChangeEvent;
 
 use crate::foundation::{
     shared::use_stable_id,
-    state::{sync_signal, use_controllable_signal},
+    state::{ControllableConfig, sync_signal, use_controllable_signal_config},
 };
 use crate::menu::{
     MenuActivePortalSurface, MenuRootContext, MenuVariant, MenubarMenuBridge,
@@ -25,6 +26,8 @@ pub struct MenubarSingleMenuContext {
 pub struct MenubarMenuProps {
     #[props(default, into)]
     pub value: Option<String>,
+    #[props(default)]
+    pub on_open_change_details: Option<EventHandler<ChangeEvent<bool>>>,
     #[props(default)]
     pub on_open_change_complete: Option<EventHandler<bool>>,
     pub children: Element,
@@ -56,10 +59,13 @@ pub fn MenubarMenu(props: MenubarMenuProps) -> Element {
         }
     });
 
-    let open_state = use_controllable_signal(
-        Some(menubar.is_menu_open(&menu_value)),
-        false,
-        Some(on_open_change),
+    let open_state = use_controllable_signal_config(
+        ControllableConfig::new(Some(menubar.is_menu_open(&menu_value)), false)
+            .with_explicit_default(false)
+            .with_on_change(Some(on_open_change))
+            .with_on_change_details(props.on_open_change_details)
+            .with_component("MenubarMenu")
+            .with_prop("open"),
     );
 
     let bridge = use_hook(|| {

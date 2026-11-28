@@ -4,6 +4,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::keyboard_types::Key;
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 use crate::foundation::{
     browser::{
@@ -12,7 +13,10 @@ use crate::foundation::{
     },
     keyboard::{NavKey, translate_nav_key},
     shared::ScopeHandle,
-    state::{ControllableSignal, sync_signal, use_controllable_signal_with},
+    state::{
+        ChangeOutcome, ControllableConfig, ControllableSignal, sync_signal,
+        use_controllable_signal_config,
+    },
 };
 
 use super::{
@@ -572,10 +576,23 @@ impl PinInputRuntime {
 
     /// Commits a sanitized value, notifying `on_value_change` and `on_complete` (uncontrolled).
     pub fn commit_value(&mut self, next: String) {
+        let _ = self.commit_value_with_context(
+            next,
+            ChangeContext::new(ChangeReason::Input, ChangeSource::Keyboard),
+        );
+    }
+
+    /// Commits a sanitized value with explicit [`ChangeContext`].
+    pub fn commit_value_with_context(
+        &mut self,
+        next: String,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
         let max_len = *self.max_length.peek();
         let controlled = self.value_ctl.is_controlled();
-        if !self.value_ctl.set(next.clone()) {
-            return;
+        let outcome = self.value_ctl.set_with_context(next.clone(), ctx);
+        if !outcome.is_accepted() {
+            return outcome;
         }
         if !controlled {
             self.check_and_fire_on_complete(&next, max_len);
@@ -595,6 +612,7 @@ impl PinInputRuntime {
                 }
             });
         }
+        outcome
     }
 
     /// Evaluates edge-transition completion against `last_complete_value` and invokes `on_complete`.
@@ -631,7 +649,10 @@ impl PinInputRuntime {
         }
 
         *self.last_complete_value.borrow_mut() = sanitized.clone();
-        self.value_ctl.set(sanitized);
+        self.value_ctl.set_with_context(
+            sanitized,
+            ChangeContext::new(ChangeReason::Reset, ChangeSource::Programmatic),
+        );
     }
 }
 
@@ -661,11 +682,78 @@ pub fn use_pin_input_runtime(
     root_dom_id: String,
     input_dom_id: String,
 ) -> PinInputRuntime {
+    let default_opt = if default_value.is_empty() {
+        None
+    } else {
+        Some(default_value)
+    };
+    use_pin_input_runtime_with_details(
+        value,
+        default_opt,
+        max_length,
+        pattern,
+        paste_transformer,
+        on_value_change,
+        None,
+        on_complete,
+        text_align,
+        input_mode,
+        autocomplete,
+        mask,
+        mask_char,
+        disabled,
+        read_only,
+        required,
+        auto_focus,
+        placeholder,
+        name,
+        form,
+        scope_id,
+        root_dom_id,
+        input_dom_id,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn use_pin_input_runtime_with_details(
+    value: Option<String>,
+    default_value: Option<String>,
+    max_length: usize,
+    pattern: PinInputPattern,
+    paste_transformer: Option<Callback<String, String>>,
+    on_value_change: Option<EventHandler<String>>,
+    on_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
+    on_complete: Option<EventHandler<String>>,
+    text_align: PinInputTextAlign,
+    input_mode: PinInputMode,
+    autocomplete: PinInputAutoComplete,
+    mask: bool,
+    mask_char: char,
+    disabled: bool,
+    read_only: bool,
+    required: bool,
+    auto_focus: bool,
+    placeholder: Option<String>,
+    name: Option<String>,
+    form: Option<String>,
+    scope_id: String,
+    root_dom_id: String,
+    input_dom_id: String,
+) -> PinInputRuntime {
     let effective_max_length = max_length.max(1);
     let pat_for_sanitize = pattern.clone();
-    let value_ctl = use_controllable_signal_with(value, default_value, on_value_change, move |v| {
-        sanitize_pin_value(&v, effective_max_length, &pat_for_sanitize)
-    });
+    let has_explicit_default = default_value.is_some();
+    let value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(value, default_value.unwrap_or_default())
+            .with_explicit_default(has_explicit_default)
+            .with_on_change(on_value_change)
+            .with_on_change_details(on_value_change_details)
+            .with_sanitize(move |v: String| {
+                sanitize_pin_value(&v, effective_max_length, &pat_for_sanitize)
+            })
+            .with_component("PinInputRoot")
+            .with_prop("value"),
+    );
 
     if !value_ctl.is_controlled() {
         let mut sig = value_ctl.signal();

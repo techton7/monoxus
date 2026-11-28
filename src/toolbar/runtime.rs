@@ -1,14 +1,17 @@
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent};
 
 use crate::{
     foundation::{
         roving_focus::{RovingFocusRuntime, use_roving_focus_group},
         shared::{Direction, Orientation, ScopeHandle},
-        state::sync_signal,
+        state::{ChangeOutcome, sync_signal},
     },
     toggle_group::{
         ToggleGroup, ToggleGroupMode, ToggleGroupOrientation,
-        runtime::{ToggleGroupRuntime, use_toggle_group_runtime},
+        runtime::{
+            ToggleGroupRuntime, use_toggle_group_runtime, use_toggle_group_runtime_with_details,
+        },
     },
 };
 
@@ -131,6 +134,54 @@ pub fn use_toolbar_toggle_group_runtime(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn use_toolbar_toggle_group_runtime_with_details(
+    mode: ToggleGroupMode,
+    value: Option<String>,
+    default_value: Option<String>,
+    on_value_change: Option<EventHandler<String>>,
+    on_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
+    values: Option<Vec<String>>,
+    default_values: Option<Vec<String>>,
+    on_values_change: Option<EventHandler<Vec<String>>>,
+    on_values_change_details: Option<EventHandler<ChangeEvent<Vec<String>>>>,
+    orientation: ToggleGroupOrientation,
+    dir: Direction,
+    disabled: bool,
+    group_id: String,
+    group_dom_id: String,
+) -> ToolbarToggleGroupRuntime {
+    let inner = use_toggle_group_runtime_with_details(
+        mode,
+        value,
+        default_value,
+        on_value_change,
+        on_value_change_details,
+        values,
+        default_values,
+        on_values_change,
+        on_values_change_details,
+        orientation,
+        dir,
+        false,
+        false,
+        disabled,
+        group_id.clone(),
+        group_dom_id.clone(),
+    );
+
+    let mut group_id_sig = use_signal(|| group_id.clone());
+    sync_signal(&mut group_id_sig, group_id);
+    let mut group_dom_id_sig = use_signal(|| group_dom_id.clone());
+    sync_signal(&mut group_dom_id_sig, group_dom_id);
+
+    ToolbarToggleGroupRuntime {
+        inner,
+        group_id: group_id_sig,
+        group_dom_id: group_dom_id_sig,
+    }
+}
+
 impl ToolbarToggleGroupRuntime {
     pub fn group_dom_id(&self) -> String {
         (self.group_dom_id)()
@@ -158,6 +209,10 @@ impl ToolbarToggleGroupRuntime {
 
     pub fn toggle_item(&self, value: &str) {
         self.inner.toggle_item(value);
+    }
+
+    pub fn toggle_item_with_context(&self, value: &str, ctx: ChangeContext) -> ChangeOutcome {
+        self.inner.toggle_item_with_context(value, ctx)
     }
 
     pub fn root_attributes(

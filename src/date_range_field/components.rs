@@ -5,8 +5,14 @@ use ui_sdk::foundation::date_time::field_policy::{
     DateFieldPolicy, FieldRangeEndpoint, FieldRangeRole, FieldSegmentItem, RangeFieldDefinition,
     RangeFieldPolicy, RangeFieldRelationships, RangeFieldState,
 };
+use ui_sdk::kernel::ChangeEvent;
 
 use crate::{
+    agent::{
+        ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+        SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+    },
+    calendar::runtime::{parse_agent_range_arg, range_snapshot_value},
     date_field::{
         DateFieldSegmentItem,
         components::{
@@ -23,12 +29,13 @@ use crate::{
             collect_user_attrs, extract_aria_invalid_and_describedby, merge_props, push_attr_opt,
             push_event_handler, resolve_invalid_and_describedby,
         },
+        config::use_locale_context,
         date_time::{
             CalendarDate, CalendarLocale, ChronoRange, DateValue, DateValueRange,
             EditableSegmentKind, FieldInvalidEvent, Granularity, HourCycle,
         },
         shared::{Direction, ScopeHandle, use_direction_context, use_stable_id},
-        state::{sync_signal, use_controllable_signal},
+        state::{ControllableConfig, sync_signal, use_controllable_signal_config},
     },
 };
 
@@ -50,12 +57,17 @@ pub(crate) struct RangeFieldRootSpec<P: RangeFieldPolicy + SegmentFieldUiPolicy>
     pub value: Option<ChronoRange<P::Value>>,
     pub default_value: Option<ChronoRange<P::Value>>,
     pub on_value_change: Option<EventHandler<ChronoRange<P::Value>>>,
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<ChronoRange<P::Value>>>>,
     pub start_value: Option<Option<P::Value>>,
     pub on_start_value_change: Option<EventHandler<Option<P::Value>>>,
+    pub on_start_value_change_details: Option<EventHandler<ChangeEvent<Option<P::Value>>>>,
     pub end_value: Option<Option<P::Value>>,
     pub on_end_value_change: Option<EventHandler<Option<P::Value>>>,
+    pub on_end_value_change_details: Option<EventHandler<ChangeEvent<Option<P::Value>>>>,
     pub placeholder: Option<P::Value>,
+    pub has_explicit_default_placeholder: bool,
     pub on_placeholder_change: Option<EventHandler<P::Value>>,
+    pub on_placeholder_change_details: Option<EventHandler<ChangeEvent<P::Value>>>,
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
     pub granularity: P::GranularityProp,
     pub hour_cycle: Option<HourCycle>,
@@ -75,6 +87,7 @@ pub(crate) struct RangeFieldRootSpec<P: RangeFieldPolicy + SegmentFieldUiPolicy>
     pub is_invalid_override: Option<bool>,
     pub child: Option<Callback<Vec<Attribute>, Element>>,
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    pub agent: Option<AgentHints>,
     pub attributes: Vec<Attribute>,
     pub children: Element,
 }
@@ -113,12 +126,36 @@ where
         end: initial_end,
     };
 
-    let value_ctl = use_controllable_signal(spec.value, initial_value, spec.on_value_change);
-    let start_ctl =
-        use_controllable_signal(spec.start_value, initial_start, spec.on_start_value_change);
-    let end_ctl = use_controllable_signal(spec.end_value, initial_end, spec.on_end_value_change);
-    let placeholder_ctl =
-        use_controllable_signal(spec.placeholder, initial_placeholder, spec.on_placeholder_change);
+    let value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(spec.value, initial_value)
+            .with_explicit_default(spec.default_value.is_some())
+            .with_on_change(spec.on_value_change)
+            .with_on_change_details(spec.on_value_change_details)
+            .with_component(P::RANGE_COMPONENT_NAME)
+            .with_prop("value"),
+    );
+    let start_ctl = use_controllable_signal_config(
+        ControllableConfig::new(spec.start_value, initial_start)
+            .with_on_change(spec.on_start_value_change)
+            .with_on_change_details(spec.on_start_value_change_details)
+            .with_component(P::RANGE_COMPONENT_NAME)
+            .with_prop("start_value"),
+    );
+    let end_ctl = use_controllable_signal_config(
+        ControllableConfig::new(spec.end_value, initial_end)
+            .with_on_change(spec.on_end_value_change)
+            .with_on_change_details(spec.on_end_value_change_details)
+            .with_component(P::RANGE_COMPONENT_NAME)
+            .with_prop("end_value"),
+    );
+    let placeholder_ctl = use_controllable_signal_config(
+        ControllableConfig::new(spec.placeholder, initial_placeholder)
+            .with_explicit_default(spec.has_explicit_default_placeholder)
+            .with_on_change(spec.on_placeholder_change)
+            .with_on_change_details(spec.on_placeholder_change_details)
+            .with_component(P::RANGE_COMPONENT_NAME)
+            .with_prop("placeholder"),
+    );
 
     let mut start_value = start_ctl.signal();
     let mut end_value = end_ctl.signal();
@@ -159,12 +196,20 @@ where
 
     let mut on_value_change = use_hook(|| CopyValue::new(spec.on_value_change));
     on_value_change.set(spec.on_value_change);
+    let mut on_value_change_details = use_hook(|| CopyValue::new(spec.on_value_change_details));
+    on_value_change_details.set(spec.on_value_change_details);
 
     let mut on_start_value_change = use_hook(|| CopyValue::new(spec.on_start_value_change));
     on_start_value_change.set(spec.on_start_value_change);
+    let mut on_start_value_change_details =
+        use_hook(|| CopyValue::new(spec.on_start_value_change_details));
+    on_start_value_change_details.set(spec.on_start_value_change_details);
 
     let mut on_end_value_change = use_hook(|| CopyValue::new(spec.on_end_value_change));
     on_end_value_change.set(spec.on_end_value_change);
+    let mut on_end_value_change_details =
+        use_hook(|| CopyValue::new(spec.on_end_value_change_details));
+    on_end_value_change_details.set(spec.on_end_value_change_details);
 
     let mut is_date_unavailable = use_hook(|| CopyValue::new(spec.is_date_unavailable));
     is_date_unavailable.set(spec.is_date_unavailable);
@@ -196,8 +241,11 @@ where
         end_ctl,
         placeholder_ctl,
         on_value_change,
+        on_value_change_details,
         on_start_value_change,
+        on_start_value_change_details,
         on_end_value_change,
+        on_end_value_change_details,
         is_date_unavailable,
         validate,
         on_invalid,
@@ -380,6 +428,105 @@ where
     P: RangeFieldPolicy + SegmentFieldUiPolicy,
 {
     let runtime = use_range_field_runtime::<P>(&spec, initial_placeholder);
+
+    {
+        fn build_snap<P: RangeFieldPolicy + SegmentFieldUiPolicy>(
+            rt: &RangeFieldRuntime<P>,
+        ) -> ComponentSnapshot {
+            let (range, ph, ro) = rt
+                .state
+                .try_peek()
+                .map(|st| (st.value(), Some(st.placeholder()), st.def().read_only))
+                .unwrap_or((ChronoRange::default(), None, false));
+            ComponentSnapshot::new()
+                .with_field(
+                    "value",
+                    range_snapshot_value(
+                        range.start.map(P::format_iso),
+                        range.end.map(P::format_iso),
+                    ),
+                )
+                .with_field(
+                    "placeholder",
+                    ph.map(P::format_iso)
+                        .map(SnapshotValue::Text)
+                        .unwrap_or(SnapshotValue::Null),
+                )
+                .with_field("read_only", SnapshotValue::Bool(ro))
+        }
+
+        let rt_for_surface = runtime.clone();
+        let rt_for_dispatch = runtime.clone();
+        let rt_for_reader = runtime.clone();
+        let (eff_disabled, eff_read_only) = runtime
+            .state
+            .try_peek()
+            .map(|st| (st.def().disabled, st.def().read_only))
+            .unwrap_or((spec.disabled, spec.read_only));
+
+        use_agent_surface(
+            spec.agent.as_ref(),
+            SurfaceMetaDefaults::default(),
+            || {
+                let mut actions = Vec::new();
+                if !eff_read_only {
+                    actions.push(ActionDescriptor::new(
+                        "set",
+                        format!("Set ISO {} range (start/end)", P::AGENT_VALUE_LABEL),
+                        true,
+                    ));
+                    actions.push(ActionDescriptor::new(
+                        "clear",
+                        format!("Clear {} range", P::AGENT_VALUE_LABEL),
+                        false,
+                    ));
+                }
+                AgentSurface::new(P::RANGE_AGENT_KIND, P::RANGE_AGENT_DEFAULT_LABEL)
+                    .with_disabled(eff_disabled)
+                    .with_snapshot(build_snap(&rt_for_surface))
+                    .with_actions(actions)
+            },
+            || {
+                let rt_handle = rt_for_dispatch;
+                Rc::new(move |dispatch| {
+                    let mut rt = rt_handle.clone();
+                    match dispatch.action.as_str() {
+                    "set" => match parse_agent_range_arg(
+                        &dispatch.args,
+                        P::parse_iso,
+                        P::AGENT_VALUE_LABEL,
+                    ) {
+                        Ok((start, end)) => {
+                            let canceled =
+                                rt.set_range_from_agent(ChronoRange { start, end }, dispatch.ctx);
+                            DispatchExecResult::ok().with_canceled(canceled)
+                        }
+                        Err(err) => DispatchExecResult::ok().with_host_error(err),
+                    },
+                    "clear" => {
+                        let canceled = rt.set_range_from_agent(
+                            ChronoRange {
+                                start: None,
+                                end: None,
+                            },
+                            dispatch.ctx,
+                        );
+                        DispatchExecResult::ok().with_canceled(canceled)
+                    }
+                    other => DispatchExecResult::ok().with_host_error(format!(
+                        "unsupported {} action: {other}",
+                        P::RANGE_AGENT_KIND
+                    )),
+                    }
+                })
+            },
+            || {
+                let rt = rt_for_reader;
+                Rc::new(move || build_snap(&rt))
+            },
+        );
+    }
+
     render_range_field_root_with_runtime(runtime, spec)
 }
 
@@ -447,10 +594,13 @@ where
         on_value_change: Some(EventHandler::new(move |next| {
             rt_for_change.update_part_value(kind, next);
         })),
+        on_value_change_details: None,
         placeholder: ph_controlled.then_some(ph_now),
+        has_explicit_default_placeholder: false,
         on_placeholder_change: Some(EventHandler::new(move |ph| {
             rt_for_ph.update_placeholder(ph);
         })),
+        on_placeholder_change_details: None,
         on_focus_out: None,
         granularity: def.granularity,
         hour_cycle: def.hour_cycle,
@@ -476,6 +626,7 @@ where
         on_next_boundary: Some(EventHandler::new(move |_| {
             rt_for_next.handle_part_next_boundary(kind);
         })),
+        agent: None,
         children: rsx! {},
     };
 
@@ -635,13 +786,19 @@ pub struct DateRangeFieldRootProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<DateValueRange>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<DateValueRange>>>,
+    #[props(default)]
     pub start_value: Option<Option<DateValue>>,
     #[props(default)]
     pub on_start_value_change: Option<EventHandler<Option<DateValue>>>,
     #[props(default)]
+    pub on_start_value_change_details: Option<EventHandler<ChangeEvent<Option<DateValue>>>>,
+    #[props(default)]
     pub end_value: Option<Option<DateValue>>,
     #[props(default)]
     pub on_end_value_change: Option<EventHandler<Option<DateValue>>>,
+    #[props(default)]
+    pub on_end_value_change_details: Option<EventHandler<ChangeEvent<Option<DateValue>>>>,
     #[props(default)]
     pub placeholder: Option<DateValue>,
     #[props(default)]
@@ -649,13 +806,15 @@ pub struct DateRangeFieldRootProps {
     #[props(default)]
     pub on_placeholder_change: Option<EventHandler<DateValue>>,
     #[props(default)]
+    pub on_placeholder_change_details: Option<EventHandler<ChangeEvent<DateValue>>>,
+    #[props(default)]
     pub on_focus_out: Option<EventHandler<FocusEvent>>,
     #[props(default)]
     pub granularity: Option<Granularity>,
     #[props(default)]
     pub hour_cycle: Option<HourCycle>,
-    #[props(default, into)]
-    pub locale: CalendarLocale,
+    #[props(default)]
+    pub locale: Option<CalendarLocale>,
     #[props(default = false)]
     pub hide_time_zone: bool,
     #[props(default)]
@@ -684,6 +843,8 @@ pub struct DateRangeFieldRootProps {
     pub child: Option<Callback<Vec<Attribute>, Element>>,
     #[props(default)]
     pub on_mounted: Option<EventHandler<MountedEvent>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
     #[props(extends = GlobalAttributes)]
     pub attributes: Vec<Attribute>,
     #[props(default)]
@@ -693,6 +854,7 @@ pub struct DateRangeFieldRootProps {
 /// Root group container (`<div role="group">`) for segmented date range fields.
 #[component]
 pub fn DateRangeFieldRoot(props: DateRangeFieldRootProps) -> Element {
+    let resolved_locale = use_locale_context(props.locale);
     let today = use_hook(local_today);
     let default_range = props.default_value.unwrap_or_default();
     let initial_start = props
@@ -701,6 +863,7 @@ pub fn DateRangeFieldRoot(props: DateRangeFieldRootProps) -> Element {
     let initial_end = props
         .end_value
         .unwrap_or_else(|| props.value.map_or(default_range.end, |v| v.end));
+    let has_explicit_default_placeholder = props.default_placeholder.is_some();
     let initial_placeholder = props
         .placeholder
         .or(props.default_placeholder)
@@ -722,16 +885,21 @@ pub fn DateRangeFieldRoot(props: DateRangeFieldRootProps) -> Element {
             value: props.value,
             default_value: props.default_value,
             on_value_change: props.on_value_change,
+            on_value_change_details: props.on_value_change_details,
             start_value: props.start_value,
             on_start_value_change: props.on_start_value_change,
+            on_start_value_change_details: props.on_start_value_change_details,
             end_value: props.end_value,
             on_end_value_change: props.on_end_value_change,
+            on_end_value_change_details: props.on_end_value_change_details,
             placeholder: props.placeholder,
+            has_explicit_default_placeholder,
             on_placeholder_change: props.on_placeholder_change,
+            on_placeholder_change_details: props.on_placeholder_change_details,
             on_focus_out: props.on_focus_out,
             granularity: props.granularity,
             hour_cycle: props.hour_cycle,
-            locale: props.locale,
+            locale: resolved_locale,
             hide_time_zone: props.hide_time_zone,
             min_value: props.min_value,
             max_value: props.max_value,
@@ -747,6 +915,7 @@ pub fn DateRangeFieldRoot(props: DateRangeFieldRootProps) -> Element {
             is_invalid_override: None,
             child: props.child,
             on_mounted: props.on_mounted,
+            agent: props.agent,
             attributes: props.attributes,
             children: props.children,
         },

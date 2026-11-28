@@ -1,8 +1,10 @@
 use std::ops::{Deref, DerefMut};
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 use crate::{
+    agent::{cancel_current_agent_action, current_change_context},
     date_picker::runtime::PickerRuntimeCore,
     foundation::{
         date_time::{CalendarConfig, CalendarDate, DateRange, DateValue, DateValueRange},
@@ -41,8 +43,13 @@ pub struct DateRangePickerRuntime {
     pub(crate) start_ctl: ControllableSignal<Option<DateValue>>,
     pub(crate) end_ctl: ControllableSignal<Option<DateValue>>,
     pub on_value_change: CopyValue<Option<EventHandler<DateValueRange>>>,
+    pub on_value_change_details: CopyValue<Option<EventHandler<ChangeEvent<DateValueRange>>>>,
     pub on_start_value_change: CopyValue<Option<EventHandler<Option<DateValue>>>>,
+    pub on_start_value_change_details:
+        CopyValue<Option<EventHandler<ChangeEvent<Option<DateValue>>>>>,
     pub on_end_value_change: CopyValue<Option<EventHandler<Option<DateValue>>>>,
+    pub on_end_value_change_details:
+        CopyValue<Option<EventHandler<ChangeEvent<Option<DateValue>>>>>,
 }
 
 impl Deref for DateRangePickerRuntime {
@@ -79,41 +86,99 @@ impl DateRangePickerRuntime {
         }
     }
 
-    fn notify_range_value_change(&self, prev: DateValueRange, next: DateValueRange) {
+    fn notify_controlled_fallback<T: Clone + 'static>(
+        next: T,
+        ctx: ChangeContext,
+        on_details: CopyValue<Option<EventHandler<ChangeEvent<T>>>>,
+        on_legacy: CopyValue<Option<EventHandler<T>>>,
+    ) -> bool {
+        let event = ChangeEvent::new(next.clone(), ctx);
+        if let Some(handler) = on_details.try_read().ok().and_then(|slot| *slot) {
+            handler.call(event.clone());
+        }
+        if event.is_canceled() {
+            return true;
+        }
+        if let Some(handler) = on_legacy.try_read().ok().and_then(|slot| *slot) {
+            handler.call(next);
+        }
+        false
+    }
+
+    fn propose_range_value_change(
+        &self,
+        prev: DateValueRange,
+        next: DateValueRange,
+        ctx: ChangeContext,
+    ) -> bool {
         let start_controlled = self.value_ctl.is_controlled() || self.start_ctl.is_controlled();
         let end_controlled = self.value_ctl.is_controlled() || self.end_ctl.is_controlled();
         let any_controlled = start_controlled || end_controlled;
 
+        if prev != next {
+            if !any_controlled || self.value_ctl.is_controlled() {
+                if self.value_ctl.set_with_context(next, ctx).is_canceled() {
+                    cancel_current_agent_action();
+                    return true;
+                }
+            } else if Self::notify_controlled_fallback(
+                next,
+                ctx,
+                self.on_value_change_details,
+                self.on_value_change,
+            ) {
+                cancel_current_agent_action();
+                return true;
+            }
+        }
         if prev.start != next.start {
-            if !start_controlled {
-                self.start_ctl.set(next.start);
-            } else if let Some(cb) = self.on_start_value_change.try_read().ok().and_then(|s| *s) {
-                cb.call(next.start);
+            if !start_controlled || self.start_ctl.is_controlled() {
+                let _ = self.start_ctl.set_with_context(next.start, ctx);
+            } else {
+                let _ = Self::notify_controlled_fallback(
+                    next.start,
+                    ctx,
+                    self.on_start_value_change_details,
+                    self.on_start_value_change,
+                );
             }
         }
         if prev.end != next.end {
-            if !end_controlled {
-                self.end_ctl.set(next.end);
-            } else if let Some(cb) = self.on_end_value_change.try_read().ok().and_then(|s| *s) {
-                cb.call(next.end);
+            if !end_controlled || self.end_ctl.is_controlled() {
+                let _ = self.end_ctl.set_with_context(next.end, ctx);
+            } else {
+                let _ = Self::notify_controlled_fallback(
+                    next.end,
+                    ctx,
+                    self.on_end_value_change_details,
+                    self.on_end_value_change,
+                );
             }
         }
-        if prev != next {
-            if !any_controlled {
-                self.value_ctl.set(next);
-            } else if let Some(cb) = self.on_value_change.try_read().ok().and_then(|s| *s) {
-                cb.call(next);
-            }
-        }
+        false
     }
 
     pub fn handle_field_value_change(&mut self, next: DateValueRange) {
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Mouse));
+        let _ = self.handle_field_value_change_with_context(next, ctx);
+    }
+
+    pub(crate) fn handle_field_value_change_with_context(
+        &mut self,
+        next: DateValueRange,
+        ctx: ChangeContext,
+    ) -> bool {
         let (prev_val, prev_ph) = {
             let st = self.state.peek();
             (st.value(), st.placeholder())
         };
         if prev_val == next {
-            return;
+            return false;
+        }
+
+        if self.propose_range_value_change(prev_val, next, ctx) {
+            return true;
         }
 
         let start_controlled = self.value_ctl.is_controlled() || self.start_ctl.is_controlled();
@@ -130,16 +195,19 @@ impl DateRangePickerRuntime {
             self.state.write().set_field_value(immediate);
         }
         let next_ph = self.state.peek().placeholder();
-        if self.placeholder_ctl.is_controlled() && next_ph != prev_ph {
-            self.state.write().set_placeholder(prev_ph);
+        if next_ph != prev_ph {
+            if !(start_controlled || end_controlled) {
+                let ph_outcome = self.placeholder_ctl.set_with_context(next_ph, ctx);
+                if !ph_outcome.is_committed() {
+                    self.state.write().set_placeholder(prev_ph);
+                }
+            } else if self.placeholder_ctl.is_controlled() {
+                self.state.write().set_placeholder(prev_ph);
+            }
         }
 
         self.sync_all_signals();
-        self.notify_range_value_change(prev_val, next);
-
-        if next_ph != prev_ph && !(start_controlled || end_controlled) {
-            self.placeholder_ctl.set(next_ph);
-        }
+        false
     }
 
     pub fn handle_calendar_value_change(&mut self, next: DateRange) {
@@ -150,6 +218,14 @@ impl DateRangePickerRuntime {
 
         let mut candidate = self.state.peek().clone();
         let outcome = candidate.apply_calendar_range(next);
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Mouse));
+
+        if outcome.next_value != prev_val
+            && self.propose_range_value_change(prev_val, outcome.next_value, ctx)
+        {
+            return;
+        }
 
         let start_controlled = self.value_ctl.is_controlled() || self.start_ctl.is_controlled();
         let end_controlled = self.value_ctl.is_controlled() || self.end_ctl.is_controlled();
@@ -164,20 +240,21 @@ impl DateRangePickerRuntime {
         if immediate != prev_val {
             self.state.write().set_field_value(immediate);
         }
-        if !self.placeholder_ctl.is_controlled() && outcome.next_placeholder != prev_ph {
-            self.state.write().set_placeholder(outcome.next_placeholder);
+        if outcome.next_placeholder != prev_ph && !(start_controlled || end_controlled) {
+            let ph_outcome = self
+                .placeholder_ctl
+                .set_with_context(outcome.next_placeholder, ctx);
+            if ph_outcome.is_committed() {
+                self.state.write().set_placeholder(outcome.next_placeholder);
+            } else {
+                self.state.write().set_placeholder(prev_ph);
+            }
         } else if self.placeholder_ctl.is_controlled() && self.state.peek().placeholder() != prev_ph
         {
             self.state.write().set_placeholder(prev_ph);
         }
 
         self.sync_all_signals();
-        if outcome.next_value != prev_val {
-            self.notify_range_value_change(prev_val, outcome.next_value);
-        }
-        if outcome.next_placeholder != prev_ph && !(start_controlled || end_controlled) {
-            self.placeholder_ctl.set(outcome.next_placeholder);
-        }
     }
 
     pub fn handle_calendar_range_select(&mut self, completed: DateRange) {
@@ -189,6 +266,14 @@ impl DateRangePickerRuntime {
         let mut candidate = self.state.peek().clone();
         let outcome = candidate.commit_calendar_range_select(completed);
         let next_open = candidate.is_open();
+        let ctx = current_change_context()
+            .unwrap_or_else(|| ChangeContext::new(ChangeReason::ValueChange, ChangeSource::Mouse));
+
+        if outcome.next_value != prev_val
+            && self.propose_range_value_change(prev_val, outcome.next_value, ctx)
+        {
+            return;
+        }
 
         let start_controlled = self.value_ctl.is_controlled() || self.start_ctl.is_controlled();
         let end_controlled = self.value_ctl.is_controlled() || self.end_ctl.is_controlled();
@@ -203,26 +288,27 @@ impl DateRangePickerRuntime {
         if immediate != prev_val {
             self.state.write().set_field_value(immediate);
         }
-        if !self.placeholder_ctl.is_controlled() && outcome.next_placeholder != prev_ph {
-            self.state.write().set_placeholder(outcome.next_placeholder);
+        if outcome.next_placeholder != prev_ph && !(start_controlled || end_controlled) {
+            let ph_outcome = self
+                .placeholder_ctl
+                .set_with_context(outcome.next_placeholder, ctx);
+            if ph_outcome.is_committed() {
+                self.state.write().set_placeholder(outcome.next_placeholder);
+            } else {
+                self.state.write().set_placeholder(prev_ph);
+            }
         } else if self.placeholder_ctl.is_controlled() && self.state.peek().placeholder() != prev_ph
         {
             self.state.write().set_placeholder(prev_ph);
         }
-        if !self.open_ctl.is_controlled() && next_open != prev_open {
-            self.state.write().set_open(next_open);
+        if next_open != prev_open {
+            let open_outcome = self.open_ctl.set_with_context(next_open, ctx);
+            if open_outcome.is_committed() {
+                self.state.write().set_open(next_open);
+            }
         }
 
         self.sync_all_signals();
-        if outcome.next_value != prev_val {
-            self.notify_range_value_change(prev_val, outcome.next_value);
-        }
-        if outcome.next_placeholder != prev_ph && !(start_controlled || end_controlled) {
-            self.placeholder_ctl.set(outcome.next_placeholder);
-        }
-        if next_open != prev_open {
-            self.open_ctl.set(next_open);
-        }
     }
 
     pub fn reconcile_external_state(

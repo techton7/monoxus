@@ -1,6 +1,7 @@
 use super::{
-    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
-    PROP_FLOATING_CHILD, PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
+    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD,
+    PROP_CLASS, PROP_FLOATING_CHILD, PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup,
+    prop_id,
 };
 
 pub(super) const POPOVER_DOC: ComponentDoc = ComponentDoc {
@@ -28,8 +29,11 @@ pub(super) const POPOVER_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "open", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Controlled open state." },
                 PropDoc { name: "default_open", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Initial open state when uncontrolled." },
                 PropDoc { name: "on_open_change", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called when open state changes." },
+                PropDoc { name: "on_open_change_details", type_simple: "EventHandler<ChangeEvent<bool>>", type_full: "Option<EventHandler<ChangeEvent<bool>>>", default: None, required: false, group: PropGroup::Core, description: "Called with full ChangeEvent details (reason, source, cancelation) when open state changes." },
                 PropDoc { name: "on_open_change_complete", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called after open/close presence transitions complete." },
                 PropDoc { name: "modal", type_simple: "bool", type_full: "Option<bool>", default: Some("false"), required: false, group: PropGroup::Core, description: "Enables modal focus trapping, scroll locking, and outside pointer blocking when true." },
+                PropDoc { name: "handle", type_simple: "PopoverHandleProp", type_full: "monoxus::foundation::overlay::PopoverHandleProp", default: None, required: false, group: PropGroup::Core, description: "Optional detached overlay handle connecting external triggers or imperative open/close control." },
+                PROP_AGENT,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "PopoverTrigger, optional PopoverAnchor, and PopoverPortal children." },
             ],
             data_attrs: &[],
@@ -43,6 +47,8 @@ pub(super) const POPOVER_DOC: ComponentDoc = ComponentDoc {
                 PROP_CLASS,
                 PROP_STYLE,
                 PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Disables the trigger button." },
+                PropDoc { name: "handle", type_simple: "PopoverHandleProp", type_full: "monoxus::foundation::overlay::PopoverHandleProp", default: None, required: false, group: PropGroup::Core, description: "Optional detached overlay handle for driving a PopoverRoot outside its subtree." },
+                PropDoc { name: "payload", type_simple: "OverlayPayload", type_full: "Option<monoxus::foundation::overlay::OverlayPayload>", default: None, required: false, group: PropGroup::Core, description: "Optional payload attached to the handle when this trigger opens the popover." },
                 PropDoc { name: "on_click", type_simple: "EventHandler<MouseEvent>", type_full: "Option<EventHandler<MouseEvent>>", default: None, required: false, group: PropGroup::Core, description: "Click handler composed with popover toggling." },
                 PropDoc { name: "on_key_down", type_simple: "EventHandler<KeyboardEvent>", type_full: "Option<EventHandler<KeyboardEvent>>", default: None, required: false, group: PropGroup::Core, description: "Keydown handler forwarded to the trigger." },
                 PROP_ON_MOUNTED,

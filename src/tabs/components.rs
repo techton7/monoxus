@@ -1,9 +1,15 @@
 use std::borrow::Cow;
+use std::rc::Rc;
 
 use dioxus::core::{AttributeValue, Event, ListenerCallback};
 use dioxus::html::PlatformEventData;
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
+use crate::agent::{
+    ActionDescriptor, AgentHints, AgentSurface, ComponentSnapshot, DispatchExecResult,
+    SnapshotValue, SurfaceMetaDefaults, use_agent_surface,
+};
 use crate::foundation::{
     compose::{
         collect_user_attrs, merge_props, push_attr_opt, push_bool_data_attr, push_event_handler,
@@ -11,7 +17,7 @@ use crate::foundation::{
     keyboard::is_activation_key,
     roving_focus::{RovingItemMeta, use_roving_focus_item},
     shared::{ScopeHandle, use_direction_context, use_mount_animation_guard, use_stable_id},
-    state::use_controllable_signal,
+    state::{ControllableConfig, use_controllable_signal_config},
 };
 
 use super::{
@@ -42,6 +48,10 @@ pub struct TabsRootProps {
     #[props(default)]
     pub on_value_change: Option<EventHandler<String>>,
     #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<String>>>,
+    #[props(default)]
+    pub agent: Option<AgentHints>,
+    #[props(default)]
     pub orientation: Option<TabsOrientation>,
     #[props(default)]
     pub dir: Option<TabsDirection>,
@@ -66,6 +76,8 @@ pub fn TabsRoot(props: TabsRootProps) -> Element {
         value,
         default_value,
         on_value_change,
+        on_value_change_details,
+        agent,
         orientation,
         dir,
         activation_mode,
@@ -76,8 +88,15 @@ pub fn TabsRoot(props: TabsRootProps) -> Element {
     } = props;
     let resolved_dir = use_direction_context(dir.map(Into::into));
     let tabs_dir = TabsDirection::from(resolved_dir);
-    let value_ctl =
-        use_controllable_signal(value, default_value.unwrap_or_default(), on_value_change);
+    let has_explicit_default = default_value.is_some();
+    let value_ctl = use_controllable_signal_config(
+        ControllableConfig::new(value, default_value.unwrap_or_default())
+            .with_explicit_default(has_explicit_default)
+            .with_on_change(on_value_change)
+            .with_on_change_details(on_value_change_details)
+            .with_component("TabsRoot")
+            .with_prop("value"),
+    );
     let val_signal = value_ctl.signal();
     let scope_id = use_stable_id(id.clone().map(Cow::Owned));
     let scope = ScopeHandle::root("tabs").child(scope_id);
@@ -101,6 +120,60 @@ pub fn TabsRoot(props: TabsRootProps) -> Element {
     });
 
     let root_attrs = runtime.root();
+    let active_now = runtime.active_value();
+    let reveals: Vec<String> = runtime
+        .roving()
+        .registry
+        .read()
+        .iter()
+        .map(|entry| entry.key().clone())
+        .filter(|k| k != &active_now)
+        .collect();
+    let agent_label = root_attrs.id().to_string();
+    let agent_rt_dispatch = runtime.clone();
+    let agent_rt_reader = runtime.clone();
+    use_agent_surface(
+        agent.as_ref(),
+        SurfaceMetaDefaults::new().with_reveals(reveals),
+        || {
+            AgentSurface::new("tabs", agent_label)
+                .with_disabled(disabled)
+                .with_snapshot(
+                    ComponentSnapshot::new()
+                        .with_field("value", SnapshotValue::text(active_now)),
+                )
+                .with_actions(vec![
+                    ActionDescriptor::new("select", "Select a tab by value", true),
+                    ActionDescriptor::new("set", "Set active tab value", true),
+                ])
+        },
+        || {
+            Rc::new(move |dispatch| match dispatch.action.as_str() {
+                "select" | "set" => {
+                    let Some(SnapshotValue::Text(val)) = dispatch.args.get("value") else {
+                        return DispatchExecResult::ok()
+                            .with_host_error("missing or invalid string argument 'value'");
+                    };
+                    let outcome = agent_rt_dispatch.select_tab_with_context(val, dispatch.ctx);
+                    let mut res = DispatchExecResult::ok().with_canceled(outcome.is_canceled());
+                    if !outcome.is_canceled() {
+                        res = res.with_expected("value", SnapshotValue::text(val.clone()));
+                    }
+                    res
+                }
+                other => DispatchExecResult::ok()
+                    .with_host_error(format!("unknown tabs action '{other}'")),
+            })
+        },
+        || {
+            Rc::new(move || {
+                ComponentSnapshot::new().with_field(
+                    "value",
+                    SnapshotValue::text(agent_rt_reader.active_value_peek()),
+                )
+            })
+        },
+    );
     let mut base = Vec::with_capacity(5);
     base.push(Attribute::new("id", root_attrs.id().to_string(), None, false));
     base.push(Attribute::new("dir", resolved_dir.as_str(), None, false));
@@ -204,7 +277,10 @@ pub fn TabsList(props: TabsListProps) -> Element {
                     &kb_evt,
                     Some(|next_val: &str| {
                         if automatic {
-                            rt.select_tab(next_val);
+                            let _ = rt.select_tab_with_context(
+                                next_val,
+                                ChangeContext::new(ChangeReason::TabChange, ChangeSource::Keyboard),
+                            );
                         }
                     }),
                 );
@@ -339,7 +415,10 @@ pub fn TabsTrigger(props: TabsTriggerProps) -> Element {
                 if !evt.default_action_enabled() {
                     return;
                 }
-                runtime_click.select_tab(&val_click);
+                let _ = runtime_click.select_tab_with_context(
+                    &val_click,
+                    ChangeContext::new(ChangeReason::TabChange, ChangeSource::Mouse),
+                );
             })
             .erase(),
         ),
@@ -355,7 +434,10 @@ pub fn TabsTrigger(props: TabsTriggerProps) -> Element {
                 }
                 runtime_focus.roving().handle_item_focus(&val_focus, true);
                 if runtime_focus.tabs().activation_mode().is_automatic() {
-                    runtime_focus.select_tab(&val_focus);
+                    let _ = runtime_focus.select_tab_with_context(
+                        &val_focus,
+                        ChangeContext::new(ChangeReason::Focus, ChangeSource::Keyboard),
+                    );
                 }
             })
             .erase(),
@@ -376,7 +458,10 @@ pub fn TabsTrigger(props: TabsTriggerProps) -> Element {
                 }
                 if is_activation_key(&kb_evt.key()) {
                     kb_evt.prevent_default();
-                    runtime_key.select_tab(&val_key);
+                    let _ = runtime_key.select_tab_with_context(
+                        &val_key,
+                        ChangeContext::new(ChangeReason::TabChange, ChangeSource::Keyboard),
+                    );
                     return;
                 }
                 let automatic = runtime_key.tabs().activation_mode().is_automatic();
@@ -386,7 +471,10 @@ pub fn TabsTrigger(props: TabsTriggerProps) -> Element {
                     &kb_evt,
                     Some(|next_val: &str| {
                         if automatic {
-                            rt.select_tab(next_val);
+                            let _ = rt.select_tab_with_context(
+                                next_val,
+                                ChangeContext::new(ChangeReason::TabChange, ChangeSource::Keyboard),
+                            );
                         }
                     }),
                 );

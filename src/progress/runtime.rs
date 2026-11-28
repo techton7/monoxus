@@ -28,6 +28,14 @@ impl ProgressRuntime {
         &self.progress
     }
 
+    pub fn min(&self) -> f64 {
+        self.progress.min()
+    }
+
+    pub fn percentage(&self) -> Option<f64> {
+        self.progress.percentage()
+    }
+
     pub fn root(&self, value_label: Option<String>) -> ProgressRootAttributes {
         self.progress.root(value_label, self.loaded_state_alias)
     }
@@ -40,14 +48,25 @@ impl ProgressRuntime {
         #[cfg(debug_assertions)]
         for issue in self.progress.validation_issues() {
             match issue {
+                super::types::ProgressValidation::InvalidMin => {
+                    crate::foundation::diagnostics::warn_invalid_prop(
+                        "Progress",
+                        "min",
+                        "min must be finite; using 0",
+                    );
+                }
                 super::types::ProgressValidation::InvalidMax => {
-                    eprintln!(
-                        "monoxus::Progress: max must be finite and greater than 0; using 100"
+                    crate::foundation::diagnostics::warn_invalid_prop(
+                        "Progress",
+                        "max",
+                        "max must be finite and greater than min; using fallback max",
                     );
                 }
                 super::types::ProgressValidation::InvalidValue => {
-                    eprintln!(
-                        "monoxus::Progress: value must be finite and between 0 and max; treating as indeterminate"
+                    crate::foundation::diagnostics::warn_invalid_prop(
+                        "Progress",
+                        "value",
+                        "value must be finite and between min and max; treating as indeterminate",
                     );
                 }
             }

@@ -43,6 +43,7 @@ pub struct HoverCardContentStaticProps {
 
 #[component]
 pub fn HoverCardContentStatic(props: HoverCardContentStaticProps) -> Element {
+    let resolved_dir = crate::foundation::shared::use_direction_context(props.dir);
     render_hover_card_surface(HoverCardSurfaceSpec {
         id: props.id,
         class: props.class,
@@ -51,7 +52,7 @@ pub fn HoverCardContentStatic(props: HoverCardContentStaticProps) -> Element {
         keep_mounted: props.keep_mounted,
         floating: false,
         floating_overrides: None,
-        dir: props.dir,
+        dir: Some(resolved_dir),
         outside_config: HoverCardOutsideConfig {
             escape_key_down_behavior: props.escape_key_down_behavior,
             interact_outside_behavior: props.interact_outside_behavior,

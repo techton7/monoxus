@@ -1,6 +1,6 @@
 use super::{
-    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
-    PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
+    ComponentDoc, CssVarDoc, DataAttrDoc, KeyboardDoc, PROP_AGENT, PROP_ATTRIBUTES, PROP_CHILD,
+    PROP_CLASS, PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
 };
 
 pub(super) const COMMAND_DOC: ComponentDoc = ComponentDoc {
@@ -28,6 +28,7 @@ pub(super) const COMMAND_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Controlled active command value." },
                 PropDoc { name: "default_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial active command value when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<String>", type_full: "Option<EventHandler<String>>", default: None, required: false, group: PropGroup::Core, description: "Called when the active highlighted command value changes." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<String>>", type_full: "Option<EventHandler<ChangeEvent<String>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the active highlighted command value changes, providing a ChangeEvent with value and change provenance." },
                 PropDoc { name: "on_state_change", type_simple: "EventHandler<CommandStateSnapshot>", type_full: "Option<EventHandler<CommandStateSnapshot>>", default: None, required: false, group: PropGroup::Core, description: "Called with `{ search, value, filtered }` whenever search, selection, or filtered results change." },
                 PropDoc { name: "label", type_simple: "String", type_full: "String", default: Some("\"\""), required: false, group: PropGroup::HtmlAria, description: "Accessible label rendered inside the visually hidden <label> associated with CommandInput." },
                 PropDoc { name: "should_filter", type_simple: "bool", type_full: "bool", default: Some("true"), required: false, group: PropGroup::Core, description: "Enables automatic client-side filtering and ranking; disable for server-side filtering." },
@@ -42,6 +43,7 @@ pub(super) const COMMAND_DOC: ComponentDoc = ComponentDoc {
                 PROP_CHILD,
                 PropDoc { name: "on_key_down", type_simple: "EventHandler<KeyboardEvent>", type_full: "Option<EventHandler<KeyboardEvent>>", default: None, required: false, group: PropGroup::Core, description: "Additional keydown handler composed after command navigation." },
                 PROP_ON_MOUNTED,
+                PROP_AGENT,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "CommandInput and CommandList children." },
             ],
@@ -58,6 +60,7 @@ pub(super) const COMMAND_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "open", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Controlled dialog open state." },
                 PropDoc { name: "default_open", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Initial dialog open state when uncontrolled." },
                 PropDoc { name: "on_open_change", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called when the dialog opens or closes." },
+                PropDoc { name: "on_open_change_details", type_simple: "EventHandler<ChangeEvent<bool>>", type_full: "Option<EventHandler<ChangeEvent<bool>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the dialog opens or closes, providing a ChangeEvent with open state and change provenance." },
                 PropDoc { name: "title", type_simple: "String", type_full: "String", default: Some("\"Command Palette\""), required: false, group: PropGroup::HtmlAria, description: "Accessible dialog title rendered in a visually hidden DialogTitle." },
                 PropDoc { name: "description", type_simple: "String", type_full: "String", default: Some("\"Search for a command to run...\""), required: false, group: PropGroup::HtmlAria, description: "Accessible dialog description rendered in a visually hidden DialogDescription." },
                 PropDoc { name: "portal_host", type_simple: "PortalHost", type_full: "Option<PortalHost>", default: Some("PortalHost::Default"), required: false, group: PropGroup::Core, description: "Target portal host override for DialogPortal." },
@@ -72,6 +75,7 @@ pub(super) const COMMAND_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Controlled active command value forwarded to CommandRoot." },
                 PropDoc { name: "default_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial active command value forwarded to CommandRoot." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<String>", type_full: "Option<EventHandler<String>>", default: None, required: false, group: PropGroup::Core, description: "Called when the active command value changes." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<String>>", type_full: "Option<EventHandler<ChangeEvent<String>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the active command value changes, providing a ChangeEvent with value and change provenance." },
                 PropDoc { name: "on_state_change", type_simple: "EventHandler<CommandStateSnapshot>", type_full: "Option<EventHandler<CommandStateSnapshot>>", default: None, required: false, group: PropGroup::Core, description: "Called whenever search, active value, or filtered results change." },
                 PropDoc { name: "label", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::HtmlAria, description: "Accessible CommandRoot label override (defaults to title)." },
                 PropDoc { name: "should_filter", type_simple: "bool", type_full: "bool", default: Some("true"), required: false, group: PropGroup::Core, description: "Enables automatic client-side filtering and ranking." },
@@ -83,6 +87,7 @@ pub(super) const COMMAND_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "columns", type_simple: "usize", type_full: "Option<usize>", default: None, required: false, group: PropGroup::Core, description: "Enables 2D grid navigation with the specified column count." },
                 PROP_CLASS,
                 PROP_STYLE,
+                PROP_AGENT,
                 PROP_ATTRIBUTES,
                 PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "CommandInput and CommandList children rendered inside CommandRoot." },
             ],
@@ -100,6 +105,7 @@ pub(super) const COMMAND_DOC: ComponentDoc = ComponentDoc {
                 PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Controlled search query value." },
                 PropDoc { name: "default_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial search query value when uncontrolled." },
                 PropDoc { name: "on_value_change", type_simple: "EventHandler<String>", type_full: "Option<EventHandler<String>>", default: None, required: false, group: PropGroup::Core, description: "Called when the search query changes." },
+                PropDoc { name: "on_value_change_details", type_simple: "EventHandler<ChangeEvent<String>>", type_full: "Option<EventHandler<ChangeEvent<String>>>", default: None, required: false, group: PropGroup::Core, description: "Called when the search query changes, providing a ChangeEvent with query value and change provenance." },
                 PropDoc { name: "placeholder", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::HtmlAria, description: "Placeholder text for the search input." },
                 PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Disables the search input." },
                 PropDoc { name: "auto_focus", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Focuses the input automatically on mount." },

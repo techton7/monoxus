@@ -1,11 +1,12 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::ChangeEvent;
 
 use crate::foundation::{
     compose::{collect_user_attrs, merge_props, push_attr_opt},
     shared::use_stable_id,
-    state::{sync_signal, use_controllable_signal},
+    state::{ControllableConfig, sync_signal, use_controllable_signal_config},
 };
 use crate::menu::{
     CheckedState, MenuCheckboxGroupContext, MenuCheckboxItemAttributes, MenuGroupAttributes,
@@ -29,6 +30,8 @@ pub struct MenuCheckboxGroupProps {
     pub default_value: Option<Vec<String>>,
     #[props(default)]
     pub on_value_change: Option<EventHandler<Vec<String>>>,
+    #[props(default)]
+    pub on_value_change_details: Option<EventHandler<ChangeEvent<Vec<String>>>>,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default, into)]
@@ -45,10 +48,14 @@ pub struct MenuCheckboxGroupProps {
 pub fn MenuCheckboxGroup(props: MenuCheckboxGroupProps) -> Element {
     let root = use_context::<MenuRootContext>();
     let id = use_stable_id(props.id.map(Into::into)).into_owned();
-    let value_state = use_controllable_signal(
-        props.value,
-        props.default_value.unwrap_or_default(),
-        props.on_value_change,
+    let has_explicit_default = props.default_value.is_some();
+    let value_state = use_controllable_signal_config(
+        ControllableConfig::new(props.value, props.default_value.unwrap_or_default())
+            .with_explicit_default(has_explicit_default)
+            .with_on_change(props.on_value_change)
+            .with_on_change_details(props.on_value_change_details)
+            .with_component("MenuCheckboxGroup")
+            .with_prop("value"),
     );
     let value_sig = value_state.signal();
     let mut disabled_sig = use_signal(|| props.disabled);
@@ -115,6 +122,8 @@ pub struct MenuCheckboxItemProps {
     pub default_checked: CheckedState,
     #[props(default)]
     pub on_checked_change: Option<EventHandler<CheckedState>>,
+    #[props(default)]
+    pub on_checked_change_details: Option<EventHandler<ChangeEvent<CheckedState>>>,
     #[props(default = false)]
     pub disabled: bool,
     #[props(default, into)]
@@ -140,10 +149,13 @@ pub fn MenuCheckboxItem(props: MenuCheckboxItemProps) -> Element {
     let id = use_stable_id(props.id.map(Into::into)).into_owned();
 
     let is_group_member = group_ctx.is_some() && props.value.is_some();
-    let local_checked = use_controllable_signal(
-        props.checked,
-        props.default_checked,
-        props.on_checked_change,
+    let local_checked = use_controllable_signal_config(
+        ControllableConfig::new(props.checked, props.default_checked)
+            .with_explicit_default(props.default_checked != CheckedState::Unchecked)
+            .with_on_change(props.on_checked_change)
+            .with_on_change_details(props.on_checked_change_details)
+            .with_component("MenuCheckboxItem")
+            .with_prop("checked"),
     );
 
     let current_checked = if is_group_member {

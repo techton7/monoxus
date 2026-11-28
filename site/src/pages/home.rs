@@ -35,7 +35,7 @@ pub fn Home() -> Element {
                     div {
                         class: "mb-6 inline-flex items-center gap-2 rounded-full border border-border-card bg-muted/70 px-3 py-1 text-xs font-medium text-foreground-alt",
                         span { class: "h-1.5 w-1.5 rounded-full bg-foreground" }
-                        span { "v0.2.0 · 45 Headless Primitives for Dioxus 0.8" }
+                        span { "v0.2.1 · 45 Headless Primitives for Dioxus 0.8" }
                     }
                     h1 {
                         class: "text-4xl font-semibold tracking-tight text-foreground sm:text-6xl",

@@ -1,11 +1,12 @@
 use std::rc::Rc;
 
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeReason, ChangeSource};
 
 use crate::foundation::{
     browser::focus_element_by_id,
     roving_focus::{RovingFocusRuntime, RovingItemMeta, RovingModifiers, use_roving_focus_group},
-    state::{ControllableSignal, sync_signal},
+    state::{ChangeOutcome, ControllableSignal, sync_signal},
 };
 
 use super::{
@@ -31,7 +32,9 @@ pub struct AccordionRuntime {
     accordion: Signal<Accordion>,
     active_ctl: Option<ControllableSignal<Vec<String>>>,
     on_value_change: CopyValue<Option<AccordionValueChangeHandler>>,
+    #[allow(dead_code)]
     on_single_change: CopyValue<Option<EventHandler<String>>>,
+    #[allow(dead_code)]
     on_multiple_change: CopyValue<Option<EventHandler<Vec<String>>>>,
     state: AccordionRuntimeState,
 }
@@ -184,6 +187,14 @@ impl AccordionRuntime {
         self.state.active_values.read().clone()
     }
 
+    pub(crate) fn active_values_peek(&self) -> Vec<String> {
+        self.state
+            .active_values
+            .try_peek()
+            .map(|v| v.clone())
+            .unwrap_or_default()
+    }
+
     pub fn is_open(&self, value: &str) -> bool {
         self.state.active_values.read().iter().any(|v| v == value)
     }
@@ -288,8 +299,15 @@ impl AccordionRuntime {
     }
 
     pub fn toggle_item(&self, value: &str) {
+        let _ = self.toggle_item_with_context(
+            value,
+            ChangeContext::new(ChangeReason::Toggle, ChangeSource::Programmatic),
+        );
+    }
+
+    pub fn toggle_item_with_context(&self, value: &str, ctx: ChangeContext) -> ChangeOutcome {
         if self.accordion.peek().is_disabled() {
-            return;
+            return ChangeOutcome::Unchanged;
         }
         let mut updated = self
             .accordion
@@ -299,19 +317,18 @@ impl AccordionRuntime {
             .with_tab_stop(self.current_tab_stop());
         if updated.toggle_item(value) {
             let new_values = updated.active_values().to_vec();
+            if let Some(ctl) = self.active_ctl {
+                let outcome = ctl.set_with_context(new_values, ctx);
+                if outcome.is_accepted() {
+                    self.state
+                        .roving
+                        .set_current_tab_stop(Some(value.to_string()));
+                }
+                return outcome;
+            }
             self.state
                 .roving
                 .set_current_tab_stop(Some(value.to_string()));
-            if let Some(ctl) = self.active_ctl {
-                ctl.set(new_values.clone());
-                if let Some(handler) = self.on_single_change.try_read().ok().and_then(|s| *s) {
-                    handler.call(new_values.first().cloned().unwrap_or_default());
-                }
-                if let Some(handler) = self.on_multiple_change.try_read().ok().and_then(|s| *s) {
-                    handler.call(new_values);
-                }
-                return;
-            }
             let mut active = self.state.active_values;
             active.set(new_values.clone());
             let callback = self
@@ -322,7 +339,39 @@ impl AccordionRuntime {
             if let Some(callback) = callback {
                 callback(new_values);
             }
+            return ChangeOutcome::Committed(ctx);
         }
+        ChangeOutcome::Unchanged
+    }
+
+    pub(crate) fn set_values_with_context(
+        &self,
+        next_values: Vec<String>,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
+        if self.accordion.peek().is_disabled() {
+            return ChangeOutcome::Unchanged;
+        }
+        if let Some(ctl) = self.active_ctl {
+            let outcome = ctl.set_with_context(next_values.clone(), ctx);
+            if outcome.is_accepted()
+                && let Some(first) = next_values.first()
+            {
+                self.state.roving.set_current_tab_stop(Some(first.clone()));
+            }
+            return outcome;
+        }
+        let mut active = self.state.active_values;
+        active.set(next_values.clone());
+        let callback = self
+            .on_value_change
+            .try_read()
+            .ok()
+            .and_then(|slot| slot.as_ref().cloned());
+        if let Some(callback) = callback {
+            callback(next_values);
+        }
+        ChangeOutcome::Committed(ctx)
     }
 
     pub fn trigger_element_id(&self, value: &str) -> String {

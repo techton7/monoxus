@@ -3,6 +3,7 @@ pub mod dismiss;
 pub mod floating;
 pub mod focus;
 pub mod grace;
+pub mod handle;
 pub mod portal;
 pub mod presence;
 pub(crate) mod watcher;
@@ -14,6 +15,7 @@ pub use self::dismiss::*;
 pub use self::floating::*;
 pub use self::focus::*;
 pub use self::grace::*;
+pub use self::handle::*;
 pub use self::portal::*;
 pub use self::presence::*;
 #[allow(unused_imports)]
@@ -26,7 +28,7 @@ pub use crate::foundation::browser::{
 
 use std::{
     cell::RefCell,
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     future::Future,
     pin::Pin,
     rc::{Rc, Weak},
@@ -36,6 +38,7 @@ use std::{
 use crate::foundation::browser::WatcherGuard;
 
 pub type OverlayEscapeHandler = Rc<RefCell<dyn FnMut()>>;
+pub type OverlayEscapeResultHandler = Rc<RefCell<dyn FnMut() -> EscapeDispatchResult>>;
 
 #[derive(Default)]
 struct EscapeConsumedState {
@@ -43,8 +46,15 @@ struct EscapeConsumedState {
     runtime: Option<Weak<dioxus::core::Runtime>>,
 }
 
+#[derive(Default)]
+struct PropagatingOutsideState {
+    generation: u64,
+    layers: HashSet<String>,
+    runtime: Option<Weak<dioxus::core::Runtime>>,
+}
+
 struct RegisteredEscapeHandler {
-    handler: OverlayEscapeHandler,
+    handler: OverlayEscapeResultHandler,
     runtime: Option<Weak<dioxus::core::Runtime>>,
     scope_id: Option<dioxus::core::ScopeId>,
 }
@@ -78,7 +88,95 @@ impl Future for YieldOnce {
 thread_local! {
     static OVERLAY_COORDINATOR: RefCell<OverlayCoordinator> = const { RefCell::new(OverlayCoordinator::new()) };
     static ESCAPE_CONSUMED_STATE: RefCell<EscapeConsumedState> = const { RefCell::new(EscapeConsumedState { epoch: None, runtime: None }) };
+    static PROPAGATING_OUTSIDE_LAYERS: RefCell<PropagatingOutsideState> = RefCell::new(PropagatingOutsideState::default());
     static ESCAPE_HANDLERS: RefCell<EscapeHandlerRegistry> = RefCell::new(EscapeHandlerRegistry::default());
+}
+
+fn clear_propagating_outside_if_gen(generation: u64) {
+    PROPAGATING_OUTSIDE_LAYERS.with(|state| {
+        let mut state = state.borrow_mut();
+        if state.generation == generation {
+            state.layers.clear();
+            state.runtime = None;
+        }
+    });
+}
+
+/// Marks `layer_id` as transparent for outside-press topmost evaluation during the current
+/// synchronous pointer/focus event tick, clearing automatically on the next microtask.
+pub fn mark_outside_press_propagating(layer_id: &str) {
+    if layer_id.is_empty() {
+        return;
+    }
+    let current_runtime = dioxus::core::Runtime::try_current();
+    let runtime_weak = current_runtime.as_ref().map(Rc::downgrade);
+    let generation = PROPAGATING_OUTSIDE_LAYERS.with(|state| {
+        let mut state = state.borrow_mut();
+        if is_recorded_runtime_stale(&state.runtime) {
+            state.layers.clear();
+        }
+        state.generation = state.generation.wrapping_add(1).max(1);
+        state.runtime = runtime_weak;
+        state.layers.insert(layer_id.to_owned());
+        state.generation
+    });
+
+    if current_runtime.is_some() {
+        crate::foundation::browser::spawn_root_task(async move {
+            YieldOnce::default().await;
+            clear_propagating_outside_if_gen(generation);
+        });
+    }
+}
+
+/// Immediately clears the propagating outside-press skip set.
+pub fn clear_outside_press_propagating() {
+    PROPAGATING_OUTSIDE_LAYERS.with(|state| {
+        let mut state = state.borrow_mut();
+        state.layers.clear();
+        state.runtime = None;
+    });
+}
+
+/// Returns `true` when `layer_id` is the topmost non-propagating active overlay layer for
+/// outside-press / focus-outside dispatch.
+pub fn is_topmost_overlay_layer_for_outside_press(layer_id: &str) -> bool {
+    let skip_empty = PROPAGATING_OUTSIDE_LAYERS.with(|state| {
+        let mut state = state.borrow_mut();
+        if !state.layers.is_empty() && is_recorded_runtime_stale(&state.runtime) {
+            state.layers.clear();
+            state.runtime = None;
+        }
+        state.layers.is_empty()
+    });
+    if skip_empty {
+        return is_topmost_overlay_layer(layer_id);
+    }
+
+    let snapshot = active_overlay_layers_snapshot();
+    if snapshot.is_empty() {
+        return true;
+    }
+
+    PROPAGATING_OUTSIDE_LAYERS.with(|state| {
+        let state = state.borrow();
+        match snapshot.iter().rev().find(|id| !state.layers.contains(*id)) {
+            Some(top) => top == layer_id,
+            None => true,
+        }
+    })
+}
+
+pub(crate) fn overlay_layer_bubbles_escape(layer_id: &str) -> bool {
+    if layer_id.is_empty() {
+        return false;
+    }
+    OVERLAY_COORDINATOR.with(|coord| {
+        coord
+            .borrow()
+            .spec(layer_id)
+            .is_some_and(|spec| spec.bubbles_escape)
+    })
 }
 
 fn is_recorded_runtime_stale(recorded: &Option<Weak<dioxus::core::Runtime>>) -> bool {
@@ -113,6 +211,7 @@ pub(crate) fn begin_overlay_escape_event() -> u64 {
         state.epoch = None;
         state.runtime = None;
     });
+    clear_outside_press_propagating();
     epoch
 }
 
@@ -244,7 +343,22 @@ pub fn sync_overlay_layer_spec(spec: OverlayLayerSpec) {
 pub fn register_overlay_escape_handler(
     layer_id: &str,
     spec: OverlayLayerSpec,
-    handler: impl FnMut() + 'static,
+    mut handler: impl FnMut() + 'static,
+) {
+    register_overlay_escape_handler_with_result(layer_id, spec, move || {
+        handler();
+        EscapeDispatchResult {
+            consumed: true,
+            canceled: false,
+            propagation_allowed: false,
+        }
+    });
+}
+
+pub fn register_overlay_escape_handler_with_result(
+    layer_id: &str,
+    spec: OverlayLayerSpec,
+    handler: impl FnMut() -> EscapeDispatchResult + 'static,
 ) {
     if layer_id.is_empty() {
         return;
@@ -321,77 +435,104 @@ pub(crate) fn handle_central_escape_keydown(
 pub(crate) fn dispatch_central_escape_event() -> OverlayDismissOutcome {
     let _epoch = begin_overlay_escape_event();
 
-    let outcome = OVERLAY_COORDINATOR.with(|coord| coord.borrow_mut().handle_escape());
-    if !outcome.consumed && outcome.dismissed_layers.is_empty() {
-        return outcome;
+    let layer_specs: Vec<OverlayLayerSpec> = OVERLAY_COORDINATOR.with(|coord| {
+        let coord = coord.borrow();
+        let ids = coord.active_layers_snapshot();
+        ids.into_iter()
+            .rev()
+            .filter_map(|id| coord.spec(&id).cloned())
+            .collect()
+    });
+    if layer_specs.is_empty() {
+        return OverlayDismissOutcome::default();
     }
 
-    let mut to_invoke: Vec<(
-        OverlayEscapeHandler,
-        Option<Rc<dioxus::core::Runtime>>,
-        Option<dioxus::core::ScopeId>,
-    )> = Vec::with_capacity(outcome.dismissed_layers.len());
-    let mut expired_handlers: Vec<RegisteredEscapeHandler> = Vec::new();
-    let mut observer_to_drop: Option<WatcherGuard> = None;
-    let mut fallback_runtime: Option<Rc<dioxus::core::Runtime>> = None;
+    let mut outcome = OverlayDismissOutcome::default();
+    let mut should_mark_consumed = false;
+    let mut mark_runtime: Option<(Rc<dioxus::core::Runtime>, dioxus::core::ScopeId)> = None;
 
-    ESCAPE_HANDLERS.with(|reg| {
-        let mut reg = reg.borrow_mut();
-        expired_handlers = prune_expired_escape_handlers_locked(&mut reg);
+    for spec in layer_specs {
+        if !spec.dismiss_on_escape {
+            if spec.modal && !spec.bubbles_escape {
+                outcome.consumed = true;
+                should_mark_consumed = true;
+                break;
+            }
+            if !spec.bubbles_escape {
+                break;
+            }
+            continue;
+        }
 
-        for layer_id in &outcome.dismissed_layers {
-            if let Some(entry) = reg.handlers.get(layer_id) {
+        let mut expired_handlers: Vec<RegisteredEscapeHandler> = Vec::new();
+        let mut observer_to_drop: Option<WatcherGuard> = None;
+        let handler_entry = ESCAPE_HANDLERS.with(|reg| {
+            let mut reg = reg.borrow_mut();
+            expired_handlers = prune_expired_escape_handlers_locked(&mut reg);
+            let found = reg.handlers.get(&spec.id).and_then(|entry| {
                 let rt = match &entry.runtime {
-                    Some(weak) => match weak.upgrade() {
-                        Some(rt) => Some(rt),
-                        None => continue,
-                    },
+                    Some(weak) => Some(weak.upgrade()?),
                     None => None,
                 };
-                to_invoke.push((Rc::clone(&entry.handler), rt, entry.scope_id));
+                Some((Rc::clone(&entry.handler), rt, entry.scope_id))
+            });
+            if reg.handlers.is_empty() {
+                observer_to_drop = reg.observer.take();
             }
+            found
+        });
+        drop(expired_handlers);
+        if let Some(guard) = observer_to_drop {
+            guard.stop();
         }
 
-        if to_invoke.is_empty() && outcome.consumed && outcome.dismissed_layers.is_empty() {
-            fallback_runtime = reg.last_runtime.as_ref().and_then(Weak::upgrade);
-        }
+        let Some((handler, rt, scope_id)) = handler_entry else {
+            outcome.dismissed_layers.push(spec.id.clone());
+            outcome.consumed = true;
+            if !spec.bubbles_escape {
+                should_mark_consumed = true;
+                break;
+            }
+            continue;
+        };
 
-        if reg.handlers.is_empty() {
-            observer_to_drop = reg.observer.take();
-        }
-    });
-
-    drop(expired_handlers);
-    if let Some(guard) = observer_to_drop {
-        guard.stop();
-    }
-
-    let mut marked_consumed = false;
-    for (handler, rt, scope_id) in to_invoke {
+        let mut res = EscapeDispatchResult::default();
         let mut invoke = || {
-            if outcome.consumed && !marked_consumed {
-                mark_overlay_escape_consumed();
-                marked_consumed = true;
-            }
             if let Ok(mut cb) = handler.try_borrow_mut() {
-                cb();
+                res = cb();
             }
         };
-        if let Some(rt) = rt {
+        if let Some(ref runtime) = rt {
             let scope = scope_id.unwrap_or(dioxus::core::ScopeId::ROOT);
-            rt.in_scope(scope, invoke);
+            runtime.in_scope(scope, invoke);
+            mark_runtime = Some((Rc::clone(runtime), scope));
         } else {
             invoke();
         }
+
+        if res.consumed {
+            outcome.dismissed_layers.push(spec.id.clone());
+            outcome.consumed = true;
+            if !res.propagation_allowed && !spec.bubbles_escape {
+                should_mark_consumed = true;
+                break;
+            }
+        }
     }
 
-    if outcome.consumed && !marked_consumed && outcome.dismissed_layers.is_empty() {
+    if should_mark_consumed {
         if dioxus::core::Runtime::try_current().is_some() {
             mark_overlay_escape_consumed();
-        } else if let Some(rt) = fallback_runtime {
-            rt.in_scope(dioxus::core::ScopeId::ROOT, mark_overlay_escape_consumed);
+        } else if let Some((rt, scope)) = mark_runtime {
+            rt.in_scope(scope, mark_overlay_escape_consumed);
         } else {
-            mark_overlay_escape_consumed();
+            let fallback_runtime = ESCAPE_HANDLERS
+                .with(|reg| reg.borrow().last_runtime.as_ref().and_then(Weak::upgrade));
+            if let Some(rt) = fallback_runtime {
+                rt.in_scope(dioxus::core::ScopeId::ROOT, mark_overlay_escape_consumed);
+            } else {
+                mark_overlay_escape_consumed();
+            }
         }
     }
 
@@ -486,6 +627,7 @@ pub(crate) fn reset_overlay_coordinator_for_test() {
         state.epoch = None;
         state.runtime = None;
     });
+    clear_outside_press_propagating();
     let (drained_handlers, observer_to_drop) = ESCAPE_HANDLERS.with(|reg| {
         let mut reg = reg.borrow_mut();
         let handlers: Vec<RegisteredEscapeHandler> = reg.handlers.drain().map(|(_, v)| v).collect();

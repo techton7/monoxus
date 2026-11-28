@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use dioxus::prelude::keyboard_types::{Key, Modifiers, NamedKey};
 use dioxus::prelude::*;
+use ui_sdk::kernel::{ChangeContext, ChangeEvent, ChangeReason, ChangeSource};
 
 pub use crate::foundation::overlay::serialize_css_custom_properties as serialize_combobox_css_custom_properties;
 
@@ -16,10 +17,10 @@ use crate::foundation::{
         DismissBehavior, DismissLayerHandle, FloatingHandle, FloatingPlacement, FloatingReadiness,
         GeometryVars, PlacementAlign, PlacementSide, PortalHost, PresenceHandle, PresenceState,
         StickyStrategy, ensure_active_overlay_layer, is_overlay_escape_consumed,
-        is_topmost_overlay_layer, mark_overlay_escape_consumed, unregister_active_overlay_layer,
+        unregister_active_overlay_layer,
     },
-    shared::{EscapeKeyDownEvent, PreventableEvent},
-    state::{ControllableSignal, sync_signal},
+    shared::EscapeKeyDownEvent,
+    state::{ChangeOutcome, ControllableSignal, sync_signal},
 };
 
 use super::{
@@ -513,17 +514,32 @@ impl ComboboxRuntime {
     }
 
     pub fn set_open(&self, next: bool) {
+        let _ = self.set_open_with_context(
+            next,
+            ChangeContext::new(ChangeReason::Selection, ChangeSource::Mouse),
+        );
+    }
+
+    pub(crate) fn set_open_with_context(&self, next: bool, ctx: ChangeContext) -> ChangeOutcome {
+        let event = ChangeEvent::new(next, ctx);
+        self.set_open_with_event(next, &event)
+    }
+
+    pub(crate) fn set_open_with_event(
+        &self,
+        next: bool,
+        event: &ChangeEvent<bool>,
+    ) -> ChangeOutcome {
         if self.is_disabled_untracked() && next {
-            return;
+            return ChangeOutcome::Unchanged;
         }
         let current = self.is_open_untracked();
         if current == next {
-            return;
+            return ChangeOutcome::Unchanged;
         }
-        let is_controlled = self.state.open_ctl.is_controlled();
-        self.state.open_ctl.set(next);
-        if is_controlled {
-            return;
+        let outcome = self.state.open_ctl.set_with_event(next, event);
+        if !outcome.is_committed() {
+            return outcome;
         }
 
         let cid = self.current_content_id_untracked();
@@ -541,6 +557,7 @@ impl ComboboxRuntime {
             self.start_dismiss_monitor();
             self.state.presence.sync(true, &cid);
         }
+        outcome
     }
 
     pub fn open_menu(&self) {
@@ -564,7 +581,18 @@ impl ComboboxRuntime {
     }
 
     pub fn set_value(&self, next: Option<String>) {
-        self.state.value_ctl.set(next);
+        let _ = self.set_value_with_context(
+            next,
+            ChangeContext::new(ChangeReason::Selection, ChangeSource::Mouse),
+        );
+    }
+
+    pub(crate) fn set_value_with_context(
+        &self,
+        next: Option<String>,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
+        self.state.value_ctl.set_with_context(next, ctx)
     }
 
     pub fn values(&self) -> Vec<String> {
@@ -580,7 +608,18 @@ impl ComboboxRuntime {
     }
 
     pub fn set_values(&self, next: Vec<String>) {
-        self.state.values_ctl.set(next);
+        let _ = self.set_values_with_context(
+            next,
+            ChangeContext::new(ChangeReason::Selection, ChangeSource::Mouse),
+        );
+    }
+
+    pub(crate) fn set_values_with_context(
+        &self,
+        next: Vec<String>,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
+        self.state.values_ctl.set_with_context(next, ctx)
     }
 
     pub fn is_selected(&self, val: &str) -> bool {
@@ -603,8 +642,21 @@ impl ComboboxRuntime {
     }
 
     pub fn set_input_value(&self, next: String, sync_dom: bool) {
+        let _ = self.set_input_value_with_context(
+            next,
+            sync_dom,
+            ChangeContext::new(ChangeReason::Input, ChangeSource::Keyboard),
+        );
+    }
+
+    pub(crate) fn set_input_value_with_context(
+        &self,
+        next: String,
+        sync_dom: bool,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
         let is_controlled = self.state.input_value_ctl.is_controlled();
-        self.state.input_value_ctl.set(next.clone());
+        let outcome = self.state.input_value_ctl.set_with_context(next.clone(), ctx);
         let effective = self.input_value_untracked();
         if is_controlled {
             if effective != next || sync_dom {
@@ -613,12 +665,13 @@ impl ComboboxRuntime {
                 let utf16_len = effective.encode_utf16().count();
                 set_input_selection_range(&iid, utf16_len, utf16_len);
             }
-        } else if sync_dom {
+        } else if outcome.is_committed() && sync_dom {
             let iid = self.current_input_id_untracked();
             set_input_value_by_id(&iid, &next);
             let utf16_len = next.encode_utf16().count();
             set_input_selection_range(&iid, utf16_len, utf16_len);
         }
+        outcome
     }
 
     pub fn highlighted_value(&self) -> Option<String> {
@@ -896,8 +949,19 @@ impl ComboboxRuntime {
     }
 
     pub fn select_item(&self, target_value: &str) {
+        let _ = self.select_item_with_context(
+            target_value,
+            ChangeContext::new(ChangeReason::Selection, ChangeSource::Mouse),
+        );
+    }
+
+    pub(crate) fn select_item_with_context(
+        &self,
+        target_value: &str,
+        ctx: ChangeContext,
+    ) -> ChangeOutcome {
         if self.is_disabled_untracked() {
-            return;
+            return ChangeOutcome::Unchanged;
         }
         let (is_disabled, label) = self
             .state
@@ -914,7 +978,7 @@ impl ComboboxRuntime {
             .unwrap_or_else(|_| (false, target_value.to_owned()));
 
         if is_disabled {
-            return;
+            return ChangeOutcome::Unchanged;
         }
 
         match self.mode_untracked() {
@@ -928,17 +992,23 @@ impl ComboboxRuntime {
                     self.allow_deselect_untracked(),
                     self.clear_on_deselect(),
                 );
-                if outcome.changed {
-                    self.set_value(outcome.next_value.clone());
+                let change_outcome = if outcome.changed {
+                    self.set_value_with_context(outcome.next_value.clone(), ctx)
+                } else {
+                    ChangeOutcome::Unchanged
+                };
+                if change_outcome.is_canceled() {
+                    return change_outcome;
                 }
                 let accepted =
                     !outcome.changed || !is_val_controlled || self.value_untracked() == outcome.next_value;
                 if accepted && let Some(next_input) = outcome.next_input_value {
-                    self.set_input_value(next_input, true);
+                    let _ = self.set_input_value_with_context(next_input, true, ctx);
                 }
                 if outcome.should_close {
-                    self.close_menu();
+                    let _ = self.set_open_with_context(false, ctx);
                 }
+                change_outcome
             }
             ComboboxMode::Multiple => {
                 let current = self.values_untracked();
@@ -949,15 +1019,21 @@ impl ComboboxRuntime {
                     &label,
                     self.clear_on_deselect(),
                 );
-                if outcome.changed {
-                    self.set_values(outcome.next_values.clone());
+                let change_outcome = if outcome.changed {
+                    self.set_values_with_context(outcome.next_values.clone(), ctx)
+                } else {
+                    ChangeOutcome::Unchanged
+                };
+                if change_outcome.is_canceled() {
+                    return change_outcome;
                 }
                 let accepted = !outcome.changed
                     || !is_vals_controlled
                     || self.values_untracked() == outcome.next_values;
                 if accepted && let Some(next_input) = outcome.next_input_value {
-                    self.set_input_value(next_input, true);
+                    let _ = self.set_input_value_with_context(next_input, true, ctx);
                 }
+                change_outcome
             }
         }
     }
@@ -981,21 +1057,7 @@ impl ComboboxRuntime {
         if !escape_behavior.dismisses() {
             return false;
         }
-        let cid = self.current_content_id_untracked();
-        if is_overlay_escape_consumed() || !is_topmost_overlay_layer(&cid) {
-            return false;
-        }
-        let esc_evt: EscapeKeyDownEvent = PreventableEvent::empty();
-        if let Some(cb) = self.state.on_escape_key_down.try_read().ok().and_then(|s| *s) {
-            cb.call(esc_evt.clone());
-        }
-        evt.prevent_default();
-        evt.stop_propagation();
-        mark_overlay_escape_consumed();
-        if !esc_evt.is_default_prevented() {
-            self.close_menu();
-        }
-        true
+        self.state.dismiss.handle_keydown(evt)
     }
 
     pub fn handle_input_keydown(&self, evt: &KeyboardEvent) {
