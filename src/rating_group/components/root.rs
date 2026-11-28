@@ -6,8 +6,8 @@ use crate::field::{try_use_field_context, try_use_field_control_context};
 use crate::foundation::{
     compose::{
         MergePropsConfig, collect_user_attrs, extract_aria_invalid_and_describedby,
-        merge_props_with_config, push_attr_opt, push_event_handler,
-        resolve_invalid_and_describedby,
+        extract_aria_label_and_labelledby, merge_props_with_config, push_attr_opt,
+        push_event_handler, resolve_invalid_and_describedby,
     },
     form::{HiddenFormInput, HiddenInputKind, use_form_control_sync_with_epoch},
     shared::{ScopeHandle, use_direction_context, use_stable_id},
@@ -60,10 +60,6 @@ pub struct RatingGroupRootProps {
     #[props(default, into)]
     pub form: Option<String>,
     #[props(default, into)]
-    pub aria_label: Option<String>,
-    #[props(default, into)]
-    pub aria_labelledby: Option<String>,
-    #[props(default, into)]
     pub aria_describedby: Option<String>,
     #[props(default)]
     pub aria_valuetext: Option<RatingGroupAriaValuetext>,
@@ -103,6 +99,8 @@ pub fn RatingGroupRoot(props: RatingGroupRootProps) -> Element {
     let effective_required = props.required || field_ctx.is_some_and(|f| f.is_required());
 
     let extracted = extract_aria_invalid_and_describedby(props.attributes);
+    let (attr_aria_label, attr_aria_labelledby, rest_attrs) =
+        extract_aria_label_and_labelledby(extracted.rest);
     let field_describedby = field_ctx.and_then(|f| f.aria_describedby(None));
     let field_labelledby = if let Some(ctrl_ctx) = control_ctx {
         ctrl_ctx.mounted_label_id().or_else(|| {
@@ -122,11 +120,7 @@ pub fn RatingGroupRoot(props: RatingGroupRootProps) -> Element {
         extracted.aria_describedby.as_deref(),
         field_describedby.as_deref(),
     );
-    let effective_labelledby = props
-        .aria_labelledby
-        .clone()
-        .filter(|s| !s.trim().is_empty())
-        .or(field_labelledby);
+    let effective_labelledby = attr_aria_labelledby.or(field_labelledby);
 
     let resolved_dir = use_direction_context(props.dir);
     let stable_id = use_stable_id(props.id.clone().map(Cow::Owned)).into_owned();
@@ -183,7 +177,7 @@ pub fn RatingGroupRoot(props: RatingGroupRootProps) -> Element {
         props.value,
         props.default_value.unwrap_or(0.0),
         props.on_value_change,
-        props.aria_label.clone(),
+        attr_aria_label,
         effective_labelledby,
         props.aria_valuetext.clone(),
     );
@@ -315,7 +309,7 @@ pub fn RatingGroupRoot(props: RatingGroupRootProps) -> Element {
         );
     }
 
-    let mut user = collect_user_attrs(props.class, props.style, extracted.rest);
+    let mut user = collect_user_attrs(props.class, props.style, rest_attrs);
     push_event_handler(&mut user, "onkeydown", props.on_key_down);
     push_event_handler(&mut user, "onpointerleave", props.on_pointer_leave);
     push_event_handler(&mut user, "onfocus", props.on_focus);

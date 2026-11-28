@@ -5,8 +5,8 @@ use crate::foundation::{
     browser::{ResizeObserverBox, use_element_size_with_mount},
     compose::{
         MergePropsConfig, collect_user_attrs, extract_aria_invalid_and_describedby,
-        merge_props_with_config, push_attr_opt, push_event_handler,
-        resolve_invalid_and_describedby,
+        extract_aria_label_and_labelledby, merge_props_with_config, push_attr_opt,
+        push_event_handler, resolve_invalid_and_describedby,
     },
     roving_focus::key_to_roving_str,
 };
@@ -32,10 +32,6 @@ pub struct SliderThumbProps {
     #[props(default, into)]
     pub style: Option<String>,
     #[props(default, into)]
-    pub aria_label: Option<String>,
-    #[props(default, into)]
-    pub aria_labelledby: Option<String>,
-    #[props(default, into)]
     pub aria_describedby: Option<String>,
     #[props(default, into)]
     pub aria_valuetext: Option<String>,
@@ -58,6 +54,8 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
     let slider_field_state = try_use_slider_field_state();
 
     let extracted = extract_aria_invalid_and_describedby(props.attributes);
+    let (attr_aria_label, attr_aria_labelledby, rest_attrs) =
+        extract_aria_label_and_labelledby(extracted.rest);
 
     let root_invalid_override = slider_field_state.and_then(|s| *s.invalid_override.read());
     let root_or_field_describedby = slider_field_state
@@ -89,8 +87,8 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
     } else {
         None
     };
-    let effective_labelledby = props.aria_labelledby.clone().or_else(|| {
-        if props.aria_label.is_none() && *ctx.0.is_single.read() {
+    let effective_labelledby = attr_aria_labelledby.or_else(|| {
+        if attr_aria_label.is_none() && *ctx.0.is_single.read() {
             field_labelledby
         } else {
             None
@@ -101,7 +99,7 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
         .0
         .thumb_attrs(
             props.index,
-            props.aria_label.clone(),
+            attr_aria_label,
             effective_labelledby,
             props.aria_valuetext.clone(),
         )
@@ -306,7 +304,7 @@ pub fn SliderThumb(props: SliderThumbProps) -> Element {
         })),
     );
 
-    let user = collect_user_attrs(props.class, props.style, extracted.rest);
+    let user = collect_user_attrs(props.class, props.style, rest_attrs);
 
     let merged = merge_props_with_config(
         base,

@@ -25,7 +25,7 @@ pub(super) const SELECT_DOC: ComponentDoc = ComponentDoc {
             description: "Non-DOM fragment state provider managing selection, open state, Field integration, and optional hidden form input.",
             props: &[
                 prop_id("Custom scope identifier."),
-                PropDoc { name: "mode", type_simple: "SelectMode", type_full: "monoxus::select::SelectMode (Single { allow_deselect } | Multiple)", default: Some("SelectMode::Single { allow_deselect: false }"), required: false, group: PropGroup::Core, description: "Selection mode (Single or Multiple)." },
+                PropDoc { name: "mode", type_simple: "SelectMode", type_full: "monoxus::select::SelectMode (Single | Multiple)", default: Some("SelectMode::Single"), required: false, group: PropGroup::Core, description: "Selection mode (Single or Multiple)." },
                 PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Controlled single selected value." },
                 PropDoc { name: "default_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial single selected value when uncontrolled." },
                 PropDoc { name: "values", type_simple: "Vec<String>", type_full: "Option<Vec<String>>", default: None, required: false, group: PropGroup::Core, description: "Controlled multiple selected values." },

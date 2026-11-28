@@ -16,8 +16,9 @@ use crate::foundation::{
 use super::{
     attrs::{TabsContentAttributes, TabsListAttributes, TabsRootAttributes, TabsTriggerAttributes},
     state::Tabs,
-    types::TabsValueChangeHandler,
 };
+
+type TabsValueChangeHandler = Rc<dyn Fn(String)>;
 
 #[derive(Clone)]
 pub struct TabsRuntimeState {

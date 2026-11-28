@@ -655,6 +655,61 @@ pub(crate) fn extract_aria_invalid_and_describedby(attrs: Vec<Attribute>) -> Ext
     }
 }
 
+/// Extracts un-namespaced `aria-label` and `aria-labelledby` entries from forwarded
+/// `GlobalAttributes` so widgets with computed label precedence (e.g., `SliderThumb`,
+/// `RatingGroupRoot`) can honor author-supplied labels without declaring duplicate props.
+#[allow(dead_code)]
+pub(crate) fn extract_aria_label_and_labelledby(
+    attrs: Vec<Attribute>,
+) -> (Option<String>, Option<String>, Vec<Attribute>) {
+    let has_target = attrs.iter().any(|attr| {
+        attr.namespace.is_none() && matches!(attr.name, "aria-label" | "aria-labelledby")
+    });
+    if !has_target {
+        return (None, None, attrs);
+    }
+
+    let mut aria_label: Option<String> = None;
+    let mut aria_labelledby: Option<String> = None;
+    let mut rest = Vec::with_capacity(attrs.len());
+
+    for attr in attrs {
+        if attr.namespace.is_none() && attr.name == "aria-label" {
+            match attr.value {
+                AttributeValue::Text(text) => {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        aria_label = Some(trimmed.to_owned());
+                    }
+                }
+                AttributeValue::None => {}
+                other => rest.push(Attribute {
+                    value: other,
+                    ..attr
+                }),
+            }
+        } else if attr.namespace.is_none() && attr.name == "aria-labelledby" {
+            match attr.value {
+                AttributeValue::Text(text) => {
+                    let trimmed = text.trim();
+                    if !trimmed.is_empty() {
+                        aria_labelledby = Some(trimmed.to_owned());
+                    }
+                }
+                AttributeValue::None => {}
+                other => rest.push(Attribute {
+                    value: other,
+                    ..attr
+                }),
+            }
+        } else {
+            rest.push(attr);
+        }
+    }
+
+    (aria_label, aria_labelledby, rest)
+}
+
 /// Applies the unified form-control ARIA precedence:
 /// - `invalid`: `explicit_invalid > attr_invalid > field_invalid > default_invalid`
 /// - `aria-describedby`: deduplicated space-separated union of `[field_describedby, attr_describedby, explicit_describedby]`

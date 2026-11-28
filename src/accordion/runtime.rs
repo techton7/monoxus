@@ -14,8 +14,10 @@ use super::{
         AccordionRootAttributes, AccordionTriggerAttributes,
     },
     state::Accordion,
-    types::{AccordionOrientation, AccordionValueChangeHandler},
+    types::AccordionOrientation,
 };
+
+type AccordionValueChangeHandler = Rc<dyn Fn(Vec<String>)>;
 
 #[derive(Clone)]
 pub struct AccordionRuntimeState {

@@ -161,7 +161,7 @@ fn AudioControlsCard() -> Element {
                     }
                     SliderThumb {
                         index: 0,
-                        aria_label: Some("Audio gain".to_string()),
+                        aria_label: "Audio gain",
                         class: "block h-4 w-4 rounded-full border border-border-input bg-background shadow-mini transition-transform focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-foreground",
                     }
                 }

@@ -143,15 +143,6 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
         .or_else(|| field_ctx.map(|f| f.is_invalid()))
         .unwrap_or(false);
 
-    let resolved_mode = match mode {
-        SelectMode::Single {
-            allow_deselect: mode_deselect,
-        } => SelectMode::Single {
-            allow_deselect: mode_deselect || allow_deselect,
-        },
-        SelectMode::Multiple => SelectMode::Multiple,
-    };
-
     let value_ctl = use_controllable_signal(
         value.clone().map(Some),
         default_value.clone(),
@@ -172,7 +163,8 @@ pub fn SelectRoot(props: SelectRootProps) -> Element {
     let current_open = open_ctl.get();
 
     let mut select_def = Select::new(ScopeHandle::root("select").child(scope_id))
-        .with_mode(resolved_mode)
+        .with_mode(mode)
+        .with_allow_deselect(allow_deselect)
         .with_value_controlled(is_value_controlled)
         .with_values_controlled(is_values_controlled)
         .with_value(current_val)
@@ -587,7 +579,7 @@ pub fn SelectValue(props: SelectValueProps) -> Element {
     let ctx = use_context::<SelectContext>();
 
     let text_content = match ctx.runtime.select().mode() {
-        SelectMode::Single { .. } => {
+        SelectMode::Single => {
             if let Some(v) = ctx.runtime.value() {
                 if v.is_empty() {
                     String::new()

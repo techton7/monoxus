@@ -1033,7 +1033,7 @@ impl SelectRuntime {
 
     pub fn is_selected(&self, val: &str) -> bool {
         match self.select.read().mode() {
-            SelectMode::Single { .. } => self.value().as_deref() == Some(val) && !val.is_empty(),
+            SelectMode::Single => self.value().as_deref() == Some(val) && !val.is_empty(),
             SelectMode::Multiple => {
                 self.state.values.read().iter().any(|v| v == val) && !val.is_empty()
             }
@@ -1093,7 +1093,7 @@ impl SelectRuntime {
         }
 
         let current_val = match self.select.read().mode() {
-            SelectMode::Single { .. } => self.value(),
+            SelectMode::Single => self.value(),
             SelectMode::Multiple => self.values().first().cloned(),
         };
         let resolved = self.resolve_initial_highlight();
@@ -1105,7 +1105,7 @@ impl SelectRuntime {
 
     pub(crate) fn resolve_initial_highlight(&self) -> Option<String> {
         let current_val = match self.select.read().mode() {
-            SelectMode::Single { .. } => self.value(),
+            SelectMode::Single => self.value(),
             SelectMode::Multiple => self.values().first().cloned(),
         };
         let reg = self.state.registry.read();
@@ -1608,7 +1608,7 @@ impl SelectRuntime {
             .cloned()
             .collect();
         let current_val = match self.select.read().mode() {
-            SelectMode::Single { .. } => self.value(),
+            SelectMode::Single => self.value(),
             SelectMode::Multiple => self.values().first().cloned(),
         };
         let current_id = current_val
@@ -1741,7 +1741,7 @@ impl SelectRuntime {
     pub fn trigger_attributes(&self) -> SelectTriggerAttributes {
         let select_def = self.select.read();
         let is_placeholder = match select_def.mode() {
-            SelectMode::Single { .. } => {
+            SelectMode::Single => {
                 self.value().is_none() || self.value().as_deref() == Some("")
             }
             SelectMode::Multiple => self.values().is_empty(),

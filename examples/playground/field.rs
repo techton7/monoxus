@@ -1368,7 +1368,7 @@ fn PinAndSliderFormResetSection() -> Element {
                                     "data-gui-test-id": "field-s5-slider-thumb",
                                     index: 0,
                                     class: Some("sw2b-slider-thumb".to_string()),
-                                    aria_label: Some("Priority Level".to_string()),
+                                    aria_label: "Priority Level",
                                 }
                             }
                         }

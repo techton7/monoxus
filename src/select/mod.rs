@@ -12,8 +12,8 @@ pub mod typeahead;
 pub mod types;
 pub mod viewport;
 
-pub use crate::compat::select::{attrs, registry, relationships, state};
-pub use crate::compat::select::{attrs::*, registry::*, relationships::*, state::*};
+pub use ui_sdk::select::{attrs, registry, relationships, state};
+pub use ui_sdk::select::{attrs::*, registry::*, relationships::*, state::*};
 
 pub use self::arrow::*;
 pub use self::content::*;

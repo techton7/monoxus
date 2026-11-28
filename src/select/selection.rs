@@ -78,12 +78,15 @@ impl SelectRuntime {
             return;
         }
 
-        let mode = self.select.read().mode();
+        let (mode, allow_deselect) = {
+            let select = self.select.read();
+            (select.mode(), select.allows_deselect())
+        };
 
         // AC-6 / BI-P3.5-004: Clear-item placeholder reset (value = "")
         if val.is_empty() {
             match mode {
-                SelectMode::Single { .. } => {
+                SelectMode::Single => {
                     if self.value().is_some() {
                         self.propose_single_value(None);
                     }
@@ -107,7 +110,7 @@ impl SelectRuntime {
         }
 
         match mode {
-            SelectMode::Single { allow_deselect } => {
+            SelectMode::Single => {
                 let current_val = self.value();
                 let is_current = current_val.as_deref() == Some(val);
                 let next_val = if allow_deselect && is_current {

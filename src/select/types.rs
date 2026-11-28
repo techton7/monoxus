@@ -2,7 +2,7 @@ use dioxus::prelude::Signal;
 
 use super::runtime::SelectRuntime;
 
-pub use crate::compat::select::types::*;
+pub use ui_sdk::select::types::*;
 
 #[derive(Clone)]
 pub struct SelectContext {

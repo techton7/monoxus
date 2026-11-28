@@ -95,7 +95,7 @@ impl SelectRuntime {
         drop(select_def);
 
         match mode {
-            SelectMode::Single { .. } => {
+            SelectMode::Single => {
                 let default_val = self.default_value();
                 if self.value() == default_val {
                     return;
