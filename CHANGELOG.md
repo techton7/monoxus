@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0](https://github.com/techton7/monoxus/compare/monoxus-v0.1.2...monoxus-v0.2.0) - 2026-11-28
+
+### Changed
+
+- *(monoxus)* depend directly on published `ui-sdk = "0.2.0"` (crates.io) across all 45 public primitives + internal `menu`, relocating `[KEEP-MONOXUS-BRAND]` shims under `src/compat/` and deprecating `crates/monoxus-core`
+- *(monoxus)* normalize all 45 primitives to single `child: Option<Callback<Vec<Attribute>, Element>>` (and `FloatingContentChildProps` for floating overlays) powered by `merge_props` (`class`/`style`/`aria-describedby` merging and user-first `ListenerCallback` chaining with `prevent_default()` veto)
+- *(monoxus)* standardize controlled state to value-based `Option<T>` + `default_*` + `on_*_change` (removing `Option<Signal<T>>` / `controlled_*` props) with zero-frame-flash controlled veto
+- *(monoxus)* relocate floating placement, portal host, focus, scroll-lock, and 4-way `DismissBehavior` policies from overlay/picker roots to `*Content` / `*Portal` and convert overlay & `Select` roots to non-DOM fragments
+- *(monoxus)* modernize `Select` (unit `SelectMode::Single | Multiple`, context-wired `SelectGroup`/`SelectLabel`, auto-hiding `SelectItemIndicator`, auto-scrolling `SelectScroll{Up,Down}Button`, explicit `SelectPortalProps`/`SelectHiddenInputProps`, `Select` root alias)
+- *(monoxus)* add `TransitionStatus` (`data-starting-style` / `data-ending-style`), `keep_mounted`, `Portal.disabled`, `TabsRoot.disabled`, `TooltipRoot` shared provider override preservation, and remove redundant pass-through `aria_*` / `test_id` props
+- *(site)* sync `monoxus/site` MVP 5 component schemas, interactive demos, Composition/Styling guides, and API Reference tables to `v0.2.0`
+
 ## [0.1.1](https://github.com/techton7/monoxus/compare/monoxus-v0.1.0...monoxus-v0.1.1) - 2026-11-25
 
 ### Added

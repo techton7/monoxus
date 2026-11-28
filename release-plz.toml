@@ -5,5 +5,9 @@ changelog_update = true
 semver_check = false
 
 [[package]]
+name = "monoxus"
+publish = false
+
+[[package]]
 name = "monoxus-core"
 release = false

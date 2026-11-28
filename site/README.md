@@ -12,7 +12,7 @@ Official documentation and interactive showcase website for [Monoxus](https://gi
 
 ### Repository Layout & `monoxus` Dependency
 
-`monoxus-site` lives in `monoxus/site/` as an excluded independent Cargo package. `site/Cargo.toml` pins the tagged release `monoxus-v0.1.2` from `https://github.com/techton7/monoxus.git`.
+`monoxus-site` lives in `monoxus/site/` as an excluded independent Cargo package. `site/Cargo.toml` pins the tagged release `monoxus-v0.2.0` from `https://github.com/techton7/monoxus.git`.
 
 To test unreleased local changes from the parent crate, add a temporary `.cargo/config.toml` patch override pointing `https://github.com/techton7/monoxus.git` to `..`.
 

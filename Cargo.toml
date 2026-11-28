@@ -6,7 +6,7 @@ exclude = ["site"]
 
 [package]
 name = "monoxus"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 description = "Headless Dioxus primitives and shared foundations for accessible, composable component systems."
 readme = "README.md"
