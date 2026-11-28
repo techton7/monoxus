@@ -3297,14 +3297,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "monoxus-core"
-version = "0.1.2"
-dependencies = [
- "serde",
- "ui-sdk",
-]
-
-[[package]]
 name = "moxcms"
 version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

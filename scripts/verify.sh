@@ -65,9 +65,6 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ "$skip_checks" == false ]]; then
-    cargo check -p monoxus-core --lib
-    cargo check -p monoxus-core --target wasm32-unknown-unknown
-    cargo test -p monoxus-core
     cargo check --lib
     cargo check --target wasm32-unknown-unknown
 fi
