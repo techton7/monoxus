@@ -366,7 +366,8 @@ fn write_docs_gen(out_path: &Path, manifest_dir: &Path, docs: &[CompiledDoc]) {
     out.push_str("pub fn highlighted_demo(slug: &str) -> &'static str {\n");
     out.push_str("    match slug {\n");
     for comp in component_docs {
-        let demo_path = demos_dir.join(format!("{}_demo.rs", comp.slug));
+        let demo_stem = comp.slug.replace('-', "_");
+        let demo_path = demos_dir.join(format!("{demo_stem}_demo.rs"));
         let demo_src = fs::read_to_string(&demo_path).unwrap_or_default();
         let highlighted = highlight_rust(&demo_src);
         out.push_str(&format!("        {:?} => {:?},\n", comp.slug, highlighted));
@@ -392,7 +393,8 @@ fn write_public_outputs(manifest_dir: &Path, public_dir: &Path, docs: &[Compiled
     let _ = fs::create_dir_all(&components_dir);
     let demos_dir = manifest_dir.join("src").join("demos");
     for comp in api_schema::all_component_docs() {
-        let demo_path = demos_dir.join(format!("{}_demo.rs", comp.slug));
+        let demo_stem = comp.slug.replace('-', "_");
+        let demo_path = demos_dir.join(format!("{demo_stem}_demo.rs"));
         let demo_src = fs::read_to_string(&demo_path).unwrap_or_default();
         let comp_md = api_schema::component_to_markdown(comp, &demo_src);
         let target_file = components_dir.join(format!("{}.md", comp.slug));

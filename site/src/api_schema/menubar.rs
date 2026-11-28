@@ -1,0 +1,94 @@
+use super::{
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
+    shared_menu::menu_parts_slice,
+};
+
+pub(super) const MENUBAR_DOC: ComponentDoc = ComponentDoc {
+    slug: "menubar",
+    title: "Menubar",
+    description: "Desktop-style horizontal menubar coordinating multiple named menus with roving trigger focus, pointer hover-swap, cross-menu arrow navigation, and nested submenus.",
+    keywords: "menubar desktop menu bar horizontal hover swap roving focus submenu",
+    features: &[
+        "Horizontal `role=\"menubar\"` root managing controlled or uncontrolled active menu value",
+        "Pointer hover-swap switches immediately between top-level menus while any menu is open",
+        "Cross-menu `ArrowLeft`/`ArrowRight` navigation steps seamlessly between top-level menus and submenus",
+        "Full shared menu surface capabilities: checkbox groups, radio groups, typeahead, submenus, and floating/static content",
+        "Exposes --monoxus-menubar-* and --radix-menubar-* CSS custom properties",
+    ],
+    anatomy: "use monoxus::menubar::{\n    MenubarCheckboxItem, MenubarContent, MenubarItem, MenubarItemIndicator, MenubarMenu,\n    MenubarPortal, MenubarRadioGroup, MenubarRadioItem, MenubarRoot, MenubarSeparator,\n    MenubarSub, MenubarSubContent, MenubarSubTrigger, MenubarTrigger,\n};\n\nrsx! {\n    MenubarRoot {\n        MenubarMenu { value: \"file\",\n            MenubarTrigger { \"File\" }\n            MenubarPortal {\n                MenubarContent {\n                    MenubarItem { \"New Tab\" }\n                    MenubarSeparator {}\n                    MenubarSub {\n                        MenubarSubTrigger { \"Share\" }\n                        MenubarPortal {\n                            MenubarSubContent {\n                                MenubarItem { \"Email link\" }\n                            }\n                        }\n                    }\n                }\n            }\n        }\n        MenubarMenu { value: \"view\",\n            MenubarTrigger { \"View\" }\n            MenubarPortal {\n                MenubarContent {\n                    MenubarCheckboxItem {\n                        MenubarItemIndicator { \"✓\" }\n                        \"Always Show Bookmarks\"\n                    }\n                    MenubarRadioGroup { default_value: \"100\",\n                        MenubarRadioItem { value: \"100\",\n                            MenubarItemIndicator { \"•\" }\n                            \"100% Zoom\"\n                        }\n                    }\n                }\n            }\n        }\n    }\n}",
+    source_path: "src/menubar/mod.rs",
+    aria_url: "https://www.w3.org/WAI/ARIA/apg/patterns/menubar/",
+    aria_label: "WAI-ARIA Menubar Pattern",
+    parts: menu_parts_slice!(
+        "Menubar",
+        "menubar",
+        [
+            PartDoc {
+                name: "MenubarRoot",
+                description: "Horizontal `role=\"menubar\"` root container coordinating roving focus, hover swaps, and cross-menu keyboard navigation.",
+                props: &[
+                    prop_id("Custom menubar root element ID."),
+                    PROP_CLASS,
+                    PROP_STYLE,
+                    PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Controlled active menu value (empty string when all menus are closed)." },
+                    PropDoc { name: "default_value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Initial active menu value when uncontrolled." },
+                    PropDoc { name: "on_value_change", type_simple: "EventHandler<String>", type_full: "Option<EventHandler<String>>", default: None, required: false, group: PropGroup::Core, description: "Called when the active top-level menu value changes." },
+                    PropDoc { name: "dir", type_simple: "Direction", type_full: "Option<Direction>", default: None, required: false, group: PropGroup::Core, description: "Reading direction (Ltr | Rtl) inherited from DirectionProvider when omitted." },
+                    PropDoc { name: "loop_focus", type_simple: "bool", type_full: "bool", default: Some("true"), required: false, group: PropGroup::Core, description: "Wraps horizontal trigger and vertical menu keyboard navigation." },
+                    PropDoc { name: "submenu_open_delay_ms", type_simple: "u64", type_full: "Option<u64>", default: Some("100"), required: false, group: PropGroup::Core, description: "Default hover delay in milliseconds before nested submenus open." },
+                    PROP_CHILD,
+                    PROP_ATTRIBUTES,
+                    PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "MenubarMenu slots." },
+                ],
+                data_attrs: &[
+                    DataAttrDoc { name: "data-monoxus-menubar-root", values: "\"\"", description: "Part marker attribute." },
+                ],
+                css_vars: &[],
+            },
+            PartDoc {
+                name: "MenubarMenu",
+                description: "Non-DOM named menu slot owned by MenubarRoot.",
+                props: &[
+                    PropDoc { name: "value", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::Core, description: "Unique menu identifier; auto-generated when omitted." },
+                    PropDoc { name: "on_open_change_complete", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Called after this menu's open/close presence transitions complete." },
+                    PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "MenubarTrigger and MenubarPortal children." },
+                ],
+                data_attrs: &[],
+                css_vars: &[],
+            },
+            PartDoc {
+                name: "MenubarTrigger",
+                description: "Interactive `role=\"menuitem\"` button inside MenubarMenu participating in horizontal roving focus and pointer hover-swap.",
+                props: &[
+                    prop_id("Custom trigger element ID."),
+                    PROP_CLASS,
+                    PROP_STYLE,
+                    PropDoc { name: "disabled", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Disables this menu trigger and excludes it from roving focus." },
+                    PropDoc { name: "on_click", type_simple: "EventHandler<MouseEvent>", type_full: "Option<EventHandler<MouseEvent>>", default: None, required: false, group: PropGroup::Core, description: "Click handler composed with menu toggling." },
+                    PropDoc { name: "on_key_down", type_simple: "EventHandler<KeyboardEvent>", type_full: "Option<EventHandler<KeyboardEvent>>", default: None, required: false, group: PropGroup::Core, description: "Keydown handler composed with menubar navigation." },
+                    PROP_ON_MOUNTED,
+                    PROP_CHILD,
+                    PROP_ATTRIBUTES,
+                    PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "Top-level menu button label." },
+                ],
+                data_attrs: &[
+                    DataAttrDoc { name: "data-state", values: "\"open\" | \"closed\"", description: "Whether this menu is currently open." },
+                    DataAttrDoc { name: "data-highlighted", values: "\"\"", description: "Present when the trigger is focused or active." },
+                    DataAttrDoc { name: "data-disabled", values: "\"\"", description: "Present when disabled is true." },
+                    DataAttrDoc { name: "data-monoxus-menubar-trigger", values: "\"\"", description: "Part marker attribute." },
+                ],
+                css_vars: &[],
+            },
+        ]
+    ),
+    keyboard: &[
+        KeyboardDoc { key: "ArrowRight / ArrowLeft (Trigger)", description: "Moves focus to the next or previous menubar trigger (and swaps open menu when active)." },
+        KeyboardDoc { key: "Home / End (Trigger)", description: "Moves focus to the first or last enabled menubar trigger." },
+        KeyboardDoc { key: "Enter / Space / ArrowDown (Trigger)", description: "Opens the focused menu and moves focus to its first enabled item." },
+        KeyboardDoc { key: "ArrowDown / ArrowUp (Content)", description: "Moves focus between enabled items inside the open menu." },
+        KeyboardDoc { key: "ArrowRight / ArrowLeft (Content)", description: "Opens/closes submenus or steps across adjacent top-level menubar menus." },
+        KeyboardDoc { key: "Printable characters", description: "Typeahead search highlights the next matching item." },
+        KeyboardDoc { key: "Escape", description: "Closes the active menu and returns focus to its MenubarTrigger." },
+    ],
+};

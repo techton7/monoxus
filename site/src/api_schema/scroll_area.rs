@@ -1,0 +1,142 @@
+use super::{
+    ComponentDoc, CssVarDoc, DataAttrDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
+};
+
+pub(super) const SCROLL_AREA_DOC: ComponentDoc = ComponentDoc {
+    slug: "scroll-area",
+    title: "Scroll Area",
+    description: "Augments native scroll containers with custom, cross-browser styled scrollbars, proportional thumb dragging, wheel forwarding, ResizeObserver metrics, and RTL corner coordination.",
+    keywords: "scroll area scrollbar thumb viewport overflow custom scrollbars corner",
+    features: &[
+        "Four scrollbar visibility modes via ScrollAreaType (Hover, Scroll, Auto, Always) with configurable scroll_hide_delay",
+        "Preserves native momentum scrolling and keyboard scrolling while hiding browser-native scrollbars",
+        "Proportional thumb sizing and direct pointer-capture dragging on ScrollAreaThumb and ScrollAreaScrollbar tracks",
+        "Automatic ResizeObserver and scroll metric syncing on ScrollAreaViewport and ScrollAreaContent",
+        "Exposes corner and thumb CSS custom properties for clean two-axis and RTL layouts",
+    ],
+    anatomy: "use monoxus::foundation::shared::Orientation;\nuse monoxus::scroll_area::{\n    ScrollAreaCorner, ScrollAreaRoot, ScrollAreaScrollbar,\n    ScrollAreaThumb, ScrollAreaType, ScrollAreaViewport,\n};\n\nrsx! {\n    ScrollAreaRoot {\n        r#type: ScrollAreaType::Hover,\n        ScrollAreaViewport {\n            div { \"Scrollable content\" }\n        }\n        ScrollAreaScrollbar {\n            orientation: Orientation::Vertical,\n            ScrollAreaThumb {}\n        }\n        ScrollAreaCorner {}\n    }\n}",
+    source_path: "src/scroll_area/mod.rs",
+    aria_url: "https://w3c.github.io/aria/#scrollbar",
+    aria_label: "WAI-ARIA Scrollbar Role Specification",
+    parts: &[
+        PartDoc {
+            name: "ScrollAreaRoot",
+            description: "Outer relative container coordinating scrollbar visibility mode, direction, hide delay timers, and corner CSS custom properties.",
+            props: &[
+                prop_id("Custom scroll area root ID."),
+                PropDoc { name: "r#type", type_simple: "ScrollAreaType", type_full: "monoxus::scroll_area::ScrollAreaType (Hover | Scroll | Auto | Always)", default: Some("ScrollAreaType::Hover"), required: false, group: PropGroup::Core, description: "Controls when custom scrollbars are visible." },
+                PropDoc { name: "dir", type_simple: "Direction", type_full: "Option<monoxus::foundation::shared::Direction> (Ltr | Rtl)", default: Some("Direction::Ltr"), required: false, group: PropGroup::Core, description: "Reading direction override; mirrors vertical scrollbar and corner placement in RTL." },
+                PropDoc { name: "scroll_hide_delay", type_simple: "u64", type_full: "u64", default: Some("600"), required: false, group: PropGroup::Core, description: "Delay in milliseconds before hiding scrollbars in Hover or Scroll mode." },
+                PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "ScrollAreaViewport, ScrollAreaScrollbar, and optional ScrollAreaCorner parts." },
+                PROP_CLASS,
+                PROP_STYLE,
+                PROP_CHILD,
+                PROP_ATTRIBUTES,
+            ],
+            data_attrs: &[
+                DataAttrDoc { name: "data-monoxus-scroll-area-root", values: "\"\"", description: "Identifies the scroll area root element." },
+            ],
+            css_vars: &[
+                CssVarDoc { name: "--monoxus-scroll-area-corner-width", description: "Measured width of the horizontal/vertical scrollbar intersection corner." },
+                CssVarDoc { name: "--monoxus-scroll-area-corner-height", description: "Measured height of the horizontal/vertical scrollbar intersection corner." },
+            ],
+        },
+        PartDoc {
+            name: "ScrollAreaViewport",
+            description: "Native scrollable viewport with hidden browser scrollbars, ResizeObserver syncing, and an implicit ScrollAreaContent wrapper.",
+            props: &[
+                prop_id("Custom viewport element ID."),
+                PropDoc { name: "nonce", type_simple: "String", type_full: "Option<String>", default: None, required: false, group: PropGroup::HtmlAria, description: "CSP nonce applied to the injected <style> tag hiding native scrollbars." },
+                PropDoc { name: "disable_implicit_content_element", type_simple: "bool", type_full: "Option<bool>", default: Some("false"), required: false, group: PropGroup::Core, description: "Disables automatic wrapping of children inside ScrollAreaContent so you can mount ScrollAreaContent explicitly." },
+                PropDoc { name: "on_scroll", type_simple: "EventHandler<ScrollEvent>", type_full: "Option<EventHandler<ScrollEvent>>", default: None, required: false, group: PropGroup::Core, description: "Scroll handler forwarded to the viewport element." },
+                PROP_ON_MOUNTED,
+                PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "Scrollable body content." },
+                PROP_CLASS,
+                PROP_STYLE,
+                PROP_CHILD,
+                PROP_ATTRIBUTES,
+            ],
+            data_attrs: &[
+                DataAttrDoc { name: "data-monoxus-scroll-area-viewport", values: "\"\"", description: "Identifies the scroll area viewport element." },
+            ],
+            css_vars: &[],
+        },
+        PartDoc {
+            name: "ScrollAreaContent",
+            description: "Inner content wrapper (`role=\"presentation\"`) observed for content size changes so scrollbar thumbs stay in sync when dynamic content resizes.",
+            props: &[
+                prop_id("Custom content wrapper ID."),
+                PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "Content rendered inside the viewport." },
+                PROP_CLASS,
+                PROP_STYLE,
+                PROP_CHILD,
+                PROP_ATTRIBUTES,
+            ],
+            data_attrs: &[
+                DataAttrDoc { name: "data-monoxus-scroll-area-content", values: "\"\"", description: "Identifies the scroll area content wrapper." },
+            ],
+            css_vars: &[],
+        },
+        PartDoc {
+            name: "ScrollAreaScrollbar",
+            description: "Custom scrollbar track (`role=\"scrollbar\"`) supporting track clicks, pointer-capture dragging, wheel forwarding, and presence transitions.",
+            props: &[
+                prop_id("Custom scrollbar track ID."),
+                PropDoc { name: "orientation", type_simple: "Orientation", type_full: "monoxus::foundation::shared::Orientation (Horizontal | Vertical)", default: None, required: true, group: PropGroup::Core, description: "Axis controlled by this scrollbar." },
+                PropDoc { name: "force_mount", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Keeps the scrollbar mounted in the DOM even when hidden." },
+                PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "ScrollAreaThumb element." },
+                PROP_CLASS,
+                PROP_STYLE,
+                PROP_CHILD,
+                PROP_ATTRIBUTES,
+            ],
+            data_attrs: &[
+                DataAttrDoc { name: "data-orientation", values: "\"horizontal\" | \"vertical\"", description: "Scrollbar axis orientation." },
+                DataAttrDoc { name: "data-state", values: "\"visible\" | \"hidden\"", description: "Current scrollbar visibility state." },
+                DataAttrDoc { name: "data-monoxus-scroll-area-scrollbar", values: "\"\"", description: "Identifies a scroll area scrollbar track." },
+            ],
+            css_vars: &[
+                CssVarDoc { name: "--monoxus-scroll-area-thumb-width", description: "Computed thumb width in pixels for horizontal scrollbars." },
+                CssVarDoc { name: "--monoxus-scroll-area-thumb-height", description: "Computed thumb height in pixels for vertical scrollbars." },
+            ],
+        },
+        PartDoc {
+            name: "ScrollAreaThumb",
+            description: "Draggable proportional thumb translated along its parent ScrollAreaScrollbar track.",
+            props: &[
+                prop_id("Custom thumb element ID."),
+                PropDoc { name: "force_mount", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Keeps the thumb mounted even when content does not overflow." },
+                PropDoc { name: "children", type_simple: "Element", type_full: "Option<Element>", default: None, required: false, group: PropGroup::Core, description: "Optional inner thumb markup." },
+                PROP_CLASS,
+                PROP_STYLE,
+                PROP_CHILD,
+                PROP_ATTRIBUTES,
+            ],
+            data_attrs: &[
+                DataAttrDoc { name: "data-state", values: "\"visible\" | \"hidden\"", description: "Whether the thumb is active for overflowing content." },
+                DataAttrDoc { name: "data-monoxus-scroll-area-thumb", values: "\"\"", description: "Identifies the scroll area thumb element." },
+            ],
+            css_vars: &[],
+        },
+        PartDoc {
+            name: "ScrollAreaCorner",
+            description: "Intersection element rendered where both horizontal and vertical scrollbars meet.",
+            props: &[
+                prop_id("Custom corner element ID."),
+                PropDoc { name: "force_mount", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Keeps the corner mounted even when fewer than two scrollbars are visible." },
+                PropDoc { name: "children", type_simple: "Element", type_full: "Option<Element>", default: None, required: false, group: PropGroup::Core, description: "Optional inner corner markup." },
+                PROP_CLASS,
+                PROP_STYLE,
+                PROP_CHILD,
+                PROP_ATTRIBUTES,
+            ],
+            data_attrs: &[
+                DataAttrDoc { name: "data-state", values: "\"visible\" | \"hidden\"", description: "Current corner visibility state." },
+                DataAttrDoc { name: "data-monoxus-scroll-area-corner", values: "\"\"", description: "Identifies the scroll area corner element." },
+            ],
+            css_vars: &[],
+        },
+    ],
+    keyboard: &[],
+};

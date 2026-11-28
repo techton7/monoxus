@@ -1,8 +1,50 @@
+mod shared_menu;
+
+mod accessible_icon;
+mod accordion;
+mod alert_dialog;
+mod aspect_ratio;
+mod avatar;
 mod button;
+mod calendar;
+mod checkbox;
+mod collapsible;
+mod combobox;
+mod command;
+mod context_menu;
+mod date_field;
+mod date_picker;
+mod date_range_field;
+mod date_range_picker;
 mod dialog;
+mod dropdown_menu;
+mod field;
+mod hover_card;
+mod label;
+mod menubar;
+mod meter;
+mod navigation_menu;
+mod pagination;
+mod pin_input;
+mod popover;
+mod progress;
+mod radio_group;
+mod range_calendar;
+mod rating_group;
+mod scroll_area;
 mod select;
+mod separator;
+mod slider;
+mod switch;
 mod tabs;
+mod time_field;
+mod time_range_field;
+mod toast;
+mod toggle;
+mod toggle_group;
+mod toolbar;
 mod tooltip;
+mod visually_hidden;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PropGroup {
@@ -140,11 +182,51 @@ pub struct ComponentDoc {
 }
 
 static ALL_COMPONENT_DOCS: &[ComponentDoc] = &[
+    accessible_icon::ACCESSIBLE_ICON_DOC,
+    accordion::ACCORDION_DOC,
+    alert_dialog::ALERT_DIALOG_DOC,
+    aspect_ratio::ASPECT_RATIO_DOC,
+    avatar::AVATAR_DOC,
     button::BUTTON_DOC,
+    calendar::CALENDAR_DOC,
+    checkbox::CHECKBOX_DOC,
+    collapsible::COLLAPSIBLE_DOC,
+    combobox::COMBOBOX_DOC,
+    command::COMMAND_DOC,
+    context_menu::CONTEXT_MENU_DOC,
+    date_field::DATE_FIELD_DOC,
+    date_picker::DATE_PICKER_DOC,
+    date_range_field::DATE_RANGE_FIELD_DOC,
+    date_range_picker::DATE_RANGE_PICKER_DOC,
     dialog::DIALOG_DOC,
+    dropdown_menu::DROPDOWN_MENU_DOC,
+    field::FIELD_DOC,
+    hover_card::HOVER_CARD_DOC,
+    label::LABEL_DOC,
+    menubar::MENUBAR_DOC,
+    meter::METER_DOC,
+    navigation_menu::NAVIGATION_MENU_DOC,
+    pagination::PAGINATION_DOC,
+    pin_input::PIN_INPUT_DOC,
+    popover::POPOVER_DOC,
+    progress::PROGRESS_DOC,
+    radio_group::RADIO_GROUP_DOC,
+    range_calendar::RANGE_CALENDAR_DOC,
+    rating_group::RATING_GROUP_DOC,
+    scroll_area::SCROLL_AREA_DOC,
     select::SELECT_DOC,
+    separator::SEPARATOR_DOC,
+    slider::SLIDER_DOC,
+    switch::SWITCH_DOC,
     tabs::TABS_DOC,
+    time_field::TIME_FIELD_DOC,
+    time_range_field::TIME_RANGE_FIELD_DOC,
+    toast::TOAST_DOC,
+    toggle::TOGGLE_DOC,
+    toggle_group::TOGGLE_GROUP_DOC,
+    toolbar::TOOLBAR_DOC,
     tooltip::TOOLTIP_DOC,
+    visually_hidden::VISUALLY_HIDDEN_DOC,
 ];
 
 pub fn all_component_docs() -> &'static [ComponentDoc] {

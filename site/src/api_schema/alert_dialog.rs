@@ -1,0 +1,80 @@
+use super::{
+    ComponentDoc, DataAttrDoc, KeyboardDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS,
+    PROP_ON_MOUNTED, PROP_STYLE, PartDoc, PropDoc, PropGroup, prop_id,
+};
+
+pub(super) const ALERT_DIALOG_DOC: ComponentDoc = ComponentDoc {
+    slug: "alert-dialog",
+    title: "Alert Dialog",
+    description: "Modal confirmation dialog that interrupts the user for a required decision, sharing DialogTrigger, DialogPortal, DialogOverlay, DialogContent, DialogTitle, and DialogDescription while defaulting initial focus to AlertDialogCancel.",
+    keywords: "alert dialog alertdialog confirmation modal destructive cancel action focus trap",
+    features: &[
+        "Dedicated AlertDialogRoot with role=\"alertdialog\" and modal confirmation semantics",
+        "Shares DialogTrigger, DialogPortal, DialogOverlay, DialogContent, DialogTitle, and DialogDescription",
+        "Automatically targets AlertDialogCancel for initial open focus to prevent accidental destructive confirmation",
+        "Controlled (open: Option<bool> + on_open_change) and uncontrolled (default_open) state",
+        "AlertDialogAction and AlertDialogCancel close the dialog on click unless prevent_default() is called",
+    ],
+    anatomy: "use monoxus::alert_dialog::{\n    AlertDialogAction, AlertDialogCancel, AlertDialogRoot, DialogContent,\n    DialogDescription, DialogOverlay, DialogPortal, DialogTitle, DialogTrigger,\n};\n\nrsx! {\n    AlertDialogRoot {\n        DialogTrigger { \"Delete\" }\n        DialogPortal {\n            DialogOverlay {}\n            DialogContent {\n                DialogTitle { \"Confirm deletion\" }\n                DialogDescription { \"This action cannot be undone.\" }\n                AlertDialogCancel { \"Cancel\" }\n                AlertDialogAction { \"Continue\" }\n            }\n        }\n    }\n}",
+    source_path: "src/alert_dialog.rs",
+    aria_url: "https://www.w3.org/WAI/ARIA/apg/patterns/alertdialog/",
+    aria_label: "WAI-ARIA Alert and Message Dialogs Pattern",
+    parts: &[
+        PartDoc {
+            name: "AlertDialogRoot",
+            description: "Non-DOM fragment provider managing modal alert dialog open state, alertdialog role semantics, and shared DialogContext for descendant parts (DialogTrigger, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription, AlertDialogAction, AlertDialogCancel).",
+            props: &[
+                prop_id("Custom scope identifier."),
+                PropDoc { name: "open", type_simple: "bool", type_full: "Option<bool>", default: None, required: false, group: PropGroup::Core, description: "Controlled open state value." },
+                PropDoc { name: "default_open", type_simple: "bool", type_full: "bool", default: Some("false"), required: false, group: PropGroup::Core, description: "Initial open state when uncontrolled." },
+                PropDoc { name: "on_open_change", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked when open state changes." },
+                PropDoc { name: "on_open_change_complete", type_simple: "EventHandler<bool>", type_full: "Option<EventHandler<bool>>", default: None, required: false, group: PropGroup::Core, description: "Callback invoked after open/close presence transitions complete." },
+                PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: true, group: PropGroup::Core, description: "Alert dialog trigger and portal content." },
+            ],
+            data_attrs: &[],
+            css_vars: &[],
+        },
+        PartDoc {
+            name: "AlertDialogAction",
+            description: "Confirmation button that runs its click handler and closes the alert dialog unless default action is prevented.",
+            props: &[
+                prop_id("Custom action button ID."),
+                PROP_CLASS,
+                PROP_STYLE,
+                PropDoc { name: "on_click", type_simple: "EventHandler<MouseEvent>", type_full: "Option<EventHandler<MouseEvent>>", default: None, required: false, group: PropGroup::Core, description: "Click handler chained before closing; call prevent_default() to keep the dialog open." },
+                PropDoc { name: "on_key_down", type_simple: "EventHandler<KeyboardEvent>", type_full: "Option<EventHandler<KeyboardEvent>>", default: None, required: false, group: PropGroup::Core, description: "Keydown handler forwarded to the action button." },
+                PROP_ON_MOUNTED,
+                PROP_CHILD,
+                PROP_ATTRIBUTES,
+                PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "Action button label." },
+            ],
+            data_attrs: &[
+                DataAttrDoc { name: "data-state", values: "\"open\" | \"closed\"", description: "Current alert dialog open state." },
+            ],
+            css_vars: &[],
+        },
+        PartDoc {
+            name: "AlertDialogCancel",
+            description: "Safe-default cancel button that registers itself as the initial open focus target inside AlertDialogRoot and closes the dialog on click.",
+            props: &[
+                prop_id("Custom cancel button ID."),
+                PROP_CLASS,
+                PROP_STYLE,
+                PropDoc { name: "on_click", type_simple: "EventHandler<MouseEvent>", type_full: "Option<EventHandler<MouseEvent>>", default: None, required: false, group: PropGroup::Core, description: "Click handler chained before closing; call prevent_default() to veto close." },
+                PropDoc { name: "on_key_down", type_simple: "EventHandler<KeyboardEvent>", type_full: "Option<EventHandler<KeyboardEvent>>", default: None, required: false, group: PropGroup::Core, description: "Keydown handler forwarded to the cancel button." },
+                PROP_ON_MOUNTED,
+                PROP_CHILD,
+                PROP_ATTRIBUTES,
+                PropDoc { name: "children", type_simple: "Element", type_full: "dioxus::prelude::Element", default: None, required: false, group: PropGroup::Core, description: "Cancel button label." },
+            ],
+            data_attrs: &[
+                DataAttrDoc { name: "data-state", values: "\"open\" | \"closed\"", description: "Current alert dialog open state." },
+            ],
+            css_vars: &[],
+        },
+    ],
+    keyboard: &[
+        KeyboardDoc { key: "Tab / Shift+Tab", description: "Cycles focus within DialogContent while the alert dialog is open." },
+        KeyboardDoc { key: "Escape", description: "Closes the alert dialog and restores focus to DialogTrigger unless overridden via DialogContent." },
+    ],
+};

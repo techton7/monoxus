@@ -44,6 +44,39 @@ fn is_excluded_component_fn(slug: &str, fn_name: &str) -> bool {
     slug == "dialog" && matches!(fn_name, "AlertDialogAction" | "AlertDialogCancel")
 }
 
+fn augment_reexported_parts(slug: &str, base: &Path, parsed: &mut ParsedComponentSource) {
+    if slug == "alert-dialog" {
+        let mut dialog_files = Vec::new();
+        collect_rs_files(&base.join("dialog"), &mut dialog_files);
+        let dialog_parsed = collect_component_props(&dialog_files);
+        for name in ["AlertDialogAction", "AlertDialogCancel"] {
+            if let Some(props) = dialog_parsed.pub_fns.get(name) {
+                parsed.pub_fns.insert(name.to_string(), props.clone());
+                parsed.component_fns.insert(name.to_string());
+            }
+        }
+    }
+    if let Some(prefix) = match slug {
+        "context-menu" => Some("ContextMenu"),
+        "dropdown-menu" => Some("DropdownMenu"),
+        "menubar" => Some("Menubar"),
+        _ => None,
+    } {
+        let mut menu_files = Vec::new();
+        collect_rs_files(&base.join("menu"), &mut menu_files);
+        let menu_parsed = collect_component_props(&menu_files);
+        for (orig_name, props) in &menu_parsed.pub_fns {
+            if menu_parsed.component_fns.contains(orig_name) {
+                if let Some(suffix) = orig_name.strip_prefix("Menu") {
+                    let aliased = format!("{prefix}{suffix}");
+                    parsed.pub_fns.insert(aliased.clone(), props.clone());
+                    parsed.component_fns.insert(aliased);
+                }
+            }
+        }
+    }
+}
+
 fn extract_type_ident(ty: &Type) -> Option<String> {
     if let Type::Path(tp) = ty {
         tp.path.segments.last().map(|seg| seg.ident.to_string())
@@ -129,9 +162,10 @@ fn collect_component_props(files: &[PathBuf]) -> ParsedComponentSource {
 fn api_schema_matches_monoxus_source() {
     let base = monoxus_src_dir();
     let docs = all_component_docs();
-    assert!(
-        !docs.is_empty(),
-        "expected at least one documented component in api_schema"
+    assert_eq!(
+        docs.len(),
+        45,
+        "expected all 45 public monoxus primitives to be documented in api_schema"
     );
 
     let mut all_undocumented_parts = Vec::new();
@@ -159,7 +193,8 @@ fn api_schema_matches_monoxus_source() {
         rs_files.sort();
         rs_files.dedup();
 
-        let parsed = collect_component_props(&rs_files);
+        let mut parsed = collect_component_props(&rs_files);
+        augment_reexported_parts(comp.slug, &base, &mut parsed);
         let mut documented_parts = HashSet::new();
 
         for part in comp.parts {

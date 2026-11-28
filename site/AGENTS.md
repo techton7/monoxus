@@ -6,7 +6,7 @@ Conventions for per-page and per-component files not enforced automatically by s
 
 - **Prop grouping**: Classify every prop with `PropGroup`: `Core` (component behavior/state/callbacks), `Common` (`class`, `style`, `id`, `child`, `on_mounted`, `attributes`), or `HtmlAria` (forwarded HTML/ARIA/data attributes).
 - **Types & defaults**: Set `type_simple` by stripping outer `Option<...>` (e.g., `bool`, `Side`) and `type_full` to the exact Rust type (`Option<bool>`). Write enum defaults as `Type::Variant` (e.g., `Side::Bottom`). Preserve exact `r#` raw identifiers (e.g., `r#type`, `r#for`).
-- **Source fidelity**: Verify `features`, `anatomy`, `data_attrs`, `css_vars`, and `keyboard` directly against `../src` and `../crates/monoxus-core/src`; never invent unsupported attributes or key bindings.
+- **Source fidelity**: Verify `features`, `anatomy`, `data_attrs`, `css_vars`, and `keyboard` directly against `../src` and `ui-sdk`; never invent unsupported attributes or key bindings.
 - **Keyboard interactions**: List only non-trivial library-implemented keyboard behaviors (roving focus, focus trap, Escape dismissal, typeahead, keyboard-focus tooltip triggers, etc.); omit native browser defaults (`Space`/`Enter` on `<button>` or `<a>`), and set `keyboard: &[]` when none apply.
 
 ## Interactive Demos (`src/demos/<slug>_demo.rs`)
@@ -17,7 +17,7 @@ Conventions for per-page and per-component files not enforced automatically by s
 
 ## Markdown Docs (`content/**/*.md`)
 
-- **Overview prose**: Lead overview pages with the Web (WASM) + Blitz Native value proposition. Link project names (`[Dioxus]`, `[monoxus]`, `[monoxus-core]`, `[oxidase]`, `[Blitz]`) instead of using inline backticks. Avoid dumping raw `aria-*` / `data-*` attribute lists in overview prose.
+- **Overview prose**: Lead overview pages with the Web (WASM) + Blitz Native value proposition. Link project names (`[Dioxus]`, `[monoxus]`, `[ui-sdk]`, `[oxidase]`, `[Blitz]`) instead of using inline backticks. Avoid dumping raw `aria-*` / `data-*` attribute lists in overview prose.
 - **Scope**: Keep `Getting Started` focused on installation and a hands-on first example; place deeper state, styling, and composition concepts in `content/guides/`.
 
 ## New Component Checklist & Verification

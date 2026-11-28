@@ -81,11 +81,11 @@ pub fn Home() -> Element {
                     }
                     ValuePropCard {
                         title: "WAI-ARIA & Keyboard First".to_string(),
-                        description: "Roving tabindex, focus trapping, outside-dismiss layers, and deterministic ARIA IDs are verified inside monoxus-core.".to_string(),
+                        description: "Roving tabindex, focus trapping, outside-dismiss layers, and deterministic ARIA IDs are verified inside ui-sdk.".to_string(),
                     }
                     ValuePropCard {
                         title: "Web + Blitz Native".to_string(),
-                        description: "Pure state and attribute projection in monoxus-core paired with dual-host runtimes for browser WASM and Blitz desktop windows.".to_string(),
+                        description: "Pure state and attribute projection in ui-sdk paired with dual-host runtimes for browser WASM and Blitz desktop windows.".to_string(),
                     }
                 }
             }

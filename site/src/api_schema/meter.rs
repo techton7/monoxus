@@ -1,0 +1,93 @@
+use super::{
+    ComponentDoc, DataAttrDoc, PROP_ATTRIBUTES, PROP_CHILD, PROP_CLASS, PROP_ID, PROP_ON_MOUNTED,
+    PROP_STYLE, PartDoc, PropDoc, PropGroup,
+};
+
+pub(super) const METER_DOC: ComponentDoc = ComponentDoc {
+    slug: "meter",
+    title: "Meter",
+    description: "Graphical display of a scalar measurement within a known range using the WAI-ARIA `meter` role.",
+    keywords: "meter gauge measurement range storage quota aria-valuenow",
+    features: &[
+        "Publishes role=\"meter\" with aria-valuemin, aria-valuenow, and aria-valuemax",
+        "Mirrors min, value, and max onto data-min, data-value, and data-max attributes",
+        "Supports arbitrary numeric ranges with default 0.0 to 100.0 bounds",
+        "Supports child prop composition and forwards GlobalAttributes via merge_props",
+    ],
+    anatomy: "use monoxus::meter::MeterRoot;\n\nrsx! {\n    MeterRoot {\n        value: 64.0,\n        min: 0.0,\n        max: 100.0,\n        div { style: \"width: 64%\" }\n    }\n}",
+    source_path: "src/meter.rs",
+    aria_url: "https://www.w3.org/WAI/ARIA/apg/patterns/meter/",
+    aria_label: "WAI-ARIA Meter Pattern",
+    parts: &[PartDoc {
+        name: "MeterRoot",
+        description: "Root meter container publishing ARIA range attributes and data attributes (also aliased as Meter).",
+        props: &[
+            PROP_ID,
+            PROP_CLASS,
+            PROP_STYLE,
+            PropDoc {
+                name: "min",
+                type_simple: "f64",
+                type_full: "f64",
+                default: Some("0.0"),
+                required: false,
+                group: PropGroup::Core,
+                description: "Lower bound of the measured range.",
+            },
+            PropDoc {
+                name: "value",
+                type_simple: "f64",
+                type_full: "f64",
+                default: Some("0.0"),
+                required: false,
+                group: PropGroup::Core,
+                description: "Current scalar measurement value.",
+            },
+            PropDoc {
+                name: "max",
+                type_simple: "f64",
+                type_full: "f64",
+                default: Some("100.0"),
+                required: false,
+                group: PropGroup::Core,
+                description: "Upper bound of the measured range.",
+            },
+            PROP_CHILD,
+            PROP_ON_MOUNTED,
+            PROP_ATTRIBUTES,
+            PropDoc {
+                name: "children",
+                type_simple: "Element",
+                type_full: "dioxus::prelude::Element",
+                default: None,
+                required: false,
+                group: PropGroup::Core,
+                description: "Visual fill bar or custom meter indicator content.",
+            },
+        ],
+        data_attrs: &[
+            DataAttrDoc {
+                name: "data-meter-root",
+                values: "\"\"",
+                description: "Present on the meter root element.",
+            },
+            DataAttrDoc {
+                name: "data-min",
+                values: "<number>",
+                description: "Formatted minimum range value.",
+            },
+            DataAttrDoc {
+                name: "data-value",
+                values: "<number>",
+                description: "Formatted current meter value.",
+            },
+            DataAttrDoc {
+                name: "data-max",
+                values: "<number>",
+                description: "Formatted maximum range value.",
+            },
+        ],
+        css_vars: &[],
+    }],
+    keyboard: &[],
+};
